@@ -43,13 +43,19 @@ describe('Nodes › Karpenter (§10.5)', () => {
   });
 });
 
+/** A MetricStrip cell, found by its LABEL caption, as the v3 Utilization hero renders it. */
+const stripCell = (label: string): HTMLElement => {
+  const caption = [...document.querySelectorAll('[data-metric-cell] span')].find((s) => s.textContent === label);
+  return caption?.closest<HTMLElement>('[data-metric-cell]')!;
+};
+
 describe('Nodes › Utilization (D10)', () => {
   it('averages only when both cluster usages are reported, with the band as a labelled mark', () => {
     render(<EksPerformanceTab eksData={data(demoEksDashboard)} />);
     // 52% CPU and 62.5% memory.
-    const tile = screen.getByRole('group', { name: 'Average utilisation' });
-    expect(tile).toHaveTextContent('57%');
-    expect(tile).toHaveTextContent('In the 40-75% band');
+    const cell = stripCell('Average utilisation');
+    expect(cell).toHaveTextContent('57%');
+    expect(cell).toHaveTextContent('In the 40-75% band');
   });
 
   it('shows — rather than 0 when nothing reports usage, and leaves those nodes out of averages', () => {
@@ -58,9 +64,9 @@ describe('Nodes › Utilization (D10)', () => {
       d.clusterOverview.memoryUsagePercent = 0;
       d.resourceUtilization.nodes = d.resourceUtilization.nodes.slice(0, 2);
     }))} />);
-    expect(screen.getByRole('group', { name: 'Average utilisation' })).toHaveTextContent('Needs both CPU and memory usage');
-    expect(screen.getByRole('group', { name: 'Cluster CPU used' })).toHaveTextContent('—');
-    expect(screen.getByRole('group', { name: 'Average node CPU used' })).toHaveTextContent('2 of 6 nodes report usage');
+    expect(stripCell('Average utilisation')).toHaveTextContent('Needs both CPU and memory usage');
+    expect(stripCell('Cluster CPU used')).toHaveTextContent('—');
+    expect(stripCell('Average node CPU used')).toHaveTextContent('2 of 6 nodes report usage');
     const table = screen.getByRole('table', { name: UTILIZATION_CAPTION });
     const row = [...table.querySelectorAll('tbody tr')].find((tr) => tr.textContent?.includes('ip-10-0-1-106'))!;
     expect(row.querySelectorAll('td')[1]).toHaveTextContent('—');

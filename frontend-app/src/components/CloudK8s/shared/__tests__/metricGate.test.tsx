@@ -68,6 +68,9 @@ import { OverviewPanel } from '../../../EksDetails/sections/automation/OverviewP
 import SummaryPanel from '../../../EksDetails/sections/overview/SummaryPanel';
 import EksPodsTab from '../../../EksDetails/tabs/EksPodsTab';
 import EksCostTab from '../../../EksDetails/tabs/EksCostTab';
+import EksNodesTab from '../../../EksDetails/tabs/EksNodesTab';
+import EksKarpenterTab from '../../../EksDetails/tabs/EksKarpenterTab';
+import EksPerformanceTab from '../../../EksDetails/tabs/EksPerformanceTab';
 
 const mockedFetch = apiClient.fetch as unknown as ReturnType<typeof vi.fn>;
 
@@ -121,6 +124,25 @@ function serveGateReads() {
 }
 
 const GATE_EKS_DATA = { dashboard: demoEksDashboard } as unknown as UseEksDashboardReturn;
+
+/**
+ * GATE fixture (FEAT-004): the demo dashboard with a REPORTED Karpenter controller so the Karpenter
+ * tab lights every surface — the hero MetricStrip and the NodePools / EC2NodeClasses / NodeClaims
+ * DataTables — rather than the labels-only branch. Clearly test data; the gate measures CHROME.
+ */
+const GATE_EKS_DATA_KARPENTER = {
+  dashboard: {
+    ...demoEksDashboard,
+    karpenter: {
+      healthy: true,
+      version: 'v1.0.6',
+      nodePools: [{ name: 'default', ready: true, nodeCount: 3, cpuLimit: '100', memoryLimit: '' }],
+      ec2NodeClasses: [{ name: 'default', ready: false, readyMessage: 'AMI resolution failed', amiFamily: 'AL2023', instanceProfile: 'KarpenterNodeRole' }],
+      nodeClaims: [{ name: 'default-x7k2p', nodePoolName: 'default', phase: 'Ready', instanceType: 'm5.xlarge', capacityType: 'spot', zone: 'us-east-1b', nodeName: 'ip-10-0-1-102', createdAt: new Date(Date.now() - 3_600_000).toISOString() }],
+      totalActiveClaims: 1, totalPendingClaims: 0, spotNodesCount: 3, onDemandNodesCount: 0, provisionedNodes: 3, pendingPods: 0,
+    },
+  },
+} as unknown as UseEksDashboardReturn;
 
 /**
  * GATE fixture (FEAT-003): a realistic cost roll-up — a real cluster monthly, priced + unpriced
@@ -396,6 +418,43 @@ async function mountCost(theme: 'light' | 'dark') {
   return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
 }
 
+/** Nodes › Nodes (FEAT-004): the wide-table v3 slice, PageTemplate width='table' + hero MetricStrip. */
+async function mountNodes(theme: 'light' | 'dark') {
+  getCapabilities.mockResolvedValue(demoCapabilities('demo-aws-001'));
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <K8sCapabilitiesProvider accountId="demo-aws-001" demo>
+        <EksNodesTab eksData={GATE_EKS_DATA} clusterName="prod-eks-cluster" />
+      </K8sCapabilitiesProvider>
+    </div>,
+  );
+  await screen.findByRole('table', { name: 'Nodes' });
+  await waitFor(() => expect(getCapabilities).toHaveBeenCalled());
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
+/** Nodes › Karpenter (FEAT-004), reported branch: hero MetricStrip + the three DataTables. */
+async function mountKarpenter(theme: 'light' | 'dark') {
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <EksKarpenterTab eksData={GATE_EKS_DATA_KARPENTER} />
+    </div>,
+  );
+  await screen.findByRole('table', { name: 'NodePools' });
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
+/** Nodes › Utilization (FEAT-004): hero MetricStrip + the per-node usage DataTable. */
+async function mountUtilization(theme: 'light' | 'dark') {
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <EksPerformanceTab eksData={GATE_EKS_DATA} />
+    </div>,
+  );
+  await screen.findByRole('table', { name: 'Node utilisation' });
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
 // ─── The gate ────────────────────────────────────────────────────────────────────────────────────
 
 describe('visual + scoped-metric gate (FEAT-004 §11; jsdom fallback, Playwright not installed)', () => {
@@ -463,6 +522,57 @@ describe('visual + scoped-metric gate (FEAT-004 §11; jsdom fallback, Playwright
         const drawerPortal = drawer.closest<HTMLElement>('[data-detail-drawer]') ?? drawer;
 
         assertBudget(`Cost + drawer (${theme})`, [main, drawerPortal]);
+      });
+
+      it('Nodes › Nodes stays within the premium budget, drawer included', async () => {
+        const main = await mountNodes(theme);
+        expect(main, 'Nodes must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        // FEAT-004: one hero MetricStrip row (capacity + status), never a wrapped vertical stack, the
+        // wide node table in a scroll container so the last column never clips, and the whole subtree
+        // inside the chrome budget (7 sizes / 2 greys / {8px,6px,pill}).
+        await assertMetricStripIsOneRow(`Nodes (${theme})`, main);
+        assertTableScrolls(`Nodes (${theme})`, main);
+
+        // Open the first node's DetailDrawer so its FIXED portal (rendered OUTSIDE the main subtree)
+        // is measured under the SAME budget as the page.
+        const firstRow = main.querySelector<HTMLElement>('tbody tr[role="button"]');
+        expect(firstRow, `Nodes (${theme}): no activatable row to open the drawer.`).not.toBeNull();
+        fireEvent.click(firstRow!);
+        const drawer = await screen.findByRole('dialog');
+        const drawerPortal = drawer.closest<HTMLElement>('[data-detail-drawer]') ?? drawer;
+
+        assertBudget(`Nodes + drawer (${theme})`, [main, drawerPortal]);
+      });
+
+      it('Nodes › Karpenter stays within the premium budget, drawer included', async () => {
+        const main = await mountKarpenter(theme);
+        expect(main, 'Karpenter must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        await assertMetricStripIsOneRow(`Karpenter (${theme})`, main);
+        // The Karpenter tab stacks three wide DataTables; each must scroll inside its own card.
+        assertTableScrolls(`Karpenter (${theme})`, main);
+
+        const firstRow = main.querySelector<HTMLElement>('tbody tr[role="button"]');
+        expect(firstRow, `Karpenter (${theme}): no activatable row to open the drawer.`).not.toBeNull();
+        fireEvent.click(firstRow!);
+        const drawer = await screen.findByRole('dialog');
+        const drawerPortal = drawer.closest<HTMLElement>('[data-detail-drawer]') ?? drawer;
+
+        assertBudget(`Karpenter + drawer (${theme})`, [main, drawerPortal]);
+      });
+
+      it('Nodes › Utilization stays within the premium budget, drawer included', async () => {
+        const main = await mountUtilization(theme);
+        expect(main, 'Utilization must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        await assertMetricStripIsOneRow(`Utilization (${theme})`, main);
+        assertTableScrolls(`Utilization (${theme})`, main);
+
+        const firstRow = main.querySelector<HTMLElement>('tbody tr[role="button"]');
+        expect(firstRow, `Utilization (${theme}): no activatable row to open the drawer.`).not.toBeNull();
+        fireEvent.click(firstRow!);
+        const drawer = await screen.findByRole('dialog');
+        const drawerPortal = drawer.closest<HTMLElement>('[data-detail-drawer]') ?? drawer;
+
+        assertBudget(`Utilization + drawer (${theme})`, [main, drawerPortal]);
       });
     });
   }
