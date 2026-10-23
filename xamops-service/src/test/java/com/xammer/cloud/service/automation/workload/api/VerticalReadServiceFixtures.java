@@ -1,11 +1,14 @@
 package com.xammer.cloud.service.automation.workload.api;
 
+import com.xammer.cloud.domain.ClusterCostSnapshot;
+import com.xammer.cloud.repository.ClusterCostSnapshotRepository;
 import com.xammer.cloud.repository.WorkloadVerticalActionRepository;
 import com.xammer.cloud.service.automation.workload.ConfidenceProperties;
 import com.xammer.cloud.service.automation.workload.RpsSizingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicy;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccessProvider;
+import com.xammer.cloud.service.automation.workload.cost.ClusterCostSnapshotProperties;
 import com.xammer.cloud.service.automation.workload.cost.K8sCostProperties;
 import com.xammer.cloud.service.automation.workload.cost.NodeRateResolver;
 import com.xammer.cloud.service.automation.workload.cost.WorkloadCostAttributionService;
@@ -20,6 +23,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.LongSupplier;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -86,7 +90,7 @@ public final class VerticalReadServiceFixtures {
                 new ConfidenceProperties(0.5, 0.8), rpsProperties, usageProvider,
                 accessProviders, inventory, vpaReader, policyService, noActions(),
                 mock(NodeRateResolver.class), mock(WorkloadCostAttributionService.class),
-                K8sCostProperties.disabled(),
+                K8sCostProperties.disabled(), noPriorSnapshots(), snapshotDefaults(),
                 Clock.fixed(CYCLE_AT, ZoneOffset.UTC), nanoClock);
     }
 
@@ -105,12 +109,59 @@ public final class VerticalReadServiceFixtures {
                                                             NodeRateResolver nodeRateResolver,
                                                             K8sCostProperties costProperties,
                                                             LongSupplier nanoClock) {
+        return costService(properties, metricsProperties, usageProvider, accessProviders, inventory,
+                vpaReader, policyService, nodeRateResolver, costProperties, noPriorSnapshots(),
+                nanoClock);
+    }
+
+    /**
+     * The cost seam with a caller-supplied {@link ClusterCostSnapshotRepository}, so the
+     * prior-period read-back in {@code evaluate(...)} is exercised: a repository carrying a stored
+     * snapshot proves a real {@code previousClusterMonthlyCost}, an empty one proves {@code null}.
+     */
+    public static VerticalAutomationReadService costService(WorkloadAutoscalingProperties properties,
+                                                            VerticalMetricsProperties metricsProperties,
+                                                            UsageHistoryProvider usageProvider,
+                                                            List<ClusterAccessProvider> accessProviders,
+                                                            ClusterWorkloadInventory inventory,
+                                                            UpstreamVpaReader vpaReader,
+                                                            WorkloadPolicyService policyService,
+                                                            NodeRateResolver nodeRateResolver,
+                                                            K8sCostProperties costProperties,
+                                                            ClusterCostSnapshotRepository snapshotRepository,
+                                                            LongSupplier nanoClock) {
         return new VerticalAutomationReadService(properties, metricsProperties,
                 new ConfidenceProperties(0.5, 0.8), rpsOff(), usageProvider,
                 accessProviders, inventory, vpaReader, policyService, noActions(),
                 nodeRateResolver, new WorkloadCostAttributionService(costProperties),
-                costProperties,
+                costProperties, snapshotRepository, snapshotDefaults(),
                 Clock.fixed(CYCLE_AT, ZoneOffset.UTC), nanoClock);
+    }
+
+    /** The snapshot properties defaults (prior-lookback 24h), matching production's inline defaults. */
+    public static ClusterCostSnapshotProperties snapshotDefaults() {
+        return new ClusterCostSnapshotProperties(false, 1440, 24, 12);
+    }
+
+    /** A snapshot repository with no history, so the prior-period read-back is null for every cluster. */
+    public static ClusterCostSnapshotRepository noPriorSnapshots() {
+        ClusterCostSnapshotRepository repository = mock(ClusterCostSnapshotRepository.class);
+        when(repository.findTopByClusterConfigIdAndCapturedAtLessThanEqualOrderByCapturedAtDesc(
+                any(), any())).thenReturn(Optional.empty());
+        return repository;
+    }
+
+    /**
+     * A snapshot repository whose prior-period read-back returns one stored snapshot carrying
+     * {@code clusterMonthlyCost} for any cluster/cutoff, so the read-back surfaces a real prior.
+     */
+    public static ClusterCostSnapshotRepository priorSnapshot(double clusterMonthlyCost) {
+        ClusterCostSnapshotRepository repository = mock(ClusterCostSnapshotRepository.class);
+        ClusterCostSnapshot prior = new ClusterCostSnapshot(42L, clusterMonthlyCost,
+                CYCLE_AT.minus(java.time.Duration.ofHours(48)));
+        when(repository.findTopByClusterConfigIdAndCapturedAtLessThanEqualOrderByCapturedAtDesc(
+                any(), any())).thenReturn(Optional.of(prior));
+        return repository;
     }
 
     /** The default-off F3 properties: feature disabled, so every workload is NO_RPS_SOURCE. */

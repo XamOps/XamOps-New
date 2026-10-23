@@ -27,12 +27,15 @@ import java.util.List;
  * @param namespaceCosts                  the per-namespace roll-up, or null when the feature is off
  * @param previousClusterMonthlyCost      the prior-period {@code clusterMonthlyCost} the Overview
  *                                        hero's Trend chip compares against, or {@code null}. It is
- *                                        {@code null} on every path today because <strong>no
- *                                        prior-period source exists yet</strong>: the summary is
- *                                        recomputed each request with no cost-snapshot/history
- *                                        persistence, and the PRICE_LIST rate is point-in-time with
- *                                        no historical window. To be populated once a periodic cost
- *                                        snapshot lands; never computed or fabricated here.
+ *                                        now sourced from the persisted {@code cluster_cost_snapshot}
+ *                                        prior period: {@code VerticalAutomationReadService
+ *                                        .evaluate(...)} reads the newest snapshot at or before the
+ *                                        prior-lookback cutoff for the cluster and attaches it via
+ *                                        {@link #withPreviousClusterMonthlyCost} right after
+ *                                        {@link #withRollups}. {@link #summary} still passes
+ *                                        {@code null} (it has no cluster context), and it stays
+ *                                        {@code null} whenever no prior snapshot exists — never
+ *                                        computed or fabricated here.
  */
 public record CostSummaryDto(String currency, double hoursPerMonth, Double monthlySavings,
                              String monthlySavingsUnavailableReason, Double clusterMonthlyCost,
@@ -46,5 +49,17 @@ public record CostSummaryDto(String currency, double hoursPerMonth, Double month
         return new CostSummaryDto(currency, hoursPerMonth, monthlySavings,
                 monthlySavingsUnavailableReason, clusterMonthlyCost, pricedWorkloads, unpricedWorkloads,
                 nodeCosts, namespaceCosts, previousClusterMonthlyCost);
+    }
+
+    /**
+     * Returns a copy carrying the prior-period baseline read back from the persisted
+     * {@code cluster_cost_snapshot}; every other field is unchanged. {@code previous} is
+     * {@code null} when no prior snapshot exists — the hero's Trend chip then stays an honest
+     * em-dash rather than a fabricated comparison.
+     */
+    public CostSummaryDto withPreviousClusterMonthlyCost(Double previous) {
+        return new CostSummaryDto(currency, hoursPerMonth, monthlySavings,
+                monthlySavingsUnavailableReason, clusterMonthlyCost, pricedWorkloads, unpricedWorkloads,
+                nodeCosts, namespaceCosts, previous);
     }
 }

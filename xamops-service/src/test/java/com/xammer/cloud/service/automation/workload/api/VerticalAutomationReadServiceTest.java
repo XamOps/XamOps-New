@@ -92,7 +92,8 @@ class VerticalAutomationReadServiceTest {
                 List.of(), new ClusterWorkloadInventory(), new UpstreamVpaReader(),
                 VerticalReadServiceFixtures.noStoredPolicies(), actions,
                 mock(NodeRateResolver.class), new WorkloadCostAttributionService(K8sCostProperties.disabled()),
-                K8sCostProperties.disabled(),
+                K8sCostProperties.disabled(), VerticalReadServiceFixtures.noPriorSnapshots(),
+                VerticalReadServiceFixtures.snapshotDefaults(),
                 java.time.Clock.fixed(VerticalReadServiceFixtures.CYCLE_AT, java.time.ZoneOffset.UTC), () -> 0L);
 
         Map<String, VerticalWorkloadDto.LastActionDto> lastActions = service.lastActions(42L);
@@ -850,6 +851,63 @@ class VerticalAutomationReadServiceTest {
         assertThat(json).doesNotContain("\"monthlyCost\":0");
     }
 
+    // ---------------------------------------------------------------- FEAT-003: prior-period read-back
+
+    @Test
+    @DisplayName("flag ON + a stored prior snapshot: previousClusterMonthlyCost is the stored value")
+    void aStoredPriorSnapshotSurfacesAsThePreviousClusterMonthlyCost() {
+        StubResolver resolver = new StubResolver();
+        VerticalAutomationReadService service = costService(resolver, costInventory(),
+                K8sCostProperties.enabledDefaults(),
+                VerticalReadServiceFixtures.priorSnapshot(512.0));
+
+        var cost = service.read(ACCOUNT, TARGET, config(null)).cost();
+
+        assertThat(cost).isNotNull();
+        assertThat(cost.previousClusterMonthlyCost())
+                .as("the hero Trend chip's baseline is the persisted prior-period snapshot")
+                .isEqualTo(512.0);
+    }
+
+    @Test
+    @DisplayName("flag ON + no prior snapshot: previousClusterMonthlyCost stays null, never fabricated")
+    void noPriorSnapshotLeavesThePreviousClusterMonthlyCostNull() {
+        StubResolver resolver = new StubResolver();
+        VerticalAutomationReadService service = costService(resolver, costInventory(),
+                K8sCostProperties.enabledDefaults(),
+                VerticalReadServiceFixtures.noPriorSnapshots());
+
+        var cost = service.read(ACCOUNT, TARGET, config(null)).cost();
+
+        assertThat(cost).isNotNull();
+        assertThat(cost.previousClusterMonthlyCost())
+                .as("no prior period means an honest em-dash, never a fabricated comparison")
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("the read-back asks for the prior-lookback cutoff and this cluster's config id")
+    void theReadBackQueriesTheCutoffForThisCluster() {
+        StubResolver resolver = new StubResolver();
+        com.xammer.cloud.repository.ClusterCostSnapshotRepository snapshots =
+                VerticalReadServiceFixtures.noPriorSnapshots();
+        VerticalAutomationReadService service = costService(resolver, costInventory(),
+                K8sCostProperties.enabledDefaults(), snapshots);
+
+        service.read(ACCOUNT, TARGET, config(null));
+
+        ArgumentCaptor<Long> cluster = ArgumentCaptor.forClass(Long.class);
+        ArgumentCaptor<java.time.Instant> cutoff = ArgumentCaptor.forClass(java.time.Instant.class);
+        verify(snapshots).findTopByClusterConfigIdAndCapturedAtLessThanEqualOrderByCapturedAtDesc(
+                cluster.capture(), cutoff.capture());
+        assertThat(cluster.getValue())
+                .as("scoped by the cluster's config id, never the ambiguous account id")
+                .isEqualTo(TARGET.clusterConfigId());
+        assertThat(cutoff.getValue())
+                .as("cutoff = now - priorLookbackHours (24h) off the pinned clock")
+                .isEqualTo(VerticalReadServiceFixtures.CYCLE_AT.minus(java.time.Duration.ofHours(24)));
+    }
+
     // ---------------------------------------------------------------- fixtures
 
     private VerticalAutomationReadService service(UsageHistoryProvider usage,
@@ -934,12 +992,21 @@ class VerticalAutomationReadServiceTest {
     private VerticalAutomationReadService costService(StubResolver resolver,
                                                       ClusterWorkloadInventory inventory,
                                                       K8sCostProperties cost) {
+        return costService(resolver, inventory, cost, VerticalReadServiceFixtures.noPriorSnapshots());
+    }
+
+    /** As {@link #costService(StubResolver, ClusterWorkloadInventory, K8sCostProperties)}, with a
+     * caller-supplied snapshot repository so the FEAT-003 prior-period read-back is exercised. */
+    private VerticalAutomationReadService costService(StubResolver resolver,
+                                                      ClusterWorkloadInventory inventory,
+                                                      K8sCostProperties cost,
+                                                      com.xammer.cloud.repository.ClusterCostSnapshotRepository snapshots) {
         UpstreamVpaReader vpaReader = mock(UpstreamVpaReader.class);
         when(vpaReader.read(any())).thenReturn(UpstreamVpaReader.View.none());
         return VerticalReadServiceFixtures.costService(new WorkloadAutoscalingProperties(true, true),
                 VerticalReadServiceFixtures.metricsProperties("RECOMMEND", 24), new FakeUsage(),
                 List.of(opening()), inventory, vpaReader, VerticalReadServiceFixtures.noStoredPolicies(),
-                resolver.resolver, cost, () -> 0L);
+                resolver.resolver, cost, snapshots, () -> 0L);
     }
 
     /** m5.large node facts: 2 vCPU / 8 GiB, 2000m / 8Gi allocatable — priceable when the rate is. */

@@ -1,6 +1,8 @@
 package com.xammer.cloud.service.automation.workload.api;
 
+import com.xammer.cloud.domain.ClusterCostSnapshot;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
+import com.xammer.cloud.repository.ClusterCostSnapshotRepository;
 import com.xammer.cloud.repository.WorkloadVerticalActionRepository;
 import com.xammer.cloud.service.automation.workload.ConfidenceProperties;
 import com.xammer.cloud.service.automation.workload.ContainerSnapshot;
@@ -26,6 +28,7 @@ import com.xammer.cloud.service.automation.workload.api.dto.NodeCostDto;
 import com.xammer.cloud.service.automation.workload.api.dto.VerticalEngineResponse;
 import com.xammer.cloud.service.automation.workload.api.dto.VerticalWorkloadDto;
 import com.xammer.cloud.service.automation.workload.api.dto.WorkloadCostDto;
+import com.xammer.cloud.service.automation.workload.cost.ClusterCostSnapshotProperties;
 import com.xammer.cloud.service.automation.workload.cost.K8sCostProperties;
 import com.xammer.cloud.service.automation.workload.cost.NodeRate;
 import com.xammer.cloud.service.automation.workload.cost.NodeRateResolver;
@@ -125,6 +128,8 @@ public class VerticalAutomationReadService {
     private final NodeRateResolver nodeRateResolver;
     private final WorkloadCostAttributionService costAttributionService;
     private final K8sCostProperties costProperties;
+    private final ClusterCostSnapshotRepository snapshotRepository;
+    private final ClusterCostSnapshotProperties snapshotProperties;
     private final WorkloadAutoscalingEngine engine;
     private final Clock clock;
     private final LongSupplier nanoClock;
@@ -149,10 +154,13 @@ public class VerticalAutomationReadService {
                                          WorkloadVerticalActionRepository actionRepository,
                                          NodeRateResolver nodeRateResolver,
                                          WorkloadCostAttributionService costAttributionService,
-                                         K8sCostProperties costProperties) {
+                                         K8sCostProperties costProperties,
+                                         ClusterCostSnapshotRepository snapshotRepository,
+                                         ClusterCostSnapshotProperties snapshotProperties) {
         this(properties, metricsProperties, confidenceProperties, rpsProperties, usageProvider,
                 accessProviders, inventory, vpaReader, policyService, actionRepository,
                 nodeRateResolver, costAttributionService, costProperties,
+                snapshotRepository, snapshotProperties,
                 Clock.systemUTC(), System::nanoTime);
     }
 
@@ -173,6 +181,8 @@ public class VerticalAutomationReadService {
                                   NodeRateResolver nodeRateResolver,
                                   WorkloadCostAttributionService costAttributionService,
                                   K8sCostProperties costProperties,
+                                  ClusterCostSnapshotRepository snapshotRepository,
+                                  ClusterCostSnapshotProperties snapshotProperties,
                                   Clock clock,
                                   LongSupplier nanoClock) {
         this.properties = properties;
@@ -187,6 +197,8 @@ public class VerticalAutomationReadService {
         this.nodeRateResolver = nodeRateResolver;
         this.costAttributionService = costAttributionService;
         this.costProperties = costProperties;
+        this.snapshotRepository = snapshotRepository;
+        this.snapshotProperties = snapshotProperties;
         this.clock = clock;
         this.nanoClock = nanoClock;
         this.engine = new WorkloadAutoscalingEngine(clock);
@@ -411,6 +423,18 @@ public class VerticalAutomationReadService {
             costSummary = costAttributionService
                     .summary(workloads.stream().map(VerticalWorkloadDto::cost).toList())
                     .withRollups(nodeCosts, namespaceCosts);
+
+            // Prior-period read-back: the newest persisted snapshot for this cluster captured at or
+            // before now - priorLookbackHours is the hero Trend chip's baseline. No prior row => null,
+            // never a fabricated comparison. summary(...) stays pure; the cluster context (and so this
+            // read) only exists here.
+            Instant cutoff = clock.instant()
+                    .minus(Duration.ofHours(snapshotProperties.priorLookbackHours()));
+            Optional<ClusterCostSnapshot> prior = snapshotRepository
+                    .findTopByClusterConfigIdAndCapturedAtLessThanEqualOrderByCapturedAtDesc(
+                            target.clusterConfigId(), cutoff);
+            costSummary = costSummary.withPreviousClusterMonthlyCost(
+                    prior.map(ClusterCostSnapshot::getClusterMonthlyCost).orElse(null));
         }
         return Evaluation.completed(at, workloads, costSummary);
     }
