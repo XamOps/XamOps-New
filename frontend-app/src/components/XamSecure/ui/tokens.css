@@ -36,9 +36,6 @@
   --xs-legend-border: #dde1e9;
   --xs-legend-bg: #f9f9fa;
   --xs-legend-inactive-text: #a1acbf;
-  --xs-scrollbar-track: #fafafa;
-  --xs-scrollbar-thumb: #c1c1c1;
-  --xs-scrollbar-thumb-hover: #7d7d7d;
 
   /* ── 2.2 Palette (subset the page uses) ── */
   /* Blue (neutral/info) */
@@ -166,16 +163,13 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  /* Scroll stays functional but the scrollbar is hidden (Firefox + legacy Edge). */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-/* Thin scrollbar inside scrollable card bodies. */
-.xs-overview .xs-card-body::-webkit-scrollbar { width: 5px; height: 5px; }
-.xs-overview .xs-card-body::-webkit-scrollbar-track { background: var(--xs-scrollbar-track); }
-.xs-overview .xs-card-body::-webkit-scrollbar-thumb {
-  background: var(--xs-scrollbar-thumb);
-  border-radius: var(--xs-radius-pill);
-}
-.xs-overview .xs-card-body::-webkit-scrollbar-thumb:hover { background: var(--xs-scrollbar-thumb-hover); }
+/* Hidden scrollbar inside scrollable card bodies (Chrome/Safari). */
+.xs-overview .xs-card-body::-webkit-scrollbar { width: 0; height: 0; display: none; }
 
 /* Universal hover fill on clickable sub-areas (cards never lift). */
 .xs-overview .xs-hoverable {
