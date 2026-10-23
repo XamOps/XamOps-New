@@ -1,18 +1,24 @@
 /**
  * "How the Workload autoscaler works" (design-delta §4.2; glossary §4): the five static steps
- * Measure, Decide, Apply, Verify, Watch, each with its one-liner and a per-step state chip derived
- * from this cluster's inputs. The highlighted step is the first with a warn or bad chip, else the
- * step something is happening in now; it gets a tinted band and a top rule in its tone.
+ * Measure, Decide, Apply, Verify, Watch, each with its one-liner and a per-step STATUS DOT derived
+ * from this cluster's inputs. The highlighted step is the first with a warn or bad state, else the
+ * step something is happening in now; it gets a thin top rule in its tone — no filled tinted band,
+ * no inner pill.
  *
- * The step copy and icons are the exact ones from glossary §4; the chips are supplied by the caller
- * (built from endpoint 1 / BE-11 / BE-5 / policy), so this component stays a pure renderer. A
- * collapsed variant is used on the Workloads page.
+ * Layout (owner debox review): ONE Surface, not a tall vertical stack of bordered rows. The five
+ * steps lay out as a LIGHT HORIZONTAL STRIP — side by side across the row on wide screens, wrapping
+ * to 2–3 per row when narrow — separated by whitespace and hairline dividers, never a box per step.
+ * Status is a StatusDot (dot + word), never a filled colour pill.
+ *
+ * The step copy and icons are the exact ones from glossary §4; the per-step states are supplied by
+ * the caller (built from endpoint 1 / BE-11 / BE-5 / policy), so this component stays a pure
+ * renderer. A collapsed variant is used on the Workloads page.
  */
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import type { Tone } from './statusTones';
-import StatusChip from './StatusChip';
+import StatusDot from './StatusDot';
 import { toneClasses } from './toneClasses';
 
 export type HowStepKey = 'measure' | 'decide' | 'apply' | 'verify' | 'watch';
@@ -25,16 +31,22 @@ export const HOW_STEPS: ReadonlyArray<{ key: HowStepKey; title: string; icon: st
   { key: 'watch', title: 'Watch', icon: 'mdi:eye-outline', line: 'Waits after a change, then keeps measuring. A new suggestion appears only if use changes.' },
 ];
 
-/** A per-step chip, one per step key (a step with no chip is drawn without one). */
+/**
+ * A per-step state, one per step key (a step with no state is drawn without a dot). It becomes a
+ * StatusDot (dot + word), so only `tone`, `label` and an optional `detail` are rendered; `icon` is
+ * kept on the type so the existing callers (which build it alongside the other status maps) still
+ * compile, but the quiet dot no longer draws it.
+ */
 export interface HowStepChip {
   tone: Tone;
+  /** Carried for back-compat with the status maps; the StatusDot renders the dot, not this icon. */
   icon: string;
   label: string;
   detail?: string;
 }
 
 export interface HowItWorksProps {
-  /** The chip under each step, keyed by step. */
+  /** The per-step state (a StatusDot), keyed by step. */
   chips: Partial<Record<HowStepKey, HowStepChip>>;
   /**
    * The Policies link target (the source line is a link to the exact rules). It is a router link,
@@ -111,38 +123,33 @@ export function HowItWorks({ chips, policiesHref, policiesLinkState, collapsed =
     >
       {header}
       {/*
-        The five steps are ALWAYS full-width ROWS — the number + title sit beside the one-liner, and
-        the state chip gets a whole row's width, so a long chip label + detail ("Measuring — 1
-        workload still measuring", "Waiting for you") reads on one line instead of squeezing into a
-        narrow five-column sliver and wrapping (owner polish review #3). The earlier `xl:grid-cols-5`
-        fan-out re-created that cramped column inside the aside-narrowed content width, so it is
-        dropped: rows give every sub-label the room it needs at every width.
+        The five steps are a LIGHT HORIZONTAL STRIP inside this one Surface (owner debox review): a
+        flex row that lays them side by side on wide screens and wraps to 2–3 per row when narrow,
+        separated by hairline dividers and whitespace — NOT a tall stack of five bordered boxes, and
+        with NO inner per-step pill. Each step is just its number + title, its one-liner and a quiet
+        StatusDot (dot + word). The highlighted step carries a thin top rule in its tone; no filled
+        tinted band.
       */}
-      <ol className="mt-3 flex flex-col gap-2">
+      <ol className="mt-3 flex flex-wrap items-stretch gap-x-6 gap-y-4">
         {HOW_STEPS.map((step, i) => {
           const chip = chips[step.key];
-          const highlighted = i === highlight;
-          const band = highlighted && chip ? `${toneClasses(chip.tone).band} ${toneClasses(chip.tone).border} border-t-2` : 'border-t-2 border-transparent';
+          const highlighted = i === highlight && !!chip;
+          const rule = highlighted ? `border-t-2 ${toneClasses(chip!.tone).border}` : 'border-t-2 border-transparent';
+          const divider = i > 0 ? 'sm:border-l sm:border-[color:var(--chrome-line)] sm:pl-6' : '';
           return (
-            <li key={step.key} className={`flex flex-col gap-1 rounded-[6px] px-2 py-2 ${band}`} data-how-step={step.key}>
+            <li
+              key={step.key}
+              className={`flex min-w-[180px] flex-1 flex-col gap-1 pt-2 ${rule} ${divider}`}
+              data-how-step={step.key}
+            >
               <span className="flex items-center gap-1 text-[12px] font-semibold text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]">
                 <Icon icon={step.icon} width={14} aria-hidden="true" className="shrink-0" />
                 {i + 1}. {step.title}
               </span>
-              {/* max-w-[66ch]: on the full-width Overview the step rows span the reclaimed content
-                  width, so a single one-liner would stretch thin across the page; a bounded measure
-                  keeps the sentence legible without re-cramming it into a narrow pill (owner
-                  one-sided review; the earlier unclamped-rows fix stays — the chip still spans the
-                  whole row). */}
-              <span className="max-w-[66ch] text-[11px] leading-snug text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]">{step.line}</span>
+              <span className="text-[11px] leading-snug text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]">{step.line}</span>
               {chip && (
-                // A chip's tint is set over the card (design-delta §2.2 opacity rules). On the
-                // highlighted band the two tints would stack and drop its text below AA in dark
-                // mode (4.1:1), so the chip sits on a card-coloured base, as it does everywhere else.
-                // max-w-full so the chip's own label can wrap within the full row rather than forcing
-                // a fixed narrow pill.
-                <span className="mt-0.5 inline-flex max-w-full self-start rounded-full bg-white dark:bg-[#141414]" data-how-chip="">
-                  <StatusChip tone={chip.tone} icon={chip.icon} label={chip.label} detail={chip.detail} weight="semibold" />
+                <span className="mt-0.5" data-how-chip="">
+                  <StatusDot tone={chip.tone} label={chip.label} detail={chip.detail} className="text-[12px]" />
                 </span>
               )}
             </li>

@@ -165,10 +165,30 @@ describe('Overview › Summary, laid out like the cast.ai Dashboard (23b)', () =
     expect(strip).toHaveTextContent('from XamOps cost exporter (Prometheus)');
   });
 
-  it('never shows $0 for a cluster without a cost source: falls back to freed capacity', async () => {
-    // FEAT-002: with no priced cost source the hero strip shows the honest freed-capacity figure
-    // (the demo engine is over-provisioned), never a fabricated $0.
+  // BUG A: the Summary hero Monthly cost must show the SAME real cluster cost the Automation ›
+  // Overview hero shows (from the Workload-autoscaler cost roll-up), even when the agent-dashboard
+  // cost source reports nothing. The demo roll-up prices the cluster at $47.52/mo → $48.
+  it('shows the roll-up cluster monthly cost when the dashboard has no cost source (matches Automation)', async () => {
     renderPanel({ dashboard: clone((d) => { delete d.agentCostMetrics; delete d.openCost; delete d.costMetrics; }) });
+    const strip = await waitFor(() => {
+      const s = document.querySelector('[data-metric-strip-row]');
+      expect(s?.querySelector('[data-hero-cost="rollup"]')).not.toBeNull();
+      return s!;
+    });
+    expect(strip.querySelector('[data-hero-cost="rollup"]')).toHaveTextContent('$48/mo');
+    expect(strip).toHaveTextContent('from the Workload autoscaler cost roll-up');
+    expect(strip).not.toHaveTextContent('$0');
+  });
+
+  it('never shows $0 for a cluster without a cost source: falls back to freed capacity', async () => {
+    // FEAT-002: with no priced cost source ANYWHERE (neither the agent dashboard nor the roll-up)
+    // the hero strip shows the honest freed-capacity figure (the demo engine is over-provisioned),
+    // never a fabricated $0.
+    renderPanel({
+      dashboard: clone((d) => { delete d.agentCostMetrics; delete d.openCost; delete d.costMetrics; }),
+      // No roll-up cluster cost either, so there is genuinely no priced source anywhere.
+      engine: { ...demoVerticalStatus(PROD), cost: { currency: 'USD', hoursPerMonth: 730, monthlySavings: null, monthlySavingsUnavailableReason: 'UNKNOWN', clusterMonthlyCost: null, pricedWorkloads: 0, unpricedWorkloads: 3 } },
+    });
     const strip = await waitFor(() => {
       const s = document.querySelector('[data-metric-strip-row]');
       expect(s?.querySelector('[data-hero-freed]')).not.toBeNull();
@@ -185,7 +205,9 @@ describe('Overview › Summary, laid out like the cast.ai Dashboard (23b)', () =
     // plain "$—" with the honest reason, still never a fabricated $0.
     renderPanel({
       dashboard: clone((d) => { delete d.agentCostMetrics; delete d.openCost; delete d.costMetrics; }),
-      engine: { ...demoVerticalStatus(PROD), workloads: [] },
+      // No workloads AND no roll-up cluster cost, so there is neither a priceable figure nor freed
+      // capacity: the hero is the honest "$—".
+      engine: { ...demoVerticalStatus(PROD), workloads: [], cost: { currency: 'USD', hoursPerMonth: 730, monthlySavings: null, monthlySavingsUnavailableReason: 'UNKNOWN', clusterMonthlyCost: null, pricedWorkloads: 0, unpricedWorkloads: 0 } },
     });
     const strip = await waitFor(() => {
       const s = document.querySelector('[data-metric-strip-row]');

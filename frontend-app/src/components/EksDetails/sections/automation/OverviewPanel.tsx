@@ -40,12 +40,11 @@ import type { ActionId, CapabilitiesDto, Capability, ReadinessKey } from '../../
 import type { VerticalEngineView } from '../../../../types/verticalRightsizer';
 import type { ActivitySummaryView } from '../../../../types/automationActivity';
 import { AccessBanner } from '../../../CloudK8s/shared/AccessBanner';
-import { StatusMark } from '../../../CloudK8s/shared/StatusMark';
+import { STATUS_TONES, type StatusState } from '../../../CloudK8s/shared/StatusMark';
 import { NowBanner } from '../../../CloudK8s/shared/status/NowBanner';
 import { HowItWorks } from '../../../CloudK8s/shared/status/HowItWorks';
 import { FeatureMark, type Feature } from '../../../CloudK8s/shared/status/FeatureMark';
 import { Delta } from '../../../CloudK8s/shared/status/Delta';
-import { StatusChip } from '../../../CloudK8s/shared/status/StatusChip';
 import { StatusDot } from '../../../CloudK8s/shared/status/StatusDot';
 import { PageTemplate } from '../../../CloudK8s/shared/PageTemplate';
 import { MetricStrip, type MetricCell } from '../../../CloudK8s/shared/MetricStrip';
@@ -200,6 +199,16 @@ function AccessRow({ term, children }: { term: string; children: ReactNode }) {
 
 const noteClass = `mt-1 block text-[12px] ${MUTED}`;
 
+/**
+ * The Access card's routine status as the quiet {@link StatusDot} (dot + word), never a filled
+ * tinted pill (owner debox review): the dot is the one spot of meaning colour, the word carries the
+ * meaning for anyone who can't see it, and an optional `detail` (a data age) rides in the muted
+ * grey. The state → tone mapping is the same one {@link StatusMark} uses.
+ */
+function AccessStatus({ state, label, detail }: { state: StatusState; label: string; detail?: string | null }) {
+  return <StatusDot tone={STATUS_TONES[state]} label={label} detail={detail} />;
+}
+
 function ConnectionValue({ data, clusterName }: { data: CapabilitiesDto; clusterName: string }) {
   const connection = findCluster(data, clusterName)?.connection ?? data.connection;
   const readOnly = connection.accessLevel !== 'READ_WRITE';
@@ -208,7 +217,7 @@ function ConnectionValue({ data, clusterName }: { data: CapabilitiesDto; cluster
   const unverifiedCopy = reasonCopy({ reason: 'CONNECTION_NOT_VERIFIED' });
   return (
     <>
-      {readOnly ? <StatusMark state="not-set-up" label="Read-only" /> : <StatusMark state="healthy" label="Read-write" />}
+      {readOnly ? <AccessStatus state="not-set-up" label="Read-only" /> : <AccessStatus state="healthy" label="Read-write" />}
       {readOnly && (
         <>
           <span className={noteClass}>{readOnlyCopy.text}</span>
@@ -217,7 +226,7 @@ function ConnectionValue({ data, clusterName }: { data: CapabilitiesDto; cluster
       )}
       {!verified && (
         <>
-          <span className="mt-1 block"><StatusMark state="unverified" label="Not verified" /></span>
+          <span className="mt-1 block"><AccessStatus state="unverified" label="Not verified" /></span>
           <span className={noteClass}>{unverifiedCopy.text}</span>
           <Remedies remedies={unverifiedCopy.remedies} />
         </>
@@ -229,17 +238,17 @@ function ConnectionValue({ data, clusterName }: { data: CapabilitiesDto; cluster
 function PermissionValue({ data }: { data: CapabilitiesDto }) {
   const { reasons, detail } = data.user;
   if (reasons.includes('NO_USER_PERMISSION')) {
-    if (detail === 'ROLE') return <StatusMark state="not-set-up" label="View only: your role can't change automation" />;
-    if (detail === 'IMPERSONATION') return <StatusMark state="not-set-up" label="View only while signed in as another user" />;
+    if (detail === 'ROLE') return <AccessStatus state="not-set-up" label="View only: your role can't change automation" />;
+    if (detail === 'IMPERSONATION') return <AccessStatus state="not-set-up" label="View only while signed in as another user" />;
     return (
       <>
-        <StatusMark state="not-set-up" label="View only" />
+        <AccessStatus state="not-set-up" label="View only" />
         <Remedies remedies={reasonCopy({ reason: 'NO_USER_PERMISSION', detail: 'TAB_GRANT' }).remedies} />
       </>
     );
   }
-  if (reasons.includes('DEMO')) return <StatusMark state="not-set-up" label={reasonCopy({ reason: 'DEMO' }).text} />;
-  return <StatusMark state="healthy" label="You can change automation" />;
+  if (reasons.includes('DEMO')) return <AccessStatus state="not-set-up" label={reasonCopy({ reason: 'DEMO' }).text} />;
+  return <AccessStatus state="healthy" label="You can change automation" />;
 }
 
 function AgentValue({ data, clusterName, now }: { data: CapabilitiesDto; clusterName: string; now: number }) {
@@ -247,22 +256,22 @@ function AgentValue({ data, clusterName, now }: { data: CapabilitiesDto; cluster
   if (!agent || agent.status === 'NOT_INSTALLED') {
     return (
       <>
-        <StatusMark state="not-set-up" label="Not installed" />
+        <AccessStatus state="not-set-up" label="Not installed" />
         <Remedies remedies={reasonCopy({ reason: 'AGENT_NOT_INSTALLED', detail: 'XAMOPS_AGENT' }).remedies} />
       </>
     );
   }
-  if (agent.status === 'UNKNOWN') return <StatusMark state="unknown" label="Unknown" />;
+  if (agent.status === 'UNKNOWN') return <AccessStatus state="unknown" label="Unknown" />;
   const detail = dataAge(agent.lastDataAt, now);
   return agent.status === 'STALE'
-    ? <StatusMark state="attention" label="Stale" detail={detail} />
-    : <StatusMark state="healthy" label="Connected" detail={detail} />;
+    ? <AccessStatus state="attention" label="Stale" detail={detail} />
+    : <AccessStatus state="healthy" label="Connected" detail={detail} />;
 }
 
 function AccessBlock({ caps, clusterName }: { caps: K8sCapabilitiesValue; clusterName: string }) {
   const headingId = useId();
   const data = caps.status === 'ready' ? caps.data : null;
-  const unknown = <StatusMark state="unknown" label="Unknown" />;
+  const unknown = <AccessStatus state="unknown" label="Unknown" />;
   return (
     // data-k8s-kit: every colour here has its dark variant, so the legacy dark CSS leaves it alone.
     <section aria-labelledby={headingId} className={`${CARD} p-4`} data-k8s-kit="">
@@ -531,9 +540,9 @@ function changesCell({ k, feed, summary, now }: {
     sub: (
       <Sub>
         {byResult.length > 0 && (
-          <span className="flex flex-wrap gap-1 pt-0.5">
+          <span className="flex flex-wrap gap-x-4 gap-y-1 pt-0.5">
             {byResult.map((r) => (
-              <StatusChip key={r.key} tone={r.tone} icon={r.icon} label={`${r.label}: ${r.count}`} weight="normal" />
+              <StatusDot key={r.key} tone={r.tone} label={`${r.label}: ${r.count}`} />
             ))}
           </span>
         )}
@@ -694,9 +703,9 @@ function FeedTimeline({ feed, now }: { feed: UseAutomationActivityState; now: nu
           <span>now</span>
         </div>
       </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
         {t.results.map((r) => (
-          <StatusChip key={r.label} tone={r.tone} icon={r.icon} label={r.label} weight="normal" />
+          <StatusDot key={r.label} tone={r.tone} label={r.label} />
         ))}
       </div>
     </ChartCard>
@@ -757,9 +766,9 @@ function Timeline({ result, feed, now }: { result: AutomationReadResult | null; 
           <span>now</span>
         </div>
       </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
         {results.map((r) => (
-          <StatusChip key={r.key} tone={r.tone} icon={r.icon} label={r.label} weight="normal" />
+          <StatusDot key={r.key} tone={r.tone} label={r.label} />
         ))}
       </div>
     </ChartCard>
@@ -775,7 +784,7 @@ function FeatureCard({ feature, status, link }: { feature: Feature; status: Feat
   return (
     <section className={`${CARD} flex flex-col gap-2 px-4 py-3`} data-feature-card={feature} data-k8s-kit="">
       <FeatureMark feature={feature} />
-      <span><StatusChip tone={status.tone} icon={status.icon} label={status.label} /></span>
+      <span><StatusDot tone={status.tone} label={status.label} /></span>
       {status.lines.length > 0 && (
         <ul className={`space-y-0.5 text-[12px] ${MUTED}`}>
           {status.lines.map((line) => <li key={line}>{line}</li>)}

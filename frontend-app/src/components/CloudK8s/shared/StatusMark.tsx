@@ -31,6 +31,14 @@ export const STATUS_ICONS: Record<StatusState, string> = Object.fromEntries(
   Object.entries(STYLES).map(([state, style]) => [state, style.icon]),
 ) as Record<StatusState, string>;
 
+/**
+ * Each {@link StatusState}'s tone, so a caller that wants the quiet {@link StatusDot} (dot + word,
+ * no filled pill) for a routine status can reuse the same state → tone mapping as the chip.
+ */
+export const STATUS_TONES: Record<StatusState, Tone> = Object.fromEntries(
+  Object.entries(STYLES).map(([state, style]) => [state, style.tone]),
+) as Record<StatusState, Tone>;
+
 export interface StatusMarkProps {
   state: StatusState;
   /** Short label, e.g. "Connected", "Stale", "Not installed". */

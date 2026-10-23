@@ -467,6 +467,11 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
       freed: freedCapacity(over, dashboard),
       heldByHpa: vertical.view ? heldByHpa : null,
       monthlySavings: cost ? cost.monthlySavings : null,
+      // The cluster's real monthly cost from the Workload-autoscaler cost roll-up — the SAME value
+      // the Automation › Overview hero shows (BUG A). The Summary hero reads it as a fallback when
+      // the agent-dashboard cost source reports nothing, so a cluster that shows e.g. $26 on
+      // Automation shows $26 here too, never a dash. Null only when the roll-up is genuinely null.
+      clusterMonthly: cost ? cost.clusterMonthlyCost : null,
       priced: cost ? { priced: cost.pricedWorkloads, unpriced: cost.unpricedWorkloads } : null,
     };
   }, [vertical.view, derived.notRunning, dashboard]);
@@ -511,6 +516,11 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
   const hasHeroFreed = heroFreed.cpuM > 0 || heroFreed.memMi > 0;
   const podTotal = placement ? placement.total : counts ? counts.total : null;
 
+  // The Workload-autoscaler cost roll-up's cluster monthly cost — the SAME figure the Automation ›
+  // Overview hero shows (BUG A). Used as a fallback below when the agent-dashboard cost source
+  // reported nothing, so Summary matches Automation on a cluster that has a real cost.
+  const rollupMonthly = engine.clusterMonthly;
+  const hasRollupMonthly = rollupMonthly !== null && Number.isFinite(rollupMonthly);
   const costCell: MetricCell =
     cost.monthlyCost !== null && Number.isFinite(cost.monthlyCost)
       ? {
@@ -518,6 +528,15 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
         value: <span data-hero-cost="" title={cost.monthlyFromDaily ? 'Month is daily × 30' : undefined}>{`${formatMoney(cost.monthlyCost)}/mo`}</span>,
         sub: `Today ${formatMoney(cost.dailyCost)}${cost.monthlyFromDaily ? ' · month is daily × 30' : ''} · from ${cost.label}`,
       }
+      : hasRollupMonthly
+        ? {
+          // The real cluster monthly from the Workload-autoscaler cost roll-up (what Automation shows).
+          label: 'Monthly cost',
+          value: <span data-hero-cost="rollup">{`${formatMoney(rollupMonthly)}/mo`}</span>,
+          sub: engine.priced
+            ? `${engine.priced.priced} of ${engine.priced.priced + engine.priced.unpriced} priced · from the Workload autoscaler cost roll-up`
+            : 'from the Workload autoscaler cost roll-up',
+        }
       : hasHeroFreed
         ? {
           label: 'Monthly cost',
@@ -623,13 +642,21 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
               </p>
               <dl className="divide-y divide-[color:var(--chrome-line)]" aria-label="Workloads by status">
                 {engineCounts.map(({ bucket, count }) => (
-                  <div key={bucket} className="flex items-baseline justify-between py-1.5" data-bucket={bucket}>
+                  <div key={bucket} className="flex items-baseline justify-between gap-3 py-1.5" data-bucket={bucket}>
                     <dt className={body}>{bucket}</dt>
-                    <dd className={`${body} font-semibold tabular-nums`}>{count}</dd>
+                    {/* BUG B: the count is ALWAYS rendered — a real number (0 shows "0"), never a
+                        blank right side. A non-finite value (an unloaded engine) shows a muted dash,
+                        not an empty cell. */}
+                    <dd className={`${body} font-semibold tabular-nums`} data-bucket-count={bucket}>
+                      {Number.isFinite(count) ? count : <span className={secondary}>{DASH}</span>}
+                    </dd>
                   </div>
                 ))}
               </dl>
             </>
+          ) : vertical.state === 'loading' ? (
+            // The engine is still reading: a skeleton, never blank rows (BUG B).
+            <div className="skeleton h-16 rounded-[6px]" aria-label="Reading the Workload autoscaler" data-engine-loading="" />
           ) : (
             workloadStatus.detail && <p className={secondary}>{workloadStatus.detail}</p>
           )}
