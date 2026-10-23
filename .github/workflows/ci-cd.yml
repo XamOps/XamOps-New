@@ -42,6 +42,16 @@ jobs:
           if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
             BASE=$(git hash-object -t tree /dev/null)
           fi
+          # Guard: after a rebase / force-push / rewritten history, github.event.before can point at
+          # a commit that is not reachable in this checkout, and `git diff "$BASE"` then FAILS and
+          # bricks the whole Detect job -> every service skips -> nothing deploys. If BASE is not a
+          # valid commit here, fall back to the empty tree so the diff treats everything as changed
+          # (safe: a superset build/deploy) instead of crashing the pipeline.
+          EMPTY_TREE=$(git hash-object -t tree /dev/null)
+          if [ "$BASE" != "$EMPTY_TREE" ] && ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            echo "BASE $BASE not reachable in this checkout (rebase/force-push?) -> empty tree (treat all as changed)"
+            BASE="$EMPTY_TREE"
+          fi
 
           echo "Comparing $BASE → ${{ github.sha }}"
           CHANGED=$(git diff --name-only "$BASE" "${{ github.sha }}")
