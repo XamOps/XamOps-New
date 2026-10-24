@@ -89,7 +89,7 @@ class K8sCapabilitiesControllerTest {
         assertThat(r.getStatus()).isEqualTo(200);
         JsonNode b = body(r);
         assertThat(b.get("schemaVersion").asInt()).isEqualTo(1);
-        assertThat(b.get("readiness").size()).isEqualTo(8);
+        assertThat(b.get("readiness").size()).isEqualTo(9);
         assertThat(b.get("verticalEngine").get("enabled").asBoolean()).isFalse();
         assertThat(b.get("clusters").get(0).get("clusterName").asText()).isEqualTo("prod-eks");
     }
