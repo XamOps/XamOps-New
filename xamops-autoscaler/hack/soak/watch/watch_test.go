@@ -76,6 +76,21 @@ func TestArgs(t *testing.T) {
 			t.Errorf("verb %q allowed", verb)
 		}
 	}
+	for _, sub := range []string{"get-contexts", "view"} {
+		if _, err := Args("ctx-a", "config", sub); err != nil {
+			t.Errorf("config %s refused: %v", sub, err)
+		}
+	}
+	// These write the local kubeconfig.
+	for _, sub := range []string{"", "use-context", "set-context", "delete-context", "set-cluster", "set-credentials", "set", "unset", "rename-context"} {
+		rest := []string{sub}
+		if sub == "" {
+			rest = nil
+		}
+		if _, err := Args("ctx-a", "config", rest...); err == nil {
+			t.Errorf("config %q allowed", sub)
+		}
+	}
 	for _, ctx := range []string{"", "  "} {
 		if _, err := Args(ctx, "get", "nodes"); err == nil {
 			t.Errorf("empty context %q allowed", ctx)

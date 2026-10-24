@@ -3,6 +3,7 @@ package invariants
 import (
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,6 +38,13 @@ func TestCheckFixtures(t *testing.T) {
 		{fixture: "clean", opts: opts, want: map[string]string{"I1": Pass, "I2": Pass, "I6": Pass, "I14": Pass}},
 		{fixture: "i1-unbudgeted-delete", opts: opts, want: map[string]string{"I1": Fail, "I2": NotEvaluated, "I6": NotEvaluated, "I14": NotEvaluated}},
 		{fixture: "i2-short-dip", opts: opts, want: map[string]string{"I2": Fail}, breachMs: map[string]int64{"I2": 300}},
+		// HPA 3->6 with no PDB: not-yet-Ready new pods are not a breach; scale-down applies at once.
+		{fixture: "i2-scale-up", opts: opts, want: map[string]string{"I2": Pass}},
+		// During a pending scale-up the previous floor still holds.
+		{fixture: "i2-dip-during-scale-up", opts: opts, want: map[string]string{"I2": Fail}, breachMs: map[string]int64{"I2": 200}},
+		// Once the new floor is reached it applies.
+		{fixture: "i2-dip-after-scale-up", opts: opts, want: map[string]string{"I2": Fail}, breachMs: map[string]int64{"I2": 150}},
+		{fixture: "i1-attribution", opts: opts, want: map[string]string{"I1": Fail, "I6": Pass}},
 		{fixture: "i2-never-healthy", opts: opts, want: map[string]string{"I2": Pass}, excluded: map[string]int{"I2": 1}},
 		{fixture: "i6-short-overlap", opts: opts, want: map[string]string{"I6": Fail}, breachMs: map[string]int64{"I6": 250}},
 		{fixture: "i14-non-leader", opts: opts, want: map[string]string{"I14": Fail}},
@@ -161,5 +169,21 @@ func TestHAFloor(t *testing.T) {
 				t.Errorf("HAFloor = %d (%s), want %d", got, src, tc.want)
 			}
 		})
+	}
+}
+
+// I1 cannot see who deleted a pod: each breach says whether the pod's node was
+// draining under XamOps, so a controller delete elsewhere can be attributed.
+func TestI1BreachAttribution(t *testing.T) {
+	r := Check(load(t, "i1-attribution"), DefaultOptions()).Get("I1")
+	if r.Verdict != Fail || len(r.Breaches) != 2 || !strings.Contains(r.Detail, "attribution") {
+		t.Fatalf("I1 = %+v", r)
+	}
+	if b := r.Breaches[0]; b.Object != "pod team-a/web-1" || !strings.Contains(b.Detail, "node n-1 was draining under XamOps") {
+		t.Errorf("draining-node breach = %+v", b)
+	}
+	if b := r.Breaches[1]; b.Object != "pod team-a/web-2" || !strings.Contains(b.Detail, "node n-2 was not draining under XamOps") ||
+		!strings.Contains(b.Detail, "events.jsonl") {
+		t.Errorf("controller-delete breach = %+v", b)
 	}
 }

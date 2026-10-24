@@ -172,16 +172,25 @@ func scaled(v *intstr.IntOrString, replicas int32) int32 {
 	return int32(n)
 }
 
+// clockSkewNote: I14 compares two clock domains. Action times are container-runtime
+// log timestamps (node clock); lease-holder times are workstation receive times
+// (plus watch delivery latency). The leader tolerance has to absorb that skew.
+const clockSkewNote = "action times are node log timestamps, lease times are workstation receive times: the tolerance must absorb node/workstation clock skew plus watch latency"
+
 var actionLine = regexp.MustCompile(`Drain\[[^\]]+\]: (succeeded|aborted|failed) \(verified=|\bDrain: \S+/\S+ replaced by `)
 
 type workload struct {
 	kind, ns, name string
 	replicas       int32
 	ready          int32
-	tmpl           map[string]string
-	healthySeen    bool
-	open           *Breach
-	minReady       int32
+	// floorReplicas is the replica count the HA floor is judged against. On a
+	// scale-up it stays at the previous count until readyReplicas reaches the new
+	// floor, so new pods that are not Ready yet are not an I2 breach.
+	floorReplicas int32
+	tmpl          map[string]string
+	healthySeen   bool
+	open          *Breach
+	minReady      int32
 }
 
 func (w *workload) id() string { return w.kind + "/" + w.ns + "/" + w.name }
@@ -313,9 +322,24 @@ func (c *checker) pod(r Record) {
 			continue
 		}
 		c.i1 = append(c.i1, Breach{Start: r.TS, End: r.TS, Object: "pod " + k,
-			Detail: fmt.Sprintf("Ready pod started terminating (%s) while pdb %s allowed 0 disruptions and did not list it in disruptedPods",
-				strings.ToLower(r.Type), key(pdb.Namespace, pdb.Name))})
+			Detail: fmt.Sprintf("Ready pod started terminating (%s) while pdb %s allowed 0 disruptions and did not list it in disruptedPods; %s",
+				strings.ToLower(r.Type), key(pdb.Namespace, pdb.Name), c.i1Attribution(prev.Spec.NodeName))})
 	}
+}
+
+// i1Attribution says whether an I1 breach happened on a node XamOps was draining.
+// The checker cannot see who deleted a pod: ReplicaSet scale-down, rolling-update
+// and node-termination deletes are not governed by PDBs, so a breach on a node that
+// was not draining needs attribution against events.jsonl before it counts as an
+// eviction bypass.
+func (c *checker) i1Attribution(node string) string {
+	if node == "" {
+		return "node unknown: attribute against events.jsonl"
+	}
+	if c.draining[node] {
+		return fmt.Sprintf("node %s was draining under XamOps", node)
+	}
+	return fmt.Sprintf("node %s was not draining under XamOps: may be a controller delete (scale-down, rollout, node termination); attribute against events.jsonl", node)
 }
 
 func selects(pdb *policyv1.PodDisruptionBudget, l map[string]string) bool {
@@ -383,8 +407,12 @@ func (c *checker) workload(r Record) {
 	}
 	if prev != nil {
 		prev.replicas, prev.ready, prev.tmpl = w.replicas, w.ready, w.tmpl
+		if w.replicas < prev.floorReplicas {
+			prev.floorReplicas = w.replicas // scale-down applies at once
+		}
 		w = prev
 	} else {
+		w.floorReplicas = w.replicas
 		c.workloads[w.id()] = w
 	}
 	c.evalWorkload(w, r.TS)
@@ -407,10 +435,18 @@ func (c *checker) matchingPDBs(ns string, l map[string]string) []policyv1.PodDis
 }
 
 func (c *checker) evalWorkload(w *workload, ts time.Time) {
-	floor, src := HAFloor(w.replicas, c.matchingPDBs(w.ns, w.tmpl))
+	pdbs := c.matchingPDBs(w.ns, w.tmpl)
 	if w.replicas <= 0 {
 		c.closeWorkload(w, ts, "")
 		return
+	}
+	// A pending scale-up completes once the new floor is reached.
+	if newFloor, _ := HAFloor(w.replicas, pdbs); w.ready >= newFloor {
+		w.floorReplicas = w.replicas
+	}
+	floor, src := HAFloor(w.floorReplicas, pdbs)
+	if w.floorReplicas < w.replicas {
+		src += fmt.Sprintf("; scale-up to %d pending, judged against replicas=%d", w.replicas, w.floorReplicas)
 	}
 	if w.ready >= floor {
 		w.healthySeen = true
@@ -559,7 +595,11 @@ func (c *checker) resultI1(tl *Timeline) Result {
 	if m := missing(tl, StreamPods, StreamPDBs); len(m) > 0 {
 		return notEvaluated("I1", name, m...)
 	}
-	return Result{ID: "I1", Name: name, Verdict: verdict(c.i1), Breaches: nonNil(c.i1)}
+	res := Result{ID: "I1", Name: name, Verdict: verdict(c.i1), Breaches: nonNil(c.i1)}
+	if len(c.i1) > 0 {
+		res.Detail = "a FAIL needs attribution: the checker cannot tell an eviction bypass from a controller delete (see each breach)"
+	}
+	return res
 }
 
 func (c *checker) resultI2(tl *Timeline) Result {
@@ -620,6 +660,9 @@ func (c *checker) resultI14(tl *Timeline) Result {
 	default:
 		res.Verdict = Pass
 		res.Detail = fmt.Sprintf("%d action line(s) judged", evaluated)
+	}
+	if evaluated > 0 {
+		res.Detail = strings.TrimPrefix(res.Detail+"; "+clockSkewNote, "; ")
 	}
 	return res
 }

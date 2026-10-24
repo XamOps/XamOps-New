@@ -18,15 +18,23 @@
 // Invariants:
 //
 //	I1  no PDB violated: a Ready pod selected by a PDB starts terminating while the
-//	    PDB allows 0 disruptions and the pod is not in status.disruptedPods.
+//	    PDB allows 0 disruptions and the pod is not in status.disruptedPods. The
+//	    streams do not say who deleted the pod, and ReplicaSet scale-down,
+//	    rolling-update and node-termination deletes are not governed by PDBs, so an
+//	    I1 FAIL needs manual attribution: each breach says whether the pod's node
+//	    was draining under XamOps; otherwise check events.jsonl.
 //	I2  HA floor per Deployment/StatefulSet: readyReplicas never drops below the
 //	    floor (PDB minAvailable / maxUnavailable, else replicas-1, min 1) once the
-//	    workload has been at or above it in the window.
+//	    workload has been at or above it in the window. On a scale-up the floor
+//	    stays at the previous replica count until readyReplicas reaches the new
+//	    floor; a scale-down applies at once.
 //	I6  concurrent drains: nodes annotated xamops.io/drain-state=draining never
 //	    exceed MaxParallelDrains.
 //	I14 only the holder of the Lease (default xamops-automation-leader) acts: every
 //	    drain outcome / replacement log line comes from a pod that held the lease
-//	    within LeaderTolerance of the line.
+//	    within LeaderTolerance of the line. Action times are node container-runtime
+//	    log timestamps and lease times are workstation receive times, so the
+//	    tolerance must absorb node/workstation clock skew plus watch latency.
 //
 // Usage:
 //

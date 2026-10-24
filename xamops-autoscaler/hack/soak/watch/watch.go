@@ -43,6 +43,10 @@ import (
 // AllowedVerbs are the only kubectl verbs the watcher may run (all read-only).
 var AllowedVerbs = map[string]bool{"get": true, "logs": true, "config": true}
 
+// AllowedConfigSubcommands are the only `kubectl config` subcommands allowed; every
+// other one (use-context, set-context, delete-context, ...) writes the kubeconfig.
+var AllowedConfigSubcommands = map[string]bool{"get-contexts": true, "view": true}
+
 // DenyList matches contexts, clusters and servers the watcher refuses to touch.
 var DenyList = regexp.MustCompile(`k8opt-test|autospotting|192\.168\.`)
 
@@ -54,6 +58,10 @@ func Args(kctx, verb string, rest ...string) ([]string, error) {
 	}
 	if !AllowedVerbs[verb] {
 		return nil, fmt.Errorf("kubectl verb %q is not allowed (read-only: get, logs, config)", verb)
+	}
+	// `config use-context` / `set-context` etc. would mutate the local kubeconfig.
+	if verb == "config" && (len(rest) == 0 || !AllowedConfigSubcommands[rest[0]]) {
+		return nil, fmt.Errorf("kubectl config subcommand %v is not allowed (read-only: get-contexts, view)", rest)
 	}
 	return append([]string{"--context", kctx, verb}, rest...), nil
 }

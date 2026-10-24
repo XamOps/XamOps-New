@@ -89,7 +89,8 @@ type IdleNodeInfo struct {
 	RecommendDrain bool    `json:"recommendDrain"`
 	CapacityType   string  `json:"capacityType"`
 	// AlreadyDrained: XamOps drained this node and it is still cordoned
-	// (drain.AlreadyDrained); it is listed but never recommended for drain again.
+	// (drain.AlreadyDrained) with only system/DaemonSet pods on it; it is listed
+	// but never recommended for drain again.
 	AlreadyDrained bool `json:"alreadyDrained,omitempty"`
 }
 
@@ -142,13 +143,18 @@ func (n *NodeOptimizer) Analyse(ctx context.Context, guards policy.SafetyGuards)
 
 	report.TotalNodes = len(nodes.Items)
 
-	// Nodes XamOps already drained and that are still cordoned are never drain,
-	// cordon, spot-ratio or interruption candidates again (F1).
+	// Nodes XamOps already drained, that are still cordoned and still empty of
+	// workloads are never drain, cordon, spot-ratio or interruption candidates
+	// again (F1).
 	drainedNodes := map[string]bool{}
 	var drainedNames []string
 
 	for _, node := range nodes.Items {
-		drained := drain.AlreadyDrained(node)
+		// The drain-state annotation outlives an operator `kubectl uncordon`, so a
+		// node that got workloads back and was then cordoned again (NTH, operator)
+		// still carries drain-state=drained. It only counts as already drained
+		// while it still carries nothing but system/DaemonSet pods.
+		drained := drain.AlreadyDrained(node) && allSystemPods(podsOnNode[node.Name])
 		if drained {
 			drainedNodes[node.Name] = true
 			drainedNames = append(drainedNames, node.Name)

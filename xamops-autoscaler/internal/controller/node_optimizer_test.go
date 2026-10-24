@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/xamops/automation/internal/drain"
@@ -263,9 +264,10 @@ func staticPrometheus(vals map[string]string) *httptest.Server {
 	}))
 }
 
-// F1: a node XamOps already drained (cordoned + drain-state=drained) is never a
-// drain, spot-ratio or interruption candidate again; an operator uncordon makes it
-// eligible again.
+// F1: a node XamOps already drained (cordoned + drain-state=drained, still only
+// system pods) is never a drain, spot-ratio or interruption candidate again; an
+// operator uncordon makes it eligible again, and so does a stale drain-state on a
+// node that got workloads back and was cordoned again (NTH, operator).
 func TestAnalyseSkipsAlreadyDrainedNodes(t *testing.T) {
 	const interruptLabel = "aws-node-termination-handler/action-reason"
 	cases := []struct {
@@ -273,6 +275,7 @@ func TestAnalyseSkipsAlreadyDrainedNodes(t *testing.T) {
 		unschedulable bool
 		annotations   map[string]string
 		interrupted   bool
+		workload      bool              // a ReplicaSet pod runs on n-x
 		prom          map[string]string // nil: no Prometheus, CPU/mem 0
 		wantIdle      bool
 		wantRecommend bool
@@ -296,6 +299,14 @@ func TestAnalyseSkipsAlreadyDrainedNodes(t *testing.T) {
 			annotations: map[string]string{drain.AnnotationState: drain.StateDrained},
 			prom:        map[string]string{"n-x": "30"}, wantIdle: true, wantDrained: true},
 		{name: "fresh busy on-demand node", prom: map[string]string{"n-x": "30"}, wantIdle: true, wantSpot: true},
+		{name: "stale drained annotation, workloads back, re-cordoned with interruption notice",
+			unschedulable: true, interrupted: true, workload: true,
+			annotations: map[string]string{drain.AnnotationState: drain.StateDrained},
+			wantIdle:    true, wantInterrupt: true},
+		{name: "stale drained annotation, workloads back, re-cordoned busy on-demand node",
+			unschedulable: true, workload: true,
+			annotations: map[string]string{drain.AnnotationState: drain.StateDrained},
+			prom:        map[string]string{"n-x": "30"}, wantSpot: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -308,7 +319,11 @@ func TestAnalyseSkipsAlreadyDrainedNodes(t *testing.T) {
 			// A second, never-drained interrupted node must stay in InterruptedNodes.
 			other := optNode("n-other")
 			other.Labels[interruptLabel] = "SpotInterruption"
-			c := fake.NewSimpleClientset(n, other, daemonSetPod("ds-x", "n-x"))
+			objs := []runtime.Object{n, other, daemonSetPod("ds-x", "n-x")}
+			if tc.workload {
+				objs = append(objs, evictablePod("app-x", "n-x"))
+			}
+			c := fake.NewSimpleClientset(objs...)
 			promURL := ""
 			if tc.prom != nil {
 				prom := staticPrometheus(tc.prom)
