@@ -13,6 +13,10 @@ Run from ``forecast-service/`` with the harness venv (CPython 3.11)::
     # --cache-target kept containers or --max-download-mb), then reuses the cache
     backtest/.venv/bin/python -m backtest.run --corpus alibaba --n-series 300
 
+    # optional read-only live sample from xamops-test-1 Prometheus (kubectl --context ... get --raw
+    # only; names hashed before caching in backtest/.cache/xamops-live/)
+    backtest/.venv/bin/python -m backtest.run --corpus xamops-live --n-series 300
+
     # tests (add BACKTEST_SLOW=1 ... -m slow for the Chronos weights test)
     backtest/.venv/bin/python -m pytest backtest/tests -q
 
@@ -52,7 +56,8 @@ def _pins() -> dict:
 
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="python -m backtest.run", description=__doc__.split("\n\n")[0])
-    p.add_argument("--corpus", choices=["alibaba", "synthetic"], required=True)
+    p.add_argument("--corpus", choices=["alibaba", "synthetic", "xamops-live"], required=True,
+                   help="xamops-live: read-only xamops-test-1 Prometheus sample (kubectl get --raw)")
     p.add_argument("--n-series", type=int, default=300, help="containers (each gives a cpu and a mem series)")
     p.add_argument("--methods", default=DEFAULT_METHODS, help=f"comma list from {','.join(REGISTRY)}")
     p.add_argument("--agg", choices=["max", "mean"], default="max", help="hourly aggregation (alibaba)")
@@ -69,6 +74,9 @@ def load_corpus(args) -> list:
     if args.corpus == "synthetic":
         from .data import synthetic
         return synthetic.generate(args.n_series, args.seed)
+    if args.corpus == "xamops-live":
+        from .data import xamops_live
+        return xamops_live.load(args.n_series, args.seed)
     from .data import alibaba
     return alibaba.load(args.n_series, args.agg, args.seed, args.cache_target, args.max_download_mb)
 
@@ -103,6 +111,11 @@ def main(argv=None) -> int:
     if args.corpus == "alibaba":
         from .data import alibaba
         meta_path = alibaba.cache_path(args.seed).with_suffix("").with_suffix(".meta.json")
+        if meta_path.exists():
+            meta["data"] = json.loads(meta_path.read_text())
+    if args.corpus == "xamops-live":
+        from .data import xamops_live
+        meta_path = xamops_live.cache_path().with_suffix("").with_suffix(".meta.json")
         if meta_path.exists():
             meta["data"] = json.loads(meta_path.read_text())
     meta["wall_seconds"] = round(time.perf_counter() - t0, 1)
