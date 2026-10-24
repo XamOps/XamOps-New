@@ -102,7 +102,7 @@ type InterruptionNotice struct {
 	Kind          string `json:"kind"`                   // "interruption" | "rebalance"
 	Source        string `json:"source"`                 // "nth-taint" | "nth-label-legacy"
 	Cordoned      bool   `json:"cordoned"`               // spec.unschedulable
-	DrainEligible bool   `json:"drainEligible"`          // node is in InterruptedNodes (today's drain input)
+	DrainEligible bool   `json:"drainEligible"`          // picked by today's drain selector (legacy label); a node XamOps already drained (F1) stays eligible but is not re-drained
 }
 
 type IdleNodeInfo struct {
