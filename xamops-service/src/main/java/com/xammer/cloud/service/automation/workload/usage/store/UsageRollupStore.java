@@ -159,6 +159,12 @@ public class UsageRollupStore {
                     + " WHERE d.cluster_config_id = g.cluster_config_id AND d.workload_id = g.workload_id"
                     + " AND d.day = g.day)";
 
+    /**
+     * Transaction-scoped advisory lock: released at commit/rollback, so it only means something
+     * inside a transaction. Reads no table.
+     */
+    static final String TRY_ADVISORY_XACT_LOCK = "SELECT pg_try_advisory_xact_lock(?)";
+
     /** The owning tenant of a cluster: {@code cloud_account.id = kubernetes_cluster_config.cloud_account_id}. */
     static final String RESOLVE_CLIENT_ID =
             "SELECT DISTINCT ca.client_id FROM kubernetes_cluster_config kcc"
@@ -464,6 +470,15 @@ public class UsageRollupStore {
             }
         }
         knownPartitions.add(name);
+    }
+
+    /**
+     * {@code pg_try_advisory_xact_lock(key)}: true when this transaction now holds the lock, false
+     * when another session does. Must be called inside a transaction (the lock lives until it ends).
+     */
+    public boolean tryAdvisoryXactLock(long key) {
+        Boolean locked = jdbc.queryForObject(TRY_ADVISORY_XACT_LOCK, Boolean.class, key);
+        return Boolean.TRUE.equals(locked);
     }
 
     /** Names of the partitions currently attached to {@code parent} (one of the three parents). */
