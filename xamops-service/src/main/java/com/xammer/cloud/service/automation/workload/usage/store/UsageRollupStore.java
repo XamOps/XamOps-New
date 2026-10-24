@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -158,6 +159,18 @@ public class UsageRollupStore {
                     + " WHERE d.cluster_config_id = g.cluster_config_id AND d.workload_id = g.workload_id"
                     + " AND d.day = g.day)";
 
+    /** The owning tenant of a cluster: {@code cloud_account.id = kubernetes_cluster_config.cloud_account_id}. */
+    static final String RESOLVE_CLIENT_ID =
+            "SELECT DISTINCT ca.client_id FROM kubernetes_cluster_config kcc"
+                    + " JOIN cloud_account ca ON ca.id = kcc.cloud_account_id"
+                    + " WHERE kcc.id = ? AND ca.client_id IS NOT NULL";
+
+    /** Legacy rows that stored the provider account number in {@code cloud_account_id} (audit B4). */
+    static final String RESOLVE_CLIENT_ID_BY_AWS_ACCOUNT =
+            "SELECT DISTINCT ca.client_id FROM kubernetes_cluster_config kcc"
+                    + " JOIN cloud_account ca ON ca.aws_account_id = CAST(kcc.cloud_account_id AS VARCHAR)"
+                    + " WHERE kcc.id = ? AND ca.client_id IS NOT NULL";
+
     // ---------------------------------------------------------------- limits
 
     /** The identity cache is cleared, not evicted, past this size: simple and bounded. */
@@ -227,6 +240,21 @@ public class UsageRollupStore {
     /** @param dataSource the {@code @Primary} application DataSource */
     public UsageRollupStore(DataSource dataSource) {
         this.jdbc = new JdbcTemplate(dataSource);
+    }
+
+    // ---------------------------------------------------------------- tenant resolution
+
+    /**
+     * The client owning a cluster config, by its cloud account id, falling back to the legacy
+     * provider-account-number match. Empty when unresolved or when the match is ambiguous (more than
+     * one client): a tenant is never guessed.
+     */
+    public Optional<Long> resolveClientId(long clusterConfigId) {
+        List<Long> clients = jdbc.queryForList(RESOLVE_CLIENT_ID, Long.class, clusterConfigId);
+        if (clients.isEmpty()) {
+            clients = jdbc.queryForList(RESOLVE_CLIENT_ID_BY_AWS_ACCOUNT, Long.class, clusterConfigId);
+        }
+        return clients.size() == 1 ? Optional.of(clients.get(0)) : Optional.empty();
     }
 
     // ---------------------------------------------------------------- identities

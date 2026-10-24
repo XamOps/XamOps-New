@@ -18,6 +18,8 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.xammer.cloud.service.automation.workload.usage.store.UsageSampleCapture;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -38,6 +40,10 @@ import java.util.Set;
  * 4. Each batch is processed and stored in agent_data_cache
  * 5. Agent status is updated
  * 6. Event is logged
+ *
+ * A stored k8s-resources snapshot is also handed to {@link UsageSampleCapture} for the hourly
+ * usage rollups. That only schedules work after the ingest commits, on its own bounded thread, and
+ * never throws; the push result, item count, agent status and event are unaffected by it.
  */
 @Service
 public class AgentIngestService {
@@ -63,6 +69,8 @@ public class AgentIngestService {
      * policy the UI shows and the automation agent receives (design §6.6, E21).
      */
     static final Set<String> SERVER_OWNED_COLLECTORS = Set.of("autoscaling-policy");
+
+    private static final String K8S_RESOURCES = "k8s-resources";
 
     private static final Set<String> SINGLE_OBJECT_COLLECTORS = Set.of(
             "autoscaling-metrics",
@@ -92,15 +100,29 @@ public class AgentIngestService {
     @Value("${xamops.agent.legacy-global-key.enabled:true}")
     private boolean legacyGlobalKeyEnabled;
 
+    /** Null when constructed without it (tests): usage capture is then skipped. */
+    private final UsageSampleCapture usageSampleCapture;
+
     public AgentIngestService(
             KubernetesClusterConfigRepository clusterConfigRepository,
             AgentDataCacheRepository agentDataCacheRepository,
             AgentEventRepository agentEventRepository,
             CloudAccountRepository cloudAccountRepository) {
+        this(clusterConfigRepository, agentDataCacheRepository, agentEventRepository, cloudAccountRepository, null);
+    }
+
+    @Autowired
+    public AgentIngestService(
+            KubernetesClusterConfigRepository clusterConfigRepository,
+            AgentDataCacheRepository agentDataCacheRepository,
+            AgentEventRepository agentEventRepository,
+            CloudAccountRepository cloudAccountRepository,
+            UsageSampleCapture usageSampleCapture) {
         this.clusterConfigRepository = clusterConfigRepository;
         this.agentDataCacheRepository = agentDataCacheRepository;
         this.agentEventRepository = agentEventRepository;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.usageSampleCapture = usageSampleCapture;
 
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule());
@@ -399,6 +421,9 @@ public class AgentIngestService {
                     response.addResult(batch.getCollector(), result);
                     if (result.isSuccess()) {
                         totalItemsReceived += result.getItemsProcessed();
+                        if (K8S_RESOURCES.equals(batch.getCollector())) {
+                            captureUsageSafely(clusterConfig, batch);
+                        }
                     }
                 } catch (Exception e) {
                     logger.error("Error processing batch {}: {}", batch.getCollector(), e.getMessage());
@@ -424,6 +449,23 @@ public class AgentIngestService {
         }
 
         return response;
+    }
+
+    /**
+     * Hands a stored {@code k8s-resources} snapshot to the usage rollup. Only schedules work (after
+     * commit, on its own thread) and swallows any failure: the push result never depends on it.
+     */
+    private void captureUsageSafely(KubernetesClusterConfig clusterConfig, DataBatch batch) {
+        if (usageSampleCapture == null) {
+            return;
+        }
+        try {
+            usageSampleCapture.submit(clusterConfig.getId(), clusterConfig.getCloudAccountId(),
+                    batch.getItems().get(0), batch.getCollectedAt());
+        } catch (RuntimeException e) {
+            logger.warn("Usage rollup capture could not be scheduled for cluster config {}: {}",
+                    clusterConfig.getId(), e.toString());
+        }
     }
 
     /**

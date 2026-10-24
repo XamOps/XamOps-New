@@ -27,8 +27,10 @@ import software.amazon.awssdk.services.sts.StsClient;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -51,6 +53,8 @@ class AwsAccountServiceDeleteAccountTest {
     private final EntityManager entityManager = mock(EntityManager.class);
     private final List<String> recordedSql = new ArrayList<>();
     private boolean vmssTableExists;
+    /** Further tables whose information_schema probe reports the asked-for column. */
+    private final Set<String> tablesWithColumns = new HashSet<>();
 
     private AwsAccountService service;
 
@@ -105,7 +109,8 @@ class AwsAccountServiceDeleteAccountTest {
             return query;
         });
         when(query.getSingleResult()).thenAnswer(inv ->
-                vmssTableExists && "vmss_spot_config".equals(params.get("table")) ? 1L : 0L);
+                (vmssTableExists && "vmss_spot_config".equals(params.get("table")))
+                        || tablesWithColumns.contains(params.get("table")) ? 1L : 0L);
         when(query.executeUpdate()).thenReturn(0);
         when(query.getResultList()).thenReturn(List.of());
         return query;
@@ -128,6 +133,33 @@ class AwsAccountServiceDeleteAccountTest {
         service.deleteAccountById(7L);
 
         assertThat(recordedSql).filteredOn(VMSS_DELETE::equals).hasSize(1);
+        verify(cloudAccountRepository).deleteById(7L);
+    }
+
+    @Test
+    void deleteAccountById_clearsUsageRollupTablesOfItsClusters() {
+        List<String> usageTables = List.of("k8s_workload_usage_sample", "k8s_workload_usage_hourly",
+                "k8s_workload_usage_daily", "k8s_workload_identity");
+        tablesWithColumns.add("kubernetes_cluster_config");
+        tablesWithColumns.addAll(usageTables);
+
+        service.deleteAccountById(7L);
+
+        for (String table : usageTables) {
+            assertThat(recordedSql).as(table).filteredOn(("DELETE FROM " + table + " WHERE cluster_config_id IN "
+                    + "(SELECT id FROM kubernetes_cluster_config WHERE cloud_account_id = :id)")::equals)
+                    .hasSize(1);
+        }
+        verify(cloudAccountRepository).deleteById(7L);
+    }
+
+    @Test
+    void deleteAccountById_skipsUsageRollupTablesWhereTheyDoNotExist() {
+        tablesWithColumns.add("kubernetes_cluster_config");
+
+        service.deleteAccountById(7L);
+
+        assertThat(recordedSql).noneMatch(sql -> sql.startsWith("DELETE FROM k8s_workload_"));
         verify(cloudAccountRepository).deleteById(7L);
     }
 }

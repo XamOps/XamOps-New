@@ -44,7 +44,10 @@ class UsageRollupStoreSqlGuardTest {
             "COUNT_UNROLLED_DAYS_TEMPLATE", "countUnrolledDays: drop verification over one partition",
             // Catalog / DDL: no tenant rows at all.
             "LIST_PARTITIONS", "listPartitions: pg_inherits catalog read",
-            "DROP_PARTITION_TEMPLATE", "dropPartition: DDL on a name UsagePartitions.parse accepted");
+            "DROP_PARTITION_TEMPLATE", "dropPartition: DDL on a name UsagePartitions.parse accepted",
+            // Tenant resolution itself: maps a cluster id to its owning client, reads no usage rows.
+            "RESOLVE_CLIENT_ID", "resolveClientId: cluster -> client via cloud_account.id",
+            "RESOLVE_CLIENT_ID_BY_AWS_ACCOUNT", "resolveClientId: legacy aws_account_id fallback (audit B4)");
 
     /** The cluster-scoped internal reads must at least be cluster-scoped. */
     private static final Set<String> CLUSTER_SCOPED = Set.of("SELECT_SAMPLES", "SELECT_HOURLY", "UPDATE_LAST_SEEN");
