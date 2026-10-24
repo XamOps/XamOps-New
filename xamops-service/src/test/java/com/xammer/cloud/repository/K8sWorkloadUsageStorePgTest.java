@@ -32,8 +32,9 @@ import static org.assertj.core.api.Assertions.tuple;
 
 /**
  * {@link UsageRollupStore} against real PostgreSQL with the real migration: tenant isolation of the
- * read API, cascade on cluster and client delete across partitions, idempotent partition creation,
- * replayed-sample dedupe, and the measured storage cost of an hourly row.
+ * read API, the tenant resolver SQL, cascade on cluster and client delete across partitions,
+ * idempotent partition creation, replayed-sample dedupe, and the measured storage cost of an hourly
+ * and a sample row.
  *
  * <p>Opt-in like {@link VerticalPolicyMigrationPgTest}: skipped unless {@code LOBTEXT_TEST_JDBC_URL}
  * names a <em>local</em> server. Each test seeds its own client and cluster ids, so the tests do not
@@ -61,6 +62,11 @@ class K8sWorkloadUsageStorePgTest {
         url = PgTestSupport.recreateDatabase("k8s_usage_store");
         K8sWorkloadUsageMigrationPgTest.createReferencedTables(url);
         MigrationScript.of(K8sWorkloadUsageMigrationPgTest.MIGRATION).applyTo(url);
+        // What resolveClientId reads, reduced to its columns. Unlike the entity (aws_account_id unique,
+        // client_id not null) neither is constrained here, so the ambiguous and NULL guards are tested.
+        PgTestSupport.execute(url, "ALTER TABLE kubernetes_cluster_config ADD COLUMN cloud_account_id BIGINT");
+        PgTestSupport.execute(url, "CREATE TABLE cloud_account (id BIGINT PRIMARY KEY,"
+                + " aws_account_id VARCHAR(255), client_id BIGINT)");
 
         dataSource = new DriverManagerDataSource(url, PgTestSupport.user(), PgTestSupport.password());
         store = new UsageRollupStore(dataSource);
@@ -215,8 +221,7 @@ class K8sWorkloadUsageStorePgTest {
         List<SampleRow> read = store.readSamples(t.clusterId(), Instant.parse("2026-10-31T22:00:00Z"),
                 Instant.parse("2026-10-31T23:00:00Z"));
         assertThat(read).containsExactlyInAnyOrderElementsOf(batch);
-        assertThat(store.clustersWithSamples(Instant.parse("2026-10-31T22:00:00Z"),
-                Instant.parse("2026-10-31T23:00:00Z"))).contains(t.clusterId());
+        assertThat(store.clustersWithUsage()).contains(t.clusterId());
     }
 
     @Test
@@ -231,7 +236,6 @@ class K8sWorkloadUsageStorePgTest {
 
         List<HourlyRow> hourly = store.readHourly(t.clusterId(), OCT_HOUR, OCT_HOUR.plus(Duration.ofHours(1)));
         assertThat(hourly).filteredOn(row -> row.workloadId() == wid).containsExactly(replacement);
-        assertThat(store.clustersWithHourly(OCT_HOUR, NOV_HOUR)).contains(t.clusterId());
 
         DailyRow day = new DailyRow(t.clusterId(), t.clientId(), wid, OCT_DAY,
                 7, 8, 9, null, null, 0.5, 0.75, 1.0, null, null, 1.0, 3, 3, 1, 1, 1);
@@ -277,6 +281,67 @@ class K8sWorkloadUsageStorePgTest {
         assertThat(store.countUnrolledDays(partition)).isZero();
     }
 
+    @Test
+    @DisplayName("clustersWithUsage lists every cluster with an identity, once, in id order")
+    void clustersWithUsage() {
+        Tenant a = seed(1201, 12011);
+        Tenant b = seed(1202, 12012);
+        PgTestSupport.execute(url, "INSERT INTO client (id, name) VALUES (1203, 'idle')");
+        PgTestSupport.execute(url, "INSERT INTO kubernetes_cluster_config (id, cluster_name) VALUES (12013, 'idle')");
+
+        List<Long> clusters = store.clustersWithUsage();
+        assertThat(clusters).contains(a.clusterId(), b.clusterId()).doesNotContain(12013L)
+                .doesNotHaveDuplicates().isSorted();
+    }
+
+    // ---------------------------------------------------------------- tenant resolution
+
+    @Test
+    @DisplayName("resolveClientId: cloud_account.id match first, legacy aws_account_id match second")
+    void resolveClientIdMatches() {
+        account(91001, "111111111111", 1001L);
+        cluster(91011, 91001L);
+        assertThat(store.resolveClientId(91011)).as("primary: kcc.cloud_account_id = cloud_account.id").contains(1001L);
+
+        account(91002, "222222222222", 1002L);
+        cluster(91012, 222222222222L);
+        assertThat(store.resolveClientId(91012)).as("legacy: the AWS account number in cloud_account_id (B4)")
+                .contains(1002L);
+
+        // 91003 is both an account id (client 1003) and another account's aws_account_id (client 1004).
+        account(91003, "999999999991", 1003L);
+        account(91004, "91003", 1004L);
+        cluster(91013, 91003L);
+        assertThat(store.resolveClientId(91013)).as("the primary match wins, the legacy one is not consulted")
+                .contains(1003L);
+
+        account(91005, "555555555555", 1005L);
+        account(91006, "555555555555", 1005L);
+        cluster(91015, 555555555555L);
+        assertThat(store.resolveClientId(91015)).as("two accounts of the same client are one client").contains(1005L);
+    }
+
+    @Test
+    @DisplayName("resolveClientId: ambiguous, NULL-client, unmatched and unknown clusters resolve to empty")
+    void resolveClientIdNeverGuesses() {
+        account(92001, "333333333333", 2001L);
+        account(92002, "333333333333", 2002L);
+        cluster(92011, 333333333333L);
+        assertThat(store.resolveClientId(92011)).as("two clients share the account number: ambiguous").isEmpty();
+
+        account(92003, "444444444444", null);
+        cluster(92013, 92003L);
+        assertThat(store.resolveClientId(92013)).as("the account has no client").isEmpty();
+        cluster(92014, 444444444444L);
+        assertThat(store.resolveClientId(92014)).as("the legacy match has no client either").isEmpty();
+
+        cluster(92015, 777777777777L);
+        assertThat(store.resolveClientId(92015)).as("no account matches").isEmpty();
+        cluster(92016, null);
+        assertThat(store.resolveClientId(92016)).as("no cloud account at all").isEmpty();
+        assertThat(store.resolveClientId(92999)).as("no such cluster").isEmpty();
+    }
+
     // ---------------------------------------------------------------- storage
 
     @Test
@@ -312,7 +377,57 @@ class K8sWorkloadUsageStorePgTest {
         assertThat(heapPerRow).isLessThan(220);
     }
 
+    @Test
+    @DisplayName("a sample row costs under 120 heap bytes with the 64-bit pod_hash (measured over 10000 rows)")
+    void sampleBytesPerRow() {
+        PgTestSupport.execute(url, "INSERT INTO client (id, name) VALUES (902, 'sample-storage')");
+        PgTestSupport.execute(url, "INSERT INTO kubernetes_cluster_config (id, cluster_name) VALUES (9021, 'sample-storage')");
+        LocalDate day = LocalDate.of(2027, 6, 2);
+        store.ensurePartition(Table.SAMPLE, day);
+        String partition = UsagePartitions.partitionName(Table.SAMPLE, day);
+
+        Instant start = UsagePartitions.lowerBound(Table.SAMPLE, day);
+        List<SampleRow> rows = new ArrayList<>();
+        for (long workload = 1; workload <= 20; workload++) {
+            for (int snapshot = 0; snapshot < 250; snapshot++) {
+                for (int pod = 0; pod < 2; pod++) {
+                    rows.add(new SampleRow(9021, 902, workload, start.plus(Duration.ofMinutes(5L * snapshot)),
+                            180 * MI + snapshot, 256 * MI, 512 * MI, 12.345 + snapshot, 100.0, 500.0,
+                            Long.MAX_VALUE - pod, 2));
+                }
+            }
+        }
+        assertThat(store.insertSamples(rows)).isEqualTo(10_000);
+        PgTestSupport.execute(url, "VACUUM ANALYZE " + partition);
+
+        long count = PgTestSupport.queryLong(url, "SELECT count(*) FROM " + partition);
+        long heap = PgTestSupport.queryLong(url, "SELECT pg_relation_size(to_regclass(?))", partition);
+        long index = PgTestSupport.queryLong(url, "SELECT pg_indexes_size(to_regclass(?))", partition);
+        double heapPerRow = (double) heap / count;
+        double indexPerRow = (double) index / count;
+        System.out.printf("[storage] sample heap B/row=%.1f index B/row=%.1f (rows=%d heap=%d index=%d)%n",
+                heapPerRow, indexPerRow, count, heap, index);
+
+        assertThat(count).isEqualTo(10_000);
+        assertThat(PgTestSupport.queryString(url, "SELECT data_type FROM information_schema.columns"
+                + " WHERE table_name = 'k8s_workload_usage_sample' AND column_name = 'pod_hash'")).isEqualTo("bigint");
+        assertThat(store.readSamples(9021, start, start.plus(Duration.ofMinutes(1))))
+                .filteredOn(row -> row.workloadId() == 1)
+                .extracting(SampleRow::podHash).containsExactlyInAnyOrder(Long.MAX_VALUE, Long.MAX_VALUE - 1);
+        assertThat(heapPerRow).isLessThan(120);
+    }
+
     // ---------------------------------------------------------------- fixtures
+
+    private static void account(long id, String awsAccountId, Long clientId) {
+        PgTestSupport.execute(url, "INSERT INTO cloud_account (id, aws_account_id, client_id) VALUES (?, ?, ?)",
+                id, awsAccountId, clientId);
+    }
+
+    private static void cluster(long id, Long cloudAccountId) {
+        PgTestSupport.execute(url, "INSERT INTO kubernetes_cluster_config (id, cluster_name, cloud_account_id)"
+                + " VALUES (?, ?, ?)", id, "cluster-" + id, cloudAccountId);
+    }
 
     private record Tenant(long clientId, long clusterId, Map<String, Long> ids) {
     }

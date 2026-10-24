@@ -22,7 +22,8 @@ import org.springframework.stereotype.Component;
  *
  * <ul>
  *   <li>{@code hourly-retention-days >= max(7, daily-lookback-days + 2)}</li>
- *   <li>{@code daily-retention-days >= 31}</li>
+ *   <li>{@code daily-retention-days >= hourly-retention-days + 31} (after the hourly clamp), so
+ *       maintenance never re-creates a daily partition it drops in the same run</li>
  *   <li>{@code sample-retention-hours >= rollup-lookback-hours + 24}</li>
  *   <li>{@code premake-months} in {@code 1..12}</li>
  *   <li>{@code queue-capacity} in {@code 1..1000}</li>
@@ -50,7 +51,8 @@ public class UsageRollupProperties {
     public static final String DEFAULT_MAINTENANCE_CRON = "0 30 1 * * *";
 
     static final int MIN_HOURLY_RETENTION_DAYS = 7;
-    static final int MIN_DAILY_RETENTION_DAYS = 31;
+    /** Daily rows outlive hourly rows by at least one (longest) month. */
+    static final int DAILY_OVER_HOURLY_RETENTION_DAYS = 31;
     static final int MAX_PREMAKE_MONTHS = 12;
     static final int MAX_QUEUE_CAPACITY = 1000;
 
@@ -81,7 +83,8 @@ public class UsageRollupProperties {
         this.dailyLookbackDays = dailyLookbackDays;
         this.hourlyRetentionDays = atLeast(HOURLY_RETENTION_DAYS_KEY, hourlyRetentionDays,
                 Math.max(MIN_HOURLY_RETENTION_DAYS, dailyLookbackDays + 2));
-        this.dailyRetentionDays = atLeast(DAILY_RETENTION_DAYS_KEY, dailyRetentionDays, MIN_DAILY_RETENTION_DAYS);
+        this.dailyRetentionDays = atLeast(DAILY_RETENTION_DAYS_KEY, dailyRetentionDays,
+                this.hourlyRetentionDays + DAILY_OVER_HOURLY_RETENTION_DAYS);
         this.sampleRetentionHours = atLeast(SAMPLE_RETENTION_HOURS_KEY, sampleRetentionHours,
                 rollupLookbackHours + 24);
         this.premakeMonths = within(PREMAKE_MONTHS_KEY, premakeMonths, 1, MAX_PREMAKE_MONTHS);

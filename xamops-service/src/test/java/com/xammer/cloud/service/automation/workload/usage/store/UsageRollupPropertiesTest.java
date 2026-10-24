@@ -81,10 +81,16 @@ class UsageRollupPropertiesTest {
     }
 
     @Test
-    @DisplayName("daily retention is at least 31 days")
+    @DisplayName("daily retention is at least the (clamped) hourly retention + 31 days")
     void dailyRetentionClamp() {
-        assertThat(withDefaults(true, 90, 5, 48, 2, 3, 3, 50).dailyRetentionDays()).isEqualTo(31);
-        assertThat(withDefaults(true, 90, 31, 48, 2, 3, 3, 50).dailyRetentionDays()).isEqualTo(31);
+        assertThat(withDefaults(true, 90, 5, 48, 2, 3, 3, 50).dailyRetentionDays()).isEqualTo(121);
+        assertThat(withDefaults(true, 120, 31, 48, 2, 3, 3, 50).dailyRetentionDays())
+                .as("daily below hourly would re-create, then drop, daily partitions in one run")
+                .isEqualTo(151);
+        assertThat(withDefaults(true, 1, 5, 48, 2, 3, 3, 50).dailyRetentionDays())
+                .as("measured from the clamped hourly retention (7)").isEqualTo(38);
+        assertThat(withDefaults(true, 90, 121, 48, 2, 3, 3, 50).dailyRetentionDays()).isEqualTo(121);
+        assertThat(withDefaults(true, 90, 730, 48, 2, 3, 3, 50).dailyRetentionDays()).isEqualTo(730);
     }
 
     @Test

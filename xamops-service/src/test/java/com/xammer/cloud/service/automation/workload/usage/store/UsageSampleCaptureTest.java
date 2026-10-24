@@ -242,6 +242,57 @@ class UsageSampleCaptureTest {
     }
 
     @Test
+    @DisplayName("a replayed push with a skewed collectedAt is captured once, though receivedAt differs per attempt")
+    void replayWithSkewedCollectedAtIsCapturedOnce() {
+        UsageSampleCapture capture = capture(true, direct);
+        LocalDateTime skewed = collectedAt(NOW.minusSeconds(3600));
+
+        capture.process(CLUSTER, snapshot(), skewed, NOW);
+        capture.process(CLUSTER, snapshot(), skewed, NOW.plusSeconds(30));
+
+        verify(store, times(1)).insertSamples(anyList());
+        assertThat(count(UsageSampleCapture.SAMPLES_WRITTEN)).isEqualTo(2.0);
+
+        capture.process(CLUSTER, snapshot(), collectedAt(NOW.minusSeconds(3300)), NOW.plusSeconds(300));
+        verify(store, times(2)).insertSamples(anyList());
+        // Per cluster: another cluster's snapshot with the same collectedAt is not a replay.
+        capture.process(CLUSTER + 1, snapshot(), skewed, NOW.plusSeconds(60));
+        verify(store).resolveClientId(CLUSTER + 1);
+    }
+
+    @Test
+    @DisplayName("a failed capture is not remembered: the retry of that snapshot is written")
+    void failedCaptureIsRetried() {
+        when(store.insertSamples(anyList())).thenThrow(new IllegalStateException("db down"))
+                .thenAnswer(inv -> ((List<?>) inv.getArgument(0)).size());
+        UsageSampleCapture capture = capture(true, direct);
+        LocalDateTime skewed = collectedAt(NOW.minusSeconds(3600));
+
+        capture.process(CLUSTER, snapshot(), skewed, NOW);
+        capture.process(CLUSTER, snapshot(), skewed, NOW.plusSeconds(30));
+
+        verify(store, times(2)).insertSamples(anyList());
+        assertThat(errors("capture")).isEqualTo(1.0);
+        assertThat(count(UsageSampleCapture.SAMPLES_WRITTEN)).isEqualTo(2.0);
+    }
+
+    @Test
+    @DisplayName("the queued task holds its own compact copy, not the ingest's snapshot map")
+    void queuedTaskHoldsACompactCopy() {
+        List<Runnable> queued = new java.util.ArrayList<>();
+        UsageSampleCapture capture = capture(true, queued::add);
+        Map<String, Object> raw = new HashMap<>(snapshot());
+        raw.put("events", List.of(Map.of("message", "x".repeat(1000))));
+
+        capture.submit(CLUSTER, ACCOUNT, raw, collectedAt(NOW));
+        raw.clear();
+        assertThat(queued).hasSize(1);
+        queued.get(0).run();
+
+        assertThat(insertedRows()).hasSize(2);
+    }
+
+    @Test
     @DisplayName("the executor bean is one thread with AbortPolicy and the configured queue")
     void executorBean() {
         ThreadPoolTaskExecutor executor = new UsageRollupConfig().usageRollupExecutor(properties(true));

@@ -38,8 +38,7 @@ class UsageRollupStoreSqlGuardTest {
             // Cluster-scoped job write: ids come from that cluster's own identity rows.
             "UPDATE_LAST_SEEN", "touchLastSeen: hourly job bookkeeping, scoped to one cluster",
             // Job discovery: returns cluster ids only, no tenant data.
-            "SELECT_CLUSTERS_WITH_SAMPLES", "clustersWithSamples: which clusters the hourly job visits",
-            "SELECT_CLUSTERS_WITH_HOURLY", "clustersWithHourly: which clusters the daily job visits",
+            "SELECT_USAGE_CLUSTERS", "clustersWithUsage: which clusters the hourly and daily jobs visit",
             // Maintenance: a whole-partition verification count, returns a number only.
             "COUNT_UNROLLED_DAYS_TEMPLATE", "countUnrolledDays: drop verification over one partition",
             // Catalog / DDL: no tenant rows at all.

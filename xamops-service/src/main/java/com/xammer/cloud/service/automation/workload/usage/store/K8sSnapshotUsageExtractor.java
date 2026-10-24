@@ -3,6 +3,10 @@ package com.xammer.cloud.service.automation.workload.usage.store;
 import com.xammer.cloud.service.automation.workload.Quantities;
 import com.xammer.cloud.service.automation.workload.QuantityParseException;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -46,7 +50,7 @@ public final class K8sSnapshotUsageExtractor {
     /** One raw point, before identity resolution. A {@code null} request/limit means "not set". */
     public record Sample(String namespace, String kind, String name, String container,
                          double cpuM, long memB, Double cpuReqM, Double cpuLimM, Long memReqB, Long memLimB,
-                         int podHash, int runningReplicas) {
+                         long podHash, int runningReplicas) {
 
         public String workloadKey() {
             return WorkloadKey.of(kind, namespace, name, container);
@@ -104,6 +108,7 @@ public final class K8sSnapshotUsageExtractor {
             Map<?, ?> pod = running.get(i);
             Owner owner = owners.get(i);
             String podName = str(pod.get("name"));
+            long podHash = podHash(podName);
             Map<String, Usage> podUsage = metrics.getOrDefault(podKey(owner.namespace(), podName), Map.of());
             for (Object c : list(pod.get("containers"))) {
                 if (!(c instanceof Map<?, ?> container)) {
@@ -126,7 +131,7 @@ public final class K8sSnapshotUsageExtractor {
                             optionalCpu(container.get("cpuLimit"), "cpuLimit"),
                             optionalMem(container.get("memoryRequest"), "memoryRequest"),
                             optionalMem(container.get("memoryLimit"), "memoryLimit"),
-                            podName.hashCode(),
+                            podHash,
                             replicas.get(owner)));
                 } catch (QuantityParseException e) {
                     unparseable++;
@@ -134,6 +139,74 @@ public final class K8sSnapshotUsageExtractor {
             }
         }
         return new Result(samples, running.size(), withoutMetrics, unparseable);
+    }
+
+    /**
+     * The {@code pod_hash} of the sample key: the first 8 bytes of the sha256 of the pod name (UTF-8).
+     * 64 bits, so two pods of one workload in one snapshot do not collide (a 32-bit
+     * {@code String.hashCode()} would, silently dropping a point on {@code ON CONFLICT DO NOTHING}).
+     */
+    public static long podHash(String podName) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(podName.getBytes(StandardCharsets.UTF_8));
+            return ByteBuffer.wrap(digest, 0, Long.BYTES).getLong();
+        } catch (NoSuchAlgorithmException e) {
+            // Every JRE is required to provide SHA-256.
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
+    }
+
+    /**
+     * Only what {@link #extract} reads, so {@code extract(compact(s))} equals {@code extract(s)}:
+     * Running pods reduced to name, namespace, phase, controller, the {@code pod-template-hash} label
+     * and each container's name and requests/limits; {@code podMetrics} as is (already per-container
+     * usage only); CronJob namespace/name. The capture queue holds this instead of the whole snapshot
+     * (nodes, events, services, every label, image, port, ...). Plain map copies, no parsing.
+     */
+    public static Map<String, Object> compact(Map<?, ?> k8sResources) {
+        if (k8sResources == null) {
+            return Map.of();
+        }
+        List<Object> pods = new ArrayList<>();
+        for (Object element : list(k8sResources.get("pods"))) {
+            if (!(element instanceof Map<?, ?> pod) || !RUNNING.equals(str(pod.get("phase")))) {
+                continue;
+            }
+            Map<String, Object> slim = copy(pod, "name", "namespace", "phase", "controllerKind", "controllerName");
+            if (pod.get("labels") instanceof Map<?, ?> labels && labels.get(POD_TEMPLATE_HASH) != null) {
+                slim.put("labels", Map.of(POD_TEMPLATE_HASH, labels.get(POD_TEMPLATE_HASH)));
+            }
+            List<Object> containers = new ArrayList<>();
+            for (Object c : list(pod.get("containers"))) {
+                if (c instanceof Map<?, ?> container) {
+                    containers.add(copy(container, "name", "cpuRequest", "cpuLimit", "memoryRequest", "memoryLimit"));
+                }
+            }
+            slim.put("containers", containers);
+            pods.add(slim);
+        }
+        List<Object> cronJobs = new ArrayList<>();
+        for (Object element : list(k8sResources.get("cronJobs"))) {
+            if (element instanceof Map<?, ?> cj) {
+                cronJobs.add(copy(cj, "name", "namespace"));
+            }
+        }
+        Map<String, Object> compact = new HashMap<>();
+        compact.put("pods", pods);
+        compact.put("podMetrics", list(k8sResources.get("podMetrics")));
+        compact.put("cronJobs", cronJobs);
+        return compact;
+    }
+
+    private static Map<String, Object> copy(Map<?, ?> from, String... keys) {
+        Map<String, Object> to = new HashMap<>();
+        for (String key : keys) {
+            Object value = from.get(key);
+            if (value != null) {
+                to.put(key, value);
+            }
+        }
+        return to;
     }
 
     private static Owner ownerOf(Map<?, ?> pod, String namespace, String podName, Set<String> cronJobs) {

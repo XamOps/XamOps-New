@@ -1,14 +1,18 @@
 package com.xammer.cloud.service.automation.workload.usage.store;
 
 import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 import javax.sql.DataSource;
+import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Savepoint;
+import java.sql.Statement;
 import java.sql.Types;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -72,9 +76,14 @@ public class UsageRollupStore {
                     + " WHERE cluster_config_id = ? AND sampled_at >= ? AND sampled_at < ?"
                     + " ORDER BY workload_id, sampled_at, pod_hash";
 
-    static final String SELECT_CLUSTERS_WITH_SAMPLES =
-            "SELECT DISTINCT cluster_config_id FROM k8s_workload_usage_sample"
-                    + " WHERE sampled_at >= ? AND sampled_at < ? ORDER BY cluster_config_id";
+    /**
+     * The clusters the jobs visit: every cluster with a workload identity, a superset of those with
+     * samples or hourly rows in any window. Read from the small identity table (its
+     * {@code (cluster_config_id, workload_key)} unique index) rather than a DISTINCT over whole
+     * sample or hourly partitions.
+     */
+    static final String SELECT_USAGE_CLUSTERS =
+            "SELECT DISTINCT cluster_config_id FROM k8s_workload_identity ORDER BY cluster_config_id";
 
     private static final String HOURLY_METRIC_COLUMNS =
             "mem_p50_b, mem_p95_b, mem_max_b, mem_req_b, mem_lim_b,"
@@ -110,10 +119,6 @@ public class UsageRollupStore {
                     + " FROM k8s_workload_usage_hourly"
                     + " WHERE cluster_config_id = ? AND hour >= ? AND hour < ?"
                     + " ORDER BY workload_id, hour";
-
-    static final String SELECT_CLUSTERS_WITH_HOURLY =
-            "SELECT DISTINCT cluster_config_id FROM k8s_workload_usage_hourly"
-                    + " WHERE hour >= ? AND hour < ? ORDER BY cluster_config_id";
 
     private static final String USAGE_ROW_COLUMNS =
             "i.id, i.namespace, i.workload_kind, i.workload_name, i.container,"
@@ -165,6 +170,17 @@ public class UsageRollupStore {
      */
     static final String TRY_ADVISORY_XACT_LOCK = "SELECT pg_try_advisory_xact_lock(?)";
 
+    /**
+     * How long a partition create may wait for its locks. {@code CREATE TABLE ... PARTITION OF}
+     * clones the cascading foreign keys and so takes SHARE ROW EXCLUSIVE on {@code client} and
+     * {@code kubernetes_cluster_config}, which every agent push UPDATEs. A create that has to wait
+     * gives up after this long instead of queueing those writes behind it.
+     */
+    static final String PARTITION_LOCK_TIMEOUT = "2s";
+    static final String SET_LOCAL_LOCK_TIMEOUT = "SET LOCAL lock_timeout = '" + PARTITION_LOCK_TIMEOUT + "'";
+    static final String SHOW_LOCK_TIMEOUT = "SELECT current_setting('lock_timeout')";
+    static final String RESTORE_LOCK_TIMEOUT = "SELECT set_config('lock_timeout', ?, true)";
+
     /** The owning tenant of a cluster: {@code cloud_account.id = kubernetes_cluster_config.cloud_account_id}. */
     static final String RESOLVE_CLIENT_ID =
             "SELECT DISTINCT ca.client_id FROM kubernetes_cluster_config kcc"
@@ -185,6 +201,18 @@ public class UsageRollupStore {
     private static final String DUPLICATE_TABLE = "42P07";
     /** Concurrent CREATE TABLE IF NOT EXISTS can also collide on the pg_type unique index. */
     private static final String UNIQUE_VIOLATION = "23505";
+    private static final String LOCK_NOT_AVAILABLE = "55P03";
+
+    /**
+     * A partition create gave up on {@link #PARTITION_LOCK_TIMEOUT} (SQLState 55P03). Nothing was
+     * created; the next run retries.
+     */
+    public static final class PartitionLockTimeoutException extends RuntimeException {
+        public PartitionLockTimeoutException(String partition, Throwable cause) {
+            super("gave up creating partition " + partition + " after lock_timeout " + PARTITION_LOCK_TIMEOUT
+                    + " (retried next run)", cause);
+        }
+    }
 
     // ---------------------------------------------------------------- records
 
@@ -203,7 +231,7 @@ public class UsageRollupStore {
     public record SampleRow(long clusterConfigId, long clientId, long workloadId, Instant sampledAt,
                             long memB, Long memReqB, Long memLimB,
                             double cpuM, Double cpuReqM, Double cpuLimM,
-                            int podHash, int runningReplicas) {
+                            long podHash, int runningReplicas) {
     }
 
     public record HourlyRow(long clusterConfigId, long clientId, long workloadId, Instant hour,
@@ -362,7 +390,7 @@ public class UsageRollupStore {
             ps.setFloat(8, (float) s.cpuM());
             setReal(ps, 9, s.cpuReqM());
             setReal(ps, 10, s.cpuLimM());
-            ps.setInt(11, s.podHash());
+            ps.setLong(11, s.podHash());
             ps.setShort(12, toShort(s.runningReplicas()));
         });
         return inserted(counts);
@@ -373,9 +401,13 @@ public class UsageRollupStore {
         return jdbc.query(SELECT_SAMPLES, SAMPLE_MAPPER, clusterConfigId, ts(from), ts(to));
     }
 
-    /** Clusters with at least one sample in {@code [from, to)}. */
-    public List<Long> clustersWithSamples(Instant from, Instant to) {
-        return jdbc.queryForList(SELECT_CLUSTERS_WITH_SAMPLES, Long.class, ts(from), ts(to));
+    /**
+     * Every cluster with at least one workload identity: the clusters the hourly and daily jobs
+     * visit. A superset of those with samples or hourly rows in any window; a cluster without rows in
+     * the window costs one empty primary-key seek in {@link #readSamples} / {@link #readHourly}.
+     */
+    public List<Long> clustersWithUsage() {
+        return jdbc.queryForList(SELECT_USAGE_CLUSTERS, Long.class);
     }
 
     // ---------------------------------------------------------------- hourly / daily
@@ -417,11 +449,6 @@ public class UsageRollupStore {
         return jdbc.query(SELECT_HOURLY, HOURLY_MAPPER, clusterConfigId, ts(from), ts(to));
     }
 
-    /** Clusters with at least one hourly row in {@code [from, to)}. */
-    public List<Long> clustersWithHourly(Instant from, Instant to) {
-        return jdbc.queryForList(SELECT_CLUSTERS_WITH_HOURLY, Long.class, ts(from), ts(to));
-    }
-
     // ---------------------------------------------------------------- tenant read API
 
     /**
@@ -455,21 +482,72 @@ public class UsageRollupStore {
     /**
      * Creates the partition of {@code table} containing {@code period} if it does not exist. Cached
      * per JVM; a concurrent creator winning the race is success.
+     *
+     * <p>The create waits at most {@link #PARTITION_LOCK_TIMEOUT} for its locks (see there). Outside a
+     * transaction it runs in its own short one; inside the caller's (the maintenance job's
+     * advisory-lock transaction) it runs under a savepoint, so a failed create leaves that
+     * transaction usable, and the caller's {@code lock_timeout} is restored afterwards.
+     *
+     * @throws PartitionLockTimeoutException when the create gave up waiting; nothing was created
      */
     public void ensurePartition(UsagePartitions.Table table, LocalDate period) {
         String name = UsagePartitions.partitionName(table, period);
         if (knownPartitions.contains(name)) {
             return;
         }
+        String ddl = UsagePartitions.createSql(table, period);
         try {
-            jdbc.execute(UsagePartitions.createSql(table, period));
+            jdbc.execute((ConnectionCallback<Void>) connection -> {
+                createWithLockTimeout(connection, ddl);
+                return null;
+            });
         } catch (DataAccessException e) {
             String state = sqlState(e);
+            if (LOCK_NOT_AVAILABLE.equals(state)) {
+                throw new PartitionLockTimeoutException(name, e);
+            }
             if (!DUPLICATE_TABLE.equals(state) && !UNIQUE_VIOLATION.equals(state)) {
                 throw e;
             }
         }
         knownPartitions.add(name);
+    }
+
+    private static void createWithLockTimeout(Connection connection, String ddl) throws SQLException {
+        if (connection.getAutoCommit()) {
+            // Our own transaction: SET LOCAL ends with it.
+            connection.setAutoCommit(false);
+            try (Statement statement = connection.createStatement()) {
+                statement.execute(SET_LOCAL_LOCK_TIMEOUT);
+                statement.execute(ddl);
+                connection.commit();
+            } catch (SQLException | RuntimeException e) {
+                connection.rollback();
+                throw e;
+            } finally {
+                connection.setAutoCommit(true);
+            }
+            return;
+        }
+        Savepoint savepoint = connection.setSavepoint();
+        try (Statement statement = connection.createStatement()) {
+            String previous;
+            try (ResultSet rs = statement.executeQuery(SHOW_LOCK_TIMEOUT)) {
+                rs.next();
+                previous = rs.getString(1);
+            }
+            statement.execute(SET_LOCAL_LOCK_TIMEOUT);
+            statement.execute(ddl);
+            try (PreparedStatement restore = connection.prepareStatement(RESTORE_LOCK_TIMEOUT)) {
+                restore.setString(1, previous);
+                restore.execute();
+            }
+            connection.releaseSavepoint(savepoint);
+        } catch (SQLException | RuntimeException e) {
+            // Also undoes the SET LOCAL.
+            connection.rollback(savepoint);
+            throw e;
+        }
     }
 
     /**
@@ -533,7 +611,7 @@ public class UsageRollupStore {
             real(rs, "cpu_m"),
             nullableReal(rs, "cpu_req_m"),
             nullableReal(rs, "cpu_lim_m"),
-            rs.getInt("pod_hash"),
+            rs.getLong("pod_hash"),
             rs.getInt("running_replicas"));
 
     private static final RowMapper<HourlyRow> HOURLY_MAPPER = (rs, n) -> new HourlyRow(

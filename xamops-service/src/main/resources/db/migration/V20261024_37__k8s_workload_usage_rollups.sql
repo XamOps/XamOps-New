@@ -61,7 +61,11 @@
 -- 2027-01). Later months and every daily sample partition are created by the
 -- application (UsageRollupStore.ensurePartition, CREATE TABLE IF NOT EXISTS ...
 -- PARTITION OF) and aged ones are dropped by the maintenance job. Bounds are
--- always explicit UTC. Partition names are derived only from dates.
+-- always explicit UTC. Partition names are derived only from dates. Creating a
+-- partition clones the cascading FKs and so locks client and
+-- kubernetes_cluster_config (SHARE ROW EXCLUSIVE); the application's creates
+-- run with a 2 s lock_timeout and retry later rather than queue agent ingest.
+-- The static partitions below take the same locks once, at deploy.
 --
 -- GUARDS AND RE-RUNNABILITY
 --
@@ -100,7 +104,8 @@ CREATE INDEX IF NOT EXISTS ix_k8s_workload_identity_client_cluster
     ON k8s_workload_identity (client_id, cluster_config_id);
 
 -- Transient raw points, one per (pod, container, snapshot); daily partitions,
--- created on demand, dropped after the sample retention.
+-- created on demand, dropped after the sample retention. The 8-byte columns
+-- come first to avoid alignment padding.
 CREATE TABLE IF NOT EXISTS k8s_workload_usage_sample (
     cluster_config_id  BIGINT      NOT NULL REFERENCES kubernetes_cluster_config(id) ON DELETE CASCADE,
     client_id          BIGINT      NOT NULL REFERENCES client(id) ON DELETE CASCADE,
@@ -109,10 +114,10 @@ CREATE TABLE IF NOT EXISTS k8s_workload_usage_sample (
     mem_b              BIGINT      NOT NULL,
     mem_req_b          BIGINT,
     mem_lim_b          BIGINT,
+    pod_hash           BIGINT      NOT NULL,   -- 64-bit hash of the pod name: tells the pods of a snapshot apart
     cpu_m              REAL        NOT NULL,
     cpu_req_m          REAL,
     cpu_lim_m          REAL,
-    pod_hash           INTEGER     NOT NULL,   -- String.hashCode() of the pod name: dedupes replayed pushes
     running_replicas   SMALLINT    NOT NULL,   -- Running pods of this workload in this snapshot
     PRIMARY KEY (cluster_config_id, workload_id, sampled_at, pod_hash)
 ) PARTITION BY RANGE (sampled_at);
@@ -205,7 +210,7 @@ COMMENT ON COLUMN k8s_workload_usage_sample.mem_req_b IS
 COMMENT ON COLUMN k8s_workload_usage_sample.cpu_req_m IS
     'CPU request in millicores; NULL = not set on the container, never a fabricated 0.';
 COMMENT ON COLUMN k8s_workload_usage_sample.pod_hash IS
-    'String.hashCode() of the pod name; part of the key so a replayed push dedupes.';
+    'First 8 bytes of the sha256 of the pod name: part of the key so two pods of one workload in one snapshot never collide, and a replayed push dedupes.';
 
 COMMENT ON TABLE k8s_workload_usage_hourly IS
     'Usage per workload-container per UTC hour, recomputed (never accumulated) from the raw samples. Monthly partitions. Not a JPA entity.';

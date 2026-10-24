@@ -2,6 +2,7 @@ package com.xammer.cloud.service.automation.workload.usage.store;
 
 import com.xammer.cloud.service.automation.workload.usage.store.UsagePartitions.Table;
 import com.xammer.cloud.service.automation.workload.usage.store.UsageRollupStore.HourlyRow;
+import com.xammer.cloud.service.automation.workload.usage.store.UsageRollupStore.PartitionLockTimeoutException;
 import com.xammer.cloud.service.automation.workload.usage.store.UsageRollupStore.SampleRow;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +33,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -91,9 +93,12 @@ class UsageRollupJobTest {
     @Test
     @DisplayName("at 05:07Z the hourly window is [02:00Z, 05:00Z)")
     void hourlyWindow() {
+        when(store.clustersWithUsage()).thenReturn(List.of(1L, 2L));
         UsageRollupJob job = job(props(true, 90), "2026-10-24T05:07:00Z");
         job.runHourly();
-        verify(store).clustersWithSamples(Instant.parse("2026-10-24T02:00:00Z"), Instant.parse("2026-10-24T05:00:00Z"));
+        verify(store).readSamples(1L, Instant.parse("2026-10-24T02:00:00Z"), Instant.parse("2026-10-24T05:00:00Z"));
+        verify(store).readSamples(2L, Instant.parse("2026-10-24T02:00:00Z"), Instant.parse("2026-10-24T05:00:00Z"));
+        verify(store, never()).upsertHourly(any());
     }
 
     @Test
@@ -106,7 +111,7 @@ class UsageRollupJobTest {
                 sample(1, 10, "2026-10-24T03:55:00Z", 120, 2),
                 sample(1, 10, "2026-10-24T04:00:00Z", 140, 2),
                 sample(1, 11, "2026-10-24T04:30:00Z", 50, 1));
-        when(store.clustersWithSamples(start, end)).thenReturn(List.of(1L));
+        when(store.clustersWithUsage()).thenReturn(List.of(1L));
         when(store.readSamples(1L, start, end)).thenReturn(samples);
 
         UsageRollupJob job = job(props(true, 90), "2026-10-24T05:07:00Z");
@@ -134,7 +139,7 @@ class UsageRollupJobTest {
     void clusterFailureIsIsolated() {
         Instant start = Instant.parse("2026-10-24T02:00:00Z");
         Instant end = Instant.parse("2026-10-24T05:00:00Z");
-        when(store.clustersWithSamples(start, end)).thenReturn(List.of(1L, 2L));
+        when(store.clustersWithUsage()).thenReturn(List.of(1L, 2L));
         when(store.readSamples(1L, start, end)).thenThrow(new IllegalStateException("boom"));
         when(store.readSamples(2L, start, end)).thenReturn(List.of(sample(2, 20, "2026-10-24T04:10:00Z", 5, 1)));
 
@@ -148,7 +153,7 @@ class UsageRollupJobTest {
     @Test
     @DisplayName("a store failure before any cluster never escapes runHourly")
     void hourlyNeverThrows() {
-        when(store.clustersWithSamples(any(), any())).thenThrow(new IllegalStateException("db down"));
+        when(store.clustersWithUsage()).thenThrow(new IllegalStateException("db down"));
         assertThatCode(job(props(true, 90), "2026-10-24T05:07:00Z")::runHourly).doesNotThrowAnyException();
         assertThat(errors("hourly")).isEqualTo(1.0);
     }
@@ -156,7 +161,7 @@ class UsageRollupJobTest {
     // ---------------------------------------------------------------- maintenance: partitions
 
     @Test
-    @DisplayName("on 2026-12-30 maintenance ensures Dec..Feb hourly + daily and samples Dec 30 .. Jan 1 (crosses the year)")
+    @DisplayName("on 2026-12-30 maintenance ensures Dec..Feb hourly + daily and samples Dec 30 .. Jan 6 (crosses the year)")
     void ensuresPartitionsAcrossTheYear() {
         UsageRollupJob job = job(props(true, 90), "2026-12-30T01:30:00Z");
         job.runMaintenance();
@@ -166,16 +171,51 @@ class UsageRollupJobTest {
                 "k8s_workload_usage_daily_y2026m12", "k8s_workload_usage_daily_y2027m01",
                 "k8s_workload_usage_daily_y2027m02",
                 "k8s_workload_usage_sample_d20261230", "k8s_workload_usage_sample_d20261231",
-                "k8s_workload_usage_sample_d20270101");
-        verify(store, times(9)).tryAdvisoryXactLock(UsageRollupJob.DDL_LOCK_KEY);
+                "k8s_workload_usage_sample_d20270101", "k8s_workload_usage_sample_d20270102",
+                "k8s_workload_usage_sample_d20270103", "k8s_workload_usage_sample_d20270104",
+                "k8s_workload_usage_sample_d20270105", "k8s_workload_usage_sample_d20270106");
+        verify(store, times(14)).tryAdvisoryXactLock(UsageRollupJob.DDL_LOCK_KEY);
     }
 
     @Test
     @DisplayName("the startup hook ensures the same partitions")
     void startupEnsuresPartitions() {
         job(props(true, 90), "2026-12-30T08:00:00Z").onApplicationReady();
-        assertThat(ensured()).hasSize(9).contains("k8s_workload_usage_sample_d20270101");
+        assertThat(ensured()).hasSize(14).contains("k8s_workload_usage_sample_d20270106");
         verify(store, never()).dropPartition(anyString());
+    }
+
+    @Test
+    @DisplayName("a create that gives up on lock_timeout is skipped, not failed: the others are still ensured")
+    void lockTimeoutIsSkippedNotFailed() {
+        doThrow(new PartitionLockTimeoutException("k8s_workload_usage_sample_d20261231", null))
+                .when(store).ensurePartition(Table.SAMPLE, LocalDate.of(2026, 12, 31));
+        UsageRollupJob job = job(props(true, 90), "2026-12-30T01:30:00Z");
+
+        assertThatCode(job::runMaintenance).doesNotThrowAnyException();
+        assertThatCode(job::onApplicationReady).doesNotThrowAnyException();
+
+        verify(store, times(2)).ensurePartition(Table.SAMPLE, LocalDate.of(2027, 1, 6));
+        verify(store, times(2)).ensurePartition(Table.HOURLY, LocalDate.of(2027, 2, 1));
+        assertThat(errors("maintenance")).as("a lock timeout is retried next run, not an error").isZero();
+    }
+
+    @Test
+    @DisplayName("a daily-partition create that gives up on lock_timeout skips that day, the others still roll")
+    void dailyLockTimeoutSkipsTheDay() {
+        when(store.clustersWithUsage()).thenReturn(List.of(3L));
+        Instant oct22 = Instant.parse("2026-10-22T00:00:00Z");
+        Instant oct23 = Instant.parse("2026-10-23T00:00:00Z");
+        Instant oct24 = Instant.parse("2026-10-24T00:00:00Z");
+        when(store.readHourly(3L, oct22, oct23)).thenReturn(List.of(hourly(3, 30, "2026-10-22T10:00:00Z")));
+        when(store.readHourly(3L, oct23, oct24)).thenReturn(List.of(hourly(3, 30, "2026-10-23T10:00:00Z")));
+        doThrow(new PartitionLockTimeoutException("k8s_workload_usage_daily_y2026m10", null))
+                .when(store).ensurePartition(Table.DAILY, LocalDate.of(2026, 10, 22));
+
+        job(props(true, 90), "2026-10-24T01:30:00Z").runMaintenance();
+
+        verify(store, times(1)).upsertDaily(any());
+        assertThat(errors("maintenance")).isZero();
     }
 
     @Test
@@ -215,6 +255,7 @@ class UsageRollupJobTest {
     @Test
     @DisplayName("hourly y2026m07 at 2026-11-05 is dropped once countUnrolledDays is 0, after re-running July's daily rollup")
     void agedHourlyDroppedWhenVerified() {
+        when(store.clustersWithUsage()).thenReturn(List.of(3L));
         when(store.listPartitions(HOURLY)).thenReturn(List.of(
                 "k8s_workload_usage_hourly_y2026m07", "k8s_workload_usage_hourly_y2026m08"));
         when(store.countUnrolledDays("k8s_workload_usage_hourly_y2026m07")).thenReturn(0L);
@@ -225,8 +266,8 @@ class UsageRollupJobTest {
         verify(store, never()).dropPartition("k8s_workload_usage_hourly_y2026m08");
         verify(store, never()).countUnrolledDays("k8s_workload_usage_hourly_y2026m08");
         // Every day of July was re-rolled before the check.
-        verify(store).clustersWithHourly(Instant.parse("2026-07-01T00:00:00Z"), Instant.parse("2026-07-02T00:00:00Z"));
-        verify(store).clustersWithHourly(Instant.parse("2026-07-31T00:00:00Z"), Instant.parse("2026-08-01T00:00:00Z"));
+        verify(store).readHourly(3L, Instant.parse("2026-07-01T00:00:00Z"), Instant.parse("2026-07-02T00:00:00Z"));
+        verify(store).readHourly(3L, Instant.parse("2026-07-31T00:00:00Z"), Instant.parse("2026-08-01T00:00:00Z"));
         assertThat(errors("maintenance")).isZero();
     }
 
@@ -249,7 +290,7 @@ class UsageRollupJobTest {
         Instant julyFirst = Instant.parse("2026-07-01T00:00:00Z");
         Instant julySecond = Instant.parse("2026-07-02T00:00:00Z");
         when(store.listPartitions(HOURLY)).thenReturn(List.of("k8s_workload_usage_hourly_y2026m07"));
-        when(store.clustersWithHourly(julyFirst, julySecond)).thenReturn(List.of(3L));
+        when(store.clustersWithUsage()).thenReturn(List.of(3L));
         when(store.readHourly(3L, julyFirst, julySecond)).thenReturn(List.of(
                 hourly(3, 30, "2026-07-01T10:00:00Z"), hourly(3, 30, "2026-07-01T11:00:00Z")));
 
@@ -345,7 +386,7 @@ class UsageRollupJobTest {
 
     private static SampleRow sample(long cluster, long workload, String at, double cpuM, int replicas) {
         return new SampleRow(cluster, 5L, workload, Instant.parse(at), 64 * MI, null, 128 * MI, cpuM, 100.0, null,
-                (int) (cpuM * 7), replicas);
+                (long) (cpuM * 7), replicas);
     }
 
     private static HourlyRow hourly(long cluster, long workload, String hour) {

@@ -4,6 +4,7 @@ import com.xammer.cloud.service.automation.workload.usage.store.UsagePartitions.
 import com.xammer.cloud.service.automation.workload.usage.store.UsagePartitions.Table;
 import com.xammer.cloud.service.automation.workload.usage.store.UsageRollupStore.DailyRow;
 import com.xammer.cloud.service.automation.workload.usage.store.UsageRollupStore.HourlyRow;
+import com.xammer.cloud.service.automation.workload.usage.store.UsageRollupStore.PartitionLockTimeoutException;
 import com.xammer.cloud.service.automation.workload.usage.store.UsageRollupStore.SampleRow;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -48,7 +49,7 @@ import java.util.Set;
  *
  * <ol type="a">
  *   <li>ensure partitions: hourly and daily for the current UTC month and {@code premake-months}
- *       ahead, samples for today .. today + 2</li>
+ *       ahead, samples for today .. today + {@value #SAMPLE_PREMAKE_DAYS}</li>
  *   <li>daily downsample of the last {@code daily-lookback-days} closed UTC days</li>
  *   <li>drop sample partitions older than {@code sample-retention-hours}</li>
  *   <li>for each hourly partition older than {@code hourly-retention-days}: re-run the daily rollup of
@@ -59,8 +60,11 @@ import java.util.Set;
  *
  * Every DDL statement runs in its own short transaction that first takes
  * {@code pg_try_advisory_xact_lock(}{@value #DDL_LOCK_KEY}{@code )} and skips the statement when
- * another instance holds it. Only partitions whose names {@link UsagePartitions#parse} accepts are
- * ever considered for a drop. Step (a) also runs once on {@link ApplicationReadyEvent}.
+ * another instance holds it. A partition create also gives up after the store's {@code lock_timeout}
+ * (it locks {@code client} and {@code kubernetes_cluster_config}, which agent ingest writes); that is
+ * counted as skipped, not failed, and retried on the next run, which the week of pre-made sample
+ * partitions absorbs. Only partitions whose names {@link UsagePartitions#parse} accepts are ever
+ * considered for a drop. Step (a) also runs once on {@link ApplicationReadyEvent}.
  *
  * <p>Real data only: nothing is backfilled or synthesised; an hour without samples has no row.
  * Logs name clusters by config id only.
@@ -72,8 +76,11 @@ public class UsageRollupJob {
 
     /** Advisory lock serialising partition DDL across instances ("XAMOPSUR" in ASCII). */
     static final long DDL_LOCK_KEY = 0x58414D4F50535552L;
-    /** Sample partitions pre-created beyond today. */
-    static final int SAMPLE_PREMAKE_DAYS = 2;
+    /**
+     * Sample partitions pre-created beyond today: a week, so several runs in a row can skip a create
+     * on a lock timeout before the capture path ever has to create one on demand.
+     */
+    static final int SAMPLE_PREMAKE_DAYS = 7;
 
     private final UsageRollupProperties properties;
     private final UsageRollupStore store;
@@ -118,10 +125,13 @@ public class UsageRollupJob {
             int clusters = 0;
             int rows = 0;
             int failures = 0;
-            for (Long clusterConfigId : store.clustersWithSamples(start, end)) {
-                clusters++;
+            for (Long clusterConfigId : store.clustersWithUsage()) {
                 try {
-                    rows += rollupCluster(clusterConfigId, start, end);
+                    int written = rollupCluster(clusterConfigId, start, end);
+                    if (written > 0) {
+                        clusters++;
+                        rows += written;
+                    }
                 } catch (RuntimeException e) {
                     failures++;
                     hourlyErrors.increment();
@@ -198,9 +208,9 @@ public class UsageRollupJob {
 
         logger.info("Usage rollup maintenance {}: {} partitions ensured, {} daily rows, dropped {} sample / {} hourly"
                         + " / {} daily partitions, {} hourly partitions kept unverified, {} DDL skipped (lock held"
-                        + " elsewhere), {} failures",
+                        + " elsewhere), {} partition creates gave up on lock_timeout (retried next run), {} failures",
                 today, tally.ensured, tally.dailyRows, tally.samplesDropped, tally.hourlyDropped, tally.dailyDropped,
-                tally.hourlyKept, tally.lockSkipped, tally.failures);
+                tally.hourlyKept, tally.lockSkipped, tally.lockTimeouts, tally.failures);
     }
 
     /** Pre-creates the partitions the next writes need, once the application is up. Never throws. */
@@ -212,11 +222,12 @@ public class UsageRollupJob {
         Tally tally = new Tally();
         step("ensure partitions at startup", tally, () -> ensurePartitions(UsageRollupMath.utcDay(clock.instant()),
                 tally));
-        logger.info("Usage rollup startup: {} partitions ensured, {} skipped (lock held elsewhere), {} failures",
-                tally.ensured, tally.lockSkipped, tally.failures);
+        logger.info("Usage rollup startup: {} partitions ensured, {} skipped (lock held elsewhere), {} gave up on"
+                + " lock_timeout (retried by maintenance), {} failures",
+                tally.ensured, tally.lockSkipped, tally.lockTimeouts, tally.failures);
     }
 
-    /** (a) hourly + daily: current month .. + premake-months; sample: today .. today + 2. */
+    /** (a) hourly + daily: current month .. + premake-months; sample: today .. today + SAMPLE_PREMAKE_DAYS. */
     private void ensurePartitions(LocalDate today, Tally tally) {
         List<Partition> wanted = new ArrayList<>();
         LocalDate month = today.withDayOfMonth(1);
@@ -234,6 +245,8 @@ public class UsageRollupJob {
                 } else {
                     tally.lockSkipped++;
                 }
+            } catch (PartitionLockTimeoutException e) {
+                lockTimedOut(tally, partition.name());
             } catch (RuntimeException e) {
                 failed(tally, "could not ensure partition " + partition.name(), e);
             }
@@ -246,12 +259,15 @@ public class UsageRollupJob {
      */
     private int rollupDays(LocalDate from, LocalDate toInclusive, Tally tally) {
         int written = 0;
+        List<Long> clusters = store.clustersWithUsage();
         for (LocalDate day = from; !day.isAfter(toInclusive); day = day.plusDays(1)) {
             Instant dayStart = UsagePartitions.lowerBound(Table.SAMPLE, day);
             Instant dayEnd = UsagePartitions.upperBound(Table.SAMPLE, day);
-            for (Long clusterConfigId : store.clustersWithHourly(dayStart, dayEnd)) {
+            for (Long clusterConfigId : clusters) {
                 try {
                     written += rollupDay(clusterConfigId, day, dayStart, dayEnd);
+                } catch (PartitionLockTimeoutException e) {
+                    lockTimedOut(tally, UsagePartitions.partitionName(Table.DAILY, day));
                 } catch (RuntimeException e) {
                     failed(tally, "daily rollup of " + day + " failed for cluster config " + clusterConfigId, e);
                 }
@@ -366,6 +382,13 @@ public class UsageRollupJob {
         }
     }
 
+    /** A partition create gave up on its lock timeout: skipped and counted, retried on the next run. */
+    private void lockTimedOut(Tally tally, String partition) {
+        tally.lockTimeouts++;
+        logger.warn("Usage rollup maintenance: gave up creating partition {} on lock_timeout (a long write on"
+                + " client / kubernetes_cluster_config held it); retried next run", partition);
+    }
+
     private void failed(Tally tally, String what, RuntimeException e) {
         tally.failures++;
         maintenanceErrors.increment();
@@ -376,6 +399,7 @@ public class UsageRollupJob {
     private static final class Tally {
         int ensured;
         int lockSkipped;
+        int lockTimeouts;
         int dailyRows;
         int samplesDropped;
         int hourlyDropped;

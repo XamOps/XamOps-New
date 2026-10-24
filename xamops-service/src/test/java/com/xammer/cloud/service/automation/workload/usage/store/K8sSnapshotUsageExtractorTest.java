@@ -138,7 +138,7 @@ class K8sSnapshotUsageExtractorTest {
 
         assertThat(r.samples()).hasSize(3).allSatisfy(s -> assertThat(s.runningReplicas()).isEqualTo(3));
         assertThat(r.samples()).extracting(Sample::podHash).doesNotHaveDuplicates()
-                .contains("web-7d9f8b6c4-aaaaa".hashCode());
+                .contains(K8sSnapshotUsageExtractor.podHash("web-7d9f8b6c4-aaaaa"));
         assertThat(r.samples()).extracting(Sample::workloadKey).containsOnly(WorkloadKey.of("Deployment", "shop", "web", "app"));
     }
 
@@ -253,7 +253,76 @@ class K8sSnapshotUsageExtractorTest {
         assertThat(r.podsSeen()).isEqualTo(1);
     }
 
+    // ---------------------------------------------------------------- pod hash / compact form
+
+    @Test
+    @DisplayName("pod_hash is 64-bit: names that collide under String.hashCode() get different hashes")
+    void podHashIs64Bit() {
+        assertThat("Aa".hashCode()).isEqualTo("BB".hashCode());
+        assertThat(K8sSnapshotUsageExtractor.podHash("Aa")).isNotEqualTo(K8sSnapshotUsageExtractor.podHash("BB"));
+        assertThat(K8sSnapshotUsageExtractor.podHash("web-7d9f8b6c4-aaaaa"))
+                .as("stable across calls, so a replay keys the same")
+                .isEqualTo(K8sSnapshotUsageExtractor.podHash("web-7d9f8b6c4-aaaaa"));
+    }
+
+    @Test
+    @DisplayName("extract(compact(s)) equals extract(s), and compact keeps only what extract reads")
+    void compactExtractsTheSame() {
+        Map<String, Object> deployment = deploymentPod("web", "aaaaa", "Running");
+        deployment.put("nodeName", "ip-10-0-0-1");
+        deployment.put("podIp", "10.0.0.9");
+        Map<String, Object> rich = container("app", "100m", "500m", "64Mi", "256Mi");
+        rich.put("image", "registry/web:1.2.3");
+        rich.put("ports", List.of(Map.of("containerPort", 8080)));
+        deployment.put("containers", List.of(rich, container("sidecar", "", "", "", "")));
+        deployment.put("initContainers", List.of(container("init", "", "", "", "")));
+        Map<String, Object> scheduled = pod("ops", "backup-29012345-abcde", "Running", "Job", "backup-29012345",
+                Map.of(), container("backup", "", "", "", ""));
+        Map<String, Object> bare = pod("default", "debug", "Running", "", "", Map.of(), container("sh", "abc", "", "", ""));
+        Map<String, Object> pending = deploymentPod("web", "bbbbb", "Pending");
+        Map<String, Object> noLabels = pod("shop", "api-0", "Running", "StatefulSet", "api", Map.of(),
+                container("app", "", "", "", ""));
+        noLabels.remove("labels");
+
+        Map<String, Object> deploymentMetrics = metrics(deployment, "app", "1234567n", "34Mi");
+        deploymentMetrics.put("containers", List.of(usage("app", "1234567n", "34Mi"), usage("sidecar", "2m", "5Mi"),
+                usage("init", "1m", "1Mi")));
+        Map<String, Object> s = snapshot(List.of(deployment, scheduled, bare, pending, noLabels),
+                List.of(deploymentMetrics, metrics(scheduled, "backup", "1m", "1Mi"), metrics(bare, "sh", "1m", "1Mi"),
+                        metrics(pending, "app", "1m", "1Mi")),
+                List.of(Map.of("name", "backup", "namespace", "ops", "schedule", "0 * * * *")));
+        s.put("nodes", List.of(Map.of("name", "ip-10-0-0-1", "labels", Map.of("a", "b"))));
+        s.put("events", List.of(Map.of("reason", "Scheduled", "message", "x".repeat(500))));
+        s.put("summary", Map.of("totalPods", 5));
+
+        Map<String, Object> compact = K8sSnapshotUsageExtractor.compact(s);
+
+        assertThat(K8sSnapshotUsageExtractor.extract(compact)).isEqualTo(K8sSnapshotUsageExtractor.extract(s));
+        assertThat(K8sSnapshotUsageExtractor.extract(compact).samples())
+                .as("web app + sidecar, the CronJob's backup; debug's request is unparseable, api-0 unmeasured")
+                .hasSize(3);
+        assertThat(compact).containsOnlyKeys("pods", "podMetrics", "cronJobs");
+        assertThat((List<?>) compact.get("pods")).as("Running pods only").hasSize(4).allSatisfy(p -> {
+            Map<?, ?> pod = (Map<?, ?>) p;
+            assertThat(keys(pod)).isSubsetOf("name", "namespace", "phase", "controllerKind", "controllerName",
+                    "labels", "containers");
+            if (pod.get("labels") instanceof Map<?, ?> labels) {
+                assertThat(keys(labels)).containsOnly("pod-template-hash");
+            }
+            for (Object c : (List<?>) pod.get("containers")) {
+                assertThat(keys((Map<?, ?>) c)).isSubsetOf("name", "cpuRequest", "cpuLimit", "memoryRequest",
+                        "memoryLimit");
+            }
+        });
+        assertThat(K8sSnapshotUsageExtractor.compact(null)).isEmpty();
+        assertThat(K8sSnapshotUsageExtractor.extract(K8sSnapshotUsageExtractor.compact(Map.of())).samples()).isEmpty();
+    }
+
     // ---------------------------------------------------------------- helpers
+
+    private static List<String> keys(Map<?, ?> map) {
+        return map.keySet().stream().map(String::valueOf).toList();
+    }
 
     private static Sample single(Map<String, Object> snapshot) {
         Result r = K8sSnapshotUsageExtractor.extract(snapshot);

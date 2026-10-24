@@ -22,7 +22,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +40,14 @@ import java.util.concurrent.atomic.AtomicLong;
  * there is no transaction), and {@code submit} never throws. Everything that runs later is caught,
  * logged at WARN with the cluster config id only, and counted, so a broken rollup can never fail or
  * slow an agent push.
+ *
+ * <p>The queue holds {@link K8sSnapshotUsageExtractor#compact} of each snapshot (the few fields the
+ * extractor reads), not the whole snapshot, so a backlog stays small. The compact copy is made after
+ * the commit, outside the ingest transaction.
+ *
+ * <p>A snapshot whose agent {@code collectedAt} was already captured for its cluster (the agent
+ * re-sends the same body when a push response is lost) is skipped, whatever {@code sampled_at} it
+ * would get; in-window replays also dedupe on the sample primary key.
  *
  * <h2>Counters</h2>
  * <ul>
@@ -60,6 +70,8 @@ public class UsageSampleCapture {
     static final Duration MAX_COLLECTED_AT_LEAD = Duration.ofMinutes(2);
     static final Duration CLIENT_CACHE_TTL = Duration.ofMinutes(10);
     static final Duration DROP_WARN_INTERVAL = Duration.ofMinutes(1);
+    /** {@code collectedAt} values remembered per cluster for replay dedupe: ~80 min at 300 s pushes. */
+    static final int RECENT_SNAPSHOTS_PER_CLUSTER = 16;
 
     private static final String FOREIGN_KEY_VIOLATION = "23503";
 
@@ -76,6 +88,7 @@ public class UsageSampleCapture {
     }
 
     private final Map<Long, CachedClient> clients = new ConcurrentHashMap<>();
+    private final Map<Long, Deque<LocalDateTime>> recentSnapshots = new ConcurrentHashMap<>();
     private final AtomicLong nextDropWarnAtMillis = new AtomicLong(Long.MIN_VALUE);
 
     @Autowired
@@ -117,28 +130,26 @@ public class UsageSampleCapture {
                     || batchCollectedAt == null || !(k8sResourcesItem instanceof Map<?, ?> raw)) {
                 return;
             }
-            @SuppressWarnings("unchecked")
-            Map<String, Object> snapshot = (Map<String, Object>) raw;
             Instant receivedAt = clock.instant();
-            Runnable task = () -> process(clusterConfigId, snapshot, batchCollectedAt, receivedAt);
             if (TransactionSynchronizationManager.isSynchronizationActive()) {
                 TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                     @Override
                     public void afterCommit() {
-                        enqueue(clusterConfigId, task);
+                        enqueue(clusterConfigId, raw, batchCollectedAt, receivedAt);
                     }
                 });
             } else {
-                enqueue(clusterConfigId, task);
+                enqueue(clusterConfigId, raw, batchCollectedAt, receivedAt);
             }
         } catch (RuntimeException e) {
             enqueueFailed(clusterConfigId, e);
         }
     }
 
-    private void enqueue(Long clusterConfigId, Runnable task) {
+    private void enqueue(Long clusterConfigId, Map<?, ?> raw, LocalDateTime batchCollectedAt, Instant receivedAt) {
         try {
-            executor.execute(task);
+            Map<String, Object> snapshot = K8sSnapshotUsageExtractor.compact(raw);
+            executor.execute(() -> process(clusterConfigId, snapshot, batchCollectedAt, receivedAt));
         } catch (TaskRejectedException e) {
             dropped.increment();
             long now = clock.millis();
@@ -162,6 +173,11 @@ public class UsageSampleCapture {
     void process(long clusterConfigId, Map<String, Object> snapshot, LocalDateTime batchCollectedAt,
                  Instant receivedAt) {
         try {
+            if (alreadyCaptured(clusterConfigId, batchCollectedAt)) {
+                logger.debug("Usage rollup: cluster config {}: snapshot collected at {} already captured (replayed"
+                        + " push); skipped", clusterConfigId, batchCollectedAt);
+                return;
+            }
             Instant sampledAt = sampledAt(batchCollectedAt, receivedAt);
             Optional<Long> clientId = clientOf(clusterConfigId, receivedAt);
             if (clientId.isEmpty()) {
@@ -171,6 +187,7 @@ public class UsageSampleCapture {
             }
             K8sSnapshotUsageExtractor.Result extracted = K8sSnapshotUsageExtractor.extract(snapshot);
             if (extracted.samples().isEmpty()) {
+                markCaptured(clusterConfigId, batchCollectedAt);
                 return;
             }
 
@@ -196,6 +213,7 @@ public class UsageSampleCapture {
 
             store.ensurePartition(UsagePartitions.Table.SAMPLE, LocalDate.ofInstant(sampledAt, ZoneOffset.UTC));
             int written = store.insertSamples(rows);
+            markCaptured(clusterConfigId, batchCollectedAt);
             samplesWritten.increment(written);
             logger.debug("Usage rollup: cluster config {} at {}: {} pods, {} samples ({} new), "
                             + "{} containers without metrics, {} unparseable",
@@ -207,14 +225,37 @@ public class UsageSampleCapture {
                 // The cluster (or its client) was deleted or re-bound: forget what we cached for it.
                 store.evictCluster(clusterConfigId);
                 clients.remove(clusterConfigId);
+                recentSnapshots.remove(clusterConfigId);
             }
             logger.warn("Usage rollup: capture failed for cluster config {}: {}", clusterConfigId, e.toString());
         }
     }
 
+    /** True when this cluster's snapshot with this agent {@code collectedAt} was already written. */
+    private boolean alreadyCaptured(long clusterConfigId, LocalDateTime collectedAt) {
+        Deque<LocalDateTime> recent = recentSnapshots.get(clusterConfigId);
+        if (recent == null) {
+            return false;
+        }
+        synchronized (recent) {
+            return recent.contains(collectedAt);
+        }
+    }
+
+    /** Remembers a written snapshot; only the last {@value #RECENT_SNAPSHOTS_PER_CLUSTER} per cluster. */
+    private void markCaptured(long clusterConfigId, LocalDateTime collectedAt) {
+        Deque<LocalDateTime> recent = recentSnapshots.computeIfAbsent(clusterConfigId, k -> new ArrayDeque<>());
+        synchronized (recent) {
+            recent.addLast(collectedAt);
+            while (recent.size() > RECENT_SNAPSHOTS_PER_CLUSTER) {
+                recent.removeFirst();
+            }
+        }
+    }
+
     /**
      * The agent's {@code collectedAt} (UTC) when it is plausibly close to the server's receive time,
-     * else the receive time; truncated to seconds so a replayed push dedupes on the sample PK.
+     * else the receive time; truncated to seconds so an in-window replay also dedupes on the sample PK.
      */
     static Instant sampledAt(LocalDateTime batchCollectedAt, Instant receivedAt) {
         Instant chosen = receivedAt;
