@@ -33,10 +33,11 @@ import {
 import useAutomationRead from '../../../../hooks/useAutomationRead';
 import useAutomationActivity, { useActivitySummary, type UseAutomationActivityState } from '../../../../hooks/useAutomationActivity';
 import useAutomationUsage from '../../../../hooks/useAutomationUsage';
+import useNodeAutomationRead, { type ReadState } from '../../../../hooks/useNodeAutomationRead';
 import type { InsightReadState } from '../../../../hooks/useInsightRead';
 import type { UseEksDashboardReturn } from '../../../../hooks/useEksDashboard';
 import type { AutomationReadResult } from '../../../../api/automationReadApi';
-import type { ActionId, CapabilitiesDto, Capability, ReadinessKey } from '../../../../types/k8sAutomation';
+import type { ActionId, AutomationNodeFleet, CapabilitiesDto, Capability, ReadinessKey } from '../../../../types/k8sAutomation';
 import type { VerticalEngineView } from '../../../../types/verticalRightsizer';
 import type { ActivitySummaryView } from '../../../../types/automationActivity';
 import { AccessBanner } from '../../../CloudK8s/shared/AccessBanner';
@@ -125,7 +126,7 @@ export const TODAY_ROWS: readonly TodayRow[] = [
     page: { target: 'vpa', label: 'Automation › VPA' },
     apply: { readiness: 'vpa-apply' },
   },
-  { id: 'spot-interruption', label: 'Spot interruption handling', analysis: 'Protective · state not shown yet', apply: { actionId: 'nodeOptimizer.settings' } },
+  { id: 'spot-interruption', label: 'Spot interruption handling', analysis: 'Interrupted nodes the agent is draining', apply: { actionId: 'nodeOptimizer.settings' } },
 ];
 
 /** A readiness key with no control of its own (VPA): ready, or its server message. */
@@ -298,6 +299,55 @@ function analysisText(caps: K8sCapabilitiesValue, row: TodayRow): string {
   return row.analysis;
 }
 
+/** The honest em-dash + sr-only "None" idiom this file uses whenever there is no value to show. */
+function Dash() {
+  return <><span aria-hidden="true">—</span><span className="sr-only">None</span></>;
+}
+
+/**
+ * The spot-interruption row's Analysis cell, from the real node-fleet read
+ * (FEAT-003 / scorecard §3 AC3.4). It surfaces the agent's `interruptedNodes` and never fabricates:
+ *  - ok with interrupted nodes → a StatusDot (tone "warn", the `attention` meaning) with the count
+ *    and the fleet's data age, under the honest "Protective" framing (the drain is gated/additive
+ *    to NTH, so "Protective" stays true);
+ *  - ok with none → a StatusDot (tone "good") reading "None interrupted" with the data age;
+ *  - loading / error → the em-dash + sr-only "None" idiom, so a failed read never reads as "healthy".
+ */
+function SpotAnalysis({ fleet, now }: { fleet: ReadState<AutomationNodeFleet>; now: number }) {
+  if (fleet.kind !== 'ok') return <span className={MUTED} data-analysis="spot-interruption"><Dash /></span>;
+  const count = fleet.data.interruptedNodes.length;
+  const age = dataAge(fleet.data.collectedAt, now);
+  return (
+    <span className={MUTED} data-analysis="spot-interruption">
+      <span className="block"><span className="text-[12px]">Protective</span></span>
+      {count > 0 ? (
+        <StatusDot tone="warn" label={`${count} node${count === 1 ? '' : 's'} interrupted`} detail={age} />
+      ) : (
+        <StatusDot tone="good" label="None interrupted" detail={age} />
+      )}
+    </span>
+  );
+}
+
+/**
+ * The spot-interruption row's drawer "Last drain" line. FEAT-003 is frontend-only: the node-fleet
+ * read serves `interruptedNodes` but NO last-drain-outcome field, so this is the honest em-dash with
+ * a plain sentence; wiring a real last-drain outcome is a backend follow-up (recorded in findings).
+ */
+function spotDrawerData(): DrawerDatum[] {
+  return [
+    {
+      label: 'What XamOps does',
+      value: 'On a spot interruption XamOps drains the node — protective and gated, additive to the node’s own interruption handler; it never forces a move.',
+    },
+    {
+      label: 'Last drain',
+      value: null,
+      reason: 'No last-drain outcome is read today; a backend read for it is a follow-up.',
+    },
+  ];
+}
+
 /** How this analysis is calculated / where Apply comes from — the §7 provenance, in the drawer. */
 function howCalculatedData(row: TodayRow): DrawerDatum[] {
   return [
@@ -322,11 +372,16 @@ function howCalculatedData(row: TodayRow): DrawerDatum[] {
 function TodayTable({
   caps,
   clusterName,
+  fleet,
+  now,
   workloadAutoscalerHref,
   pageHrefs = {},
 }: {
   caps: K8sCapabilitiesValue;
   clusterName: string;
+  /** The node-fleet read, so the spot-interruption row can surface real interruptedNodes (FEAT-003). */
+  fleet: ReadState<AutomationNodeFleet>;
+  now: number;
   workloadAutoscalerHref?: string;
   /** The HPA and VPA pages, linked under the rows they show. */
   pageHrefs?: { hpa?: string; vpa?: string };
@@ -349,6 +404,7 @@ function TodayTable({
       width: '34%',
       cell: (row) => {
         if (row.vertical && engineOff) return <span className={MUTED}>{NOT_TURNED_ON_TEXT}</span>;
+        if (row.id === 'spot-interruption') return <SpotAnalysis fleet={fleet} now={now} />;
         const text = analysisText(caps, row);
         return (
           <span className={MUTED} data-analysis={row.id}>
@@ -413,6 +469,7 @@ function TodayTable({
         : { title: 'Apply', data: applyDrawerData(applyCapability(caps, row, clusterName)) };
     return [
       capabilitySection,
+      ...(row.id === 'spot-interruption' ? [{ title: 'Spot interruption', data: spotDrawerData() } as DrawerSection] : []),
       applySection,
       { title: 'How this is calculated', data: howCalculatedData(row) },
     ];
@@ -953,6 +1010,8 @@ export function OverviewPanel({ clusterName, accountId, region, eksData, hrefs =
   const feedFilters = useMemo(() => ({ features: [], results: [], q: '', from: weekAgo }), [weekAgo]);
   const feed = useAutomationActivity({ clusterName, accountId, region, filters: feedFilters, limit: TIMELINE_ENTRY_LIMIT });
   const summary = useActivitySummary({ clusterName, accountId, region }, 7);
+  // The node-fleet read (interruptedNodes) for the spot-interruption capability row (FEAT-003).
+  const nodeRead = useNodeAutomationRead(clusterName, accountId, region);
   const location = useLocation();
   const now = Date.now();
   const view = read.result?.kind === 'ok' ? read.result.view.vertical : null;
@@ -996,6 +1055,8 @@ export function OverviewPanel({ clusterName, accountId, region, eksData, hrefs =
           <TodayTable
             caps={caps}
             clusterName={clusterName}
+            fleet={nodeRead.fleet}
+            now={now}
             workloadAutoscalerHref={hrefs.workloadAutoscaler}
             pageHrefs={{ hpa: hrefs.hpa, vpa: hrefs.vpa }}
           />

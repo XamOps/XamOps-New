@@ -8,7 +8,13 @@ vi.mock('../../../../../api/k8sAutomationApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../../api/k8sAutomationApi')>();
   return { ...actual, getCapabilities };
 });
-vi.mock('../../../../../utils/apiClient', () => ({ default: { fetch: vi.fn() } }));
+vi.mock('../../../../../utils/apiClient', () => {
+  const fetch = vi.fn();
+  // k8sAutomationApi (the Node autoscaler reads FEAT-003 uses) calls the NAMED `apiFetch`, while the
+  // vertical/activity/usage reads call the default `fetch` — route both to the same mock so every
+  // read in the Overview is served by one `mockedFetch` implementation.
+  return { default: { fetch }, apiFetch: (url: string, init?: RequestInit) => fetch(url, init) };
+});
 
 import apiClient from '../../../../../utils/apiClient';
 import { K8sCapabilitiesProvider } from '../../../../../hooks/useK8sCapabilities';
@@ -98,10 +104,16 @@ const NOT_DEPLOYED = { status: 404, body: null };
  * Serves endpoint 1 and the Phase-2 reads (FEAT-004/005/007): by default a backend without them (an
  * untyped 404, Phase 1's view); a write, or any other request, is a test failure.
  */
+/** A node fleet with no interrupted nodes: the default the Node autoscaler reads expect. */
+const NODE_FLEET_EMPTY = {
+  status: 200,
+  body: { totalNodes: 3, onDemandNodes: 2, spotNodes: 1, idleNodes: [], interruptedNodes: [], collectedAt: iso(4 * 60_000) },
+};
+
 function serve(
   status = 200,
   body: unknown = ENDPOINT_1,
-  { feed = NOT_DEPLOYED, summary = NOT_DEPLOYED, usage = NOT_DEPLOYED }: { feed?: Answer; summary?: Answer; usage?: Answer } = {},
+  { feed = NOT_DEPLOYED, summary = NOT_DEPLOYED, usage = NOT_DEPLOYED, fleet = NODE_FLEET_EMPTY }: { feed?: Answer; summary?: Answer; usage?: Answer; fleet?: Answer } = {},
 ) {
   mockedFetch.mockImplementation(async (url: string, init?: RequestInit) => {
     if ((init?.method ?? 'GET') !== 'GET') throw new Error(`unexpected write ${url}`);
@@ -120,6 +132,14 @@ function serve(
       const a = pick(usage);
       return json(a.status, a.body);
     }
+    // The Node autoscaler reads (FEAT-003 surfaces the node-fleet's interruptedNodes). The fleet
+    // answer is configurable; the dashboard and rebalance reads just answer so nothing throws.
+    if (/\/api\/eks\/autoscaling\/[^/]+\/node-fleet$/.test(u.pathname)) {
+      const a = pick(fleet);
+      return json(a.status, a.body);
+    }
+    if (/\/api\/eks\/autoscaling\/[^/]+\/rebalance-status$/.test(u.pathname)) return json(200, { status: 'idle' });
+    if (/\/api\/eks\/autoscaling\/[^/]+$/.test(u.pathname)) return json(404, null);
     throw new Error(`unexpected request ${url}`);
   });
 }
@@ -334,10 +354,12 @@ describe('Automation › Overview (§9.1)', () => {
     expect(within(agent).getByRole('link', { name: 'Set up monitoring' })).toBeInTheDocument();
   });
 
-  it('reads each source once: endpoint 1, the activity log and its summary, and the usage feed for each chart', async () => {
+  it('reads each source once: endpoint 1, the activity log and its summary, the usage feed and the node fleet', async () => {
     await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', { eksData: DASHBOARD });
     await screen.findByText(/XamOps is watching 3 workloads/);
-    await waitFor(() => expect(mockedFetch).toHaveBeenCalledTimes(5));
+    // The five Phase-1/2 reads plus the three Node autoscaler reads the spot-interruption row shares
+    // (FEAT-003): the agent dashboard, the node fleet (interruptedNodes) and the rebalance status.
+    await waitFor(() => expect(mockedFetch).toHaveBeenCalledTimes(8));
     expect(getCapabilities).toHaveBeenCalledTimes(1);
     expect(endpointOneGets()).toHaveLength(1);
     expect(String(endpointOneGets()[0][0])).toBe('/api/eks/automation/vertical/prod-eks-cluster?accountId=demo-aws-001&region=us-east-1');
@@ -350,6 +372,8 @@ describe('Automation › Overview (§9.1)', () => {
     expect(getsTo(/\/activity\/prod-eks-cluster\/summary$/).map((u) => u.searchParams.get('days'))).toEqual(['7']);
     const usage = getsTo(/\/usage\/prod-eks-cluster$/).map((u) => `${u.searchParams.get('scope')}:${u.searchParams.get('resource')}:${u.searchParams.get('window')}`).sort();
     expect(usage).toEqual(['cluster:cpu:72h', 'namespace:cpu:72h']);
+    // The spot-interruption row reads the node fleet once.
+    expect(getsTo(/\/api\/eks\/autoscaling\/prod-eks-cluster\/node-fleet$/)).toHaveLength(1);
   });
 
   describe('v3 visuals from endpoint 1, the agent and capabilities (FEAT-002)', () => {
@@ -805,5 +829,50 @@ describe('Automation › Overview: the activity log, its summary and the usage f
       expect([...teamA.querySelectorAll('td')].map((td) => td.textContent)).toEqual(['2.00 vCPU', '0.08 vCPU', '0.05 vCPU']);
     });
     expect(chart.querySelector('[data-chart-source]')).toHaveTextContent("the mean of each namespace's use over 3 days");
+  });
+
+  // FEAT-003: the spot-interruption row surfaces the real node-fleet interruptedNodes, never a
+  // fabricated value — a count + data age when present, an honest em-dash/None when absent or failed.
+  describe('spot-interruption row surfaces real interruptedNodes (FEAT-003 / §3 AC3.4)', () => {
+    const spotCell = (table: HTMLElement) => {
+      const cell = rowOf(table, 'spot-interruption').querySelector<HTMLElement>('[data-analysis="spot-interruption"]');
+      if (!cell) throw new Error('no spot-interruption analysis cell');
+      return cell;
+    };
+
+    it('shows the interrupted node count and data age when nodes are interrupted', async () => {
+      serve(200, ENDPOINT_1, {
+        fleet: { status: 200, body: { totalNodes: 4, onDemandNodes: 2, spotNodes: 2, idleNodes: [], interruptedNodes: ['ip-10-0-1-5', 'ip-10-0-2-9'], collectedAt: iso(3 * 60_000) } },
+      });
+      const table = await renderPanel(fixture('demo-aws-001'));
+      const cell = spotCell(table);
+      await waitFor(() => expect(cell).toHaveTextContent('2 nodes interrupted'));
+      expect(cell).toHaveTextContent('data 3 min old');
+      // The dot carries the attention (warn) tone, never colour alone.
+      expect(cell.querySelector('[data-tone="warn"]')).not.toBeNull();
+    });
+
+    it('reads "None interrupted" when the fleet is read and empty', async () => {
+      const table = await renderPanel(fixture('demo-aws-001'));
+      const cell = spotCell(table);
+      await waitFor(() => expect(cell).toHaveTextContent('None interrupted'));
+      expect(cell.querySelector('[data-tone="good"]')).not.toBeNull();
+    });
+
+    it('shows an honest em-dash (sr-only None) when the fleet read fails', async () => {
+      serve(200, ENDPOINT_1, { fleet: { status: 502, body: { message: 'Bad gateway' } } });
+      const table = await renderPanel(fixture('demo-aws-001'));
+      const cell = spotCell(table);
+      // No fabricated state: the em-dash idiom, no status dot at all.
+      await waitFor(() => expect(within(cell).getByText('None', { selector: '.sr-only' })).toBeInTheDocument());
+      expect(cell.querySelector('[data-tone]')).toBeNull();
+    });
+
+    it('records the last-drain outcome as an honest em-dash in the drawer (backend follow-up)', async () => {
+      const table = await renderPanel(fixture('demo-aws-001'));
+      await waitFor(() => expect(spotCell(table)).toHaveTextContent('None interrupted'));
+      const dialog = await openDrawer(table, 'spot-interruption');
+      expect(dialog).toHaveTextContent('Last drain');
+    });
   });
 });
