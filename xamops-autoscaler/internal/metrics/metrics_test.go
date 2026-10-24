@@ -88,7 +88,10 @@ func TestHandlerServesHAMetrics(t *testing.T) {
 
 	// Standby sets it back to 0.
 	s.SetLeader(false)
-	resp2, _ := http.Get(srv.URL)
+	resp2, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET /metrics after standby: %v", err)
+	}
 	defer resp2.Body.Close()
 	body2, _ := io.ReadAll(resp2.Body)
 	if !strings.Contains(string(body2), `xamops_leader{is_leader="pod-abc"} 0`) {
