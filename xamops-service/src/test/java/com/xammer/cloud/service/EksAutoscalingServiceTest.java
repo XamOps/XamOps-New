@@ -25,6 +25,7 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.EksDashboardCacheRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.security.K8sAutomationAccessService;
+import com.xammer.cloud.service.spot.SpotInterruptionProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -80,7 +81,7 @@ class EksAutoscalingServiceTest {
         readiness = new K8sAutomationReadinessProperties();
         service = new EksAutoscalingService(configRepository, cacheRepository, eventRepository,
                 mock(EksDashboardCacheRepository.class), mock(CloudAccountRepository.class),
-                new K8sAutomationPolicyNormalizer(readiness), accessService);
+                new K8sAutomationPolicyNormalizer(readiness), accessService, SpotInterruptionProperties.defaults());
 
         when(cacheRepository.findByClusterConfigIdAndDataType(anyLong(), anyString()))
                 .thenAnswer(inv -> Optional.ofNullable(cache.get(inv.getArgument(0) + "|" + inv.getArgument(1))));

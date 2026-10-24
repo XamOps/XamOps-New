@@ -25,11 +25,16 @@ import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.security.K8sAutomationAccessService;
 import com.xammer.cloud.service.K8sAutomationPolicyNormalizer.Section;
 import com.xammer.cloud.service.K8sAutomationPolicyNormalizer.UiPolicy;
+import com.xammer.cloud.service.spot.ServerTime;
+import com.xammer.cloud.service.spot.SpotInterruptionProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -109,7 +114,10 @@ public class EksAutoscalingService {
     private final K8sAutomationPolicyNormalizer normalizer;
     private final K8sAutomationAccessService accessService;
     private final ObjectMapper objectMapper;
+    private final SpotInterruptionProperties spotProperties;
+    private final Clock clock;
 
+    @Autowired
     public EksAutoscalingService(
             KubernetesClusterConfigRepository clusterConfigRepository,
             AgentDataCacheRepository agentDataCacheRepository,
@@ -117,7 +125,25 @@ public class EksAutoscalingService {
             EksDashboardCacheRepository eksDashboardCacheRepository,
             CloudAccountRepository cloudAccountRepository,
             K8sAutomationPolicyNormalizer normalizer,
-            K8sAutomationAccessService accessService) {
+            K8sAutomationAccessService accessService,
+            SpotInterruptionProperties spotProperties) {
+        this(clusterConfigRepository, agentDataCacheRepository, agentEventRepository, eksDashboardCacheRepository,
+                cloudAccountRepository, normalizer, accessService, spotProperties, Clock.systemUTC());
+    }
+
+    /** Test constructor with a fixed clock (the {@code K8sCapabilitiesService} pattern). */
+    EksAutoscalingService(
+            KubernetesClusterConfigRepository clusterConfigRepository,
+            AgentDataCacheRepository agentDataCacheRepository,
+            AgentEventRepository agentEventRepository,
+            EksDashboardCacheRepository eksDashboardCacheRepository,
+            CloudAccountRepository cloudAccountRepository,
+            K8sAutomationPolicyNormalizer normalizer,
+            K8sAutomationAccessService accessService,
+            SpotInterruptionProperties spotProperties,
+            Clock clock) {
+        this.spotProperties = spotProperties;
+        this.clock = clock;
         this.clusterConfigRepository = clusterConfigRepository;
         this.agentDataCacheRepository = agentDataCacheRepository;
         this.agentEventRepository = agentEventRepository;
@@ -720,54 +746,92 @@ public class EksAutoscalingService {
 
     // ── Node Fleet Report ──────────────────────────────────────────────────
 
+    /** Legacy dedicated fleet push; nothing sends it today, kept for compatibility (design §B5.1). */
     public static final String DT_NODE_FLEET = "node-fleet-report";
+    /** The autoscaler's NodeOptimizer report (a single-object collector: the report itself). */
+    public static final String DT_NODE_OPTIMIZER_REPORT = "node-optimizer-report";
+
+    /** {@code interruptedNodesReason} when a report row exists but is older than the max age. */
+    static final String REPORT_STALE = "stale";
+    /** {@code interruptedNodesReason} when no report row exists (or it does not parse). */
+    static final String REPORT_NOT_REPORTED = "not-reported";
+
+    private static final List<String> REPORT_LISTS =
+            List.of("interruptedNodes", "interruptionNotices", "idleNodes", "spotCandidates");
 
     /**
-     * Returns a NodeFleetReport built from the k8s-resources agent cache.
-     * If xamops-automation has pushed a dedicated node-fleet-report it takes precedence.
-     * Otherwise we synthesize it from the k8s-resources snapshot so the UI always
-     * gets a useful response even before the automation agent is running.
+     * The node fleet for the Node autoscaler page and the Overview (design §B5.1), serving only
+     * what a producer observed:
+     * <ol>
+     *   <li>the autoscaler's {@code node-optimizer-report} while it is fresh, normalized by
+     *       {@link #normalizeReport};</li>
+     *   <li>the legacy {@code node-fleet-report} while it is fresh, normalized the same way;</li>
+     *   <li>node counts synthesized from the {@code k8s-resources} snapshot, with every list the
+     *       snapshot does not carry served as {@code null} and {@code interruptedNodesReported=false};</li>
+     *   <li>an empty fleet ({@code collectedAt: null}) with the same nulls and flags.</li>
+     * </ol>
+     * Freshness compares Instants ({@link ServerTime#fresh}); every served time ends in {@code Z}.
      */
     @SuppressWarnings("unchecked")
     public Map<String, Object> getNodeFleetReport(KubernetesClusterConfig config) {
-        if (config == null) return buildEmptyFleet();
+        if (config == null) return buildEmptyFleet(false, null);
 
-        // 1. Prefer dedicated push from xamops-automation
-        Optional<AgentDataCache> dedicated =
-                agentDataCacheRepository.findByClusterConfigIdAndDataType(config.getId(), DT_NODE_FLEET);
-        if (dedicated.isPresent()) {
+        // 1-2. A fresh autoscaler report wins; the legacy dedicated push is the fallback.
+        boolean staleReport = false;
+        Instant staleReportAt = null;
+        for (String dataType : List.of(DT_NODE_OPTIMIZER_REPORT, DT_NODE_FLEET)) {
+            Optional<AgentDataCache> row =
+                    agentDataCacheRepository.findByClusterConfigIdAndDataType(config.getId(), dataType);
+            if (row.isEmpty()) continue;
+            if (!ServerTime.fresh(row.get().getReceivedAt(), clock, spotProperties.reportMaxAge())) {
+                Instant at = ServerTime.serverInstant(row.get().getReceivedAt());
+                if (!staleReport || (at != null && (staleReportAt == null || at.isAfter(staleReportAt)))) {
+                    staleReportAt = at;
+                }
+                staleReport = true;
+                continue;
+            }
             try {
-                return objectMapper.readValue(dedicated.get().getDataJson(),
-                        new TypeReference<Map<String, Object>>() {});
+                Map<String, Object> report = objectMapper.readValue(row.get().getDataJson(),
+                        new TypeReference<LinkedHashMap<String, Object>>() {});
+                if (report != null) {
+                    normalizeReport(report);
+                    return report;
+                }
             } catch (Exception e) {
-                logger.warn("Failed to parse node-fleet-report cache: {}", e.getMessage());
+                logger.warn("Failed to parse {} cache: {}", dataType, e.getMessage());
             }
         }
 
-        // 2. Synthesize from k8s-resources snapshot
+        // 3. Synthesize node counts from the k8s-resources snapshot.
         Optional<AgentDataCache> k8sCache =
                 agentDataCacheRepository.findByClusterConfigIdAndDataType(config.getId(), "k8s-resources");
-        if (k8sCache.isEmpty()) return buildEmptyFleet();
+        if (k8sCache.isEmpty()) return buildEmptyFleet(staleReport, staleReportAt);
 
         try {
             Map<String, Object> snapshot = objectMapper.readValue(k8sCache.get().getDataJson(),
                     new TypeReference<Map<String, Object>>() {});
-            List<Map<String, Object>> nodes = (List<Map<String, Object>>) snapshot.getOrDefault("nodes", Collections.emptyList());
+            Object nodesObj = snapshot == null ? null : snapshot.get("nodes");
+            List<Map<String, Object>> nodes = nodesObj instanceof List<?> list
+                    ? (List<Map<String, Object>>) list : Collections.emptyList();
 
             int onDemand = 0, spot = 0;
+            boolean sawCpu = false;
             List<Map<String, Object>> idleNodes = new ArrayList<>();
             for (Map<String, Object> node : nodes) {
                 String capacityType = String.valueOf(node.getOrDefault("capacityType", "on-demand")).toLowerCase();
                 if (capacityType.contains("spot")) spot++; else onDemand++;
 
-                // Flag as idle if cpu < 10% (agent may push cpuUsagePercent)
+                // Idle only when the agent reported usage (NodeDetail carries none today).
                 Object cpuObj = node.get("cpuUsagePercent");
-                double cpu = cpuObj instanceof Number ? ((Number) cpuObj).doubleValue() : -1;
+                if (!(cpuObj instanceof Number)) continue;
+                sawCpu = true;
+                double cpu = ((Number) cpuObj).doubleValue();
                 if (cpu >= 0 && cpu < 10) {
                     Map<String, Object> idle = new LinkedHashMap<>();
                     idle.put("nodeName", node.get("name"));
                     idle.put("cpuUsagePct", cpu);
-                    idle.put("memUsagePct", node.getOrDefault("memoryUsagePercent", 0));
+                    idle.put("memUsagePct", node.get("memoryUsagePercent"));
                     idle.put("reason", "CPU below 10%");
                     idleNodes.add(idle);
                 }
@@ -777,28 +841,57 @@ public class EksAutoscalingService {
             report.put("totalNodes", nodes.size());
             report.put("onDemandNodes", onDemand);
             report.put("spotNodes", spot);
-            report.put("idleNodes", idleNodes);
-            report.put("spotCandidates", Collections.emptyList());
-            report.put("interruptedNodes", Collections.emptyList());
-            report.put("estimatedSavingsPct", 0);
-            report.put("collectedAt", k8sCache.get().getReceivedAt() != null
-                    ? k8sCache.get().getReceivedAt().toString() : null);
+            report.put("idleNodes", sawCpu ? idleNodes : null);
+            putUnobserved(report, staleReport, staleReportAt);
+            Instant receivedAt = ServerTime.serverInstant(k8sCache.get().getReceivedAt());
+            report.put("collectedAt", receivedAt != null ? receivedAt.toString() : null);
             return report;
         } catch (Exception e) {
             logger.warn("Failed to synthesize node-fleet-report: {}", e.getMessage());
-            return buildEmptyFleet();
+            return buildEmptyFleet(staleReport, staleReportAt);
         }
     }
 
-    private Map<String, Object> buildEmptyFleet() {
+    /**
+     * Normalizes a fresh report (design §B5.1). Whether {@code interruptionNotices} was reported is
+     * decided BEFORE the lists are normalized: an absent or null key means an older agent.
+     */
+    static void normalizeReport(Map<String, Object> report) {
+        // Decide "reported" BEFORE normalizing: an absent or null key means an older agent that doesn't send it.
+        boolean noticesReported = report.get("interruptionNotices") != null;
+        // A fresh report is a completed Analyse run, so a missing/null list (Go nil slice → JSON null) means "none found".
+        // Map.putIfAbsent replaces both a missing key and a key mapped to null.
+        for (String k : REPORT_LISTS) report.putIfAbsent(k, List.of());
+        report.put("interruptionNoticesReported", noticesReported);
+        report.put("interruptedNodesReported", true);
+    }
+
+    /**
+     * What branches 3-4 did not observe: null lists and the not-reported flags with their reason.
+     * The caller sets {@code idleNodes}.
+     */
+    private static void putUnobserved(Map<String, Object> m, boolean staleReport, Instant staleReportAt) {
+        m.put("spotCandidates", null);
+        m.put("interruptedNodes", null);
+        m.put("interruptionNotices", null);
+        m.put("estimatedSavingsPct", null);
+        m.put("interruptedNodesReported", false);
+        m.put("interruptionNoticesReported", false);
+        if (staleReport) {
+            m.put("interruptedNodesReason", REPORT_STALE);
+            m.put("interruptedNodesReportAt", staleReportAt != null ? staleReportAt.toString() : null);
+        } else {
+            m.put("interruptedNodesReason", REPORT_NOT_REPORTED);
+        }
+    }
+
+    private Map<String, Object> buildEmptyFleet(boolean staleReport, Instant staleReportAt) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("totalNodes", 0);
         m.put("onDemandNodes", 0);
         m.put("spotNodes", 0);
-        m.put("idleNodes", Collections.emptyList());
-        m.put("spotCandidates", Collections.emptyList());
-        m.put("interruptedNodes", Collections.emptyList());
-        m.put("estimatedSavingsPct", 0);
+        m.put("idleNodes", null);
+        putUnobserved(m, staleReport, staleReportAt);
         m.put("collectedAt", null);
         return m;
     }

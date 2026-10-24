@@ -80,6 +80,25 @@ class K8sSpotInterruptionEventRepositoryTest {
     }
 
     @Test
+    void theReadQueryNeverReturnsAnotherClustersRows_AC9() {
+        // The cluster name never reaches this table: the request guard resolves the caller's
+        // entitled config, and the read is keyed by its id. Cluster 12 stands for another tenant's
+        // cluster registered under the same name as CLUSTER; its rows share node names and times.
+        Long otherTenantSameName = 12L;
+        repository.saveAndFlush(row(CLUSTER, "n1", CREATED, NOW, "tracking"));
+        repository.saveAndFlush(row(OTHER, "n1", CREATED, NOW, "tracking"));
+        repository.saveAndFlush(row(otherTenantSameName, "n1", CREATED, NOW, "tracking"));
+        repository.saveAndFlush(row(otherTenantSameName, "n2", CREATED, NOW.minusSeconds(30), "recovered"));
+
+        assertThat(repository.findByClusterConfigIdAndNoticedAtAfterOrderByNoticedAtDesc(CLUSTER,
+                NOW.minus(Duration.ofDays(30)), PageRequest.of(0, 500)))
+                .extracting(K8sSpotInterruptionEvent::getClusterConfigId).containsExactly(CLUSTER);
+        assertThat(repository.findByClusterConfigIdAndNoticedAtAfterOrderByNoticedAtDesc(otherTenantSameName,
+                NOW.minus(Duration.ofDays(30)), PageRequest.of(0, 500)))
+                .extracting(K8sSpotInterruptionEvent::getNodeName).containsExactly("n1", "n2");
+    }
+
+    @Test
     void theSameNodeLifecycleTwiceIsRefused() {
         repository.saveAndFlush(row(CLUSTER, "n1", CREATED, NOW, "tracking"));
         assertThatThrownBy(() -> repository.saveAndFlush(row(CLUSTER, "n1", CREATED, NOW.plusSeconds(5), "tracking")))

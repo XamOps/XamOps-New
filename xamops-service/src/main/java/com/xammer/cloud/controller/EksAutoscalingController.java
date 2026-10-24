@@ -7,6 +7,7 @@ import com.xammer.cloud.dto.autoscaling.ConsolidationPlanResponse;
 import com.xammer.cloud.dto.autoscaling.NodeOptimizerPolicyDto;
 import com.xammer.cloud.dto.autoscaling.WorkloadRightsizingDto;
 import com.xammer.cloud.dto.k8s.K8sRefusalBody;
+import com.xammer.cloud.dto.spot.SpotInterruptionsDto;
 import com.xammer.cloud.exception.K8sAutomationReason;
 import com.xammer.cloud.exception.K8sAutomationRefusedException;
 import com.xammer.cloud.security.K8sAutomationRequestContext;
@@ -14,6 +15,7 @@ import com.xammer.cloud.service.ConsolidationPlanService;
 import com.xammer.cloud.service.EksAutoscalingService;
 import com.xammer.cloud.service.K8sAutomationPolicyNormalizer;
 import com.xammer.cloud.service.K8sAutomationPolicyNormalizer.Section;
+import com.xammer.cloud.service.spot.SpotInterruptionReadService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,13 +55,16 @@ public class EksAutoscalingController {
     private final EksAutoscalingService autoscalingService;
     private final K8sAutomationPolicyNormalizer normalizer;
     private final ConsolidationPlanService consolidationPlanService;
+    private final SpotInterruptionReadService spotInterruptionReadService;
 
     public EksAutoscalingController(EksAutoscalingService autoscalingService,
                                     K8sAutomationPolicyNormalizer normalizer,
-                                    ConsolidationPlanService consolidationPlanService) {
+                                    ConsolidationPlanService consolidationPlanService,
+                                    SpotInterruptionReadService spotInterruptionReadService) {
         this.autoscalingService = autoscalingService;
         this.normalizer = normalizer;
         this.consolidationPlanService = consolidationPlanService;
+        this.spotInterruptionReadService = spotInterruptionReadService;
     }
 
     private static Map<String, Object> ok(String message) {
@@ -118,6 +123,37 @@ public class EksAutoscalingController {
     public ResponseEntity<ConsolidationPlanResponse> getConsolidationPlan(
             @RequestAttribute(K8sAutomationRequestContext.ATTRIBUTE) K8sAutomationRequestContext ctx) {
         return ResponseEntity.ok(consolidationPlanService.getPlan(config(ctx), ctx.primaryAccount()));
+    }
+
+    /**
+     * GET /api/eks/autoscaling/{clusterName}/spot-interruptions?accountId=xxx&days=30&limit=200:
+     * recorded Spot interruptions, Spot share and producer coverage (design §B5). Read-only.
+     * {@code days} (1..365, default 30) and {@code limit} (1..500, default 200) are bound as
+     * strings so a non-integer is refused with {@code INVALID_REQUEST} and its field.
+     */
+    @GetMapping("/{clusterName}/spot-interruptions")
+    public ResponseEntity<SpotInterruptionsDto> getSpotInterruptions(
+            @RequestAttribute(K8sAutomationRequestContext.ATTRIBUTE) K8sAutomationRequestContext ctx,
+            @RequestParam(name = "days", required = false) String days,
+            @RequestParam(name = "limit", required = false) String limit) {
+        int d = wholeNumber(days, 30, 1, 365, "days", "days must be a whole number from 1 to 365.");
+        int l = wholeNumber(limit, 200, 1, 500, "limit", "limit must be a whole number from 1 to 500.");
+        return ResponseEntity.ok(spotInterruptionReadService.read(config(ctx), d, l));
+    }
+
+    private static int wholeNumber(String raw, int defaultValue, int min, int max, String field, String message) {
+        if (raw == null) {
+            return defaultValue;
+        }
+        try {
+            int value = Integer.parseInt(raw.trim());
+            if (value >= min && value <= max) {
+                return value;
+            }
+        } catch (NumberFormatException ignored) {
+            // refused below with the same fixed message
+        }
+        throw K8sAutomationRefusedException.of(K8sAutomationReason.INVALID_REQUEST, message, field);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
