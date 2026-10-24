@@ -181,6 +181,15 @@ rules:
     resources:
       - configmaps
     verbs: ["create"]
+  # ── Leader election (FEAT-002 / agent-ha-design.md CHOICE B) ───────────────
+  # A multi-replica Deployment runs exactly one active apply/drain loop by holding a
+  # coordination.k8s.io Lease in this namespace. Namespaced only — no cluster-wide
+  # grant. "list" is omitted deliberately (leaderelection only needs get/create/update/
+  # watch on its single lease).
+  - apiGroups: ["coordination.k8s.io"]
+    resources:
+      - leases
+    verbs: ["get", "create", "update", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -251,6 +260,20 @@ data:
   # Node optimizer: idle node detection, spot candidate analysis, spot interruption handling
   ENABLE_NODE_OPTIMIZER: "false"
 
+  # ── Leader election (FEAT-002 / agent-ha-design.md CHOICE B) ─────────────────
+  # With replicas: 2 below, exactly one replica runs the apply/drain control loop at a
+  # time (it holds the coordination.k8s.io Lease xamops-automation-leader); the standby
+  # serves health + heartbeat + /metrics only. Never split-brain. Set to "false" only
+  # for a single-replica dev deployment to run the loop directly.
+  ENABLE_LEADER_ELECTION: "true"
+
+  # ── Operator recovery lever (FEAT-002) ───────────────────────────────────────
+  # RUN_MODE is normally unset. To recover a fenced fleet, run the agent image once
+  # with RUN_MODE=uncordon-all: it uncordons every node this autoscaler cordoned
+  # (annotation xamops.io/drain-cordoned-by=xamops-automation), clears the cordoned-by/
+  # drain-state annotations, then exits. Honours DRY_RUN (simulate-only) and never
+  # touches the agent's own node. Do NOT set it here; pass it as a one-shot override.
+
   # ── Polling & push intervals (seconds)
   POLICY_POLL_INTERVAL: "60"
   METRICS_PUSH_INTERVAL: "120"
@@ -283,7 +306,10 @@ metadata:
     # are never in a split-brain write state simultaneously.
     deployment.kubernetes.io/revision: "1"
 spec:
-  replicas: 1
+  # Two replicas with leader election (FEAT-002): exactly one holds the Lease and runs
+  # the apply/drain loop; the other is a warm standby. maxUnavailable:0 below keeps the
+  # leader serving during a rollout.
+  replicas: 2
   selector:
     matchLabels:
       app: xamops-automation
@@ -322,6 +348,10 @@ spec:
           ports:
             - name: health
               containerPort: 8081
+              protocol: TCP
+            # Prometheus /metrics (FEAT-001 served this on :9090; FEAT-002 exposes it).
+            - name: metrics
+              containerPort: 9090
               protocol: TCP
 
           # ── Liveness & readiness ─────────────────────────────────────────
@@ -370,6 +400,16 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            # Pod name — leader-election Lease identity (FEAT-002)
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # Node this agent runs on — never cordoned or drained (never-cordon/drain-self)
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
 
           # ── Resource limits ───────────────────────────────────────────────
           resources:
@@ -395,9 +435,17 @@ spec:
         - name: tmp
           emptyDir: {}
 
-      # ── Topology: prefer a different node from xamops-agent ───────────────
+      # ── Topology (FEAT-002) ───────────────────────────────────────────────
+      # REQUIRED: the two automation replicas must land on different nodes, so losing
+      # one node never takes out both the leader and the standby at once.
+      # PREFERRED: also keep off the xamops-agent's node when possible.
       affinity:
         podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: xamops-automation
+              topologyKey: kubernetes.io/hostname
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 50
               podAffinityTerm:
@@ -416,6 +464,13 @@ spec:
           effect: NoSchedule
         - key: CriticalAddonsOnly
           operator: Exists
+        # Tolerate the unschedulable (cordon) taint (FEAT-002): without this a restart
+        # while the agent's own node is cordon-fenced could never reschedule, deadlocking
+        # recovery. The never-cordon/drain-self invariant stops the agent cordoning its
+        # own node in the first place; this toleration covers externally-cordoned nodes.
+        - key: node.kubernetes.io/unschedulable
+          operator: Exists
+          effect: NoSchedule
 
 ---
 # ── NetworkPolicy ─────────────────────────────────────────────────────────────

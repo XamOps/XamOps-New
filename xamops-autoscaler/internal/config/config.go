@@ -44,6 +44,25 @@ type Config struct {
 	// evicted and the operation ledger ConfigMap lives here.
 	PodNamespace string
 
+	// PodName — this replica's pod name (downward API metadata.name). Used as the
+	// leader-election lease identity; falls back to the hostname when unset.
+	PodName string
+
+	// NodeName — the node this agent pod runs on (downward API spec.nodeName). The
+	// drain executor refuses to cordon or drain this node (never-cordon/drain-self).
+	NodeName string
+
+	// EnableLeaderElection — when true the control loop runs only while this replica
+	// holds a coordination.k8s.io Lease in PodNamespace, so a multi-replica Deployment
+	// runs exactly one active apply/drain loop (never split-brain). Defaults to true;
+	// set ENABLE_LEADER_ELECTION=false for single-replica dev to run the loop directly.
+	EnableLeaderElection bool
+
+	// RunMode — one-shot operator command. "uncordon-all" runs the agent image once to
+	// uncordon every node this autoscaler cordoned, then exits (honours DRY_RUN). Empty
+	// (default) runs the normal control loop.
+	RunMode string
+
 	// StateConfigMap — name of the ConfigMap holding the rebalancer operation ledger.
 	StateConfigMap string
 
@@ -84,7 +103,13 @@ func Load() (*Config, error) {
 
 		EnableRightsizerApply: getEnvBool("ENABLE_RIGHTSIZER_APPLY", false),
 		PodNamespace:          getEnv("POD_NAMESPACE", "xamops-system"),
+		PodName:               getEnv("POD_NAME", ""),
+		NodeName:              getEnv("NODE_NAME", ""),
 		StateConfigMap:        getEnv("STATE_CONFIGMAP", "xamops-automation-state"),
+
+		// Leader election defaults TRUE for the 2-replica manifest; set false for dev.
+		EnableLeaderElection: getEnvBool("ENABLE_LEADER_ELECTION", true),
+		RunMode:              getEnv("RUN_MODE", ""),
 
 		// DryRun defaults to TRUE for safety
 		DryRun: getEnvBool("DRY_RUN", true),

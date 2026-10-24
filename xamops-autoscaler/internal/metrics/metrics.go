@@ -40,6 +40,15 @@ type Set struct {
 	// RightsizerApplyTotal counts rightsizer apply outcomes by result (incremented by
 	// FEAT-004).
 	RightsizerApplyTotal *prometheus.CounterVec
+	// Leader is 1 while this replica holds the leader-election lease (runs the control
+	// loop) and 0 while it is a standby (agent-ha-design.md CHOICE B). The design names
+	// it xamops_leader{is_leader}; the is_leader label carries this replica's identity
+	// so a scrape distinguishes the replicas, while the value (1/0) carries leadership.
+	Leader *prometheus.GaugeVec
+	// leaderIdentity is the is_leader label value for this replica (pod name/hostname).
+	leaderIdentity string
+	// OrphansRecoveredTotal counts orphaned drains recovered (RecoverOrphans results).
+	OrphansRecoveredTotal prometheus.Counter
 }
 
 // New builds the metric set, registering all collectors on a fresh registry.
@@ -76,6 +85,15 @@ func New() *Set {
 			Name: "xamops_rightsizer_apply_total",
 			Help: "Rightsizer apply outcomes by result.",
 		}, []string{"result"}),
+		Leader: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "xamops_leader",
+			Help: "1 while this replica is the leader running the control loop, 0 while standby.",
+		}, []string{"is_leader"}),
+		leaderIdentity: "self",
+		OrphansRecoveredTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "xamops_orphans_recovered_total",
+			Help: "Orphaned drains recovered (uncordoned/marked aborted) by the executor.",
+		}),
 	}
 	reg.MustRegister(
 		s.DrainsTotal,
@@ -85,6 +103,8 @@ func New() *Set {
 		s.GateDecision,
 		s.PolicyFetchErrorsTotal,
 		s.RightsizerApplyTotal,
+		s.Leader,
+		s.OrphansRecoveredTotal,
 	)
 	return s
 }
@@ -152,4 +172,33 @@ func (s *Set) IncRightsizerApply(result string) {
 		return
 	}
 	s.RightsizerApplyTotal.WithLabelValues(result).Inc()
+}
+
+// SetLeaderIdentity sets the is_leader label value for this replica (e.g. the pod
+// name). Called once before leader election starts; defaults to "self".
+func (s *Set) SetLeaderIdentity(id string) {
+	if s == nil || id == "" {
+		return
+	}
+	s.leaderIdentity = id
+}
+
+// SetLeader sets the xamops_leader gauge to 1 (leading) or 0 (standby).
+func (s *Set) SetLeader(leading bool) {
+	if s == nil {
+		return
+	}
+	v := 0.0
+	if leading {
+		v = 1
+	}
+	s.Leader.WithLabelValues(s.leaderIdentity).Set(v)
+}
+
+// AddOrphansRecovered adds n to the orphaned-drain recovery counter.
+func (s *Set) AddOrphansRecovered(n int) {
+	if s == nil || n <= 0 {
+		return
+	}
+	s.OrphansRecoveredTotal.Add(float64(n))
 }

@@ -60,6 +60,42 @@ func TestHandlerServesNamedMetrics(t *testing.T) {
 	}
 }
 
+// TestHandlerServesHAMetrics (FEAT-002) asserts the agent-HA metrics
+// xamops_leader{is_leader} and xamops_orphans_recovered_total appear with the
+// expected values after the leader gauge is set and orphans are recorded.
+func TestHandlerServesHAMetrics(t *testing.T) {
+	s := New()
+	s.SetLeaderIdentity("pod-abc")
+	s.SetLeader(true)
+	s.AddOrphansRecovered(3)
+
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET /metrics: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	out := string(body)
+
+	if !strings.Contains(out, `xamops_leader{is_leader="pod-abc"} 1`) {
+		t.Errorf("expected xamops_leader{is_leader=pod-abc} 1 in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "xamops_orphans_recovered_total 3") {
+		t.Errorf("expected xamops_orphans_recovered_total 3 in output")
+	}
+
+	// Standby sets it back to 0.
+	s.SetLeader(false)
+	resp2, _ := http.Get(srv.URL)
+	defer resp2.Body.Close()
+	body2, _ := io.ReadAll(resp2.Body)
+	if !strings.Contains(string(body2), `xamops_leader{is_leader="pod-abc"} 0`) {
+		t.Errorf("expected xamops_leader ... 0 after standby")
+	}
+}
+
 // TestNilSetIsSafe ensures the convenience methods are no-ops on a nil set.
 func TestNilSetIsSafe(t *testing.T) {
 	var s *Set
@@ -70,4 +106,7 @@ func TestNilSetIsSafe(t *testing.T) {
 	s.SetGateDecision("x", "y")
 	s.IncPolicyFetchError()
 	s.IncRightsizerApply("x")
+	s.SetLeaderIdentity("x")
+	s.SetLeader(true)
+	s.AddOrphansRecovered(2)
 }

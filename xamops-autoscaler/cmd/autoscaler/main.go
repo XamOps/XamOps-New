@@ -15,6 +15,8 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/leaderelection"
+	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	metricsv "k8s.io/metrics/pkg/client/clientset/versioned"
 
 	"github.com/xamops/automation/internal/config"
@@ -94,38 +96,177 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// ── One-shot operator command: RUN_MODE=uncordon-all ─────────────────
+	// An operator runs the agent image once to uncordon every node this autoscaler
+	// cordoned (fenced-fleet recovery, AC4.10). Honours DRY_RUN and never-self.
+	if cfg.RunMode == runModeUncordonAll {
+		runUncordonAll(ctx, cfg, k8s)
+		return
+	}
+
 	// ── Health server ────────────────────────────────────────────────────
 	go startHealthServer()
 
 	// ── Metrics server (:9090 /metrics) ──────────────────────────────────
 	go startMetricsServer(mset)
 
-	// ── Main control loop ────────────────────────────────────────────────
-	loopDone := make(chan struct{})
-	go func() {
-		defer close(loopDone)
-		runControlLoop(ctx, cfg, mset, k8s, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
-	}()
-
-	// ── Heartbeat loop ────────────────────────────────────────────────────
+	// ── Heartbeat loop (served by leader AND standby) ─────────────────────
 	go runHeartbeatLoop(ctx, cfg, push)
 
-	// ── Graceful shutdown ─────────────────────────────────────────────────
+	// loop runs the control loop; shared by the leader-election and the direct paths.
+	loop := func(loopCtx context.Context) {
+		runControlLoop(loopCtx, cfg, mset, k8s, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
+	}
+
+	// ── Graceful shutdown signal ──────────────────────────────────────────
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
 
-	log.Println("Shutdown signal received — stopping automation agent...")
-	cancel()
-	// Wait for the in-flight cycle: an interrupted drain aborts, restores its nodes on
-	// a detached context, records the ledger outcome and pushes its telemetry. The
-	// bound stays inside the pod's 60s terminationGracePeriodSeconds.
-	select {
-	case <-loopDone:
-		log.Println("Automation agent stopped")
-	case <-time.After(shutdownWait):
-		log.Printf("WARN: in-flight cycle did not finish within %s — exiting; orphan recovery handles any node left draining", shutdownWait)
+	if !cfg.EnableLeaderElection {
+		// Single-replica / dev: run the loop directly as before.
+		log.Println("Leader election disabled — running the control loop directly")
+		mset.SetLeader(true)
+		loopDone := make(chan struct{})
+		go func() {
+			defer close(loopDone)
+			loop(ctx)
+		}()
+		<-sigChan
+		log.Println("Shutdown signal received — stopping automation agent...")
+		cancel()
+		// Wait for the in-flight cycle: an interrupted drain aborts, restores its nodes
+		// on a detached context, records the ledger outcome and pushes its telemetry.
+		// The bound stays inside the pod's 60s terminationGracePeriodSeconds.
+		select {
+		case <-loopDone:
+			log.Println("Automation agent stopped")
+		case <-time.After(shutdownWait):
+			log.Printf("WARN: in-flight cycle did not finish within %s — exiting; orphan recovery handles any node left draining", shutdownWait)
+		}
+		return
 	}
+
+	// ── Leader election (coordination.k8s.io Lease) ───────────────────────
+	// A multi-replica Deployment runs exactly one active apply/drain loop: only the
+	// replica holding the Lease runs runControlLoop; standbys keep serving health +
+	// heartbeat + /metrics (SetLeader(0)). The existing ledger idempotency makes
+	// handover safe — no new drain logic. Lease identity is the pod name (POD_NAME),
+	// falling back to the hostname.
+	identity := cfg.PodName
+	if identity == "" {
+		if h, err := os.Hostname(); err == nil {
+			identity = h
+		} else {
+			identity = "xamops-automation"
+		}
+	}
+	mset.SetLeaderIdentity(identity)
+	mset.SetLeader(false)
+
+	lock := &resourcelock.LeaseLock{
+		LeaseMeta: metav1.ObjectMeta{Name: leaderElectionLeaseName, Namespace: cfg.PodNamespace},
+		Client:    k8s.CoordinationV1(),
+		LockConfig: resourcelock.ResourceLockConfig{Identity: identity},
+	}
+
+	// leaderCtx is cancelled on SIGTERM to release the lease and stop leading.
+	leaderCtx, leaderCancel := context.WithCancel(ctx)
+	go func() {
+		<-sigChan
+		log.Println("Shutdown signal received — stopping automation agent...")
+		leaderCancel()
+	}()
+
+	lc := &loopController{run: loop}
+	leaderelection.RunOrDie(leaderCtx, leaderelection.LeaderElectionConfig{
+		Lock:            lock,
+		ReleaseOnCancel: true,
+		LeaseDuration:   leaseDuration,
+		RenewDeadline:   renewDeadline,
+		RetryPeriod:     retryPeriod,
+		Name:            leaderElectionLeaseName,
+		Callbacks: leaderelection.LeaderCallbacks{
+			OnStartedLeading: func(c context.Context) {
+				log.Printf("Became leader (%s) — starting the control loop", identity)
+				mset.SetLeader(true)
+				lc.start(c) // runs the loop ONLY while leading
+			},
+			OnStoppedLeading: func() {
+				log.Printf("Lost/released leadership (%s) — control loop stopping; serving health + heartbeat + /metrics only", identity)
+				mset.SetLeader(false)
+				lc.stop()
+			},
+			OnNewLeader: func(leader string) {
+				if leader != identity {
+					log.Printf("Standby — current leader is %s", leader)
+				}
+			},
+		},
+	})
+	cancel()
+	log.Println("Automation agent stopped")
+}
+
+// loopController starts/stops a leader-gated loop. It is the small testable unit
+// behind the leaderelection callbacks: start() runs the loop ONLY while leading;
+// stop() cancels it. A standby that never calls start() never runs the loop.
+type loopController struct {
+	run      func(context.Context) // the control loop to run while leading
+	cancel   context.CancelFunc
+	started  bool
+	runCount int // number of times the loop was started (0 for a pure standby)
+}
+
+// start runs the loop under a fresh child context; it is a no-op if already running.
+func (l *loopController) start(parent context.Context) {
+	if l.started {
+		return
+	}
+	ctx, cancel := context.WithCancel(parent)
+	l.cancel = cancel
+	l.started = true
+	l.runCount++
+	go l.run(ctx)
+}
+
+// stop cancels the running loop (no-op if not running).
+func (l *loopController) stop() {
+	if !l.started {
+		return
+	}
+	l.cancel()
+	l.started = false
+}
+
+// Leader-election lease (coordination.k8s.io) name and timings.
+const (
+	leaderElectionLeaseName = "xamops-automation-leader"
+	leaseDuration           = 15 * time.Second
+	renewDeadline           = 10 * time.Second
+	retryPeriod             = 2 * time.Second
+
+	runModeUncordonAll = "uncordon-all"
+)
+
+// runUncordonAll executes the one-shot operator recovery lever: uncordon every node
+// this autoscaler cordoned. It mirrors the per-cycle drain machinery's safety —
+// DRY_RUN simulates (never writes), the executor's never-cordon/drain-self invariant
+// skips the agent's own node — and runs once, then returns so main() exits.
+func runUncordonAll(ctx context.Context, cfg *config.Config, k8s kubernetes.Interface) {
+	mode := gate.Live
+	if cfg.DryRun {
+		mode = gate.Simulate
+		log.Println("RUN_MODE=uncordon-all under DRY_RUN=true — simulating; no node is written")
+	} else {
+		log.Println("RUN_MODE=uncordon-all — uncordoning every node this autoscaler cordoned")
+	}
+	exec := drain.NewExecutor(k8s, nil, cfg.PodNamespace)
+	exec.SetSelfNode(cfg.NodeName)
+	recs := exec.UncordonAllXamopsNodes(ctx, mode)
+	for _, r := range recs {
+		log.Printf("uncordon-all: %s status=%s verified=%v %s", r.Target, r.Status, r.Verified, r.Verification)
+	}
+	log.Printf("RUN_MODE=uncordon-all complete — %d XamOps-cordoned node(s) handled", len(recs))
 }
 
 // shutdownWait bounds the wait for the in-flight cycle after SIGTERM (grace period 60s).
@@ -349,6 +490,7 @@ func runCycle(
 	mset.SetDrainBudgetInflight(len(inflight))
 	planner := drain.NewFitPlanner(k8s, fitsim.Options{Guards: bundle.SafetyGuards, SelfNamespace: cfg.PodNamespace})
 	exec := drain.NewExecutor(k8s, planner, cfg.PodNamespace)
+	exec.SetSelfNode(cfg.NodeName) // never-cordon/drain-self (FEAT-002)
 	ledger := state.New(k8s, cfg.PodNamespace, cfg.StateConfigMap, cfg.DryRun)
 	log.Printf("Drain budget capacity=%d inflight=%v planner=fitsim selfNamespace=%s",
 		budget.Capacity(), inflight, cfg.PodNamespace)
@@ -358,7 +500,10 @@ func runCycle(
 	var drainReports []controller.DrainProgressReport
 
 	// Orphaned drains from an earlier process are handled before anything else.
-	acts.add("scale-in", 1, exec.RecoverOrphans(ctx, d.nodeActionMode())...)
+	orphanRecs := exec.RecoverOrphans(ctx, d.nodeActionMode())
+	acts.add("scale-in", 1, orphanRecs...)
+	// xamops_orphans_recovered_total — count the orphaned drains this cycle recovered.
+	mset.AddOrphansRecovered(len(orphanRecs))
 
 	// ── 1. Rebalancer (highest priority — changes node topology) ─────────────
 	armed := cfg.EnableRebalancer && bundle.AutoscalerMode == "full" && bundle.Rebalancer.Enabled
