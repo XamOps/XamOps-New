@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * migration ever disagree about a column or about the unique key's name, Hibernate silently alters
  * the customer's table instead of the mismatch being caught here. {@code VerticalPolicyMigrationPgTest}
  * covers the Flyway side of the same file; this covers Hibernate's. {@code k8s_spot_interruption_event}
- * is guarded the same way, built from {@code V20261024_20__k8s_spot_interruption_event.sql}
+ * is guarded the same way, built from {@code V20261024_38__k8s_spot_interruption_event.sql}
  * ({@code SpotInterruptionMigrationPgTest} covers its Flyway side).
  */
 @DataJpaTest
@@ -54,7 +54,7 @@ class SchemaUpdateNoAlterPgTest {
             "/db/migration/V20261010_1__vertical_workload_policy.sql";
 
     private static final String SPOT_INTERRUPTION_MIGRATION =
-            "/db/migration/V20261024_20__k8s_spot_interruption_event.sql";
+            "/db/migration/V20261024_38__k8s_spot_interruption_event.sql";
 
     private static Path scriptDir;
     private static Path script;

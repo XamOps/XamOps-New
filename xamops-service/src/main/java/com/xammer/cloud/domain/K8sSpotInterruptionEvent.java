@@ -33,7 +33,7 @@ import java.time.Instant;
  *
  * UAT runs {@code spring.jpa.hibernate.ddl-auto=update} against the shared
  * {@code xamops_db_uat}, so Hibernate may create this table before Flyway sees it
- * ({@code V20261024_20__k8s_spot_interruption_event.sql}). {@code BIGINT} ids,
+ * ({@code V20261024_38__k8s_spot_interruption_event.sql}). {@code BIGINT} ids,
  * {@code TIMESTAMPTZ} for every {@link Instant}, {@code VARCHAR(n)} equal to each
  * {@code length}, nullable {@code Boolean}/{@code Integer} wrappers and {@code TEXT} via
  * {@code columnDefinition} — so whichever of Flyway or Hibernate runs first the other has

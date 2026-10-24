@@ -9,7 +9,7 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * AC1: {@code V20261024_20__k8s_spot_interruption_event.sql} applies cleanly against real
+ * AC1: {@code V20261024_38__k8s_spot_interruption_event.sql} applies cleanly against real
  * PostgreSQL, <strong>twice</strong>, and the second run changes nothing.
  *
  * <p>{@link VerticalPolicyMigrationPgTest} pattern: no test in the module runs Flyway, and every
@@ -27,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @EnabledIfEnvironmentVariable(named = "LOBTEXT_TEST_JDBC_URL", matches = ".+")
 class SpotInterruptionMigrationPgTest {
 
-    private static final String MIGRATION = "/db/migration/V20261024_20__k8s_spot_interruption_event.sql";
+    private static final String MIGRATION = "/db/migration/V20261024_38__k8s_spot_interruption_event.sql";
     private static final String TABLE = "k8s_spot_interruption_event";
 
     /** Columns, types, nullability, indexes and constraints: what a second run must leave as it is. */

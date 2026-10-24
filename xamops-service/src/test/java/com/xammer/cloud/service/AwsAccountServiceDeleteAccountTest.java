@@ -154,6 +154,19 @@ class AwsAccountServiceDeleteAccountTest {
     }
 
     @Test
+    void deleteAccountById_clearsSpotInterruptionHistoryOfItsClusters() {
+        tablesWithColumns.add("kubernetes_cluster_config");
+        tablesWithColumns.add("k8s_spot_interruption_event");
+
+        service.deleteAccountById(7L);
+
+        assertThat(recordedSql).filteredOn(("DELETE FROM k8s_spot_interruption_event WHERE cluster_config_id IN "
+                + "(SELECT id FROM kubernetes_cluster_config WHERE cloud_account_id = :id)")::equals)
+                .hasSize(1);
+        verify(cloudAccountRepository).deleteById(7L);
+    }
+
+    @Test
     void deleteAccountById_skipsUsageRollupTablesWhereTheyDoNotExist() {
         tablesWithColumns.add("kubernetes_cluster_config");
 

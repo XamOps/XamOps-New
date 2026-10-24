@@ -17,6 +17,13 @@
 -- empty value: affected_workloads NULL means "no snapshot listed the node", '[]'
 -- means "the snapshot listed the node and it ran no workloads".
 --
+-- VERSION
+--
+-- First claimed as V20261024_20. V20261024_37 (usage rollups) reached main first,
+-- and UAT runs Flyway with out-of-order=false, so this file takes the next free
+-- version above it. The table, DDL and entity are unchanged by the renumber; IF NOT
+-- EXISTS keeps it safe where ddl-auto=update already created the table.
+--
 -- CANONICAL IDENTIFIER -- and the column this table deliberately does NOT have
 --
 -- cluster_config_id -> kubernetes_cluster_config(id).
