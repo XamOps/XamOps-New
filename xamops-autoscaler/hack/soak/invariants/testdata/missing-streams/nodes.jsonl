@@ -1,0 +1,3 @@
+{"ts":"2026-01-01T00:00:00.000000000Z","stream":"nodes","type":"ADDED","object":{"apiVersion":"v1","kind":"Node","metadata":{"name":"n1"}}}
+{"ts":"2026-01-01T00:00:03.000000000Z","stream":"nodes","type":"MODIFIED","object":{"apiVersion":"v1","kind":"Node","metadata":{"name":"n1","annotations":{"xamops.io/drain-state":"draining"}},"spec":{"unschedulable":true}}}
+{"ts":"2026-01-01T00:00:04.000000000Z","stream":"nodes","type":"MODIFIED","object":{"apiVersion":"v1","kind":"Node","metadata":{"name":"n1","annotations":{"xamops.io/drain-state":"drained"}},"spec":{"unschedulable":true}}}

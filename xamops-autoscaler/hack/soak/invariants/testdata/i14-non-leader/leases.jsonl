@@ -1,0 +1,2 @@
+{"ts":"2026-01-01T00:00:00.000000000Z","stream":"leases","type":"ADDED","object":{"apiVersion":"coordination.k8s.io/v1","kind":"Lease","metadata":{"namespace":"xamops-system","name":"xamops-automation-leader"},"spec":{"holderIdentity":"agent-a","leaseDurationSeconds":15}}}
+{"ts":"2026-01-01T00:00:10.000000000Z","stream":"leases","type":"MODIFIED","object":{"apiVersion":"coordination.k8s.io/v1","kind":"Lease","metadata":{"namespace":"xamops-system","name":"xamops-automation-leader"},"spec":{"holderIdentity":"agent-a","leaseDurationSeconds":15}}}
