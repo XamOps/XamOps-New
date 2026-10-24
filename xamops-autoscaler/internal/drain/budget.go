@@ -73,6 +73,17 @@ func InflightNodes(nodes []corev1.Node) []string {
 	return out
 }
 
+// AlreadyDrained reports whether XamOps already drained n and it is still cordoned:
+// spec.unschedulable plus xamops.io/drain-state=drained (written by liveDrain once
+// the node verified empty). Such a node must not be drained again (re-drain finding
+// F1: re-cordon/evict/verify and a second xamops_drains_total count every cycle).
+// drain-cordoned-by is deliberately not required: a node that was already
+// unschedulable is drained without it. An operator uncordon (unschedulable=false)
+// makes the node eligible again even though the stale annotation remains.
+func AlreadyDrained(n corev1.Node) bool {
+	return n.Spec.Unschedulable && n.Annotations[AnnotationState] == StateDrained
+}
+
 func (b *Budget) usedLocked() int { return len(b.reserved) + len(b.inflight) }
 
 // TryReserve reserves a slot for node on behalf of controller. It is idempotent for

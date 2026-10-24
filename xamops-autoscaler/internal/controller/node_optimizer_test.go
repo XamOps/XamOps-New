@@ -251,3 +251,102 @@ func TestNodeOptimizerSpotRatioSelectsThroughSimulator(t *testing.T) {
 	}
 	assertOnlyReads(t, c)
 }
+
+// staticPrometheus answers every node query with vals (node -> value).
+func staticPrometheus(vals map[string]string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var rows []string
+		for n, v := range vals {
+			rows = append(rows, fmt.Sprintf(`{"metric":{"node":%q},"value":[1,%q]}`, n, v))
+		}
+		fmt.Fprintf(w, `{"status":"success","data":{"resultType":"vector","result":[%s]}}`, strings.Join(rows, ","))
+	}))
+}
+
+// F1: a node XamOps already drained (cordoned + drain-state=drained) is never a
+// drain, spot-ratio or interruption candidate again; an operator uncordon makes it
+// eligible again.
+func TestAnalyseSkipsAlreadyDrainedNodes(t *testing.T) {
+	const interruptLabel = "aws-node-termination-handler/action-reason"
+	cases := []struct {
+		name          string
+		unschedulable bool
+		annotations   map[string]string
+		interrupted   bool
+		prom          map[string]string // nil: no Prometheus, CPU/mem 0
+		wantIdle      bool
+		wantRecommend bool
+		wantDrained   bool
+		wantSpot      bool
+		wantInterrupt bool
+	}{
+		{name: "fresh idle node", wantIdle: true, wantRecommend: true},
+		{name: "cordoned and drained by xamops", unschedulable: true,
+			annotations: map[string]string{drain.AnnotationState: drain.StateDrained},
+			wantIdle:    true, wantDrained: true},
+		{name: "operator uncordoned a drained node", unschedulable: false,
+			annotations: map[string]string{drain.AnnotationState: drain.StateDrained, drain.AnnotationCordonedBy: drain.CordonedByXamops},
+			wantIdle:    true, wantRecommend: true},
+		{name: "drained node with a spot interruption notice", unschedulable: true, interrupted: true,
+			annotations: map[string]string{drain.AnnotationState: drain.StateDrained},
+			wantIdle:    true, wantDrained: true},
+		{name: "fresh node with a spot interruption notice", interrupted: true,
+			wantIdle: true, wantRecommend: true, wantInterrupt: true},
+		{name: "drained busy on-demand node", unschedulable: true,
+			annotations: map[string]string{drain.AnnotationState: drain.StateDrained},
+			prom:        map[string]string{"n-x": "30"}, wantIdle: true, wantDrained: true},
+		{name: "fresh busy on-demand node", prom: map[string]string{"n-x": "30"}, wantIdle: true, wantSpot: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n := optNode("n-x")
+			n.Spec.Unschedulable = tc.unschedulable
+			n.Annotations = tc.annotations
+			if tc.interrupted {
+				n.Labels[interruptLabel] = "SpotInterruption"
+			}
+			// A second, never-drained interrupted node must stay in InterruptedNodes.
+			other := optNode("n-other")
+			other.Labels[interruptLabel] = "SpotInterruption"
+			c := fake.NewSimpleClientset(n, other, daemonSetPod("ds-x", "n-x"))
+			promURL := ""
+			if tc.prom != nil {
+				prom := staticPrometheus(tc.prom)
+				defer prom.Close()
+				promURL = prom.URL
+			}
+			report, err := NewNodeOptimizer(c, nil, nil, promURL, true).Analyse(context.Background(), policy.DefaultBundle().SafetyGuards)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var idle *IdleNodeInfo
+			for i := range report.IdleNodes {
+				if report.IdleNodes[i].NodeName == "n-x" {
+					idle = &report.IdleNodes[i]
+				}
+			}
+			if (idle != nil) != tc.wantIdle {
+				t.Fatalf("idle listed = %v, want %v (%+v)", idle != nil, tc.wantIdle, report.IdleNodes)
+			}
+			if idle != nil && (idle.RecommendDrain != tc.wantRecommend || idle.AlreadyDrained != tc.wantDrained) {
+				t.Errorf("recommendDrain=%v alreadyDrained=%v, want %v/%v", idle.RecommendDrain, idle.AlreadyDrained, tc.wantRecommend, tc.wantDrained)
+			}
+			inSpot := false
+			for _, s := range report.SpotCandidates {
+				inSpot = inSpot || s.NodeName == "n-x"
+			}
+			if inSpot != tc.wantSpot {
+				t.Errorf("spot candidate = %v, want %v", inSpot, tc.wantSpot)
+			}
+			inInterrupt, otherInterrupt := false, false
+			for _, name := range report.InterruptedNodes {
+				inInterrupt = inInterrupt || name == "n-x"
+				otherInterrupt = otherInterrupt || name == "n-other"
+			}
+			if inInterrupt != tc.wantInterrupt || !otherInterrupt {
+				t.Errorf("interrupted = %v, want n-x=%v and n-other present", report.InterruptedNodes, tc.wantInterrupt)
+			}
+			assertOnlyReads(t, c)
+		})
+	}
+}

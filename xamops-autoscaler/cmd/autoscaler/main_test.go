@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
+	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/xamops/automation/internal/config"
 	"github.com/xamops/automation/internal/controller"
@@ -189,13 +190,20 @@ func writeVerbs(c *fake.Clientset) []string {
 
 func runTestCycle(t *testing.T, cfg *config.Config, c *fake.Clientset, srvURL string) {
 	t.Helper()
+	runTestCycleWith(t, cfg, c, srvURL, metrics.New())
+}
+
+// runTestCycleWith is runTestCycle with the caller's metrics set, so counters can be
+// asserted across cycles.
+func runTestCycleWith(t *testing.T, cfg *config.Config, c *fake.Clientset, srvURL string, mset *metrics.Set) {
+	t.Helper()
 	cfg.ServerURL, cfg.APIKey, cfg.ClusterName, cfg.CloudAccountID = srvURL, "test-key", "test-cluster", "123456789012"
 	cfg.PrometheusURL = srvURL
 	cfg.MaxRetries, cfg.RetryDelay = 1, 0
 	cfg.DrainTimeoutSeconds = 30
 	cfg.PodNamespace, cfg.StateConfigMap = "xamops-system", "xamops-automation-state"
 
-	runCycle(context.Background(), cfg, metrics.New(), c,
+	runCycle(context.Background(), cfg, mset, c,
 		policy.NewClient(cfg.ServerURL, cfg.APIKey, cfg.ClusterName, cfg.CloudAccountID),
 		pusher.New(cfg.ServerURL, cfg.APIKey, cfg.ClusterName, cfg.CloudAccountID, cfg.MaxRetries, cfg.RetryDelay),
 		controller.NewEvictor(c, cfg.DryRun),
@@ -783,4 +791,120 @@ func TestRunCycleEvictorAndRebalancerDrainsReachNodeDrainProgress(t *testing.T) 
 			}
 		})
 	}
+}
+
+// scrapeMetrics returns the /metrics text of mset.
+func scrapeMetrics(t *testing.T, mset *metrics.Set) string {
+	t.Helper()
+	srv := httptest.NewServer(mset.Handler())
+	defer srv.Close()
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET /metrics: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
+}
+
+// nodeWrites lists the patch-nodes targets and whether any eviction was created.
+func nodeWrites(c *fake.Clientset) (patched []string, evictions int) {
+	for _, a := range c.Actions() {
+		if pa, ok := a.(k8stesting.PatchAction); ok && a.GetResource().Resource == "nodes" {
+			patched = append(patched, pa.GetName())
+		}
+		if a.GetVerb() == "create" && a.GetResource().Resource == "pods" && a.GetSubresource() == "eviction" {
+			evictions++
+		}
+	}
+	return patched, evictions
+}
+
+// F1: a node XamOps already drained (cordoned + drain-state=drained) is never
+// re-cordoned, evicted or verified again, and xamops_drains_total is not counted
+// again; an operator uncordon makes it eligible again.
+func TestRunCycleDoesNotReDrainAlreadyDrainedNode(t *testing.T) {
+	body := []byte(`{"autoscalerMode":"full","nodeOptimizerPolicy":{"enabled":true,"autoDrainIdleNodes":true,"maxParallelDrains":1}}`)
+	srv, _ := backend(t, body)
+	nodeB := cycleNode("node-b", nil)
+	nodeB.Spec.Unschedulable = true
+	nodeB.Annotations = map[string]string{"xamops.io/drain-state": "drained"}
+	c := fake.NewSimpleClientset(
+		cycleNode("node-a", nil), nodeB, cycleNode("node-c", nil),
+		cyclePod("kube-system", "aws-node-a", "node-a", "DaemonSet", "aws-node", nil),
+		cyclePod("kube-system", "aws-node-b", "node-b", "DaemonSet", "aws-node", nil),
+		cyclePod("kube-system", "aws-node-c", "node-c", "DaemonSet", "aws-node", nil),
+		cyclePod("default", "web-1", "node-c", "ReplicaSet", "web-rs", map[string]string{"app": "web"}),
+	)
+	cfg := &config.Config{DryRun: false, EnableNodeOptimizer: true}
+	mset := metrics.New()
+	const succeeded = `xamops_drains_total{controller="node-optimizer",result="succeeded"} `
+
+	// Cycle 1: node-a (fresh, idle) is drained; node-b is left alone.
+	runTestCycleWith(t, cfg, c, srv.URL, mset)
+	patched, ev := nodeWrites(c)
+	for _, n := range patched {
+		if n == "node-b" {
+			t.Errorf("cycle 1 patched already-drained node-b: %v", patched)
+		}
+	}
+	if ev != 0 {
+		t.Errorf("cycle 1 created %d eviction(s)", ev)
+	}
+	a, err := c.CoreV1().Nodes().Get(context.Background(), "node-a", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.Spec.Unschedulable || a.Annotations["xamops.io/drain-state"] != "drained" {
+		t.Fatalf("node-a after cycle 1: unschedulable=%v annotations=%v", a.Spec.Unschedulable, a.Annotations)
+	}
+
+	// Cycle 2: node-a and node-b are both already drained — no node write at all.
+	c.ClearActions()
+	runTestCycleWith(t, cfg, c, srv.URL, mset)
+	if patched, ev := nodeWrites(c); len(patched) != 0 || ev != 0 {
+		t.Errorf("cycle 2 re-drained: patched=%v evictions=%d", patched, ev)
+	}
+	out := scrapeMetrics(t, mset)
+	if !strings.Contains(out, succeeded+"1\n") {
+		t.Errorf("want exactly one succeeded node-optimizer drain after two cycles:\n%s", grepLines(out, "xamops_drains_total"))
+	}
+	if strings.Contains(out, `xamops_drains_total{controller="node-optimizer",result="skipped"}`) {
+		t.Errorf("already-drained node counted as skipped:\n%s", grepLines(out, "xamops_drains_total"))
+	}
+
+	// Cycle 3: an operator uncordons node-a (the stale annotation stays): eligible again.
+	a.Spec.Unschedulable = false
+	if _, err := c.CoreV1().Nodes().Update(context.Background(), a, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	c.ClearActions()
+	runTestCycleWith(t, cfg, c, srv.URL, mset)
+	patched, _ = nodeWrites(c)
+	drainedA := false
+	for _, n := range patched {
+		drainedA = drainedA || n == "node-a"
+		if n == "node-b" {
+			t.Errorf("cycle 3 patched already-drained node-b: %v", patched)
+		}
+	}
+	if !drainedA {
+		t.Errorf("operator-uncordoned node-a was not drained again: patched=%v", patched)
+	}
+	if out := scrapeMetrics(t, mset); !strings.Contains(out, succeeded+"2\n") {
+		t.Errorf("want two succeeded node-optimizer drains after the uncordon:\n%s", grepLines(out, "xamops_drains_total"))
+	}
+}
+
+func grepLines(s, substr string) string {
+	var out []string
+	for _, l := range strings.Split(s, "\n") {
+		if strings.Contains(l, substr) {
+			out = append(out, l)
+		}
+	}
+	return strings.Join(out, "\n")
 }

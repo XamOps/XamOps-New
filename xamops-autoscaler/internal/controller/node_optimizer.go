@@ -88,6 +88,9 @@ type IdleNodeInfo struct {
 	SystemPodsOnly bool    `json:"systemPodsOnly"` // only kube-system/daemonset pods
 	RecommendDrain bool    `json:"recommendDrain"`
 	CapacityType   string  `json:"capacityType"`
+	// AlreadyDrained: XamOps drained this node and it is still cordoned
+	// (drain.AlreadyDrained); it is listed but never recommended for drain again.
+	AlreadyDrained bool `json:"alreadyDrained,omitempty"`
 }
 
 type SpotCandidateInfo struct {
@@ -139,7 +142,17 @@ func (n *NodeOptimizer) Analyse(ctx context.Context, guards policy.SafetyGuards)
 
 	report.TotalNodes = len(nodes.Items)
 
+	// Nodes XamOps already drained and that are still cordoned are never drain,
+	// cordon, spot-ratio or interruption candidates again (F1).
+	drainedNodes := map[string]bool{}
+	var drainedNames []string
+
 	for _, node := range nodes.Items {
+		drained := drain.AlreadyDrained(node)
+		if drained {
+			drainedNodes[node.Name] = true
+			drainedNames = append(drainedNames, node.Name)
+		}
 		capacityType := "on-demand"
 		if isSpotNode(node) {
 			capacityType = "spot"
@@ -161,7 +174,7 @@ func (n *NodeOptimizer) Analyse(ctx context.Context, guards policy.SafetyGuards)
 		systemOnly := allSystemPods(pods)
 
 		if isIdle || (systemOnly && podCount <= 3) {
-			recommend := isIdle && systemOnly
+			recommend := isIdle && systemOnly && !drained
 			report.IdleNodes = append(report.IdleNodes, IdleNodeInfo{
 				NodeName:       node.Name,
 				InstanceType:   instanceType,
@@ -171,11 +184,12 @@ func (n *NodeOptimizer) Analyse(ctx context.Context, guards policy.SafetyGuards)
 				SystemPodsOnly: systemOnly,
 				RecommendDrain: recommend,
 				CapacityType:   capacityType,
+				AlreadyDrained: drained,
 			})
 		}
 
 		// On-demand nodes that could be spot candidates (CPU < 70%, stable workloads)
-		if capacityType == "on-demand" && cpuU < 70 && cpuU > 0 {
+		if capacityType == "on-demand" && cpuU < 70 && cpuU > 0 && !drained {
 			report.SpotCandidates = append(report.SpotCandidates, SpotCandidateInfo{
 				NodeName:               node.Name,
 				InstanceType:           instanceType,
@@ -195,6 +209,16 @@ func (n *NodeOptimizer) Analyse(ctx context.Context, guards policy.SafetyGuards)
 
 	// Check for spot interruption notices via AWS node termination handler labels
 	report.InterruptedNodes = n.detectSpotInterruptions(ctx)
+	if len(drainedNodes) > 0 {
+		kept := report.InterruptedNodes[:0]
+		for _, name := range report.InterruptedNodes {
+			if !drainedNodes[name] {
+				kept = append(kept, name)
+			}
+		}
+		report.InterruptedNodes = kept
+		log.Printf("NodeOptimizer: %d node(s) already drained by XamOps (cordoned, drain-state=drained) — not re-drained: %v", len(drainedNames), drainedNames)
+	}
 
 	return report, nil
 }

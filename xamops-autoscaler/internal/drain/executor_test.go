@@ -343,6 +343,33 @@ func TestBudget(t *testing.T) {
 	}
 }
 
+func TestAlreadyDrained(t *testing.T) {
+	cases := []struct {
+		name          string
+		unschedulable bool
+		state         string
+		want          bool
+	}{
+		{"cordoned and drained by xamops", true, StateDrained, true},
+		{"operator uncordoned a drained node", false, StateDrained, false},
+		{"operator cordon without annotation", true, "", false},
+		{"aborted drain", true, StateAborted, false},
+		{"orphaned draining node stays with RecoverOrphans", true, StateDraining, false},
+		{"cordon-only for review", true, StateCordoned, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n := *node("node-a")
+			n.Spec.Unschedulable = tc.unschedulable
+			if tc.state != "" {
+				n.Annotations = map[string]string{AnnotationState: tc.state}
+			}
+			if got := AlreadyDrained(n); got != tc.want {
+				t.Errorf("AlreadyDrained = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
 func TestSelfNamespaceMoveRefused(t *testing.T) {
 	c := seeded()
 	plan := drainablePlan()
