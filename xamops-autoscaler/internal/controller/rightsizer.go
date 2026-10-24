@@ -21,6 +21,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/xamops/automation/internal/gate"
+	"github.com/xamops/automation/internal/metrics"
 	"github.com/xamops/automation/internal/policy"
 	"github.com/xamops/automation/internal/telemetry"
 )
@@ -43,18 +44,61 @@ type Rightsizer struct {
 	prometheusURL string
 	httpClient    *http.Client
 	dryRun        bool
+	// metrics is the shared metric set (FEAT-001). nil-safe: all *metrics.Set methods
+	// no-op on nil, so a Rightsizer built without metrics (older tests) still works.
+	metrics *metrics.Set
 }
 
-func NewRightsizer(k8s kubernetes.Interface, prometheusURL string, dryRun bool) *Rightsizer {
+func NewRightsizer(k8s kubernetes.Interface, prometheusURL string, dryRun bool, mset *metrics.Set) *Rightsizer {
 	return &Rightsizer{
 		k8s:           k8s,
 		prometheusURL: prometheusURL,
 		httpClient:    &http.Client{Timeout: 30 * time.Second},
 		dryRun:        dryRun,
+		metrics:       mset,
 	}
 }
 
 const mib = int64(1024 * 1024)
+
+// Post-apply OOM/throttle watch (FEAT-004). After a verified live apply the prior
+// container requests are stored as a durable undo snapshot on the Deployment, and the
+// workload is watched for the next watchWindowCycles cycles. A detected OOMKilled or
+// CPU-throttle regression auto-reverts to the stored prior requests.
+const (
+	// annPriorRequests holds a JSON map {container: {cpu, memory}} of the requests in
+	// force immediately BEFORE the live apply — the undo snapshot.
+	annPriorRequests = "xamops.io/rightsizer-prior-requests"
+	// annAppliedAt stamps the RFC3339 time of the live apply (window start).
+	annAppliedAt = "xamops.io/rightsizer-applied-at"
+	// annWatchRemaining is the number of watch cycles still to run before the rollout
+	// is declared successful. Decremented each cycle; cleared (with the others) on a
+	// clean rollout or a revert.
+	annWatchRemaining = "xamops.io/rightsizer-watch-remaining"
+
+	// watchWindowCycles is the default N: how many cycles a patched workload is watched
+	// for an OOM/throttle regression after a live apply.
+	watchWindowCycles = 3
+	// throttleRegressionRatio is the CPU-throttle fraction above which the watch treats
+	// the workload as regressed (throttled periods / total periods).
+	throttleRegressionRatio = 0.25
+)
+
+// Apply-outcome result labels for xamops_rightsizer_apply_total{result}.
+const (
+	applyResultApplied   = "applied"
+	applyResultSimulated = "simulated"
+	applyResultRefused   = "refused"
+	applyResultFailed    = "failed"
+	applyResultReverted  = "reverted"
+	applyResultRolloutOK = "rollout_ok"
+)
+
+// priorRequests is one container's undo snapshot (serialised into annPriorRequests).
+type priorRequests struct {
+	CPU    string `json:"cpu"`
+	Memory string `json:"memory"`
+}
 
 // Row reasons for the apply decision.
 const (
@@ -130,6 +174,13 @@ func (r *Rightsizer) Run(ctx context.Context, p policy.WorkloadRightsizerPolicy,
 
 	results := make([]policy.WorkloadRightsizingResult, 0)
 	var records []policy.ActionRecord
+
+	// ── Post-apply OOM/throttle watch (FEAT-004) ─────────────────────────
+	// Runs before the analysis each cycle: for every Deployment still inside its
+	// watch window, query Prometheus for an OOM/throttle regression and auto-revert
+	// to the stored prior requests if one is seen. Records are prepended so an abort
+	// is reported alongside this cycle's analysis.
+	records = append(records, r.runWatch(ctx, p)...)
 
 	// ── Deployments ──────────────────────────────────────────────────────
 	deployments, err := r.k8s.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
@@ -223,19 +274,27 @@ func (r *Rightsizer) decideApply(ctx context.Context, dep appsv1.Deployment, con
 		res.Reason = reasonSimulated + " | " + a.clampNote
 		rec := telemetry.Finish(newRec(true), policy.ActionSimulated, false,
 			"dry-run — would patch the Deployment template (rolling restart)")
+		r.metrics.IncRightsizerApply(applyResultSimulated)
 		return &rec
 	case gate.Live:
 		cpuFloor, memFloor := rightsizerFloors(p)
+		// Undo snapshot: capture the CURRENT requests before the live patch, and fold
+		// them into the SAME patch as the new requests (one patch, one rollout) so a
+		// later cycle's watch can revert to them. The watch window is stamped alongside.
+		annotations := r.buildWatchAnnotations(dep, containerName)
 		rec := newRec(false)
-		patched, err := r.patchDeploymentContainer(ctx, dep, containerName, a.cpuTarget, a.memTarget, cpuFloor, memFloor)
+		patched, err := r.patchDeploymentContainerWithAnnotations(ctx, dep, containerName, a.cpuTarget, a.memTarget, cpuFloor, memFloor, annotations)
 		if err != nil {
 			log.Printf("Rightsizer: patch deployment %s refused/failed: %v", target, err)
 			res.Reason = "patch not applied: " + err.Error() + " | " + a.clampNote
 			status := policy.ActionFailed
+			result := applyResultFailed
 			if _, ok := err.(refusal); ok {
 				status = policy.ActionRefused
+				result = applyResultRefused
 			}
 			rec = telemetry.Finish(rec, status, false, err.Error())
+			r.metrics.IncRightsizerApply(result)
 			return &rec
 		}
 		if templateCarries(patched, containerName, a.cpuTarget, a.memTarget) {
@@ -244,11 +303,13 @@ func (r *Rightsizer) decideApply(ctx context.Context, dep appsv1.Deployment, con
 			res.Reason = "Deployment template patched — rollout pending | " + a.clampNote
 			rec.Verification = "Deployment template carries the new requests; rollout pending"
 			rec = telemetry.Finish(rec, policy.ActionSucceeded, true, "")
+			r.metrics.IncRightsizerApply(applyResultApplied)
 			log.Printf("Rightsizer: patched deployment %s: CPU=%s Mem=%s (template verified, rollout pending)",
 				target, res.RecommendedCPU, res.RecommendedMem)
 		} else {
 			res.Reason = "patch issued; the returned template does not carry the new requests | " + a.clampNote
 			rec = telemetry.Finish(rec, policy.ActionSucceeded, false, "returned template does not carry the new requests")
+			r.metrics.IncRightsizerApply(applyResultFailed)
 		}
 		return &rec
 	default:
@@ -371,6 +432,14 @@ func (e refusal) Error() string { return string(e) }
 // depth): never under DRY_RUN, never an unset current request, never CPU < 1m, never a
 // decrease below the floor.
 func (r *Rightsizer) patchDeploymentContainer(ctx context.Context, dep appsv1.Deployment, containerName string, cpuMilli, memBytes, cpuFloor, memFloor int64) (*appsv1.Deployment, error) {
+	return r.patchDeploymentContainerWithAnnotations(ctx, dep, containerName, cpuMilli, memBytes, cpuFloor, memFloor, nil)
+}
+
+// patchDeploymentContainerWithAnnotations is patchDeploymentContainer plus optional
+// metadata annotations folded into the SAME strategic-merge patch (so the undo
+// snapshot is persisted atomically with the apply — no second rollout, no extra
+// patch call). All the same clamp/floor/DRY_RUN re-validations apply.
+func (r *Rightsizer) patchDeploymentContainerWithAnnotations(ctx context.Context, dep appsv1.Deployment, containerName string, cpuMilli, memBytes, cpuFloor, memFloor int64, annotations map[string]string) (*appsv1.Deployment, error) {
 	if r.dryRun {
 		return nil, refusal("refused: DRY_RUN=true")
 	}
@@ -421,6 +490,13 @@ func (r *Rightsizer) patchDeploymentContainer(ctx context.Context, dep appsv1.De
 			},
 		},
 	}
+	if len(annotations) > 0 {
+		ann := make(map[string]interface{}, len(annotations))
+		for k, v := range annotations {
+			ann[k] = v
+		}
+		patch["metadata"] = map[string]interface{}{"annotations": ann}
+	}
 
 	patchBytes, err := json.Marshal(patch)
 	if err != nil {
@@ -446,6 +522,270 @@ func templateCarries(dep *appsv1.Deployment, containerName string, cpuMilli, mem
 		return okC && okM && cpu.MilliValue() == cpuMilli && mem.Value() == memBytes
 	}
 	return false
+}
+
+// ── Post-apply watch (FEAT-004) ──────────────────────────────────────────────
+
+// snapshotRequests reads the current CPU+memory requests of one container and returns
+// the undo snapshot, or nil when the container's requests are unset (nothing to
+// restore to — such a container is not patched by this controller anyway).
+func snapshotRequests(dep appsv1.Deployment, containerName string) *priorRequests {
+	for _, c := range dep.Spec.Template.Spec.Containers {
+		if c.Name != containerName {
+			continue
+		}
+		cpu, okC := c.Resources.Requests[corev1.ResourceCPU]
+		mem, okM := c.Resources.Requests[corev1.ResourceMemory]
+		if !okC || !okM || cpu.IsZero() || mem.IsZero() {
+			return nil
+		}
+		return &priorRequests{CPU: cpu.String(), Memory: mem.String()}
+	}
+	return nil
+}
+
+// buildWatchAnnotations produces the annotation set to fold into the live apply patch:
+// the undo snapshot (prior requests, keyed by container and merged with any already
+// present), the apply time (window start) and the watch window. It returns nil when
+// the container has no snapshotable (unset) requests — such a container is never
+// applied, so this is defensive.
+func (r *Rightsizer) buildWatchAnnotations(dep appsv1.Deployment, containerName string) map[string]string {
+	snap := snapshotRequests(dep, containerName)
+	if snap == nil {
+		return nil
+	}
+	priors := readPriorRequests(dep.Annotations)
+	priors[containerName] = *snap
+	priorsJSON, err := json.Marshal(priors)
+	if err != nil {
+		return nil
+	}
+	return map[string]string{
+		annPriorRequests:  string(priorsJSON),
+		annAppliedAt:      time.Now().UTC().Format(time.RFC3339),
+		annWatchRemaining: strconv.Itoa(watchWindowCycles),
+	}
+}
+
+// readPriorRequests decodes annPriorRequests into a per-container snapshot map; an
+// empty/absent/malformed annotation yields an empty map (never nil).
+func readPriorRequests(ann map[string]string) map[string]priorRequests {
+	out := map[string]priorRequests{}
+	if ann == nil {
+		return out
+	}
+	if raw, ok := ann[annPriorRequests]; ok && raw != "" {
+		_ = json.Unmarshal([]byte(raw), &out)
+		if out == nil {
+			out = map[string]priorRequests{}
+		}
+	}
+	return out
+}
+
+// runWatch processes every Deployment still inside its post-apply watch window. For
+// each, it queries Prometheus for an OOM/throttle regression and either auto-reverts
+// (regression) or decrements the window, emitting a rollout-success signal when the
+// window closes cleanly. It returns one ActionRecord per revert.
+func (r *Rightsizer) runWatch(ctx context.Context, p policy.WorkloadRightsizerPolicy) []policy.ActionRecord {
+	deployments, err := r.k8s.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil
+	}
+	var records []policy.ActionRecord
+	for i := range deployments.Items {
+		dep := deployments.Items[i]
+		if _, watched := dep.Annotations[annAppliedAt]; !watched {
+			continue
+		}
+		if rec := r.watchDeployment(ctx, dep, p); rec != nil {
+			records = append(records, *rec)
+		}
+	}
+	return records
+}
+
+// watchDeployment runs one cycle of the watch for a single patched Deployment.
+func (r *Rightsizer) watchDeployment(ctx context.Context, dep appsv1.Deployment, p policy.WorkloadRightsizerPolicy) *policy.ActionRecord {
+	priors := readPriorRequests(dep.Annotations)
+	if len(priors) == 0 {
+		// Nothing to revert to — close the watch quietly.
+		_ = r.clearWatch(ctx, dep)
+		return nil
+	}
+
+	regressed, reason := r.detectRegression(ctx, dep)
+	if regressed {
+		return r.revert(ctx, dep, priors, reason)
+	}
+
+	// No regression observed this cycle (this includes 'no Prometheus data' — we never
+	// revert on absence of data). Decrement the window; if it is exhausted, the rollout
+	// is declared successful and the watch annotations are cleared.
+	remaining := watchWindowCycles
+	if v, err := strconv.Atoi(dep.Annotations[annWatchRemaining]); err == nil {
+		remaining = v
+	}
+	remaining--
+	if remaining <= 0 {
+		if err := r.clearWatch(ctx, dep); err != nil {
+			log.Printf("Rightsizer: could not clear watch on %s/%s: %v", dep.Namespace, dep.Name, err)
+			return nil
+		}
+		r.metrics.IncRightsizerApply(applyResultRolloutOK)
+		log.Printf("Rightsizer: rollout-success for %s/%s — no OOM/throttle regression within the watch window", dep.Namespace, dep.Name)
+		return nil
+	}
+	if err := r.setWatchRemaining(ctx, dep, remaining); err != nil {
+		log.Printf("Rightsizer: could not decrement watch window on %s/%s: %v", dep.Namespace, dep.Name, err)
+	}
+	return nil
+}
+
+// detectRegression queries Prometheus for OOMKilled restarts and CPU throttling on the
+// workload's pods within the watch window. It returns (true, reason) only on positive
+// evidence of a regression; missing data returns (false, "") — never a false revert.
+func (r *Rightsizer) detectRegression(ctx context.Context, dep appsv1.Deployment) (bool, string) {
+	window := r.watchLookback(dep.Annotations[annAppliedAt])
+
+	oomQuery := fmt.Sprintf(
+		`sum(increase(kube_pod_container_status_restarts_total{namespace="%s",pod=~"%s-.*"}[%s]) and on(pod) (kube_pod_container_status_last_terminated_reason{namespace="%s",pod=~"%s-.*",reason="OOMKilled"} > 0))`,
+		dep.Namespace, dep.Name, window, dep.Namespace, dep.Name,
+	)
+	if oom, err := r.promInstantQuery(ctx, oomQuery); err == nil && oom > 0 {
+		return true, fmt.Sprintf("OOMKilled detected (%g restart(s) with OOMKilled in the last %s)", oom, window)
+	}
+
+	throttleQuery := fmt.Sprintf(
+		`sum(rate(container_cpu_cfs_throttled_periods_total{namespace="%s",pod=~"%s-.*"}[%s])) / sum(rate(container_cpu_cfs_periods_total{namespace="%s",pod=~"%s-.*"}[%s]))`,
+		dep.Namespace, dep.Name, window, dep.Namespace, dep.Name, window,
+	)
+	if ratio, err := r.promInstantQuery(ctx, throttleQuery); err == nil && ratio > throttleRegressionRatio {
+		return true, fmt.Sprintf("CPU throttling detected (%.1f%% of periods throttled over the last %s, above the %.0f%% threshold)",
+			ratio*100, window, throttleRegressionRatio*100)
+	}
+
+	return false, ""
+}
+
+// watchLookback is the Prometheus range used by the regression queries: the time since
+// the apply, clamped to a sane minimum, so the queries only see post-apply behaviour.
+func (r *Rightsizer) watchLookback(appliedAt string) string {
+	if t, err := time.Parse(time.RFC3339, appliedAt); err == nil {
+		if d := time.Since(t); d >= 5*time.Minute {
+			return fmt.Sprintf("%dm", int(d.Minutes()))
+		}
+	}
+	return "5m"
+}
+
+// revert re-patches every watched container back to its stored prior requests and
+// records an aborted ActionRecord naming the regression. On success the watch
+// annotations are cleared so the workload is not re-watched.
+func (r *Rightsizer) revert(ctx context.Context, dep appsv1.Deployment, priors map[string]priorRequests, reason string) *policy.ActionRecord {
+	cpuFloor, memFloor := rightsizerFloors(policy.DefaultBundle().WorkloadRightsizerPolicy)
+	target := dep.Namespace + "/" + dep.Name
+	rec := telemetry.NewAction(policy.ControllerRightsizer, "revert-requests", target, r.dryRun)
+	telemetry.SetDetail(&rec, "workload", target)
+	telemetry.SetDetail(&rec, "regression", reason)
+
+	var reverted []string
+	var failures []string
+	for container, prior := range priors {
+		cpuQ, errC := resource.ParseQuantity(prior.CPU)
+		memQ, errM := resource.ParseQuantity(prior.Memory)
+		if errC != nil || errM != nil {
+			failures = append(failures, container+": malformed prior snapshot")
+			continue
+		}
+		if _, err := r.patchDeploymentContainer(ctx, dep, container, cpuQ.MilliValue(), memQ.Value(), cpuFloor, memFloor); err != nil {
+			failures = append(failures, container+": "+err.Error())
+			continue
+		}
+		reverted = append(reverted, fmt.Sprintf("%s->%s/%s", container, prior.CPU, prior.Memory))
+	}
+
+	if len(reverted) == 0 {
+		// Could not restore anything (e.g. DRY_RUN refuses writes) — honest failure,
+		// do NOT clear the watch so a later non-dry-run cycle can retry.
+		finished := telemetry.Finish(rec, policy.ActionFailed, false,
+			"auto-revert blocked ("+reason+"): "+joinNote(failures))
+		r.metrics.IncRightsizerApply(applyResultFailed)
+		log.Printf("Rightsizer: auto-revert of %s blocked: %s", target, joinNote(failures))
+		return &finished
+	}
+
+	telemetry.SetDetail(&rec, "restored", reverted)
+	rec.Verification = "prior requests restored on the Deployment template"
+	msg := "auto-reverted to prior requests after regression: " + reason
+	if len(failures) > 0 {
+		msg += " | partial: " + joinNote(failures)
+	}
+	finished := telemetry.Finish(rec, policy.ActionAborted, true, msg)
+	r.metrics.IncRightsizerApply(applyResultReverted)
+	if err := r.clearWatch(ctx, dep); err != nil {
+		log.Printf("Rightsizer: reverted %s but could not clear watch annotations: %v", target, err)
+	}
+	log.Printf("Rightsizer: AUTO-REVERT %s — %s (restored %v)", target, reason, reverted)
+	return &finished
+}
+
+// clearWatch removes the watch annotations (strategic-merge null) so the workload is no
+// longer watched.
+func (r *Rightsizer) clearWatch(ctx context.Context, dep appsv1.Deployment) error {
+	if r.dryRun {
+		return refusal("refused: DRY_RUN=true")
+	}
+	patch := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"annotations": map[string]interface{}{
+				annPriorRequests:  nil,
+				annAppliedAt:      nil,
+				annWatchRemaining: nil,
+			},
+		},
+	}
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return err
+	}
+	_, err = r.k8s.AppsV1().Deployments(dep.Namespace).Patch(
+		ctx, dep.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{},
+	)
+	return err
+}
+
+// setWatchRemaining updates only the remaining-window annotation.
+func (r *Rightsizer) setWatchRemaining(ctx context.Context, dep appsv1.Deployment, remaining int) error {
+	if r.dryRun {
+		return refusal("refused: DRY_RUN=true")
+	}
+	patch := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"annotations": map[string]interface{}{
+				annWatchRemaining: strconv.Itoa(remaining),
+			},
+		},
+	}
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return err
+	}
+	_, err = r.k8s.AppsV1().Deployments(dep.Namespace).Patch(
+		ctx, dep.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{},
+	)
+	return err
+}
+
+func joinNote(parts []string) string {
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += "; "
+		}
+		out += p
+	}
+	return out
 }
 
 // ── Prometheus helpers ──────────────────────────────────────────────────────

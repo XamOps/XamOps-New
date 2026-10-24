@@ -2,11 +2,14 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -17,6 +20,7 @@ import (
 
 	"github.com/xamops/automation/internal/config"
 	"github.com/xamops/automation/internal/gate"
+	"github.com/xamops/automation/internal/metrics"
 	"github.com/xamops/automation/internal/policy"
 )
 
@@ -138,7 +142,7 @@ func rsPolicy() policy.WorkloadRightsizerPolicy {
 // The 7 baseline rows reproduce exactly the clamped outputs of plan.md FEAT-002 step 10.
 func TestRightsizerAnalyzeContainerBaselineRows(t *testing.T) {
 	prom := baselinePrometheus(t, baselineRows)
-	r := NewRightsizer(fake.NewSimpleClientset(), prom.URL, true)
+	r := NewRightsizer(fake.NewSimpleClientset(), prom.URL, true, nil)
 	p := rsPolicy()
 
 	for _, row := range baselineRows {
@@ -173,7 +177,7 @@ func TestRightsizerAnalyzeContainerBaselineRows(t *testing.T) {
 // An explicit zero request is treated like an unset one: no row.
 func TestRightsizerZeroRequestIsSkipped(t *testing.T) {
 	prom := baselinePrometheus(t, baselineRows)
-	r := NewRightsizer(fake.NewSimpleClientset(), prom.URL, true)
+	r := NewRightsizer(fake.NewSimpleClientset(), prom.URL, true, nil)
 	for _, c := range []corev1.Container{
 		rsContainer("idler", "0", "1Gi"),
 		rsContainer("idler", "1", "0"),
@@ -213,7 +217,9 @@ func TestRightsizerApplyGateTruthTable(t *testing.T) {
 					b.WorkloadRightsizerPolicy.ApplyMode = mode
 					d := gate.RightsizerApply(cfg, b)
 
-					rows, recs, err := NewRightsizer(c, prom.URL, dry).Run(context.Background(), b.WorkloadRightsizerPolicy, b.SafetyGuards, d)
+					mset := metrics.New()
+					rs := NewRightsizer(c, prom.URL, dry, mset)
+					rows, recs, err := rs.Run(context.Background(), b.WorkloadRightsizerPolicy, b.SafetyGuards, d)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -241,12 +247,27 @@ func TestRightsizerApplyGateTruthTable(t *testing.T) {
 						if req.Cpu().MilliValue() != 25 || req.Memory().Value() != 250*mib {
 							t.Errorf("patched requests = %s/%s, want 25m/250Mi", req.Cpu(), req.Memory())
 						}
+						// The live apply stored the undo snapshot (prior requests) on the
+						// patched Deployment, within the SAME patch (no extra patch call).
+						if dep.Annotations[annAppliedAt] == "" {
+							t.Error("live apply did not stamp the watch applied-at annotation")
+						}
+						priors := readPriorRequests(dep.Annotations)
+						if p := priors["idler"]; p.CPU != "1" || p.Memory != "1Gi" {
+							t.Errorf("undo snapshot = %+v, want prior 1/1Gi", p)
+						}
+						if got := applyMetric(t, mset, applyResultApplied); got != 1 {
+							t.Errorf("xamops_rightsizer_apply_total{result=applied} = %v, want 1", got)
+						}
 					case wantSim:
 						if len(recs) != 1 || recs[0].Status != policy.ActionSimulated || !recs[0].DryRun || recs[0].Verified {
 							t.Errorf("simulated records = %+v", recs)
 						}
 						if !strings.HasPrefix(row.Reason, reasonSimulated) {
 							t.Errorf("reason = %q", row.Reason)
+						}
+						if got := applyMetric(t, mset, applyResultSimulated); got != 1 {
+							t.Errorf("xamops_rightsizer_apply_total{result=simulated} = %v, want 1", got)
 						}
 					default:
 						if len(recs) != 0 {
@@ -277,7 +298,7 @@ func TestRightsizerGuardsProduceNoRows(t *testing.T) {
 	b := policy.DefaultBundle()
 	b.WorkloadRightsizerPolicy.Enabled = true
 	b.WorkloadRightsizerPolicy.ApplyMode = "immediate"
-	rows, recs, err := NewRightsizer(c, prom.URL, false).Run(context.Background(), b.WorkloadRightsizerPolicy, b.SafetyGuards,
+	rows, recs, err := NewRightsizer(c, prom.URL, false, nil).Run(context.Background(), b.WorkloadRightsizerPolicy, b.SafetyGuards,
 		gate.Decision{Mode: gate.Live, Reason: "test"})
 	if err != nil {
 		t.Fatal(err)
@@ -307,7 +328,7 @@ func TestRightsizerPatchRevalidates(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			c := fake.NewSimpleClientset(tc.dep)
-			r := NewRightsizer(c, "http://unused", tc.dryRun)
+			r := NewRightsizer(c, "http://unused", tc.dryRun, nil)
 			_, err := r.patchDeploymentContainer(context.Background(), *tc.dep, tc.dep.Spec.Template.Spec.Containers[0].Name, tc.cpu, tc.mem, 25, 250*mib)
 			if err == nil || !strings.HasPrefix(err.Error(), tc.wantRefusePfx) {
 				t.Errorf("err = %v, want prefix %q", err, tc.wantRefusePfx)
@@ -316,5 +337,239 @@ func TestRightsizerPatchRevalidates(t *testing.T) {
 				t.Error("patch issued despite refusal")
 			}
 		})
+	}
+}
+
+// ── FEAT-004: post-apply OOM/throttle watch + auto-undo ──────────────────────
+
+// applyMetric reads the current value of xamops_rightsizer_apply_total{result} from a
+// metric set's registry (0 when the series has not been incremented).
+func applyMetric(t *testing.T, mset *metrics.Set, result string) float64 {
+	t.Helper()
+	families, err := mset.Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+	for _, mf := range families {
+		if mf.GetName() != "xamops_rightsizer_apply_total" {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			for _, l := range m.GetLabel() {
+				if l.GetName() == "result" && l.GetValue() == result {
+					return m.GetCounter().GetValue()
+				}
+			}
+		}
+	}
+	return 0
+}
+
+// watchProm serves the watch's OOM and throttle queries with fixed values. oom is the
+// OOMKilled restart count, throttle is the throttled/total period ratio. A value < 0
+// means "no data" (empty vector) for that query — used to prove no false revert.
+func watchProm(t *testing.T, oom, throttle float64) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("query")
+		var v float64
+		switch {
+		case strings.Contains(q, "kube_pod_container_status_restarts_total"):
+			v = oom
+		case strings.Contains(q, "container_cpu_cfs_throttled_periods_total"):
+			v = throttle
+		default:
+			v = -1
+		}
+		if v < 0 {
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+			return
+		}
+		fmt.Fprintf(w, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1,"%v"]}]}}`, v)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// watchedDeployment is a Deployment already inside its post-apply watch window: it
+// carries the applied-at stamp, the undo snapshot (prior requests) and the remaining
+// window, and its template holds the (post-apply) requests.
+func watchedDeployment(ns, name, container, priorCPU, priorMem, curCPU, curMem string, remaining int) *appsv1.Deployment {
+	dep := rsDeployment(ns, name, 2, rsContainer(container, curCPU, curMem))
+	priorsJSON, _ := json.Marshal(map[string]priorRequests{container: {CPU: priorCPU, Memory: priorMem}})
+	dep.Annotations = map[string]string{
+		annPriorRequests:  string(priorsJSON),
+		annAppliedAt:      time.Now().UTC().Add(-10 * time.Minute).Format(time.RFC3339),
+		annWatchRemaining: strconv.Itoa(remaining),
+	}
+	return dep
+}
+
+// (a) A stored prior snapshot + a Prometheus OOMKilled signal within the window →
+// the watch re-patches to the prior requests and emits an aborted ActionRecord.
+func TestRightsizerWatchRevertsOnOOM(t *testing.T) {
+	prom := watchProm(t, 2, -1) // 2 OOMKilled restarts; throttle has no data
+	dep := watchedDeployment("prod-sim", "encoder", "encoder", "200m", "256Mi", "25m", "64Mi", 3)
+	c := fake.NewSimpleClientset(dep)
+	mset := metrics.New()
+	r := NewRightsizer(c, prom.URL, false, mset)
+
+	recs := r.runWatch(context.Background(), rsPolicy())
+	if len(recs) != 1 {
+		t.Fatalf("watch records = %d, want 1 (aborted revert)", len(recs))
+	}
+	rec := recs[0]
+	if rec.Status != policy.ActionAborted || !rec.Verified {
+		t.Errorf("record = %+v, want aborted+verified", rec)
+	}
+	if !strings.Contains(rec.Reason, "OOMKilled") {
+		t.Errorf("reason = %q, want it to name OOMKilled", rec.Reason)
+	}
+	// The container is restored to the prior requests (200m / 256Mi).
+	got, _ := c.AppsV1().Deployments("prod-sim").Get(context.Background(), "encoder", metav1.GetOptions{})
+	req := got.Spec.Template.Spec.Containers[0].Resources.Requests
+	if req.Cpu().MilliValue() != 200 || req.Memory().Value() != 256*mib {
+		t.Errorf("restored requests = %s/%s, want 200m/256Mi", req.Cpu(), req.Memory())
+	}
+	// Watch annotations are cleared so the workload is not re-watched.
+	if _, ok := got.Annotations[annAppliedAt]; ok {
+		t.Error("watch annotations not cleared after revert")
+	}
+	if v := applyMetric(t, mset, applyResultReverted); v != 1 {
+		t.Errorf("apply_total{result=reverted} = %v, want 1", v)
+	}
+}
+
+// Throttle above the threshold also triggers a revert.
+func TestRightsizerWatchRevertsOnThrottle(t *testing.T) {
+	prom := watchProm(t, -1, 0.5) // 50% of periods throttled, above the 25% threshold
+	dep := watchedDeployment("prod-sim", "encoder", "encoder", "200m", "64Mi", "25m", "64Mi", 3)
+	c := fake.NewSimpleClientset(dep)
+	mset := metrics.New()
+	r := NewRightsizer(c, prom.URL, false, mset)
+
+	recs := r.runWatch(context.Background(), rsPolicy())
+	if len(recs) != 1 || recs[0].Status != policy.ActionAborted {
+		t.Fatalf("watch records = %+v, want one aborted revert", recs)
+	}
+	if !strings.Contains(recs[0].Reason, "throttl") {
+		t.Errorf("reason = %q, want it to name throttling", recs[0].Reason)
+	}
+	got, _ := c.AppsV1().Deployments("prod-sim").Get(context.Background(), "encoder", metav1.GetOptions{})
+	if got.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue() != 200 {
+		t.Error("CPU not restored to prior 200m after throttle regression")
+	}
+	if v := applyMetric(t, mset, applyResultReverted); v != 1 {
+		t.Errorf("apply_total{result=reverted} = %v, want 1", v)
+	}
+}
+
+// (b) No regression (throttle below threshold, OOM absent) → no revert; the window
+// counts down. When it reaches zero the rollout is declared successful and the watch
+// annotations are cleared (rollout_ok metric).
+func TestRightsizerWatchNoRevertRollsOutOK(t *testing.T) {
+	prom := watchProm(t, -1, 0.05) // 5% throttle, below threshold; no OOM
+	dep := watchedDeployment("prod-sim", "encoder", "encoder", "200m", "64Mi", "25m", "64Mi", 1) // last cycle of the window
+	c := fake.NewSimpleClientset(dep)
+	mset := metrics.New()
+	r := NewRightsizer(c, prom.URL, false, mset)
+
+	recs := r.runWatch(context.Background(), rsPolicy())
+	if len(recs) != 0 {
+		t.Fatalf("watch records = %+v, want none (no regression)", recs)
+	}
+	got, _ := c.AppsV1().Deployments("prod-sim").Get(context.Background(), "encoder", metav1.GetOptions{})
+	// Requests are untouched (still the post-apply 25m) and the watch is cleared.
+	if got.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue() != 25 {
+		t.Error("requests changed without a regression")
+	}
+	if _, ok := got.Annotations[annAppliedAt]; ok {
+		t.Error("watch annotations not cleared after a clean rollout window")
+	}
+	if v := applyMetric(t, mset, applyResultRolloutOK); v != 1 {
+		t.Errorf("apply_total{result=rollout_ok} = %v, want 1", v)
+	}
+	if v := applyMetric(t, mset, applyResultReverted); v != 0 {
+		t.Errorf("apply_total{result=reverted} = %v, want 0 (no false revert)", v)
+	}
+}
+
+// No Prometheus data at all → treated as 'no regression observed' (never a false
+// revert); the window counts down but is not yet exhausted, so no rollout signal yet.
+func TestRightsizerWatchNoDataNoRevert(t *testing.T) {
+	prom := watchProm(t, -1, -1) // both queries return empty vectors
+	dep := watchedDeployment("prod-sim", "encoder", "encoder", "200m", "64Mi", "25m", "64Mi", 3)
+	c := fake.NewSimpleClientset(dep)
+	mset := metrics.New()
+	r := NewRightsizer(c, prom.URL, false, mset)
+
+	recs := r.runWatch(context.Background(), rsPolicy())
+	if len(recs) != 0 {
+		t.Fatalf("watch records = %+v, want none on missing data", recs)
+	}
+	got, _ := c.AppsV1().Deployments("prod-sim").Get(context.Background(), "encoder", metav1.GetOptions{})
+	if got.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue() != 25 {
+		t.Error("requests reverted despite no Prometheus data (false revert)")
+	}
+	if got.Annotations[annWatchRemaining] != "2" {
+		t.Errorf("watch remaining = %q, want it decremented to 2", got.Annotations[annWatchRemaining])
+	}
+	if v := applyMetric(t, mset, applyResultReverted); v != 0 {
+		t.Errorf("apply_total{result=reverted} = %v, want 0", v)
+	}
+}
+
+// (c) The undo snapshot captured before a live patch reflects the real prior requests.
+func TestRightsizerUndoSnapshotCapturedBeforePatch(t *testing.T) {
+	prom := baselinePrometheus(t, baselineRows)
+	dep := rsDeployment("team-a", "overprovisioned-api", 2, rsContainer("idler", "1", "1Gi"))
+	c := fake.NewSimpleClientset(dep)
+	mset := metrics.New()
+	b := policy.DefaultBundle()
+	b.AutoscalerMode = "full"
+	b.WorkloadRightsizerPolicy.Enabled = true
+	b.WorkloadRightsizerPolicy.ApplyMode = "immediate"
+
+	_, recs, err := NewRightsizer(c, prom.URL, false, mset).Run(context.Background(), b.WorkloadRightsizerPolicy, b.SafetyGuards,
+		gate.Decision{Mode: gate.Live, Reason: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 || recs[0].Status != policy.ActionSucceeded {
+		t.Fatalf("records = %+v, want one succeeded apply", recs)
+	}
+	got, _ := c.AppsV1().Deployments("team-a").Get(context.Background(), "overprovisioned-api", metav1.GetOptions{})
+	priors := readPriorRequests(got.Annotations)
+	if p := priors["idler"]; p.CPU != "1" || p.Memory != "1Gi" {
+		t.Errorf("undo snapshot = %+v, want the pre-patch 1/1Gi", p)
+	}
+	if got.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue() != 25 {
+		t.Error("apply did not patch the template to 25m")
+	}
+	// Exactly one patch (requests + undo annotations folded into the same patch).
+	if patchActions(c) != 1 {
+		t.Errorf("deployment patches = %d, want 1 (atomic apply+snapshot)", patchActions(c))
+	}
+}
+
+// DRY_RUN refuses the revert write: the regression is recorded as a failed revert and
+// the watch annotations are kept for a later non-dry-run retry (no silent data loss).
+func TestRightsizerWatchDryRunRefusesRevert(t *testing.T) {
+	prom := watchProm(t, 3, -1) // OOMKilled present
+	dep := watchedDeployment("prod-sim", "encoder", "encoder", "200m", "64Mi", "25m", "64Mi", 3)
+	c := fake.NewSimpleClientset(dep)
+	mset := metrics.New()
+	r := NewRightsizer(c, prom.URL, true, mset) // DRY_RUN
+
+	recs := r.runWatch(context.Background(), rsPolicy())
+	if len(recs) != 1 || recs[0].Status != policy.ActionFailed {
+		t.Fatalf("records = %+v, want one failed revert under DRY_RUN", recs)
+	}
+	if patchActions(c) != 0 {
+		t.Error("DRY_RUN issued a revert patch")
+	}
+	got, _ := c.AppsV1().Deployments("prod-sim").Get(context.Background(), "encoder", metav1.GetOptions{})
+	if _, ok := got.Annotations[annAppliedAt]; !ok {
+		t.Error("watch annotations cleared despite a blocked revert")
 	}
 }

@@ -86,7 +86,7 @@ func main() {
 
 	// ── Controller instances (all respect DryRun flag) ───────────────────
 	evictor := controller.NewEvictor(k8s, cfg.DryRun)
-	rightsizer := controller.NewRightsizer(k8s, cfg.PrometheusURL, cfg.DryRun)
+	rightsizer := controller.NewRightsizer(k8s, cfg.PrometheusURL, cfg.DryRun, mset)
 	rebalancer := controller.NewRebalancer(k8s, cfg.DryRun)
 	hpaMgr := controller.NewHPAManager(k8s, cfg.PrometheusURL, cfg.DryRun)
 	vpaMgr := controller.NewVPAManager(k8s, dc, cfg.DryRun)

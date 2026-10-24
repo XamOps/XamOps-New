@@ -199,7 +199,7 @@ func runTestCycle(t *testing.T, cfg *config.Config, c *fake.Clientset, srvURL st
 		policy.NewClient(cfg.ServerURL, cfg.APIKey, cfg.ClusterName, cfg.CloudAccountID),
 		pusher.New(cfg.ServerURL, cfg.APIKey, cfg.ClusterName, cfg.CloudAccountID, cfg.MaxRetries, cfg.RetryDelay),
 		controller.NewEvictor(c, cfg.DryRun),
-		controller.NewRightsizer(c, cfg.PrometheusURL, cfg.DryRun),
+		controller.NewRightsizer(c, cfg.PrometheusURL, cfg.DryRun, metrics.New()),
 		controller.NewRebalancer(c, cfg.DryRun),
 		controller.NewHPAManager(c, cfg.PrometheusURL, cfg.DryRun),
 		controller.NewVPAManager(c, nil, cfg.DryRun),
