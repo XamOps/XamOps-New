@@ -174,7 +174,8 @@ class EksAutoscalingControllerTest {
         assertThat(body(retired).get("message").asText()).isEqualTo("The automation agent's rightsizer is retired. "
                 + "Workload rightsizing is configured in Workload autoscaling.");
         assertThat(body(call(HttpMethod.POST, "/rebalance", null)).get("message").asText())
-                .isEqualTo("Rebalancing is blocked: the current rebalancer can drain the same nodes repeatedly.");
+                .isEqualTo("Rebalancing stays gated pending the benefit guard and a soak window; "
+                        + "the ledger already prevents repeated drains of the same nodes.");
         verifyNoInteractions(service);
     }
 

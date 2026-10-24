@@ -23,9 +23,11 @@ public enum K8sReadinessKey {
     VPA_APPLY("vpa-apply", K8sAutomationReason.CONTROLLER_NOT_READY,
             "XamOps doesn't create or update VPA objects yet."),
     EVICTOR_LIVE("evictor-live", K8sAutomationReason.ANALYSE_ONLY,
-            "Live consolidation is disabled until pod-fit simulation is available."),
+            "Live consolidation stays gated pending analysis-reliability work and a soak window; "
+                    + "pod-fit simulation is built."),
     REBALANCER("rebalancer", K8sAutomationReason.CONTROLLER_NOT_READY,
-            "Rebalancing is blocked: the current rebalancer can drain the same nodes repeatedly."),
+            "Rebalancing stays gated pending the benefit guard and a soak window; "
+                    + "the ledger already prevents repeated drains of the same nodes."),
     NODE_OPTIMIZER_ACTIONS("node-optimizer-actions", K8sAutomationReason.CONTROLLER_NOT_READY,
             "Node cordon, drain and spot conversion are disabled until the node optimizer passes safety validation."),
     SCALE_OUT("scale-out", K8sAutomationReason.CONTROLLER_NOT_READY,

@@ -155,6 +155,33 @@ func (rb *Rebalancer) Run(
 	}
 	log.Printf("Rebalancer: operation %s (%s) — candidates %v", opID, d.Mode, nodeNames(candidates))
 
+	// ── Benefit / no-op guard (hardening-design §5) ─────────────────────────────
+	// Before recording the operation running and draining, run the fit simulator
+	// over the candidate set to prove a NET node reduction is achievable: at least
+	// one candidate is drainable such that its pods re-fit onto the remaining nodes.
+	// When no candidate set is drainable-with-reduction, REFUSE to start — the
+	// rebalance would drain without benefit. This guard only NARROWS: it is an
+	// additional refusal on top of the four-layer gate and the per-candidate
+	// feasibility DrainCandidates already enforces; it never bypasses or weakens any
+	// of them. It applies in both Simulate and Live. Nothing is written to the ledger
+	// as running and the operation is NOT terminal — it is simply not started this
+	// cycle. (A terminal no-benefit outcome would come from DrainCandidates below.)
+	selected, _, err := exec.SelectSet(ctx, nodeNames(candidates), budget.Remaining())
+	if err != nil {
+		result.Status = policy.ActionFailed
+		result.Error = err.Error()
+		return result, nil, err
+	}
+	if len(selected) == 0 {
+		result.Status = policy.ActionRefused
+		if !live {
+			result.Status = policy.ActionSimulated
+		}
+		result.Reason = "no net node reduction achievable — rebalance would drain without benefit; not started this cycle"
+		log.Printf("Rebalancer: operation %s refused by benefit guard — %s", opID, result.Reason)
+		return result, nil, nil
+	}
+
 	if live {
 		if err := ledger.Record(ctx, opID, state.Operation{
 			State: state.StateRunning, Mode: "live", StartedAt: result.StartedAt.UTC().Format(time.RFC3339),

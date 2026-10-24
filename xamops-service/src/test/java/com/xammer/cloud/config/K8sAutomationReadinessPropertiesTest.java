@@ -63,7 +63,8 @@ class K8sAutomationReadinessPropertiesTest {
                     ? K8sAutomationReason.ANALYSE_ONLY : K8sAutomationReason.CONTROLLER_NOT_READY);
         }
         assertThat(K8sReadinessKey.REBALANCER.message())
-                .isEqualTo("Rebalancing is blocked: the current rebalancer can drain the same nodes repeatedly.");
+                .isEqualTo("Rebalancing stays gated pending the benefit guard and a soak window; "
+                        + "the ledger already prevents repeated drains of the same nodes.");
     }
 
     @Test

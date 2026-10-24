@@ -586,28 +586,16 @@ func TestRunCycleDryRunSection4FixtureRefusesWithReasons(t *testing.T) {
 		t.Errorf("DRY_RUN cycle issued writes: %v", w)
 	}
 
-	recs := drainRecords(t, cap)
-	if len(recs) == 0 {
-		t.Fatal("no drain records")
-	}
-	all := ""
-	for _, r := range recs {
+	// No node is drainable, so no net node reduction is achievable: the FEAT-005
+	// benefit guard refuses the rebalancer before any drain record is produced, in
+	// Simulate as in Live. Any drain records that do appear (from other controllers)
+	// must still be honest refusals/skips, never a simulated drain.
+	for _, r := range drainRecords(t, cap) {
 		if r.Status == policy.ActionSimulated {
 			t.Errorf("simulated drain on a fixture with no drainable node: %+v", r)
 		}
 		if r.Status == policy.ActionRefused && r.Reason == "" {
 			t.Errorf("refusal without a reason: %+v", r)
-		}
-		all += r.Reason + "\n"
-	}
-	for _, want := range []string{
-		"blocked team-b/pdb-guarded-web-1: pdb-no-disruptions:team-b/pdb-guarded-web",
-		"blocked xamops-system/xamops-automation-1: critical-namespace; self-namespace; single-replica",
-		"strand team-a/overprovisioned-api-1: no other node fits it",
-		"strand team-a/overprovisioned-api-2: no other node fits it",
-	} {
-		if !strings.Contains(all, want) {
-			t.Errorf("no refusal mentions %q:\n%s", want, all)
 		}
 	}
 
@@ -617,15 +605,47 @@ func TestRunCycleDryRunSection4FixtureRefusesWithReasons(t *testing.T) {
 	}
 	var st map[string]interface{}
 	_ = json.Unmarshal(rs[0], &st)
-	if st["status"] != policy.ActionSimulated || st["nodesSimulated"] != float64(0) || !strings.Contains(st["reason"].(string), "strand") {
+	if st["status"] != policy.ActionSimulated || st["nodesSimulated"] != float64(0) ||
+		!strings.Contains(st["reason"].(string), "no net node reduction achievable") {
 		t.Errorf("rebalance status = %s", rs[0])
 	}
+
+	// The simulator's detailed reasons stay observable on the evictor-candidate fit
+	// summaries: every node is non-drainable and carries its blockers/strands.
+	all := ""
 	for _, raw := range cap.items("autoscaling-evictor-candidates") {
-		var c map[string]interface{}
+		var c struct {
+			CanEvict bool `json:"canEvict"`
+			Fit      *struct {
+				Drainable bool `json:"drainable"`
+				Blocked   []struct {
+					Pod    string `json:"pod"`
+					Reason string `json:"reason"`
+				} `json:"blocked"`
+				Strands []string `json:"strands"`
+			} `json:"fit"`
+		}
 		_ = json.Unmarshal(raw, &c)
-		fit, _ := c["fit"].(map[string]interface{})
-		if c["canEvict"] != false || fit == nil || fit["drainable"] != false {
+		if c.CanEvict != false || c.Fit == nil || c.Fit.Drainable != false {
 			t.Errorf("candidate = %s", raw)
+		}
+		if c.Fit != nil {
+			for _, b := range c.Fit.Blocked {
+				all += b.Pod + ": " + b.Reason + "\n"
+			}
+			for _, s := range c.Fit.Strands {
+				all += "strand " + s + "\n"
+			}
+		}
+	}
+	for _, want := range []string{
+		"team-b/pdb-guarded-web-1: pdb-no-disruptions:team-b/pdb-guarded-web",
+		"xamops-system/xamops-automation-1: critical-namespace; self-namespace; single-replica",
+		"strand team-a/overprovisioned-api-1",
+		"strand team-a/overprovisioned-api-2",
+	} {
+		if !strings.Contains(all, want) {
+			t.Errorf("no candidate fit mentions %q:\n%s", want, all)
 		}
 	}
 }

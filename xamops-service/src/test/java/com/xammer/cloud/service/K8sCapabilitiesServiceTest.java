@@ -179,7 +179,8 @@ class K8sCapabilitiesServiceTest {
         assertThat(dto.readiness().get("rebalancer")).satisfies(r -> {
             assertThat(r.ready()).isFalse();
             assertThat(r.reason()).isEqualTo("CONTROLLER_NOT_READY");
-            assertThat(r.message()).isEqualTo("Rebalancing is blocked: the current rebalancer can drain the same nodes repeatedly.");
+            assertThat(r.message()).isEqualTo("Rebalancing stays gated pending the benefit guard and a soak window; "
+                    + "the ledger already prevents repeated drains of the same nodes.");
         });
     }
 
