@@ -7,3 +7,29 @@ numpy==1.26.4
 gunicorn==23.0.0
 python-dateutil==2.9.0
 plotly==5.24.1
+# statsforecast (AutoETS for /forecast/usage memory) and transitive deps.
+# Resolved from requirements.in with uv pip compile for CPython 3.11 / linux x86_64.
+# pyarrow is held at 25.0.0: pyarrow 26 needs NumPy>=2 at import time (we stay on 1.26.4).
+statsforecast==2.1.1
+adagio==0.2.6
+cloudpickle==3.1.2
+coreforecast==0.0.19
+formulaic==1.2.2
+fsspec==2026.9.0
+fugue==0.9.7
+interface-meta==2.0.1
+narwhals==2.27.1
+packaging==26.3
+patsy==1.0.3
+pyarrow==25.0.0
+pytz==2026.5
+scipy==1.17.1
+six==1.17.0
+statsmodels==0.15.0
+threadpoolctl==3.7.0
+tqdm==4.70.1
+triad==1.0.2
+typing-extensions==4.16.0
+tzdata==2026.5
+utilsforecast==0.2.17
+wrapt==2.5.1

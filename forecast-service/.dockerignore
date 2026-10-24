@@ -5,6 +5,12 @@ __pycache__/
 .Python
 env/
 venv/
+.venv/
 .git/
 .gitignore
 *.log
+.DS_Store
+backtest/
+tests/
+pytest.ini
+requirements-dev.txt
