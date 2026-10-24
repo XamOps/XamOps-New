@@ -93,6 +93,7 @@ describe('the legacy dark CSS leaves the v3 kit alone', () => {
     ['components/EksDetails/sections/automation/activity/ActivityPage.tsx', 'data-activity'],
     ['components/EksDetails/sections/automation/node/NodeAutoscalerPage.tsx', 'data-node-autoscaler'],
     ['components/EksDetails/sections/automation/node/ConsolidationPage.tsx', 'data-consolidation-page'],
+    ['components/EksDetails/sections/automation/node/SpotInterruptionsPage.tsx', 'data-spot-interruptions-page'],
     ['components/EksDetails/sections/automation/workload/PoliciesPage.tsx', 'data-policies-page'],
   ])('marks the page root data-k8s-kit: %s', (file, marker) => {
     const roots = readFileSync(join(SRC, file), 'utf8')

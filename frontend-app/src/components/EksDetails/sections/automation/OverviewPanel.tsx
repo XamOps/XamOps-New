@@ -74,13 +74,14 @@ import {
   namespaceRollup,
   nodeAutoscalerStatus,
   recentChanges,
+  spotAnalysisState,
   timelineLanes,
   vpaFeatureStatus,
   workloadAutoscalerStatus,
   type FeatureStatus,
   type Resource,
 } from './automationDerivations';
-import { CARD, INK, InPageLink, MUTED, ReadFailureCard, readFailureText } from './automationUi';
+import { CARD, FAINT, INK, InPageLink, MUTED, ReadFailureCard, readFailureText } from './automationUi';
 import { dayLabel, feedTimeline, feedWeekCounts, savingNow, weekCounts, type WeekCounts } from './activity/activityInsights';
 import { activityResultChip } from './activity/activityText';
 import { ClusterUsageCard, ResourceToggle } from './insightCards';
@@ -101,7 +102,7 @@ export interface TodayRow {
   /** The vertical engine's row, replaced by {@link NOT_TURNED_ON_TEXT} while the engine is off. */
   vertical?: boolean;
   /** The Automation page that shows this analysis, linked under it (its {@link OverviewHrefs} key). */
-  page?: { target: 'hpa' | 'vpa' | 'consolidation'; label: string };
+  page?: { target: 'hpa' | 'vpa' | 'consolidation' | 'spotInterruptions'; label: string };
 }
 
 /** §9.1 item 4, in display order. The consolidation, HPA and VPA rows point at the pages that now show them. */
@@ -132,7 +133,13 @@ export const TODAY_ROWS: readonly TodayRow[] = [
     page: { target: 'vpa', label: 'Automation › VPA' },
     apply: { readiness: 'vpa-apply' },
   },
-  { id: 'spot-interruption', label: 'Spot interruption handling', analysis: 'Interrupted nodes the agent is draining', apply: { actionId: 'nodeOptimizer.settings' } },
+  {
+    id: 'spot-interruption',
+    label: 'Spot interruption handling',
+    analysis: 'Interrupted nodes the agent is draining',
+    page: { target: 'spotInterruptions', label: 'Automation › Spot interruptions' },
+    apply: { actionId: 'nodeOptimizer.settings' },
+  },
 ];
 
 /** A readiness key with no control of its own (VPA): ready, or its server message. */
@@ -311,46 +318,67 @@ function Dash() {
 }
 
 /**
- * The spot-interruption row's Analysis cell, from the real node-fleet read
- * (FEAT-003 / scorecard §3 AC3.4). It surfaces the agent's `interruptedNodes` and never fabricates:
- *  - ok with interrupted nodes → a StatusDot (tone "warn", the `attention` meaning) with the count
- *    and the fleet's data age, under the honest "Protective" framing (the drain is gated/additive
- *    to NTH, so "Protective" stays true);
- *  - ok with none → a StatusDot (tone "good") reading "None interrupted" with the data age;
- *  - loading / error → the em-dash + sr-only "None" idiom, so a failed read never reads as "healthy".
+ * The spot-interruption row's Analysis cell, from the real node-fleet read. Its state is
+ * {@link spotAnalysisState} (one pure function, unit-tested), and it never fabricates:
+ *  - warn → a StatusDot with the notice (or legacy interrupted) count and the fleet's data age,
+ *    under the honest "Protective" framing;
+ *  - good → "None interrupted", reachable only from a fresh report by an agent that sends
+ *    `interruptionNotices` and lists none;
+ *  - dash → the em-dash + sr-only "None" idiom, with the reason in FAINT text (not reported, stale,
+ *    an older automation agent), so missing data never reads as "healthy".
+ * The page link renders here because the generic Analysis cell is skipped for this row.
  */
-function SpotAnalysis({ fleet, now }: { fleet: ReadState<AutomationNodeFleet>; now: number }) {
-  if (fleet.kind !== 'ok') return <span className={MUTED} data-analysis="spot-interruption"><Dash /></span>;
-  const count = fleet.data.interruptedNodes.length;
-  const age = dataAge(fleet.data.collectedAt, now);
+function SpotAnalysis({ fleet, now, pageHref }: { fleet: ReadState<AutomationNodeFleet>; now: number; pageHref?: string }) {
+  const state = spotAnalysisState(fleet, now);
+  const age = fleet.kind === 'ok' ? dataAge(fleet.data.collectedAt, now) : null;
   return (
     <span className={MUTED} data-analysis="spot-interruption">
-      <span className="block"><span className="text-[12px]">Protective</span></span>
-      {count > 0 ? (
-        <StatusDot tone="warn" label={`${count} node${count === 1 ? '' : 's'} interrupted`} detail={age} />
+      {state.kind === 'dash' ? (
+        <>
+          <Dash />
+          {state.reason && <span className={`block text-[12px] ${FAINT}`} data-spot-reason="">{state.reason}</span>}
+        </>
       ) : (
-        <StatusDot tone="good" label="None interrupted" detail={age} />
+        <>
+          <span className="block"><span className="text-[12px]">Protective</span></span>
+          <StatusDot tone={state.kind} label={state.label} detail={age} />
+        </>
+      )}
+      {pageHref && (
+        <span className="mt-0.5 block text-[12px]" data-analysis-page="spotInterruptions">
+          <InPageLink to={pageHref}>Automation › Spot interruptions</InPageLink>
+        </span>
       )}
     </span>
   );
 }
 
 /**
- * The spot-interruption row's drawer "Last drain" line. FEAT-003 is frontend-only: the node-fleet
- * read serves `interruptedNodes` but NO last-drain-outcome field, so this is the honest em-dash with
- * a plain sentence; wiring a real last-drain outcome is a backend follow-up (recorded in findings).
+ * The spot-interruption row's drawer "Last drain" line. The node-fleet read serves no last-drain
+ * outcome; each interruption's drain outcome is recorded on Automation › Spot interruptions, so the
+ * line is the honest em-dash with that pointer, and a link when the page's href exists.
  */
-function spotDrawerData(): DrawerDatum[] {
+function spotDrawerData(pageHref?: string): DrawerDatum[] {
   return [
     {
       label: 'What XamOps does',
       value: 'On a spot interruption XamOps drains the node — protective and gated, additive to the node’s own interruption handler; it never forces a move.',
     },
-    {
-      label: 'Last drain',
-      value: null,
-      reason: 'No last-drain outcome is read today; a backend read for it is a follow-up.',
-    },
+    pageHref
+      ? {
+        label: 'Last drain',
+        value: (
+          <span>
+            {'Each interruption’s drain outcome is on '}
+            <InPageLink to={pageHref}>Automation › Spot interruptions</InPageLink>.
+          </span>
+        ),
+      }
+      : {
+        label: 'Last drain',
+        value: null,
+        reason: "Each interruption's drain outcome is on Automation › Spot interruptions.",
+      },
   ];
 }
 
@@ -390,7 +418,7 @@ function TodayTable({
   now: number;
   workloadAutoscalerHref?: string;
   /** The HPA, VPA and Consolidation pages, linked under the rows they show. */
-  pageHrefs?: { hpa?: string; vpa?: string; consolidation?: string };
+  pageHrefs?: { hpa?: string; vpa?: string; consolidation?: string; spotInterruptions?: string };
 }) {
   const headingId = useId();
   const location = useLocation();
@@ -410,7 +438,7 @@ function TodayTable({
       width: '34%',
       cell: (row) => {
         if (row.vertical && engineOff) return <span className={MUTED}>{NOT_TURNED_ON_TEXT}</span>;
-        if (row.id === 'spot-interruption') return <SpotAnalysis fleet={fleet} now={now} />;
+        if (row.id === 'spot-interruption') return <SpotAnalysis fleet={fleet} now={now} pageHref={pageHrefs.spotInterruptions} />;
         const text = analysisText(caps, row);
         return (
           <span className={MUTED} data-analysis={row.id}>
@@ -475,7 +503,7 @@ function TodayTable({
         : { title: 'Apply', data: applyDrawerData(applyCapability(caps, row, clusterName)) };
     return [
       capabilitySection,
-      ...(row.id === 'spot-interruption' ? [{ title: 'Spot interruption', data: spotDrawerData() } as DrawerSection] : []),
+      ...(row.id === 'spot-interruption' ? [{ title: 'Spot interruption', data: spotDrawerData(pageHrefs.spotInterruptions) } as DrawerSection] : []),
       applySection,
       { title: 'How this is calculated', data: howCalculatedData(row) },
     ];
@@ -997,6 +1025,8 @@ export interface OverviewHrefs {
   nodeAutoscalerLabel?: string;
   /** Automation › Consolidation, linked under the Node consolidation row. */
   consolidation?: string;
+  /** Automation › Spot interruptions, linked under the Spot interruption handling row. */
+  spotInterruptions?: string;
 }
 
 export interface OverviewPanelProps {
@@ -1066,7 +1096,7 @@ export function OverviewPanel({ clusterName, accountId, region, eksData, hrefs =
             fleet={nodeRead.fleet}
             now={now}
             workloadAutoscalerHref={hrefs.workloadAutoscaler}
-            pageHrefs={{ hpa: hrefs.hpa, vpa: hrefs.vpa, consolidation: hrefs.consolidation }}
+            pageHrefs={{ hpa: hrefs.hpa, vpa: hrefs.vpa, consolidation: hrefs.consolidation, spotInterruptions: hrefs.spotInterruptions }}
           />
         </div>
       }

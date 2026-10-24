@@ -73,6 +73,7 @@ export const EKS_SECTIONS: SectionRegistry<EksSectionId, EksSubtabId> = [
       { id: 'workload-autoscaler-policies', label: 'Policies', group: 'Workload autoscaler' },
       { id: 'node-autoscaler', label: 'Node autoscaler' },
       { id: 'consolidation', label: 'Consolidation' },
+      { id: 'spot-interruptions', label: 'Spot interruptions' },
       { id: 'hpa', label: 'HPA' },
       { id: 'vpa', label: 'VPA' },
       { id: 'activity', label: 'Activity' },
@@ -119,6 +120,7 @@ export const SUB_ALIASES: SubAliasMap = {
     guardrails: 'node-autoscaler',
     rebalancing: 'node-autoscaler',
     spot: 'node-autoscaler',
+    interruptions: 'spot-interruptions',
     'pod-autoscaling': 'hpa',
   },
 };

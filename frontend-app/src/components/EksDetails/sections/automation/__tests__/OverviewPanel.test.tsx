@@ -107,7 +107,10 @@ const NOT_DEPLOYED = { status: 404, body: null };
 /** A node fleet with no interrupted nodes: the default the Node autoscaler reads expect. */
 const NODE_FLEET_EMPTY = {
   status: 200,
-  body: { totalNodes: 3, onDemandNodes: 2, spotNodes: 1, idleNodes: [], interruptedNodes: [], collectedAt: iso(4 * 60_000) },
+  body: {
+    totalNodes: 3, onDemandNodes: 2, spotNodes: 1, idleNodes: [], interruptedNodes: [], collectedAt: iso(4 * 60_000),
+    interruptedNodesReported: true, interruptionNoticesReported: true, interruptionNotices: [],
+  },
 };
 
 function serve(
@@ -874,11 +877,81 @@ describe('Automation › Overview: the activity log, its summary and the usage f
       expect(cell.querySelector('[data-tone]')).toBeNull();
     });
 
-    it('records the last-drain outcome as an honest em-dash in the drawer (backend follow-up)', async () => {
+    it('records the last-drain outcome as an honest em-dash in the drawer, pointing at the Spot interruptions page', async () => {
       const table = await renderPanel(fixture('demo-aws-001'));
       await waitFor(() => expect(spotCell(table)).toHaveTextContent('None interrupted'));
       const dialog = await openDrawer(table, 'spot-interruption');
       expect(dialog).toHaveTextContent('Last drain');
+    });
+
+    it('links the row to Automation › Spot interruptions (AC13), in the cell and the drawer', async () => {
+      const table = await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', { hrefs: { spotInterruptions: '/s' } });
+      const cell = spotCell(table);
+      await waitFor(() => expect(cell).toHaveTextContent('None interrupted'));
+      expect(within(cell).getByRole('link', { name: 'Automation › Spot interruptions' })).toHaveAttribute('href', '/s');
+      const dialog = await openDrawer(table, 'spot-interruption');
+      expect(dialog).toHaveTextContent('Each interruption’s drain outcome is on Automation › Spot interruptions.');
+    });
+
+    it('counts the notices when interruptedNodes is empty (AC18)', async () => {
+      serve(200, ENDPOINT_1, {
+        fleet: {
+          status: 200,
+          body: {
+            ...NODE_FLEET_EMPTY.body,
+            interruptionNotices: [{ nodeName: 'ip-10-0-1-5', kind: 'interruption' }, { nodeName: 'ip-10-0-2-9', kind: 'rebalance' }],
+          },
+        },
+      });
+      const table = await renderPanel(fixture('demo-aws-001'));
+      const cell = spotCell(table);
+      await waitFor(() => expect(cell).toHaveTextContent('1 node with an interruption notice · 1 rebalance recommendation'));
+      expect(cell.querySelector('[data-tone="warn"]')).not.toBeNull();
+      expect(within(cell).queryByText(/None interrupted/)).toBeNull();
+    });
+
+    it('shows an em-dash with the agent-version reason for an older automation agent, never "None interrupted" (AC25)', async () => {
+      serve(200, ENDPOINT_1, {
+        fleet: {
+          status: 200,
+          body: {
+            totalNodes: 3, onDemandNodes: 2, spotNodes: 1, idleNodes: [], interruptedNodes: [], collectedAt: iso(60_000),
+            interruptedNodesReported: true, interruptionNoticesReported: false,
+          },
+        },
+      });
+      const table = await renderPanel(fixture('demo-aws-001'));
+      const cell = spotCell(table);
+      await waitFor(() => expect(cell).toHaveTextContent("this automation agent version doesn't report interruption notices"));
+      expect(within(cell).queryByText(/None interrupted/)).toBeNull();
+      expect(cell.querySelector('[data-tone]')).toBeNull();
+    });
+
+    it('shows an em-dash with the stale reason when the automation report is stale (AC14)', async () => {
+      serve(200, ENDPOINT_1, {
+        fleet: {
+          status: 200,
+          body: {
+            totalNodes: 3, onDemandNodes: 2, spotNodes: 1, idleNodes: null, interruptedNodes: null, interruptionNotices: null, collectedAt: iso(60_000),
+            interruptedNodesReported: false, interruptionNoticesReported: false, interruptedNodesReason: 'stale', interruptedNodesReportAt: iso(12 * 60_000),
+          },
+        },
+      });
+      const table = await renderPanel(fixture('demo-aws-001'));
+      const cell = spotCell(table);
+      await waitFor(() => expect(cell).toHaveTextContent("Not reported: the automation agent's last node report is 12 min old"));
+      expect(within(cell).queryByText(/None interrupted/)).toBeNull();
+      expect(cell.querySelector('[data-tone]')).toBeNull();
+    });
+
+    it('shows an em-dash for a flag-less payload with no interrupted nodes (older backend), never "None interrupted"', async () => {
+      serve(200, ENDPOINT_1, {
+        fleet: { status: 200, body: { totalNodes: 3, onDemandNodes: 2, spotNodes: 1, idleNodes: [], interruptedNodes: [], collectedAt: iso(60_000) } },
+      });
+      const table = await renderPanel(fixture('demo-aws-001'));
+      const cell = spotCell(table);
+      await waitFor(() => expect(cell).toHaveTextContent('Not reported by this XamOps version'));
+      expect(within(cell).queryByText(/None interrupted/)).toBeNull();
     });
   });
 });

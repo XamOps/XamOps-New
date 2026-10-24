@@ -63,6 +63,8 @@ import {
   type NodeRow,
 } from '../../../../utils/k8sDerivations';
 import { toNumber } from '../../../../utils/k8sQuantities';
+import { formatAgo } from '../../../CloudK8s/shared/SourceLabel';
+import type { ReadState } from '../../../../hooks/useNodeAutomationRead';
 import { formatIST } from '../../../../utils/timeUtils';
 import type { Lane } from '../../../CloudK8s/shared/charts/LanesTimeline';
 import type { HowStepChip, HowStepKey } from '../../../CloudK8s/shared/status/HowItWorks';
@@ -1730,6 +1732,57 @@ export function idleNodeCount(agent: AutomationAgentState, fleet: AutomationNode
   if (agent !== 'installed' && agent !== 'stale') return null;
   if (!fleet || !fleet.collectedAt || !Array.isArray(fleet.idleNodes)) return null;
   return fleet.idleNodes.length;
+}
+
+/**
+ * The Overview spot-interruption row's state (spot-interruptions design §B6.3). `dash` renders the
+ * em-dash with its reason (no status dot); `warn` / `good` render a StatusDot. "None interrupted" is
+ * reachable only from a fresh report by an automation agent that sends `interruptionNotices` and
+ * lists none: unknown (not reported, stale, an older agent or backend) is never shown as none.
+ */
+export type SpotAnalysisState =
+  | { kind: 'dash'; reason: string | null }
+  | { kind: 'warn'; label: string }
+  | { kind: 'good'; label: string };
+
+export function spotAnalysisState(fleet: ReadState<AutomationNodeFleet>, now: number): SpotAnalysisState {
+  const pl = (n: number) => (n === 1 ? '' : 's');
+  const dash = (reason: string | null): SpotAnalysisState => ({ kind: 'dash', reason });
+  const warn = (label: string): SpotAnalysisState => ({ kind: 'warn', label });
+  const good = (label: string): SpotAnalysisState => ({ kind: 'good', label });
+  // 1. loading / error
+  if (fleet.kind !== 'ok') return dash(null);
+  const f = fleet.data;
+  // 2. backend says no fresh report
+  if (f.interruptedNodesReported === false) {
+    if (f.interruptedNodesReason !== 'stale') return dash("Not reported: the automation agent's node report hasn't arrived");
+    const ago = formatAgo(f.interruptedNodesReportAt, now);
+    return dash(ago
+      ? `Not reported: the automation agent's last node report is ${ago.replace(/ ago$/, '')} old`
+      : "Not reported: the automation agent's last node report is stale");
+  }
+  // 3. fresh report from an agent that sends interruptionNotices: the only state that can say "none"
+  if (f.interruptionNoticesReported === true && Array.isArray(f.interruptionNotices)) {
+    const i = f.interruptionNotices.filter((x) => x.kind === 'interruption').length;
+    const r = f.interruptionNotices.filter((x) => x.kind === 'rebalance').length;
+    if (i > 0 && r > 0) return warn(`${i} node${pl(i)} with an interruption notice · ${r} rebalance recommendation${pl(r)}`);
+    if (i > 0) return warn(`${i} node${pl(i)} with an interruption notice`);
+    if (r > 0) return warn(`${r} node${pl(r)} with a rebalance recommendation`);
+    const other = f.interruptionNotices.length;
+    if (other > 0) return warn(`${other} node${pl(other)} with a spot notice`);
+    return good('None interrupted');
+  }
+  // 4. fresh report from an OLDER automation agent (no interruptionNotices; its interruptedNodes uses the
+  //    dead NTH-label selector and is omitempty, so [] can mean "none", "errored" or "not detectable")
+  if (f.interruptionNoticesReported === false) {
+    const n = Array.isArray(f.interruptedNodes) ? f.interruptedNodes.length : 0;
+    return n > 0
+      ? warn(`${n} node${pl(n)} interrupted`)
+      : dash("Not reported: this automation agent version doesn't report interruption notices. Update xamops-automation.");
+  }
+  // 5. neither flag (an older backend, or an old fixture): a positive legacy count is real; zero is not evidence
+  const n = Array.isArray(f.interruptedNodes) ? f.interruptedNodes.length : 0;
+  return n > 0 ? warn(`${n} node${pl(n)} interrupted`) : dash('Not reported by this XamOps version');
 }
 
 /** The last rebalance in words (`rebalance-status`). */

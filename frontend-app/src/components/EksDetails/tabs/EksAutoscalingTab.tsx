@@ -1368,15 +1368,17 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
           {/* ── Spot Candidates Table ─────────────────────────────────────── */}
           {(() => {
             const fleet = nodeFleetReport ?? autoscalerData.nodeFleetReport;
-            if (!fleet || fleet.spotCandidates.length === 0) return null;
+            if (!fleet || !fleet.spotCandidates?.length) return null;
             return (
               <div>
                 <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
                   <i className="fas fa-bolt text-amber-500"></i>
                   Spot Conversion Candidates ({fleet.spotCandidates.length} on-demand nodes)
-                  <span className="text-[10px] font-normal text-gray-400 normal-case">
-                    — avg {fleet.estimatedSavingsPct.toFixed(0)}% savings potential
-                  </span>
+                  {typeof fleet.estimatedSavingsPct === 'number' && (
+                    <span className="text-[10px] font-normal text-gray-400 normal-case">
+                      — avg {fleet.estimatedSavingsPct.toFixed(0)}% savings potential
+                    </span>
+                  )}
                 </h4>
                 <div className="overflow-x-auto rounded-xl border border-gray-200">
                   <table className="w-full text-xs">
@@ -1425,7 +1427,7 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
           {/* ── Idle Nodes Table ───────────────────────────────────────────── */}
           {(() => {
             const fleet = nodeFleetReport ?? autoscalerData.nodeFleetReport;
-            if (!fleet || fleet.idleNodes.length === 0) return null;
+            if (!fleet || !fleet.idleNodes?.length) return null;
             return (
               <div>
                 <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">

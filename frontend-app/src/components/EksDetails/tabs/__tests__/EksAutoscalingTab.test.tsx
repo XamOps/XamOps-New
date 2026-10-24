@@ -1,6 +1,6 @@
 import { render, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AutoscalerDashboard } from '../../../../types/eksTypes';
+import type { AutoscalerDashboard, NodeFleetReport } from '../../../../types/eksTypes';
 
 // The tab pulls all of its data from useEksAutoscaling; mock the hook so the render is deterministic
 // and we can drive the agentStatus / actuatorState split (D2).
@@ -68,13 +68,13 @@ function analysisOnlyDashboard(): AutoscalerDashboard {
   } as unknown as AutoscalerDashboard;
 }
 
-function mockHook(dashboard: AutoscalerDashboard) {
+function mockHook(dashboard: AutoscalerDashboard, nodeFleetReport: NodeFleetReport | null = null) {
   hookReturn.value = {
     autoscalerData: dashboard,
     rightsizingData: null,
     evictorCandidates: [],
     liveRebalanceStatus: null,
-    nodeFleetReport: null,
+    nodeFleetReport,
     loading: false,
     error: null,
     isSaving: false,
@@ -135,5 +135,34 @@ describe('EksAutoscalingTab — agent vs actuator health split (D2)', () => {
 
     expect(getByText('Actuated nodes')).toBeTruthy();
     expect(queryByText('Managed Nodes')).toBeNull();
+  });
+});
+
+describe('EksAutoscalingTab — nullable node-fleet lists (spot-interruptions design §B5.1)', () => {
+  beforeEach(() => {
+    window.history.pushState({}, '', '/?name=prod-eks&region=us-east-1&accountIds=1');
+  });
+  afterEach(() => {
+    hookReturn.value = null;
+  });
+
+  const fleet = (over: Partial<NodeFleetReport>): NodeFleetReport => ({
+    totalNodes: 3, onDemandNodes: 2, spotNodes: 1, idleNodes: [], spotCandidates: [], interruptedNodes: [],
+    estimatedSavingsPct: null, collectedAt: new Date().toISOString(), ...over,
+  });
+
+  it('renders a spot candidate with estimatedSavingsPct null, without the savings text', () => {
+    const candidate = { nodeName: 'ip-10-0-1-5', instanceType: 't3.medium', cpuUsagePct: 10, memUsagePct: 20, savingsPct: 60 } as unknown as NonNullable<NodeFleetReport['spotCandidates']>[number];
+    mockHook(analysisOnlyDashboard(), fleet({ spotCandidates: [candidate], estimatedSavingsPct: null }));
+    const { getByText, queryByText } = render(<EksAutoscalingTab eksData={undefined} />);
+    expect(getByText(/Spot Conversion Candidates \(1 on-demand nodes\)/)).toBeTruthy();
+    expect(queryByText(/savings potential/)).toBeNull();
+  });
+
+  it('hides the idle and spot-candidate sections when the lists are null (not observed)', () => {
+    mockHook(analysisOnlyDashboard(), fleet({ idleNodes: null, spotCandidates: null, interruptedNodes: null }));
+    const { queryByText } = render(<EksAutoscalingTab eksData={undefined} />);
+    expect(queryByText(/Idle Nodes \(/)).toBeNull();
+    expect(queryByText(/Spot Conversion Candidates/)).toBeNull();
   });
 });

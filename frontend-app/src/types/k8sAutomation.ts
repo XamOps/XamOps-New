@@ -353,9 +353,91 @@ export interface AutomationNodeFleet {
   totalNodes: number;
   onDemandNodes: number;
   spotNodes: number;
-  idleNodes: Array<{ nodeName: string; cpuUsagePct: number | null; memUsagePct: number | null; reason?: string }>;
-  interruptedNodes: string[];
+  /** `null` = not observed (no fresh automation report); `[]` = the report found none. */
+  idleNodes: Array<{ nodeName: string; cpuUsagePct: number | null; memUsagePct: number | null; reason?: string }> | null;
+  interruptedNodes: string[] | null;
   collectedAt: string | null;
+  /** False when no fresh automation report was served (the fleet is synthesized or empty). */
+  interruptedNodesReported?: boolean;
+  interruptedNodesReason?: 'stale' | 'not-reported';
+  /** With reason `stale`: when the last (stale) report arrived, UTC ISO. */
+  interruptedNodesReportAt?: string | null;
+  interruptedNodesDetectionFailed?: boolean;
+  /** NTH / Karpenter notices the automation agent saw this cycle; `null` = not reported. */
+  interruptionNotices?: Array<{ nodeName: string; kind: 'interruption' | 'rebalance' | string }> | null;
+  /** True only when the report carried `interruptionNotices` (older automation agents don't). */
+  interruptionNoticesReported?: boolean;
+  /** On-demand nodes the automation agent would move to Spot; `null` = not reported. Not read by the v3 pages. */
+  spotCandidates?: Array<Record<string, unknown>> | null;
+}
+
+// ── Spot interruptions (GET /api/eks/autoscaling/{cluster}/spot-interruptions) ───────────────────
+// The backend's recorded Spot interruption history (SpotInterruptionsDto). Every time is a UTC ISO
+// string; `null` = unknown (not reported, not observed), never "none".
+
+export type HandlingMode = 'live' | 'simulate' | 'off' | 'not-eligible' | 'unknown';
+export type RecoveryStatus =
+  | 'tracking'
+  | 'recovered'
+  | 'not-observed'
+  | 'node-not-removed'
+  | 'no-workloads'
+  | 'no-snapshot'
+  | 'not-measurable';
+export type SpotNoticeKind = 'interruption' | 'rebalance' | 'unconfirmed';
+
+export interface SpotInterruptionHandling {
+  mode: HandlingMode;
+  reason: string | null;
+}
+
+export interface SpotInterruptionEvent {
+  id: number;
+  nodeName: string;
+  nodeCreatedAt: string;
+  instanceId: string | null;
+  instanceType: string | null;
+  zone: string | null;
+  capacityType: string | null;
+  nodegroup: string | null;
+  /** A kind a future backend adds is counted as "other". */
+  noticeKind: SpotNoticeKind | string;
+  /** nth-taint | nth-label-legacy | karpenter-event | node-removed */
+  sources: string[];
+  noticedAt: string;
+  rebalanceNoticedAt: string | null;
+  interruptionNoticedAt: string | null;
+  nodeRemovedAt: string | null;
+  cordonedBeforeRemoval: boolean | null;
+  handling: SpotInterruptionHandling | null;
+  drain: { status: string; reason: string | null; dryRun: boolean | null; finishedAt: string | null } | null;
+  workloads: Array<{ namespace: string; kind: string; name: string; podsOnNode: number }> | null;
+  podCount: number | null;
+  workloadsTruncated: boolean | null;
+  workloadsSnapshotAt: string | null;
+  nodeLastSeenAt: string | null;
+  recovery: {
+    status: RecoveryStatus;
+    lowerSeconds: number | null;
+    upperSeconds: number | null;
+    recoveredByFirstSighting: boolean;
+    observedAt: string | null;
+  };
+  pending: { firstSeenAt: string; lastSeenAt: string | null; maxPods: number | null } | null;
+}
+
+export interface SpotInterruptionsDto {
+  windowDays: number;
+  truncated: boolean;
+  retentionDays: number;
+  recordingEnabled: boolean;
+  fleet: { totalNodes: number; spotNodes: number; spotSharePct: number | null; collectedAt: string } | null;
+  coverage: {
+    agentSnapshotAt: string | null;
+    automationReportAt: string | null;
+    handlingNow: SpotInterruptionHandling | null;
+  };
+  events: SpotInterruptionEvent[];
 }
 
 export interface AutomationRebalanceStatus {

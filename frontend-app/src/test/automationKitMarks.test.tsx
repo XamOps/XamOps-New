@@ -102,6 +102,8 @@ describe('every Automation page keeps the legacy dark CSS off its v3 parts (data
     ['Policies', 'workload-autoscaler-policies', '', 'Rules for each workload'],
     ['Node autoscaler', 'node-autoscaler', '', 'Who changes the node count on this cluster'],
     ['Consolidation', 'consolidation', '', 'No consolidation plan yet'],
+    // The demo records no Spot events (none are invented), so the page shows its honest empty state.
+    ['Spot interruptions', 'spot-interruptions', '', 'No interruptions recorded in the last 30 days'],
     ['HPA', 'hpa', '', 'HPAs on this cluster'],
     ['an HPA detail', 'hpa', '&hpa=production%2Fworker-hpa', "XamOps's suggestion"],
     ['VPA', 'vpa', '', 'Kubernetes VPA coexistence'],
