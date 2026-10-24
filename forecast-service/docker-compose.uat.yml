@@ -16,9 +16,9 @@ services:
       - xamops-network
 
   forecast-service:
-    build:
-      context: ./forecast-service
-      dockerfile: Dockerfile
+    # Published and deployed by the forecast-deploy job in .github/workflows/ci-cd.yml
+    # (docker pull + docker run on xamops-network). Manual fallback: docker pull this image.
+    image: ghcr.io/xamops/forecast-service:latest
     container_name: xamops-forecast-uat
     ports:
       - "5002:5002"
