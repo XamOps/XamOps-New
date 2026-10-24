@@ -1,0 +1,14 @@
+# Top-level pins for the offline backtest harness (isolated venv, CPython 3.11).
+# prophet/cmdstanpy/pandas/numpy match production forecast-service for Prophet parity.
+# Compile: ~/.local/bin/uv pip compile --python 3.11 requirements-backtest.in -o requirements-backtest.txt
+prophet==1.1.5
+cmdstanpy==1.1.0
+pandas==2.1.4
+numpy==1.26.4
+statsforecast==2.1.1
+chronos-forecasting==2.3.2
+torch
+pytest==8.3.3
+# Transitive (statsforecast -> fugue -> triad) guard: pyarrow 26 requires NumPy>=2 at import
+# time but does not declare it, so the resolver picks it alongside numpy==1.26.4.
+pyarrow==25.0.0
