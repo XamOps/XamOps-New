@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -66,17 +67,42 @@ const (
 
 // NodeOptimizerReport is pushed as collector "node-optimizer-report".
 type NodeOptimizerReport struct {
-	TotalNodes             int                 `json:"totalNodes"`
-	OnDemandNodes          int                 `json:"onDemandNodes"`
-	SpotNodes              int                 `json:"spotNodes"`
-	IdleNodes              []IdleNodeInfo      `json:"idleNodes"`
-	SpotCandidates         []SpotCandidateInfo `json:"spotCandidates"`
-	InterruptedNodes       []string            `json:"interruptedNodes,omitempty"`
-	EstimatedSavingsPct    *float64            `json:"estimatedSavingsPct"` // always null: no pricing input
-	EstimatedSavingsStatus string              `json:"estimatedSavingsStatus"`
-	EstimatedSavingsReason string              `json:"estimatedSavingsReason"`
-	DryRun                 bool                `json:"dryRun"`
-	CollectedAt            string              `json:"collectedAt"`
+	TotalNodes     int                 `json:"totalNodes"`
+	OnDemandNodes  int                 `json:"onDemandNodes"`
+	SpotNodes      int                 `json:"spotNodes"`
+	IdleNodes      []IdleNodeInfo      `json:"idleNodes"`
+	SpotCandidates []SpotCandidateInfo `json:"spotCandidates"`
+	// InterruptedNodes is the spot-interruption drain input (legacy NTH label only).
+	InterruptedNodes []string `json:"interruptedNodes"`
+	// InterruptedNodesDetectionFailed: the legacy-label list call errored, so
+	// InterruptedNodes is unknown (sent as []), not "none".
+	InterruptedNodesDetectionFailed bool `json:"interruptedNodesDetectionFailed,omitempty"`
+	// InterruptionNotices is observation only (never a drain input); always an
+	// array, capped at maxInterruptionNotices.
+	InterruptionNotices []InterruptionNotice `json:"interruptionNotices"`
+	// InterruptionHandling is the spot-interruption gate decision (set by main.go).
+	InterruptionHandling   *gate.Decision `json:"interruptionHandling,omitempty"`
+	EstimatedSavingsPct    *float64       `json:"estimatedSavingsPct"` // always null: no pricing input
+	EstimatedSavingsStatus string         `json:"estimatedSavingsStatus"`
+	EstimatedSavingsReason string         `json:"estimatedSavingsReason"`
+	DryRun                 bool           `json:"dryRun"`
+	CollectedAt            string         `json:"collectedAt"`
+}
+
+// InterruptionNotice is one node carrying an aws-node-termination-handler mark,
+// observed from the node list Analyse already fetched. Observation only.
+type InterruptionNotice struct {
+	NodeName      string `json:"nodeName"`
+	NodeCreatedAt string `json:"nodeCreatedAt"`          // RFC3339 UTC, node.CreationTimestamp
+	InstanceID    string `json:"instanceId,omitempty"`   // last path segment of spec.providerID when it starts with "aws:///"
+	InstanceType  string `json:"instanceType,omitempty"` // node.kubernetes.io/instance-type
+	Zone          string `json:"zone,omitempty"`         // topology.kubernetes.io/zone
+	CapacityType  string `json:"capacityType"`           // "spot" | "on-demand" via isSpotNode
+	Nodegroup     string `json:"nodegroup,omitempty"`    // eks.amazonaws.com/nodegroup, else karpenter.sh/nodepool
+	Kind          string `json:"kind"`                   // "interruption" | "rebalance"
+	Source        string `json:"source"`                 // "nth-taint" | "nth-label-legacy"
+	Cordoned      bool   `json:"cordoned"`               // spec.unschedulable
+	DrainEligible bool   `json:"drainEligible"`          // node is in InterruptedNodes (today's drain input)
 }
 
 type IdleNodeInfo struct {
@@ -117,6 +143,9 @@ func (n *NodeOptimizer) Analyse(ctx context.Context, guards policy.SafetyGuards)
 		EstimatedSavingsStatus: StatusUnknown,
 		EstimatedSavingsReason: NoPricingReason,
 		DryRun:                 n.dryRun,
+		IdleNodes:              []IdleNodeInfo{},
+		SpotCandidates:         []SpotCandidateInfo{},
+		InterruptionNotices:    []InterruptionNotice{},
 	}
 
 	nodes, err := n.k8s.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
@@ -215,6 +244,21 @@ func (n *NodeOptimizer) Analyse(ctx context.Context, guards policy.SafetyGuards)
 
 	// Check for spot interruption notices via AWS node termination handler labels
 	report.InterruptedNodes = n.detectSpotInterruptions(ctx)
+	if report.InterruptedNodes == nil { // list call failed: unknown, not "none"
+		report.InterruptedNodes = []string{}
+		report.InterruptedNodesDetectionFailed = true
+	}
+
+	// Observation only: NTH marks on the node list fetched above (no extra API call).
+	// drainEligible means the legacy-label selector picked the node, so it is built
+	// before the already-drained filter below: a node XamOps already drained is
+	// covered by XamOps's handling, not outside it.
+	drainSet := make(map[string]bool, len(report.InterruptedNodes))
+	for _, name := range report.InterruptedNodes {
+		drainSet[name] = true
+	}
+	report.InterruptionNotices = interruptionNotices(nodes.Items, drainSet)
+
 	if len(drainedNodes) > 0 {
 		kept := report.InterruptedNodes[:0]
 		for _, name := range report.InterruptedNodes {
@@ -227,6 +271,83 @@ func (n *NodeOptimizer) Analyse(ctx context.Context, guards policy.SafetyGuards)
 	}
 
 	return report, nil
+}
+
+// aws-node-termination-handler marks. The taint keys are NTH's own
+// (pkg/node/node.go: SpotInterruptionTaint, RebalanceRecommendationTaint); the label
+// is the legacy selector detectSpotInterruptions (the drain input) still uses.
+const (
+	nthSpotITNTaint       = "aws-node-termination-handler/spot-itn"
+	nthRebalanceTaint     = "aws-node-termination-handler/rebalance-recommendation"
+	nthActionReasonLabel  = "aws-node-termination-handler/action-reason"
+	nthSpotInterruptValue = "SpotInterruption"
+
+	maxInterruptionNotices = 50
+)
+
+// interruptionNotices returns one notice per node carrying an NTH mark (first match
+// wins: spot-itn taint, legacy label, rebalance taint), sorted by node name, capped
+// at maxInterruptionNotices and never nil. drainSet is today's drain input
+// (report.InterruptedNodes).
+func interruptionNotices(nodes []corev1.Node, drainSet map[string]bool) []InterruptionNotice {
+	out := []InterruptionNotice{}
+	for _, node := range nodes {
+		kind, source := nthMark(node)
+		if kind == "" {
+			continue
+		}
+		capacityType := "on-demand"
+		if isSpotNode(node) {
+			capacityType = "spot"
+		}
+		instanceID := ""
+		if pid := node.Spec.ProviderID; strings.HasPrefix(pid, "aws:///") {
+			instanceID = pid[strings.LastIndex(pid, "/")+1:]
+		}
+		nodegroup := node.Labels["eks.amazonaws.com/nodegroup"]
+		if nodegroup == "" {
+			nodegroup = node.Labels["karpenter.sh/nodepool"]
+		}
+		out = append(out, InterruptionNotice{
+			NodeName:      node.Name,
+			NodeCreatedAt: node.CreationTimestamp.UTC().Format(time.RFC3339),
+			InstanceID:    instanceID,
+			InstanceType:  node.Labels["node.kubernetes.io/instance-type"],
+			Zone:          node.Labels["topology.kubernetes.io/zone"],
+			CapacityType:  capacityType,
+			Nodegroup:     nodegroup,
+			Kind:          kind,
+			Source:        source,
+			Cordoned:      node.Spec.Unschedulable,
+			DrainEligible: drainSet[node.Name],
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].NodeName < out[j].NodeName })
+	if len(out) > maxInterruptionNotices {
+		out = out[:maxInterruptionNotices]
+	}
+	return out
+}
+
+// nthMark returns the notice kind and source for a node, or "" when it has no mark.
+func nthMark(node corev1.Node) (kind, source string) {
+	hasTaint := func(key string) bool {
+		for _, t := range node.Spec.Taints {
+			if t.Key == key {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case hasTaint(nthSpotITNTaint):
+		return "interruption", "nth-taint"
+	case node.Labels[nthActionReasonLabel] == nthSpotInterruptValue:
+		return "interruption", "nth-label-legacy"
+	case hasTaint(nthRebalanceTaint):
+		return "rebalance", "nth-taint"
+	}
+	return "", ""
 }
 
 // requestsCPUPct = Σ container CPU requests of the node's pods / allocatable CPU.

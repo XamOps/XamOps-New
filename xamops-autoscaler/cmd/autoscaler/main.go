@@ -624,6 +624,8 @@ func runCycle(
 		}
 		if report != nil {
 			report.DryRun = cfg.DryRun
+			dec := d.Interruption
+			report.InterruptionHandling = &dec
 			batches = append(batches, pusher.Batch{
 				Collector:   "node-optimizer-report",
 				Items:       []interface{}{report},

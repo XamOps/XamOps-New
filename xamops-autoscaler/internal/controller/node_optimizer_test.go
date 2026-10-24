@@ -10,12 +10,14 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/xamops/automation/internal/drain"
 	"github.com/xamops/automation/internal/gate"
@@ -361,7 +363,159 @@ func TestAnalyseSkipsAlreadyDrainedNodes(t *testing.T) {
 			if inInterrupt != tc.wantInterrupt || !otherInterrupt {
 				t.Errorf("interrupted = %v, want n-x=%v and n-other present", report.InterruptedNodes, tc.wantInterrupt)
 			}
+			// The notice is observed either way; an already-drained legacy-labelled node
+			// stays drain-eligible (picked by the selector) although it is not re-drained.
+			for _, nt := range report.InterruptionNotices {
+				if nt.NodeName == "n-x" && nt.DrainEligible != tc.interrupted {
+					t.Errorf("n-x notice drainEligible = %v, want %v", nt.DrainEligible, tc.interrupted)
+				}
+			}
 			assertOnlyReads(t, c)
 		})
+	}
+}
+
+func noticeNode(name string, taints []string, labels map[string]string) corev1.Node {
+	n := optNode(name)
+	for k, v := range labels {
+		n.Labels[k] = v
+	}
+	for _, k := range taints {
+		n.Spec.Taints = append(n.Spec.Taints, corev1.Taint{Key: k, Effect: corev1.TaintEffectNoSchedule})
+	}
+	return *n
+}
+
+func TestInterruptionNotices(t *testing.T) {
+	created := metav1.NewTime(time.Date(2026, 10, 24, 9, 30, 0, 0, time.FixedZone("x", 3600)))
+	itn := noticeNode("n-itn", []string{nthSpotITNTaint}, map[string]string{
+		"karpenter.sh/capacity-type": "spot", "topology.kubernetes.io/zone": "us-east-1a", "karpenter.sh/nodepool": "spot-pool",
+	})
+	itn.CreationTimestamp = created
+	itn.Spec.ProviderID = "aws:///us-east-1a/i-0abc123"
+	itn.Spec.Unschedulable = true
+	reb := noticeNode("n-reb", []string{nthRebalanceTaint}, map[string]string{"eks.amazonaws.com/nodegroup": "ng-spot-1", "karpenter.sh/nodepool": "ignored"})
+	reb.Spec.ProviderID = "gce://p/z/n-reb"
+	legacy := noticeNode("n-legacy", nil, map[string]string{nthActionReasonLabel: nthSpotInterruptValue})
+	both := noticeNode("n-both", []string{nthRebalanceTaint, nthSpotITNTaint}, nil)
+	plain := noticeNode("n-plain", []string{"other/taint"}, nil)
+
+	for _, tc := range []struct {
+		name  string
+		nodes []corev1.Node
+		drain map[string]bool
+		want  []InterruptionNotice
+	}{
+		{"spot-itn taint", []corev1.Node{itn}, nil, []InterruptionNotice{{
+			NodeName: "n-itn", NodeCreatedAt: "2026-10-24T08:30:00Z", InstanceID: "i-0abc123", InstanceType: "t3.medium",
+			Zone: "us-east-1a", CapacityType: "spot", Nodegroup: "spot-pool", Kind: "interruption", Source: "nth-taint", Cordoned: true,
+		}}},
+		{"rebalance taint", []corev1.Node{reb}, nil, []InterruptionNotice{{
+			NodeName: "n-reb", NodeCreatedAt: "0001-01-01T00:00:00Z", InstanceType: "t3.medium", CapacityType: "on-demand",
+			Nodegroup: "ng-spot-1", Kind: "rebalance", Source: "nth-taint",
+		}}},
+		{"legacy label is drain eligible", []corev1.Node{legacy}, map[string]bool{"n-legacy": true}, []InterruptionNotice{{
+			NodeName: "n-legacy", NodeCreatedAt: "0001-01-01T00:00:00Z", InstanceType: "t3.medium", CapacityType: "on-demand",
+			Kind: "interruption", Source: "nth-label-legacy", DrainEligible: true,
+		}}},
+		{"spot-itn wins over rebalance", []corev1.Node{both}, nil, []InterruptionNotice{{
+			NodeName: "n-both", NodeCreatedAt: "0001-01-01T00:00:00Z", InstanceType: "t3.medium", CapacityType: "on-demand",
+			Kind: "interruption", Source: "nth-taint",
+		}}},
+		{"plain node", []corev1.Node{plain}, nil, []InterruptionNotice{}},
+		{"empty input", nil, nil, []InterruptionNotice{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := interruptionNotices(tc.nodes, tc.drain)
+			if got == nil || !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("notices = %#v\nwant %#v", got, tc.want)
+			}
+		})
+	}
+
+	var many []corev1.Node
+	for i := 59; i >= 0; i-- {
+		many = append(many, noticeNode(fmt.Sprintf("n-%02d", i), []string{nthSpotITNTaint}, nil))
+	}
+	got := interruptionNotices(many, nil)
+	if len(got) != 50 || got[0].NodeName != "n-00" || got[49].NodeName != "n-49" {
+		t.Fatalf("capped notices = %d, first %s, last %s", len(got), got[0].NodeName, got[len(got)-1].NodeName)
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i-1].NodeName >= got[i].NodeName {
+			t.Fatalf("not sorted at %d: %s >= %s", i, got[i-1].NodeName, got[i].NodeName)
+		}
+	}
+}
+
+func analyseJSON(t *testing.T, c *fake.Clientset, promURL string) (*NodeOptimizerReport, string) {
+	t.Helper()
+	report, err := NewNodeOptimizer(c, nil, nil, promURL, true).Analyse(context.Background(), policy.DefaultBundle().SafetyGuards)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return report, string(b)
+}
+
+// A cluster with no idle node, no spot candidate and no legacy-labelled node sends
+// empty arrays, not null, and no detection-failed key.
+func TestNodeOptimizerReportEmptyListsSerializeAsArrays(t *testing.T) {
+	prom := livePrometheus(t)
+	defer prom.Close()
+	// One busy spot node (memory 50%: not idle; spot: not a spot candidate).
+	busy := optNode("n-a")
+	busy.Labels["karpenter.sh/capacity-type"] = "spot"
+	report, js := analyseJSON(t, fake.NewSimpleClientset(busy, optPod("a1", "n-a", "500m")), prom.URL)
+	if report.TotalNodes != 1 || report.SpotNodes != 1 {
+		t.Fatalf("fixture: report = %+v", report)
+	}
+	for _, want := range []string{`"idleNodes":[]`, `"spotCandidates":[]`, `"interruptedNodes":[]`, `"interruptionNotices":[]`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("report JSON lacks %s\n%s", want, js)
+		}
+	}
+	if strings.Contains(js, "interruptedNodesDetectionFailed") || strings.Contains(js, "interruptionHandling") {
+		t.Errorf("unexpected key in %s", js)
+	}
+}
+
+// spot-itn is observed but not drain input; the legacy label is both.
+func TestNodeOptimizerNoticesVersusDrainInput(t *testing.T) {
+	itn := noticeNode("n-itn", []string{nthSpotITNTaint}, nil)
+	legacy := noticeNode("n-legacy", nil, map[string]string{nthActionReasonLabel: nthSpotInterruptValue})
+	report, _ := analyseJSON(t, fake.NewSimpleClientset(&itn, &legacy), "")
+	if !reflect.DeepEqual(report.InterruptedNodes, []string{"n-legacy"}) {
+		t.Errorf("interruptedNodes = %v, want [n-legacy]", report.InterruptedNodes)
+	}
+	if len(report.InterruptionNotices) != 2 ||
+		report.InterruptionNotices[0].NodeName != "n-itn" || report.InterruptionNotices[0].DrainEligible ||
+		report.InterruptionNotices[1].NodeName != "n-legacy" || !report.InterruptionNotices[1].DrainEligible {
+		t.Errorf("notices = %+v", report.InterruptionNotices)
+	}
+}
+
+// Only the legacy-label list fails: interruptedNodes is [] and flagged unknown, the
+// rest of the report (and the notices from the unfiltered list) is still produced.
+func TestNodeOptimizerLegacyListFailureIsFlagged(t *testing.T) {
+	itn := noticeNode("n-itn", []string{nthSpotITNTaint}, nil)
+	c := fake.NewSimpleClientset(&itn)
+	c.PrependReactor("list", "nodes", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		if a.(k8stesting.ListAction).GetListRestrictions().Labels.String() == nthActionReasonLabel+"="+nthSpotInterruptValue {
+			return true, nil, fmt.Errorf("boom")
+		}
+		return false, nil, nil
+	})
+	report, js := analyseJSON(t, c, "")
+	for _, want := range []string{`"interruptedNodes":[]`, `"interruptedNodesDetectionFailed":true`, `"nodeName":"n-itn"`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("report JSON lacks %s\n%s", want, js)
+		}
+	}
+	if report.TotalNodes != 1 {
+		t.Errorf("totalNodes = %d", report.TotalNodes)
 	}
 }

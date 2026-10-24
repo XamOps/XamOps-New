@@ -956,3 +956,71 @@ func TestRunCycleInterruptionFieldAbsentNeverDrains(t *testing.T) {
 		})
 	}
 }
+
+// The node optimizer report carries NTH interruption notices as observation only: a
+// spot-itn-tainted node is reported but is not added to the spot-interruption drain
+// call, whose input stays the legacy-label list (node-4).
+func TestRunCycleInterruptionNoticesAreObservationOnly(t *testing.T) {
+	srv, cap := backend(t, fixture(t, "11-dryrun-actions.json"))
+	c := seededCluster()
+	itn := cycleNode("node-5", map[string]string{"karpenter.sh/capacity-type": "spot"})
+	itn.Spec.Taints = []corev1.Taint{{Key: "aws-node-termination-handler/spot-itn", Effect: corev1.TaintEffectNoSchedule}}
+	if err := c.Tracker().Add(itn); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{DryRun: true, EnableNodeOptimizer: true}
+	runTestCycle(t, cfg, c, srv.URL)
+	if w := writeVerbs(c); len(w) != 0 {
+		t.Errorf("DRY_RUN cycle issued writes: %v", w)
+	}
+
+	var targets []string
+	for _, raw := range cap.items("autoscaling-actions") {
+		var a struct {
+			Target  string                 `json:"target"`
+			Details map[string]interface{} `json:"details"`
+		}
+		if err := json.Unmarshal(raw, &a); err != nil {
+			t.Fatal(err)
+		}
+		if a.Details["trigger"] == "spot-interruption" {
+			targets = append(targets, a.Target)
+		}
+	}
+	if strings.Join(targets, ",") != "node/node-4" {
+		t.Errorf("spot-interruption drain targets = %v, want [node/node-4]", targets)
+	}
+
+	reports := cap.items("node-optimizer-report")
+	if len(reports) != 1 {
+		t.Fatalf("node-optimizer-report items = %d", len(reports))
+	}
+	var r struct {
+		InterruptedNodes    []string `json:"interruptedNodes"`
+		InterruptionNotices []struct {
+			NodeName      string `json:"nodeName"`
+			Kind          string `json:"kind"`
+			Source        string `json:"source"`
+			DrainEligible bool   `json:"drainEligible"`
+		} `json:"interruptionNotices"`
+		InterruptionHandling *struct {
+			Mode   string `json:"mode"`
+			Reason string `json:"reason"`
+		} `json:"interruptionHandling"`
+	}
+	if err := json.Unmarshal(reports[0], &r); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(r.InterruptedNodes, ",") != "node-4" {
+		t.Errorf("interruptedNodes = %v", r.InterruptedNodes)
+	}
+	if len(r.InterruptionNotices) != 2 ||
+		r.InterruptionNotices[0].NodeName != "node-4" || r.InterruptionNotices[0].Source != "nth-label-legacy" || !r.InterruptionNotices[0].DrainEligible ||
+		r.InterruptionNotices[1].NodeName != "node-5" || r.InterruptionNotices[1].Source != "nth-taint" ||
+		r.InterruptionNotices[1].Kind != "interruption" || r.InterruptionNotices[1].DrainEligible {
+		t.Errorf("interruptionNotices = %+v", r.InterruptionNotices)
+	}
+	if r.InterruptionHandling == nil || r.InterruptionHandling.Mode != "simulate" || r.InterruptionHandling.Reason == "" {
+		t.Errorf("interruptionHandling = %+v\n%s", r.InterruptionHandling, reports[0])
+	}
+}
