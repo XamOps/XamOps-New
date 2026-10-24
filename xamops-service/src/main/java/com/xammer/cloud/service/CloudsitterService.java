@@ -1005,7 +1005,10 @@ public class CloudsitterService {
      * will be active. Uses the forecast's p95 as the headroom bound; falls back to yhat_upper
      * (= p90, the upper bound of the central 80% interval) only for older forecast-service
      * builds that do not return p95.
-     * Returns null if the forecast service is unavailable or the series is too short.
+     * Returns null if the forecast service is unavailable, the series is too short, or the
+     * response method is {@code histogram} (a flat forecast that cannot separate idle hours
+     * from active ones); the caller then uses the per-hour cpuActive baseline.
+     * An hour-of-day-aware CPU histogram is a deferred follow-up (needs a backtest re-run).
      */
     boolean[][] getForecastSchedule(List<Map<String, Object>> cpuRawSeries) {
         if (cpuRawSeries.size() < 48) return null;
@@ -1022,6 +1025,18 @@ public class CloudsitterService {
 
             JsonNode root = objectMapper.readTree(json);
             if (!"success".equals(root.path("status").asText())) return null;
+            // The decayed histogram is flat across the horizon (one quantile vector for every
+            // hour), so thresholding it yields an all-on or all-off grid: diurnal instances would
+            // never get stop windows and idle ones would lose the per-hour cpuActive baseline.
+            // Use the per-hour threshold baseline instead, exactly as when the service is down.
+            // Shaped forecasts (ets, or older Prophet builds that send no method) still feed the grid.
+            String method = root.path("method").asText("");
+            if ("histogram".equalsIgnoreCase(method)) {
+                logger.info("CloudSitter: forecast method=histogram is flat across hours, "
+                        + "using per-hour CPU threshold baseline (fallback_reason={})",
+                        root.path("fallback_reason").asText(null));
+                return null;
+            }
 
             boolean[][] grid = new boolean[7][24];
             for (JsonNode pt : root.path("forecast")) {
