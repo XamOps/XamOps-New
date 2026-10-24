@@ -1,0 +1,83 @@
+{
+ "schemaVersion": 1,
+ "generatedAt": "2026-10-24T00:00:00Z",
+ "mode": "analysis",
+ "actor": {
+  "kind": "NONE",
+  "evidence": [],
+  "note": "Neither Karpenter nor the Cluster Autoscaler was found. Engine v1 will remove nodes with an ASG terminate that decrements desired capacity, never below the node group minimum. Display only."
+ },
+ "settings": {
+  "underutilizedThresholdPct": 50,
+  "headroomPct": 15,
+  "maxNodesPerPlan": 100
+ },
+ "summary": {
+  "nodesEvaluated": 3,
+  "empty": 0,
+  "drain": 0,
+  "blocked": 3,
+  "kept": 0
+ },
+ "moves": [],
+ "blocked": [
+  {
+   "node": {
+    "name": "x-1",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "cpuRequestedPct": 15,
+    "memRequestedPct": 4.7
+   },
+   "blockers": [
+    {
+     "pod": "team-a/bare-1",
+     "code": "no-controller",
+     "reason": "bare pod (no controller)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "x-2",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "cpuRequestedPct": 10,
+    "memRequestedPct": 3.1
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "node-cordoned",
+     "reason": "node is cordoned"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "x-3",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "cpuRequestedPct": 15,
+    "memRequestedPct": 4.7
+   },
+   "blockers": [
+    {
+     "pod": "team-a/bare-3",
+     "code": "no-controller",
+     "reason": "bare pod (no controller)"
+    }
+   ]
+  }
+ ],
+ "kept": []
+}

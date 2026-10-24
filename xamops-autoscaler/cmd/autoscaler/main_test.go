@@ -301,6 +301,58 @@ func TestRunCycleDryRunAllActionsWritesNothing(t *testing.T) {
 	}
 }
 
+// 10-analyse-only + DRY_RUN=false with every ENABLE_* off: the look-only
+// consolidation plan is still pushed (exactly one item, EMPTY/DRAIN moves only) and
+// the cycle writes nothing.
+func TestRunCycleAllFlagsOffPushesConsolidationPlanAndWritesNothing(t *testing.T) {
+	srv, cap := backend(t, fixture(t, "10-analyse-only.json"))
+	c := seededCluster()
+	cfg := &config.Config{DryRun: false}
+	runTestCycle(t, cfg, c, srv.URL)
+
+	if w := writeVerbs(c); len(w) != 0 {
+		t.Errorf("all-flags-off cycle issued writes: %v", w)
+	}
+	items := cap.items("autoscaling-consolidation-plan")
+	if len(items) != 1 {
+		t.Fatalf("consolidation plan items = %d, want 1", len(items))
+	}
+	var plan struct {
+		SchemaVersion int    `json:"schemaVersion"`
+		Mode          string `json:"mode"`
+		Summary       struct {
+			NodesEvaluated int `json:"nodesEvaluated"`
+		} `json:"summary"`
+		Moves []struct {
+			Type string `json:"type"`
+		} `json:"moves"`
+	}
+	if err := json.Unmarshal(items[0], &plan); err != nil {
+		t.Fatal(err)
+	}
+	if plan.Mode != "analysis" || plan.SchemaVersion != 1 || plan.Summary.NodesEvaluated != 4 {
+		t.Errorf("plan = %s", items[0])
+	}
+	for _, m := range plan.Moves {
+		if m.Type != "EMPTY" && m.Type != "DRAIN" {
+			t.Errorf("move type %q (only EMPTY and DRAIN exist in v1)", m.Type)
+		}
+	}
+}
+
+// 00-default-bundle (autoscalerMode=disabled): no consolidation plan is pushed.
+func TestRunCycleDisabledModePushesNoConsolidationPlan(t *testing.T) {
+	srv, cap := backend(t, fixture(t, "00-default-bundle.json"))
+	c := seededCluster()
+	runTestCycle(t, &config.Config{DryRun: false}, c, srv.URL)
+	if items := cap.items("autoscaling-consolidation-plan"); len(items) != 0 {
+		t.Errorf("consolidation plan pushed in disabled mode: %s", items)
+	}
+	if w := writeVerbs(c); len(w) != 0 {
+		t.Errorf("writes: %v", w)
+	}
+}
+
 // 13-rebalancer-env-bypass + ENABLE_REBALANCER=false + DRY_RUN=false: the backend's
 // running status cannot start the rebalancer (the fail-open baseline row).
 func TestRunCycleRebalancerEnvOffIsOff(t *testing.T) {

@@ -1,0 +1,849 @@
+{
+ "apiVersion": "v1",
+ "items": [
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "a-1",
+    "creationTimestamp": null,
+    "labels": {
+     "eks.amazonaws.com/capacityType": "ON_DEMAND",
+     "eks.amazonaws.com/nodegroup": "ng-a",
+     "kubernetes.io/hostname": "a-1",
+     "node.kubernetes.io/instance-type": "m5.xlarge",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "2",
+     "memory": "8Gi",
+     "pods": "30"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "b-1",
+    "creationTimestamp": null,
+    "labels": {
+     "eks.amazonaws.com/capacityType": "ON_DEMAND",
+     "eks.amazonaws.com/nodegroup": "ng-b",
+     "kubernetes.io/hostname": "b-1",
+     "node.kubernetes.io/instance-type": "m5.xlarge",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "2",
+     "memory": "8Gi",
+     "pods": "30"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "b-2",
+    "creationTimestamp": null,
+    "labels": {
+     "eks.amazonaws.com/capacityType": "ON_DEMAND",
+     "eks.amazonaws.com/nodegroup": "ng-b",
+     "kubernetes.io/hostname": "b-2",
+     "node.kubernetes.io/instance-type": "m5.xlarge",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "2",
+     "memory": "8Gi",
+     "pods": "30"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "c-1",
+    "creationTimestamp": null,
+    "labels": {
+     "eks.amazonaws.com/capacityType": "ON_DEMAND",
+     "eks.amazonaws.com/nodegroup": "ng-c",
+     "kubernetes.io/hostname": "c-1",
+     "node.kubernetes.io/instance-type": "m5.xlarge",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "16Gi",
+     "pods": "30"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "c-2",
+    "creationTimestamp": null,
+    "labels": {
+     "eks.amazonaws.com/capacityType": "ON_DEMAND",
+     "eks.amazonaws.com/nodegroup": "ng-c",
+     "kubernetes.io/hostname": "c-2",
+     "node.kubernetes.io/instance-type": "m5.xlarge",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "16Gi",
+     "pods": "30"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aws-node-a-1",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-aws-node-a-1",
+    "creationTimestamp": null,
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "name": "aws-node",
+      "uid": "uid-kube-system-aws-node",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "a-1"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "kube-proxy-a-1",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-kube-proxy-a-1",
+    "creationTimestamp": null,
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "name": "kube-proxy",
+      "uid": "uid-kube-system-kube-proxy",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "a-1"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "app-1",
+    "namespace": "team-a",
+    "uid": "uid-team-a-app-1",
+    "creationTimestamp": null,
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "app-rs",
+      "uid": "uid-team-a-app-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "200m",
+        "memory": "256Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "a-1"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aws-node-b-1",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-aws-node-b-1",
+    "creationTimestamp": null,
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "name": "aws-node",
+      "uid": "uid-kube-system-aws-node",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "b-1"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "kube-proxy-b-1",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-kube-proxy-b-1",
+    "creationTimestamp": null,
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "name": "kube-proxy",
+      "uid": "uid-kube-system-kube-proxy",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "b-1"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aws-node-b-2",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-aws-node-b-2",
+    "creationTimestamp": null,
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "name": "aws-node",
+      "uid": "uid-kube-system-aws-node",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "b-2"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "kube-proxy-b-2",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-kube-proxy-b-2",
+    "creationTimestamp": null,
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "name": "kube-proxy",
+      "uid": "uid-kube-system-kube-proxy",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "b-2"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aws-node-c-1",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-aws-node-c-1",
+    "creationTimestamp": null,
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "name": "aws-node",
+      "uid": "uid-kube-system-aws-node",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "c-1"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "kube-proxy-c-1",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-kube-proxy-c-1",
+    "creationTimestamp": null,
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "name": "kube-proxy",
+      "uid": "uid-kube-system-kube-proxy",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "c-1"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "filler-c-1",
+    "namespace": "team-z",
+    "uid": "uid-team-z-filler-c-1",
+    "creationTimestamp": null,
+    "labels": {
+     "app": "filler"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "filler-rs",
+      "uid": "uid-team-z-filler-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "2200m",
+        "memory": "4Gi"
+       }
+      }
+     }
+    ],
+    "nodeName": "c-1"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aws-node-c-2",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-aws-node-c-2",
+    "creationTimestamp": null,
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "name": "aws-node",
+      "uid": "uid-kube-system-aws-node",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "c-2"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "kube-proxy-c-2",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-kube-proxy-c-2",
+    "creationTimestamp": null,
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "name": "kube-proxy",
+      "uid": "uid-kube-system-kube-proxy",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "c-2"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "filler-c-2",
+    "namespace": "team-z",
+    "uid": "uid-team-z-filler-c-2",
+    "creationTimestamp": null,
+    "labels": {
+     "app": "filler"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "filler-rs",
+      "uid": "uid-team-z-filler-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "2200m",
+        "memory": "4Gi"
+       }
+      }
+     }
+    ],
+    "nodeName": "c-2"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "ReplicaSet",
+   "apiVersion": "apps/v1",
+   "metadata": {
+    "name": "app-rs",
+    "namespace": "team-a",
+    "uid": "uid-team-a-app-rs",
+    "creationTimestamp": null
+   },
+   "spec": {
+    "replicas": 3,
+    "selector": null,
+    "template": {
+     "metadata": {
+      "creationTimestamp": null
+     },
+     "spec": {
+      "containers": null
+     }
+    }
+   },
+   "status": {
+    "replicas": 0
+   }
+  }
+ ],
+ "kind": "List"
+}

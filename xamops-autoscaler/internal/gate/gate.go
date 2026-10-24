@@ -185,3 +185,17 @@ func HPAManager(cfg *config.Config, b policy.PolicyBundle) Decision {
 	}
 	return Decision{Mode: Analyse, Reason: "analysis only (the HPA manager never mutates)"}
 }
+
+// ConsolidationAnalysis: mode∈{full,scoped}. Consolidation Phase 1 is look-only: it
+// is never Simulate or Live, and no env flag opens it (every ENABLE_* stays false
+// in the manifest, so gating on one would mean no plan is ever computed). The
+// package it gates only lists objects.
+func ConsolidationAnalysis(cfg *config.Config, b policy.PolicyBundle) Decision {
+	switch {
+	case modeDisabled(b):
+		return off("autoscalerMode=disabled")
+	case !fullOrScoped(b):
+		return off("autoscalerMode=%q (consolidation analysis needs full or scoped)", b.AutoscalerMode)
+	}
+	return Decision{Mode: Analyse, Reason: "look-only: consolidation never acts"}
+}

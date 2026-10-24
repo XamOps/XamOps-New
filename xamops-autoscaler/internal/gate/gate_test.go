@@ -212,6 +212,42 @@ func TestHPAManagerNeverLive(t *testing.T) {
 	}
 }
 
+// Consolidation analysis is look-only: over every combination of the 7 ENABLE_*
+// flags, DRY_RUN and the autoscaler mode it is Off or Analyse, Analyse exactly for
+// full and scoped.
+func TestConsolidationAnalysisNeverActs(t *testing.T) {
+	rows := 0
+	for bits := 0; bits < 1<<7; bits++ {
+		on := func(i int) bool { return bits&(1<<i) != 0 }
+		for _, dry := range []bool{false, true} {
+			for _, mode := range []string{"full", "scoped", "disabled", "", "bogus"} {
+				rows++
+				cfg := &config.Config{
+					EnableEvictor: on(0), EnableRightsizer: on(1), EnableRebalancer: on(2), EnableHPAManager: on(3),
+					EnableVPAManager: on(4), EnableNodeOptimizer: on(5), EnableRightsizerApply: on(6), DryRun: dry,
+				}
+				got := ConsolidationAnalysis(cfg, bundle(mode))
+				want := Off
+				if mode == "full" || mode == "scoped" {
+					want = Analyse
+				}
+				if got.Mode != want {
+					t.Errorf("flags=%07b dry=%v mode=%q: got %s, want %s", bits, dry, mode, got, want)
+				}
+				if got.Reason == "" {
+					t.Errorf("flags=%07b dry=%v mode=%q: empty reason", bits, dry, mode)
+				}
+			}
+		}
+	}
+	if rows != 128*2*5 {
+		t.Fatalf("cross product has %d rows, want %d", rows, 128*2*5)
+	}
+	if got := ConsolidationAnalysis(&config.Config{}, bundle("disabled")); got.Reason != "autoscalerMode=disabled" {
+		t.Errorf("disabled reason = %q", got.Reason)
+	}
+}
+
 func TestUnknownModeFailsClosed(t *testing.T) {
 	cfg := &config.Config{EnableRebalancer: true, EnableEvictor: true, EnableNodeOptimizer: true,
 		EnableRightsizer: true, EnableHPAManager: true}

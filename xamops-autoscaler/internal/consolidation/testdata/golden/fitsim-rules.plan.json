@@ -1,0 +1,1233 @@
+{
+ "schemaVersion": 1,
+ "generatedAt": "2026-10-24T00:00:00Z",
+ "mode": "analysis",
+ "actor": {
+  "kind": "NONE",
+  "evidence": [],
+  "note": "Neither Karpenter nor the Cluster Autoscaler was found. Engine v1 will remove nodes with an ASG terminate that decrements desired capacity, never below the node group minimum. Display only."
+ },
+ "settings": {
+  "underutilizedThresholdPct": 50,
+  "headroomPct": 15,
+  "maxNodesPerPlan": 100
+ },
+ "summary": {
+  "nodesEvaluated": 63,
+  "empty": 0,
+  "drain": 0,
+  "blocked": 63,
+  "kept": 0
+ },
+ "moves": [],
+ "blocked": [
+  {
+   "node": {
+    "name": "s-aff-and",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-aff-dne",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-aff-empty-term",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-aff-exists",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-aff-field-in",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-aff-field-notin",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-aff-gt",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-aff-gt-none",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-aff-gt-nonint",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-aff-in",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-aff-lt",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-aff-notin",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-aff-notin-absent",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-aff-or",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-alloc",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 30,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-antiaff",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-antiaff-preferred",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-blocked-and-strand",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 37.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-critical",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-custom",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-ds-only",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-empty",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 0,
+    "memRequestedPct": 0
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-ephemeral",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-extended",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-hostport",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-init-big",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 30,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-init-ok",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 17.5,
+    "memRequestedPct": 1
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-job",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-mem-big",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 37.5
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-mirror",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-multi-pdb",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-multi-refuse",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-overhead",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 27.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-ownerless",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-pdb-everything",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-pdb-ok",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-pdb-stale",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-pdb-zero",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-plain",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-podaff",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-pvc",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-rc",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-refused-in-kube-system",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-replicas-unknown",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-safe-false",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-safe-true",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-sel-missing",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-sel-z1",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-sel-z1-tol",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-self",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-sidecar",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 27.5,
+    "memRequestedPct": 1
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-single",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-spread-anyway",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-spread-dns",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-sts",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-tol-exists",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-tol-wrong-value",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-tolerates",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 2.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "s-too-big",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 37.5,
+    "memRequestedPct": 0.8
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "t1-tainted",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 0,
+    "memRequestedPct": 0
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "t2-plain",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 10,
+    "memRequestedPct": 3.1
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "t3-cordoned",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 0,
+    "memRequestedPct": 0
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "node-cordoned",
+     "reason": "node is cordoned"
+    },
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "t4-notready",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 0,
+    "memRequestedPct": 0
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "node-not-ready",
+     "reason": "node is not Ready"
+    },
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  }
+ ],
+ "kept": []
+}

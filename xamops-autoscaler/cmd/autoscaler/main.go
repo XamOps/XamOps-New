@@ -20,6 +20,7 @@ import (
 	metricsv "k8s.io/metrics/pkg/client/clientset/versioned"
 
 	"github.com/xamops/automation/internal/config"
+	"github.com/xamops/automation/internal/consolidation"
 	"github.com/xamops/automation/internal/controller"
 	"github.com/xamops/automation/internal/drain"
 	"github.com/xamops/automation/internal/fitsim"
@@ -381,6 +382,8 @@ func (c *cycleActions) addRightsizer(recs []policy.ActionRecord) {
 type cycleDecisions struct {
 	Rebalancer, Evictor, NodeOptimizer, Cordon, IdleDrain, SpotRatio, Karpenter, Interruption,
 	Rightsizer, RightsizerApply, HPAManager gate.Decision
+	// Consolidation is look-only (Off or Analyse); it is not a node action.
+	Consolidation gate.Decision
 }
 
 func decide(cfg *config.Config, b policy.PolicyBundle) cycleDecisions {
@@ -397,6 +400,7 @@ func decide(cfg *config.Config, b policy.PolicyBundle) cycleDecisions {
 		Rightsizer:      gate.RightsizerAnalysis(cfg, b),
 		RightsizerApply: gate.RightsizerApply(cfg, b),
 		HPAManager:      gate.HPAManager(cfg, b),
+		Consolidation:   gate.ConsolidationAnalysis(cfg, b),
 	}
 }
 
@@ -415,6 +419,7 @@ func (d cycleDecisions) byController() map[string]gate.Decision {
 		"rightsizer":       d.Rightsizer,
 		"rightsizer-apply": d.RightsizerApply,
 		"hpa-manager":      d.HPAManager,
+		"consolidation":    d.Consolidation,
 	}
 }
 
@@ -468,9 +473,9 @@ func runCycle(
 
 	// 2. Gate decisions, once per cycle
 	d := decide(cfg, bundle)
-	log.Printf("Gates — rebalancer=%s | evictor=%s | nodeopt=%s cordon=%s idleDrain=%s spotRatio=%s karpenter=%s interruption=%s | rightsizer=%s apply=%s | hpa=%s",
+	log.Printf("Gates — rebalancer=%s | evictor=%s | nodeopt=%s cordon=%s idleDrain=%s spotRatio=%s karpenter=%s interruption=%s | rightsizer=%s apply=%s | hpa=%s | consolidation=%s",
 		d.Rebalancer, d.Evictor, d.NodeOptimizer, d.Cordon, d.IdleDrain, d.SpotRatio, d.Karpenter, d.Interruption,
-		d.Rightsizer, d.RightsizerApply, d.HPAManager)
+		d.Rightsizer, d.RightsizerApply, d.HPAManager, d.Consolidation)
 	// Structured companions of the human 'policy-fetched'/'Gates —' lines above.
 	obslog.Cycle("policy-fetched", slog.String("mode", bundle.AutoscalerMode))
 	for controllerName, dec := range d.byController() {
@@ -681,6 +686,26 @@ func runCycle(
 					}
 				}
 			}
+		}
+	}
+
+	// ── 7. Consolidation (look-only plan: EMPTY + DRAIN, never acts) ─────────
+	if d.Consolidation.Mode != gate.Off {
+		cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		plan, err := consolidation.Run(cctx, k8s, fitsim.Options{Guards: bundle.SafetyGuards, SelfNamespace: cfg.PodNamespace}, time.Now())
+		cancel()
+		if err != nil {
+			log.Printf("WARN: consolidation analysis: %v", err)
+		} else {
+			batches = append(batches, pusher.Batch{
+				Collector:   "autoscaling-consolidation-plan",
+				Items:       []interface{}{plan},
+				Count:       1,
+				CollectedAt: time.Now(),
+			})
+			log.Printf("Consolidation (look-only): %d empty, %d drain, %d blocked, %d kept of %d node(s) — actor=%s",
+				plan.Summary.Empty, plan.Summary.Drain, plan.Summary.Blocked, plan.Summary.Kept,
+				plan.Summary.NodesEvaluated, plan.Actor.Kind)
 		}
 	}
 

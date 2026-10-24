@@ -1,0 +1,102 @@
+{
+ "schemaVersion": 1,
+ "generatedAt": "2026-10-24T00:00:00Z",
+ "mode": "analysis",
+ "actor": {
+  "kind": "NONE",
+  "evidence": [],
+  "note": "Neither Karpenter nor the Cluster Autoscaler was found. Engine v1 will remove nodes with an ASG terminate that decrements desired capacity, never below the node group minimum. Display only."
+ },
+ "settings": {
+  "underutilizedThresholdPct": 50,
+  "headroomPct": 15,
+  "maxNodesPerPlan": 100
+ },
+ "summary": {
+  "nodesEvaluated": 4,
+  "empty": 0,
+  "drain": 0,
+  "blocked": 4,
+  "kept": 0
+ },
+ "moves": [],
+ "blocked": [
+  {
+   "node": {
+    "name": "node-a",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 64.8,
+    "memRequestedPct": 28.2
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "node-b",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 64.5,
+    "memRequestedPct": 35.5
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "node-c",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 97.4,
+    "memRequestedPct": 52.5
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "node-d",
+    "nodeGroup": "",
+    "instanceType": "",
+    "capacityType": "",
+    "zone": "",
+    "fargate": false,
+    "cpuRequestedPct": 97.4,
+    "memRequestedPct": 52.5
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  }
+ ],
+ "kept": []
+}
