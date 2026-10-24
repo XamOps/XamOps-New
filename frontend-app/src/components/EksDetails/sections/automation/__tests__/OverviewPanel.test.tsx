@@ -238,7 +238,7 @@ describe('Automation › Overview (§9.1)', () => {
     // Migration: the full gate / reason copy moved off the table row into the row's DetailDrawer.
     // The table row still shows the analysis text and a gated lock + status word (never colour alone).
     expect(rowOf(table, 'workload-rightsizing')).toHaveTextContent('Recommendations');
-    expect(rowOf(table, 'node-consolidation')).toHaveTextContent('Analysis not yet reliable');
+    expect(rowOf(table, 'node-consolidation')).toHaveTextContent('Look-only plan: what could be emptied or drained');
     // Every blocked cell is marked by a lock as well as its words (Iconify draws it after mount).
     await waitFor(() => expect(table.querySelectorAll('[data-gated-lock]')).toHaveLength(TODAY_ROWS.length));
     // The reasons are NOT in the table itself anymore.
@@ -571,6 +571,12 @@ describe('Automation › Overview (§9.1)', () => {
       expect(vpa).toHaveTextContent("Each Kubernetes VPA's target, next to XamOps's suggestion");
       expect(within(vpa).getByRole('link', { name: 'Automation › VPA' })).toHaveAttribute('href', '/v');
       expect(table).not.toHaveTextContent(/Not shown yet|display coming/);
+    });
+    it('points the Node consolidation row at the look-only Consolidation page', async () => {
+      const table = await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', { hrefs: { consolidation: '/c' } });
+      const row = rowOf(table, 'node-consolidation');
+      expect(row).toHaveTextContent('Look-only plan: what could be emptied or drained');
+      expect(within(row).getByRole('link', { name: 'Automation › Consolidation' })).toHaveAttribute('href', '/c');
     });
 
     it('compares requested, used and suggested by namespace, with a memory toggle', async () => {

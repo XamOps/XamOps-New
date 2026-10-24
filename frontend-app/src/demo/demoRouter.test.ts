@@ -803,7 +803,18 @@ describe('demo router — node automation reads (ROLE_XAMOPS)', () => {
     expect(dashboard.agentStatus).toMatchObject({ mode: 'disabled', lastSyncAt: null });
   });
 
-  it.each(['', '/node-fleet', '/rebalance-status'])('answers any other cluster 404 K8S_CLUSTER_NOT_REGISTERED (%s)', async (path) => {
+  it('answers the consolidation plan honestly: NO_PLAN, with no invented nodes or savings', async () => {
+    for (const cluster of ['prod-eks-cluster', 'eu-eks-cluster']) {
+      expect(await readDemoBody(`${base(cluster)}/consolidation-plan?accountId=demo-aws-001`)).toEqual({
+        freshness: 'NO_PLAN',
+        generatedAt: null,
+        ageSeconds: null,
+        plan: null,
+        savings: null,
+      });
+    }
+  });
+  it.each(['', '/node-fleet', '/rebalance-status', '/consolidation-plan'])('answers any other cluster 404 K8S_CLUSTER_NOT_REGISTERED (%s)', async (path) => {
     const response = resolveDemoResponse(`${base('staging-eks-cluster')}${path}${q}`);
     expect(response?.status).toBe(404);
     expect((await response!.json()).code).toBe('K8S_CLUSTER_NOT_REGISTERED');
@@ -814,6 +825,8 @@ describe('demo router — node automation reads (ROLE_XAMOPS)', () => {
     ['PUT', '/mode'],
     ['PUT', '/node-optimizer'],
     ['PUT', '/rebalancer'],
+    ['PUT', '/consolidation-plan'],
+    ['POST', '/consolidation-plan'],
     ['POST', '/rebalance'],
     ['DELETE', '/node-templates/t1'],
   ])('refuses the node automation write %s %s with 403 K8S_DEMO, never a read fixture', async (method, path) => {

@@ -21,6 +21,7 @@ import {
   type AutomationScaleOutPolicy,
   type AutomationScope,
   type CapabilitiesDto,
+  type ConsolidationPlanResponse,
   CODE_PREFIX,
   stripCodePrefix,
 } from '../types/k8sAutomation';
@@ -152,6 +153,11 @@ export function getNodeFleet(t: AutomationTarget, init?: RequestInit): Promise<A
 
 export function getRebalanceStatus(t: AutomationTarget, init?: RequestInit): Promise<AutomationRebalanceStatus> {
   return k8sRequest(`${base(t.cluster)}/rebalance-status?${query(t.accountId)}`, init);
+}
+
+/** The automation agent's look-only consolidation plan, priced by the cost engine. A read: never acts. */
+export function getConsolidationPlan(t: AutomationTarget, init?: RequestInit): Promise<ConsolidationPlanResponse> {
+  return k8sRequest(`${base(t.cluster)}/consolidation-plan?${query(t.accountId)}`, init);
 }
 
 export function setAutomationEnabled(t: AutomationTarget, enabled: boolean): Promise<AutomationSaveResult> {

@@ -101,6 +101,7 @@ describe('every Automation page keeps the legacy dark CSS off its v3 parts (data
     ['a workload detail', 'workload-autoscaler', '&workload=staging%2FDeployment%2Fapi-staging', 'Where it is now'],
     ['Policies', 'workload-autoscaler-policies', '', 'Rules for each workload'],
     ['Node autoscaler', 'node-autoscaler', '', 'Who changes the node count on this cluster'],
+    ['Consolidation', 'consolidation', '', 'No consolidation plan yet'],
     ['HPA', 'hpa', '', 'HPAs on this cluster'],
     ['an HPA detail', 'hpa', '&hpa=production%2Fworker-hpa', "XamOps's suggestion"],
     ['VPA', 'vpa', '', 'Kubernetes VPA coexistence'],

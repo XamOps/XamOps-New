@@ -366,6 +366,118 @@ export interface AutomationRebalanceStatus {
 
 export type AutomationEvictorCandidate = Record<string, unknown>;
 
+// ── Consolidation plan (GET /api/eks/autoscaling/{cluster}/consolidation-plan) ───────────────────
+// The automation agent's look-only plan (xamops-autoscaler internal/consolidation, schemaVersion 1)
+// as the backend serves it (ConsolidationPlanResponse / ConsolidationPlanDto), priced by the cost
+// engine. Nothing in it acts on the cluster.
+
+/** CURRENT: fresh and priced; STALE: older than 10 min (not priced); NO_PLAN; UNREADABLE. */
+export type ConsolidationFreshness = 'CURRENT' | 'STALE' | 'NO_PLAN' | 'UNREADABLE';
+/** v1 invariant I0: a node is only ever emptied or drained. There is no REPLACE. */
+export type ConsolidationMoveType = 'EMPTY' | 'DRAIN';
+export type ConsolidationActorKind = 'KARPENTER' | 'CLUSTER_AUTOSCALER' | 'MULTIPLE' | 'NONE';
+
+export interface ConsolidationNodeRef {
+  name: string;
+  nodeGroup: string;
+  instanceType: string;
+  /** The raw label value, e.g. `ON_DEMAND` or `spot`; empty when the node has none. */
+  capacityType: string;
+  zone: string;
+  fargate: boolean;
+  /** Requests of allocatable, rounded to 0.1. */
+  cpuRequestedPct: number;
+  memRequestedPct: number;
+}
+
+export interface ConsolidationPodMove {
+  /** `namespace/name`. */
+  pod: string;
+  /** `Kind/name`, or empty when the pod has no owner. */
+  owner: string;
+  /** The receiving node. */
+  to: string;
+  cpuMillis: number;
+  memBytes: number;
+}
+
+export interface ConsolidationMove {
+  type: ConsolidationMoveType;
+  node: ConsolidationNodeRef;
+  /** Always empty for EMPTY. */
+  pods: ConsolidationPodMove[];
+}
+
+export interface ConsolidationBlocker {
+  /** `namespace/name`, or empty for a node-level reason. */
+  pod: string;
+  code: string;
+  reason: string;
+}
+
+export interface ConsolidationBlockedNode {
+  node: ConsolidationNodeRef;
+  blockers: ConsolidationBlocker[];
+}
+
+export interface ConsolidationKeptNode {
+  node: ConsolidationNodeRef;
+  reason: string;
+}
+
+export interface ConsolidationActor {
+  kind: ConsolidationActorKind;
+  evidence: string[];
+  note: string;
+}
+
+export interface ConsolidationPlan {
+  schemaVersion: number;
+  generatedAt: string;
+  mode: string;
+  actor: ConsolidationActor;
+  settings: { underutilizedThresholdPct: number; headroomPct: number; maxNodesPerPlan: number };
+  summary: { nodesEvaluated: number; empty: number; drain: number; blocked: number; kept: number };
+  moves: ConsolidationMove[];
+  blocked: ConsolidationBlockedNode[];
+  kept: ConsolidationKeptNode[];
+}
+
+/** One removed node's monthly cost from the cost engine (NodeCostDto). `monthlyCost` null = unpriced. */
+export interface ConsolidationNodeCost {
+  nodeName: string;
+  instanceType: string | null;
+  capacityType: string | null;
+  capacityTypeInferred: boolean;
+  monthlyCost: number | null;
+  /** PRICE_LIST | SPOT_HISTORY, or null when unpriced. */
+  source: string | null;
+  /** A NodeRate.Reason name when unpriced, else null. */
+  reason: string | null;
+  note: string | null;
+}
+
+export interface ConsolidationSavings {
+  /** The sum of every move node's monthly cost; null while any is unpriced. */
+  projectedMonthlySavings: number | null;
+  /** The sum of the priced ones; null when none is priced. */
+  pricedMonthlySubtotal: number | null;
+  pricedNodes: number;
+  unpricedNodes: number;
+  /** One per plan move, in plan order. */
+  nodes: ConsolidationNodeCost[];
+}
+
+export interface ConsolidationPlanResponse {
+  freshness: ConsolidationFreshness;
+  generatedAt: string | null;
+  ageSeconds: number | null;
+  /** Null for NO_PLAN and UNREADABLE. */
+  plan: ConsolidationPlan | null;
+  /** Non-null only when CURRENT. */
+  savings: ConsolidationSavings | null;
+}
+
 /** `{ success: true, message }` on every 2xx mutation; the UI refetches instead of trusting it. */
 export interface AutomationSaveResult {
   success: boolean;

@@ -101,13 +101,19 @@ export interface TodayRow {
   /** The vertical engine's row, replaced by {@link NOT_TURNED_ON_TEXT} while the engine is off. */
   vertical?: boolean;
   /** The Automation page that shows this analysis, linked under it (its {@link OverviewHrefs} key). */
-  page?: { target: 'hpa' | 'vpa'; label: string };
+  page?: { target: 'hpa' | 'vpa' | 'consolidation'; label: string };
 }
 
-/** §9.1 item 4, in display order. The HPA and VPA rows point at the pages that now show them. */
+/** §9.1 item 4, in display order. The consolidation, HPA and VPA rows point at the pages that now show them. */
 export const TODAY_ROWS: readonly TodayRow[] = [
   { id: 'workload-rightsizing', label: 'Workload rightsizing', analysis: 'Recommendations', apply: { actionId: 'vertical.apply' }, vertical: true },
-  { id: 'node-consolidation', label: 'Node consolidation', analysis: 'Analysis not yet reliable', apply: { actionId: 'evictor.live' } },
+  {
+    id: 'node-consolidation',
+    label: 'Node consolidation',
+    analysis: 'Look-only plan: what could be emptied or drained',
+    page: { target: 'consolidation', label: 'Automation › Consolidation' },
+    apply: { actionId: 'evictor.live' },
+  },
   { id: 'node-optimizer', label: 'Node optimizer', analysis: 'Idle-node thresholds', apply: { actionId: 'nodeOptimizer.actions' } },
   { id: 'rebalancing', label: 'Rebalancing', analysis: null, apply: { actionId: 'rebalance.trigger' } },
   {
@@ -383,8 +389,8 @@ function TodayTable({
   fleet: ReadState<AutomationNodeFleet>;
   now: number;
   workloadAutoscalerHref?: string;
-  /** The HPA and VPA pages, linked under the rows they show. */
-  pageHrefs?: { hpa?: string; vpa?: string };
+  /** The HPA, VPA and Consolidation pages, linked under the rows they show. */
+  pageHrefs?: { hpa?: string; vpa?: string; consolidation?: string };
 }) {
   const headingId = useId();
   const location = useLocation();
@@ -989,6 +995,8 @@ export interface OverviewHrefs {
   /** Automation › Node autoscaler, the Node autoscaler card's next step. */
   nodeAutoscaler?: string;
   nodeAutoscalerLabel?: string;
+  /** Automation › Consolidation, linked under the Node consolidation row. */
+  consolidation?: string;
 }
 
 export interface OverviewPanelProps {
@@ -1058,7 +1066,7 @@ export function OverviewPanel({ clusterName, accountId, region, eksData, hrefs =
             fleet={nodeRead.fleet}
             now={now}
             workloadAutoscalerHref={hrefs.workloadAutoscaler}
-            pageHrefs={{ hpa: hrefs.hpa, vpa: hrefs.vpa }}
+            pageHrefs={{ hpa: hrefs.hpa, vpa: hrefs.vpa, consolidation: hrefs.consolidation }}
           />
         </div>
       }

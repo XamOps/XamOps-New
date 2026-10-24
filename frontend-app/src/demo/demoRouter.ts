@@ -651,18 +651,23 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     }
   }
 
-  // Node automation reads (Automation › Node autoscaler): the dashboard, the node fleet report and
-  // the rebalance status. Matched by exact path, so no write under /api/eks/autoscaling/ can be
-  // answered with a read fixture.
+  // Node automation reads (Automation › Node autoscaler and Consolidation): the dashboard, the node
+  // fleet report, the rebalance status and the look-only consolidation plan. Matched by exact path,
+  // so no write under /api/eks/autoscaling/ can be answered with a read fixture.
   {
-    const node = /\/api\/eks\/autoscaling\/([^/?]+)(?:\/(node-fleet|rebalance-status))?(\?|$)/.exec(url);
+    const node = /\/api\/eks\/autoscaling\/([^/?]+)(?:\/(node-fleet|rebalance-status|consolidation-plan))?(\?|$)/.exec(url);
     if (node) {
       const cluster = decodeURIComponent(node[1]);
+      // The consolidation plan is GET-only on the server (look-only): a write is refused, never read.
+      if (node[2] === 'consolidation-plan' && method.toUpperCase() !== 'GET')
+        return makeResponse(k8sAutomation.DEMO_WRITE_REFUSED, 403);
       const body = node[2] === 'node-fleet'
         ? k8sAutomation.demoNodeFleet(cluster)
         : node[2] === 'rebalance-status'
           ? k8sAutomation.demoRebalanceStatus(cluster)
-          : k8sAutomation.demoAutomationDashboard(cluster);
+          : node[2] === 'consolidation-plan'
+            ? k8sAutomation.demoConsolidationPlan(cluster)
+            : k8sAutomation.demoAutomationDashboard(cluster);
       return body ? makeResponse(body) : makeResponse(k8sAutomation.DEMO_CLUSTER_NOT_REGISTERED, 404);
     }
   }

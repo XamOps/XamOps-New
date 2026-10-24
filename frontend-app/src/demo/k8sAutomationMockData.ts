@@ -19,6 +19,7 @@ import type {
   CapabilitiesCluster,
   CapabilitiesDto,
   CapabilitiesReadiness,
+  ConsolidationPlanResponse,
   K8sRefusal,
   ReadinessKey,
 } from '../types/k8sAutomation';
@@ -348,6 +349,15 @@ export function demoNodeFleet(cluster: string, now: number = Date.now()): Automa
 export function demoRebalanceStatus(cluster: string): AutomationRebalanceStatus | null {
   if (!isNodeCluster(cluster)) return null;
   return { status: 'idle', message: 'No rebalance has been run yet' };
+}
+
+/**
+ * `GET …/consolidation-plan`: what the backend serves before the automation agent has pushed a
+ * plan. Honest on purpose: no demo nodes, moves or savings are invented.
+ */
+export function demoConsolidationPlan(cluster: string): ConsolidationPlanResponse | null {
+  if (!isNodeCluster(cluster)) return null;
+  return { freshness: 'NO_PLAN', generatedAt: null, ageSeconds: null, plan: null, savings: null };
 }
 
 // ── Activity feed (FEAT-007): GET /api/eks/automation/activity/{cluster} ────────────────────────
