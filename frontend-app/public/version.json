@@ -1,1 +1,4 @@
-{"version":"1792734866551"}
+{
+  "version": "1792734866551",
+  "deployTrigger": "redeploy-after-billing-2026-10-23"
+}
