@@ -165,8 +165,8 @@ func main() {
 	mset.SetLeader(false)
 
 	lock := &resourcelock.LeaseLock{
-		LeaseMeta: metav1.ObjectMeta{Name: leaderElectionLeaseName, Namespace: cfg.PodNamespace},
-		Client:    k8s.CoordinationV1(),
+		LeaseMeta:  metav1.ObjectMeta{Name: leaderElectionLeaseName, Namespace: cfg.PodNamespace},
+		Client:     k8s.CoordinationV1(),
 		LockConfig: resourcelock.ResourceLockConfig{Identity: identity},
 	}
 

@@ -468,7 +468,7 @@ func TestRightsizerWatchRevertsOnThrottle(t *testing.T) {
 // counts down. When it reaches zero the rollout is declared successful and the watch
 // annotations are cleared (rollout_ok metric).
 func TestRightsizerWatchNoRevertRollsOutOK(t *testing.T) {
-	prom := watchProm(t, -1, 0.05) // 5% throttle, below threshold; no OOM
+	prom := watchProm(t, -1, 0.05)                                                               // 5% throttle, below threshold; no OOM
 	dep := watchedDeployment("prod-sim", "encoder", "encoder", "200m", "64Mi", "25m", "64Mi", 1) // last cycle of the window
 	c := fake.NewSimpleClientset(dep)
 	mset := metrics.New()
