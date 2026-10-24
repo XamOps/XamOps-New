@@ -57,6 +57,8 @@ import java.util.*;
  *                                              ingest refuses it from agents)
  *        - dataType = "autoscaling-metrics"  → AutoscalingKpisDto (pushed by the agent)
  *        - dataType = "autoscaling-events"   → List<AutoscalingEventDto> (pushed by the agent)
+ *        - dataType = "autoscaling-consolidation-plan" → ConsolidationPlanDto (look-only plan pushed
+ *                                              by xamops-automation; served by ConsolidationPlanService)
  *
  *   3. agent_events (existing table, event types starting "autoscaling_")
  *        - configuration changes XamOps recorded, served as recentChanges
@@ -76,6 +78,7 @@ public class EksAutoscalingService {
     public static final String DT_RIGHTSIZING        = "autoscaling-rightsizing";
     public static final String DT_REBALANCE_STATUS   = "autoscaling-rebalance-status";
     public static final String DT_EVICTOR_CANDIDATES = "autoscaling-evictor-candidates";
+    public static final String DT_CONSOLIDATION_PLAN = "autoscaling-consolidation-plan";
 
     /** Event-type prefix of configuration changes XamOps records. */
     public static final String CHANGE_EVENT_PREFIX = "autoscaling_";

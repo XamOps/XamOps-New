@@ -3,12 +3,14 @@ package com.xammer.cloud.controller;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.*;
+import com.xammer.cloud.dto.autoscaling.ConsolidationPlanResponse;
 import com.xammer.cloud.dto.autoscaling.NodeOptimizerPolicyDto;
 import com.xammer.cloud.dto.autoscaling.WorkloadRightsizingDto;
 import com.xammer.cloud.dto.k8s.K8sRefusalBody;
 import com.xammer.cloud.exception.K8sAutomationReason;
 import com.xammer.cloud.exception.K8sAutomationRefusedException;
 import com.xammer.cloud.security.K8sAutomationRequestContext;
+import com.xammer.cloud.service.ConsolidationPlanService;
 import com.xammer.cloud.service.EksAutoscalingService;
 import com.xammer.cloud.service.K8sAutomationPolicyNormalizer;
 import com.xammer.cloud.service.K8sAutomationPolicyNormalizer.Section;
@@ -50,11 +52,14 @@ public class EksAutoscalingController {
 
     private final EksAutoscalingService autoscalingService;
     private final K8sAutomationPolicyNormalizer normalizer;
+    private final ConsolidationPlanService consolidationPlanService;
 
     public EksAutoscalingController(EksAutoscalingService autoscalingService,
-                                    K8sAutomationPolicyNormalizer normalizer) {
+                                    K8sAutomationPolicyNormalizer normalizer,
+                                    ConsolidationPlanService consolidationPlanService) {
         this.autoscalingService = autoscalingService;
         this.normalizer = normalizer;
+        this.consolidationPlanService = consolidationPlanService;
     }
 
     private static Map<String, Object> ok(String message) {
@@ -106,6 +111,13 @@ public class EksAutoscalingController {
     public ResponseEntity<List<Map<String, Object>>> getEvictorCandidates(
             @RequestAttribute(K8sAutomationRequestContext.ATTRIBUTE) K8sAutomationRequestContext ctx) {
         return ResponseEntity.ok(autoscalingService.getEvictorCandidates(config(ctx)));
+    }
+
+    /** GET /api/eks/autoscaling/{clusterName}/consolidation-plan?accountId=xxx — look-only, never acts */
+    @GetMapping("/{clusterName}/consolidation-plan")
+    public ResponseEntity<ConsolidationPlanResponse> getConsolidationPlan(
+            @RequestAttribute(K8sAutomationRequestContext.ATTRIBUTE) K8sAutomationRequestContext ctx) {
+        return ResponseEntity.ok(consolidationPlanService.getPlan(config(ctx), ctx.primaryAccount()));
     }
 
     // ═══════════════════════════════════════════════════════════════════════

@@ -53,6 +53,7 @@ public class AgentIngestService {
      * "k8s-resources"                → K8sResources (full cluster snapshot — xamops-agent)
      * "prometheus-metrics"           → PrometheusMetrics (utilization + cost + Falco — xamops-agent)
      * "node-optimizer-report"        → NodeOptimizerReport (idle nodes + spot candidates — xamops-automation)
+     * "autoscaling-consolidation-plan" → ConsolidationPlanDto (look-only plan — xamops-automation)
      *
      * All other collectors (trivy, kubescape, autoscaling-events, autoscaling-rightsizing,
      * hpa-recommendations, vpa-recommendations, autoscaling-evictor-candidates) push a list → stored as JSON array.
@@ -68,7 +69,8 @@ public class AgentIngestService {
             "autoscaling-rebalance-status",
             "k8s-resources",
             "prometheus-metrics",
-            "node-optimizer-report"
+            "node-optimizer-report",
+            "autoscaling-consolidation-plan"
     );
 
     private final KubernetesClusterConfigRepository clusterConfigRepository;

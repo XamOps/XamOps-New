@@ -6,11 +6,13 @@ import com.xammer.cloud.config.K8sAutomationReadinessProperties;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.EvictorPolicyDto;
+import com.xammer.cloud.dto.autoscaling.ConsolidationPlanResponse;
 import com.xammer.cloud.dto.k8s.K8sRefusalBody;
 import com.xammer.cloud.exception.K8sAutomationReason;
 import com.xammer.cloud.exception.K8sAutomationRefusedException;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.K8sAutomationRequestContext;
+import com.xammer.cloud.service.ConsolidationPlanService;
 import com.xammer.cloud.service.EksAutoscalingService;
 import com.xammer.cloud.service.K8sAutomationPolicyNormalizer;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,6 +51,7 @@ class EksAutoscalingControllerTest {
     private static final String BASE = "/api/eks/autoscaling/prod-eks";
 
     private EksAutoscalingService service;
+    private ConsolidationPlanService consolidationPlanService;
     private EksAutoscalingController controller;
     private MockMvc mvc;
     private K8sAutomationRequestContext ctx;
@@ -57,8 +60,10 @@ class EksAutoscalingControllerTest {
     @BeforeEach
     void setUp() {
         service = mock(EksAutoscalingService.class);
+        consolidationPlanService = mock(ConsolidationPlanService.class);
         controller = new EksAutoscalingController(service,
-                new K8sAutomationPolicyNormalizer(new K8sAutomationReadinessProperties()));
+                new K8sAutomationPolicyNormalizer(new K8sAutomationReadinessProperties()),
+                consolidationPlanService);
         mvc = MockMvcBuilders.standaloneSetup(controller).build();
 
         CloudAccount account = new CloudAccount();
@@ -190,6 +195,32 @@ class EksAutoscalingControllerTest {
         verify(service).setAutoscalingEnabled(config, true, "jane.doe");
         assertThat(call(HttpMethod.PUT, "/mode", "{\"mode\":\"scoped\"}").getStatus()).isEqualTo(200);
         verify(service).setMode(config, "scoped", "jane.doe");
+    }
+
+    // ── Consolidation plan (look-only) ────────────────────────────────────
+
+    @Test
+    void theConsolidationPlanReadReturnsTheServiceBody() throws Exception {
+        when(consolidationPlanService.getPlan(config, ctx.primaryAccount()))
+                .thenReturn(new ConsolidationPlanResponse(ConsolidationPlanResponse.STALE,
+                        "2026-10-24T00:00:00Z", 660L, null, null));
+        MockHttpServletResponse r = call(HttpMethod.GET, "/consolidation-plan", null);
+        assertThat(r.getStatus()).isEqualTo(200);
+        JsonNode b = body(r);
+        assertThat(b.get("freshness").asText()).isEqualTo("STALE");
+        assertThat(b.get("ageSeconds").asLong()).isEqualTo(660L);
+        assertThat(b.get("savings").isNull()).isTrue();
+        verify(consolidationPlanService).getPlan(config, ctx.primaryAccount());
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void theConsolidationPlanCannotBeWritten() throws Exception {
+        assertThat(call(HttpMethod.PUT, "/consolidation-plan", "{}").getStatus()).isEqualTo(405);
+        assertThat(call(HttpMethod.POST, "/consolidation-plan", "{}").getStatus()).isEqualTo(405);
+        assertThat(call(HttpMethod.DELETE, "/consolidation-plan", null).getStatus()).isEqualTo(405);
+        verifyNoInteractions(consolidationPlanService);
+        verifyNoInteractions(service);
     }
 
     // ── Unexpected failures ───────────────────────────────────────────────
