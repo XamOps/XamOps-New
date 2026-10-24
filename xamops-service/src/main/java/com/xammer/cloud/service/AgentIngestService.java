@@ -16,15 +16,20 @@ import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.AgentEventRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
+import com.xammer.cloud.service.spot.AgentBatchStoredEvent;
+import com.xammer.cloud.service.spot.ServerTime;
+import com.xammer.cloud.service.spot.SpotInterruptionTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.xammer.cloud.service.automation.workload.usage.store.UsageSampleCapture;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -85,6 +90,7 @@ public class AgentIngestService {
     private final AgentDataCacheRepository agentDataCacheRepository;
     private final AgentEventRepository agentEventRepository;
     private final CloudAccountRepository cloudAccountRepository;
+    private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
     @Value("${xamops.agent.api-key:xamops_DEFAULT_KEY_CHANGE_IN_PRODUCTION}")
@@ -111,18 +117,31 @@ public class AgentIngestService {
         this(clusterConfigRepository, agentDataCacheRepository, agentEventRepository, cloudAccountRepository, null);
     }
 
-    @Autowired
+    /** Without an event publisher (tests): spot-interruption tracking then observes nothing. */
     public AgentIngestService(
             KubernetesClusterConfigRepository clusterConfigRepository,
             AgentDataCacheRepository agentDataCacheRepository,
             AgentEventRepository agentEventRepository,
             CloudAccountRepository cloudAccountRepository,
             UsageSampleCapture usageSampleCapture) {
+        this(clusterConfigRepository, agentDataCacheRepository, agentEventRepository, cloudAccountRepository,
+                usageSampleCapture, event -> { });
+    }
+
+    @Autowired
+    public AgentIngestService(
+            KubernetesClusterConfigRepository clusterConfigRepository,
+            AgentDataCacheRepository agentDataCacheRepository,
+            AgentEventRepository agentEventRepository,
+            CloudAccountRepository cloudAccountRepository,
+            UsageSampleCapture usageSampleCapture,
+            ApplicationEventPublisher eventPublisher) {
         this.clusterConfigRepository = clusterConfigRepository;
         this.agentDataCacheRepository = agentDataCacheRepository;
         this.agentEventRepository = agentEventRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.usageSampleCapture = usageSampleCapture;
+        this.eventPublisher = eventPublisher;
 
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule());
@@ -504,9 +523,17 @@ public class AgentIngestService {
                 .findByClusterConfigIdAndDataType(clusterConfigId, batch.getCollector());
 
         int itemCount = SINGLE_OBJECT_COLLECTORS.contains(batch.getCollector()) ? 1 : batch.getItems().size();
+        // Spot-interruption removal inference compares consecutive snapshots, so keep the one being
+        // replaced (and when the server received it) before it is overwritten.
+        String prevJson = null;
+        Instant prevReceivedAt = null;
         AgentDataCache cache;
         if (existingCache.isPresent()) {
             cache = existingCache.get();
+            if (SpotInterruptionTracker.K8S_RESOURCES_COLLECTOR.equals(batch.getCollector())) {
+                prevJson = cache.getDataJson();
+                prevReceivedAt = ServerTime.serverInstant(cache.getReceivedAt());
+            }
             cache.setDataJson(dataJson);
             cache.setItemCount(itemCount);
             cache.setAgentVersion(agentVersion);
@@ -518,6 +545,13 @@ public class AgentIngestService {
         }
 
         agentDataCacheRepository.save(cache);
+
+        // Observed after the ingest transaction commits (SpotInterruptionTracker): publishing is all
+        // ingest does, so tracking can never fail or roll back a push.
+        if (SpotInterruptionTracker.COLLECTORS.contains(batch.getCollector())) {
+            eventPublisher.publishEvent(new AgentBatchStoredEvent(
+                    clusterConfigId, batch.getCollector(), dataJson, prevJson, prevReceivedAt));
+        }
 
         logger.debug("Saved {} items for collector {} (cluster ID: {})",
                 itemCount, batch.getCollector(), clusterConfigId);
