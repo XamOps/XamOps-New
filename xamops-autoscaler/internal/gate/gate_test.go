@@ -1,7 +1,10 @@
 package gate
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -265,5 +268,63 @@ func TestUnknownModeFailsClosed(t *testing.T) {
 		if d.Mode != Off {
 			t.Errorf("%s with empty mode: got %s, want off", name, d)
 		}
+	}
+}
+
+// The interruption gate opens only when the served policy sets
+// handleSpotInterruptions=true; an absent field, an absent section or a null section
+// decode (through the real FetchPolicy path) to false and the gate is Off.
+func TestInterruptionGateFailsClosed(t *testing.T) {
+	bodies := map[string]string{
+		"field absent":   `{"autoscalerMode":"full","nodeOptimizerPolicy":{"enabled":true}}`,
+		"false":          `{"autoscalerMode":"full","nodeOptimizerPolicy":{"enabled":true,"handleSpotInterruptions":false}}`,
+		"true":           `{"autoscalerMode":"full","nodeOptimizerPolicy":{"enabled":true,"handleSpotInterruptions":true}}`,
+		"section absent": `{"autoscalerMode":"full"}`,
+		"section null":   `{"autoscalerMode":"full","nodeOptimizerPolicy":null}`,
+	}
+	cases := []struct {
+		body string
+		cfg  config.Config
+		want Mode
+	}{
+		{"field absent", config.Config{EnableNodeOptimizer: true, DryRun: false}, Off},
+		{"field absent", config.Config{EnableNodeOptimizer: true, DryRun: true}, Off},
+		{"false", config.Config{EnableNodeOptimizer: true, DryRun: false}, Off},
+		{"false", config.Config{EnableNodeOptimizer: true, DryRun: true}, Off},
+		{"section absent", config.Config{EnableNodeOptimizer: true, DryRun: false}, Off},
+		{"section absent", config.Config{EnableNodeOptimizer: true, DryRun: true}, Off},
+		{"section null", config.Config{EnableNodeOptimizer: true, DryRun: false}, Off},
+		{"section null", config.Config{EnableNodeOptimizer: true, DryRun: true}, Off},
+		{"true", config.Config{EnableNodeOptimizer: true, DryRun: false}, Live},
+		{"true", config.Config{EnableNodeOptimizer: true, DryRun: true}, Simulate},
+		{"true", config.Config{EnableNodeOptimizer: false, DryRun: false}, Off},
+	}
+	for _, tc := range cases {
+		name := fmt.Sprintf("%s/enable=%v/dry=%v", tc.body, tc.cfg.EnableNodeOptimizer, tc.cfg.DryRun)
+		t.Run(name, func(t *testing.T) {
+			body := bodies[tc.body]
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(body))
+			}))
+			defer srv.Close()
+			b, err := policy.NewClient(srv.URL, "k", "c", "1").FetchPolicy(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg := tc.cfg
+			got := Interruption(&cfg, b)
+			if got.Mode != tc.want {
+				t.Fatalf("got %s, want %s", got, tc.want)
+			}
+			if tc.body != "true" && b.NodeOptimizerPolicy.HandleSpotInterruptions {
+				t.Errorf("%s decoded handleSpotInterruptions=true", tc.body)
+			}
+			// With the section present and enabled the reason names the flag; an absent or
+			// null section is already Off at nodeOptimizerPolicy.enabled=false.
+			if (tc.body == "field absent" || tc.body == "false") && !strings.Contains(got.Reason, "handleSpotInterruptions") {
+				t.Errorf("reason %q does not name handleSpotInterruptions", got.Reason)
+			}
+		})
 	}
 }

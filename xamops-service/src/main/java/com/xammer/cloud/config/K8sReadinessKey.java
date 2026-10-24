@@ -6,7 +6,7 @@ import java.util.Arrays;
 import java.util.Optional;
 
 /**
- * The eight controller-readiness keys of design §6.7, in property order, each with the reason
+ * The nine controller-readiness keys of design §6.7, in property order, each with the reason
  * the UI and server use while it is not ready and the exact user-facing message.
  *
  * <p>
@@ -33,7 +33,9 @@ public enum K8sReadinessKey {
     SCALE_OUT("scale-out", K8sAutomationReason.CONTROLLER_NOT_READY,
             "Not available: the automation agent doesn't provision nodes. Your cluster autoscaler or Karpenter does."),
     NODE_TEMPLATES("node-templates", K8sAutomationReason.CONTROLLER_NOT_READY,
-            "Not available: the automation agent doesn't use node templates yet.");
+            "Not available: the automation agent doesn't use node templates yet."),
+    SPOT_INTERRUPTION_ACTIONS("spot-interruption-actions", K8sAutomationReason.CONTROLLER_NOT_READY,
+            "Automatic spot interruption handling is disabled until the node optimizer passes spot interruption validation.");
 
     private final String key;
     private final K8sAutomationReason reason;

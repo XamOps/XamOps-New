@@ -908,3 +908,51 @@ func grepLines(s, substr string) string {
 	}
 	return strings.Join(out, "\n")
 }
+
+// OQ-14: a served policy without handleSpotInterruptions never opens the
+// interruption drain, even with DRY_RUN=false and ENABLE_NODE_OPTIMIZER=true on a
+// cluster with an interrupted node (node-4). The "true" row proves the assertion
+// sees an interruption record when the policy does allow it.
+func TestRunCycleInterruptionFieldAbsentNeverDrains(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		wantRecord bool
+	}{
+		{"field absent", `{"autoscalerMode":"full","nodeOptimizerPolicy":{"enabled":true}}`, false},
+		{"true", `{"autoscalerMode":"full","nodeOptimizerPolicy":{"enabled":true,"handleSpotInterruptions":true}}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, cap := backend(t, []byte(tc.body))
+			c := seededCluster()
+			runTestCycle(t, &config.Config{DryRun: false, EnableNodeOptimizer: true}, c, srv.URL)
+
+			interruption := 0
+			for _, raw := range cap.items("autoscaling-actions") {
+				var a struct {
+					Details map[string]interface{} `json:"details"`
+				}
+				if err := json.Unmarshal(raw, &a); err != nil {
+					t.Fatal(err)
+				}
+				if a.Details["trigger"] == "spot-interruption" {
+					interruption++
+				}
+			}
+			if (interruption > 0) != tc.wantRecord {
+				t.Errorf("spot-interruption action records = %d, want any=%v", interruption, tc.wantRecord)
+			}
+			if tc.wantRecord {
+				return
+			}
+			patched, ev := nodeWrites(c)
+			for _, n := range patched {
+				if n == "node-4" {
+					t.Errorf("interrupted node-4 patched with handleSpotInterruptions absent: %v", patched)
+				}
+			}
+			if ev != 0 {
+				t.Errorf("%d eviction(s) with handleSpotInterruptions absent", ev)
+			}
+		})
+	}
+}

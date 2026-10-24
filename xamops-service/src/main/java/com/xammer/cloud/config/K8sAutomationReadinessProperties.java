@@ -29,6 +29,7 @@ public class K8sAutomationReadinessProperties {
     private boolean nodeOptimizerActions = false;
     private boolean scaleOut = false;
     private boolean nodeTemplates = false;
+    private boolean spotInterruptionActions = false;
 
     /** @return whether the key is ready; unknown keys are never ready. */
     public boolean isReady(String kebabKey) {
@@ -45,6 +46,7 @@ public class K8sAutomationReadinessProperties {
             case NODE_OPTIMIZER_ACTIONS -> nodeOptimizerActions;
             case SCALE_OUT -> scaleOut;
             case NODE_TEMPLATES -> nodeTemplates;
+            case SPOT_INTERRUPTION_ACTIONS -> spotInterruptionActions;
         };
     }
 
@@ -80,4 +82,6 @@ public class K8sAutomationReadinessProperties {
 
     public boolean isNodeTemplates() { return nodeTemplates; }
     public void setNodeTemplates(boolean v) { this.nodeTemplates = v; }
+    public boolean isSpotInterruptionActions() { return spotInterruptionActions; }
+    public void setSpotInterruptionActions(boolean v) { this.spotInterruptionActions = v; }
 }

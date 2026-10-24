@@ -135,6 +135,9 @@ public class K8sAutomationPolicyNormalizer {
                             b.getNodeOptimizerPolicy().setAutoDrainIdleNodes(false);
                             b.getNodeOptimizerPolicy().setSpotRatioTargetPct(0);
                         }),
+                new Coercion(K8sReadinessKey.SPOT_INTERRUPTION_ACTIONS, "nodeOptimizerPolicy.handleSpotInterruptions",
+                        b -> b.getNodeOptimizerPolicy().isHandleSpotInterruptions(),
+                        b -> b.getNodeOptimizerPolicy().setHandleSpotInterruptions(false)),
                 new Coercion(K8sReadinessKey.REBALANCER, "rebalancer.status,rebalancer.scheduleEnabled,rebalancer.enabled",
                         b -> !"idle".equals(b.getRebalancer().getStatus()) || b.getRebalancer().isScheduleEnabled()
                                 || b.getRebalancer().isEnabled(),
@@ -352,6 +355,9 @@ public class K8sAutomationPolicyNormalizer {
         }
         if (p.getSpotRatioTargetPct() != 0) {
             requireReady(K8sReadinessKey.NODE_OPTIMIZER_ACTIONS, "spotRatioTargetPct");
+        }
+        if (p.isHandleSpotInterruptions()) {
+            requireReady(K8sReadinessKey.SPOT_INTERRUPTION_ACTIONS, "handleSpotInterruptions");
         }
         if (p.getMaxParallelDrains() != 1) {
             throw K8sAutomationRefusedException.of(K8sAutomationReason.GUARDRAIL_LOCKED,

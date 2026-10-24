@@ -141,6 +141,14 @@ func NodeAction(cfg *config.Config, b policy.PolicyBundle, actionFlag bool, acti
 	return actOrSimulate(cfg)
 }
 
+// Interruption gates spot-interruption drains on nodeOptimizerPolicy.handleSpotInterruptions.
+// The backend serves handleSpotInterruptions=false unless readiness
+// spot-interruption-actions is true, and a served policy that omits the field (or the
+// whole section) decodes to the DefaultBundle value false, so the gate fails closed.
+func Interruption(cfg *config.Config, b policy.PolicyBundle) Decision {
+	return NodeAction(cfg, b, b.NodeOptimizerPolicy.HandleSpotInterruptions, "handleSpotInterruptions")
+}
+
 // RightsizerAnalysis: ENABLE_RIGHTSIZER ∧ workloadRightsizerPolicy.enabled ∧ mode∈{full,scoped}.
 func RightsizerAnalysis(cfg *config.Config, b policy.PolicyBundle) Decision {
 	switch {

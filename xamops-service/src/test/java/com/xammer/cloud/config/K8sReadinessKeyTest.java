@@ -56,10 +56,18 @@ class K8sReadinessKeyTest {
     }
 
     @Test
+    void spotInterruptionActionsKeyReasonAndMessage() {
+        assertThat(K8sReadinessKey.SPOT_INTERRUPTION_ACTIONS.key()).isEqualTo("spot-interruption-actions");
+        assertThat(K8sReadinessKey.SPOT_INTERRUPTION_ACTIONS.reason()).isEqualTo(K8sAutomationReason.CONTROLLER_NOT_READY);
+        assertThat(K8sReadinessKey.SPOT_INTERRUPTION_ACTIONS.message()).isEqualTo(
+                "Automatic spot interruption handling is disabled until the node optimizer passes spot interruption validation.");
+        assertThat(K8sReadinessKey.fromKey("spot-interruption-actions")).contains(K8sReadinessKey.SPOT_INTERRUPTION_ACTIONS);
+    }
+    @Test
     void everyKeyHasAReasonAndNonBlankMessageInPropertyOrder() {
         assertThat(K8sReadinessKey.values()).extracting(K8sReadinessKey::key).containsExactly(
                 "vertical-rightsizing", "hpa-apply", "vpa-apply", "evictor-live", "rebalancer",
-                "node-optimizer-actions", "scale-out", "node-templates");
+                "node-optimizer-actions", "scale-out", "node-templates", "spot-interruption-actions");
         for (K8sReadinessKey key : K8sReadinessKey.values()) {
             assertThat(key.message()).as(key.key()).isNotBlank();
             assertThat(key.reason()).isEqualTo(key == K8sReadinessKey.EVICTOR_LIVE

@@ -396,7 +396,7 @@ func decide(cfg *config.Config, b policy.PolicyBundle) cycleDecisions {
 		IdleDrain:       gate.NodeAction(cfg, b, nop.AutoDrainIdleNodes, "autoDrainIdleNodes"),
 		SpotRatio:       gate.NodeAction(cfg, b, nop.SpotRatioTargetPct > 0, "spotRatioTargetPct"),
 		Karpenter:       gate.NodeAction(cfg, b, nop.SpotRatioTargetPct > 0 && nop.KarpenterEnabled, "karpenterEnabled"),
-		Interruption:    gate.NodeAction(cfg, b, nop.HandleSpotInterruptions, "handleSpotInterruptions"),
+		Interruption:    gate.Interruption(cfg, b),
 		Rightsizer:      gate.RightsizerAnalysis(cfg, b),
 		RightsizerApply: gate.RightsizerApply(cfg, b),
 		HPAManager:      gate.HPAManager(cfg, b),

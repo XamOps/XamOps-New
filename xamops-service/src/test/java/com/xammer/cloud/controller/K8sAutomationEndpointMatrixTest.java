@@ -84,7 +84,7 @@ class K8sAutomationEndpointMatrixTest {
             new Endpoint("PUT", "/evictor-policy", "{\"enabled\":true,\"analyseOnly\":true}"),
             new Endpoint("PUT", "/workload-rightsizer", "{\"enabled\":false}"),
             new Endpoint("PUT", "/safety-guards", "{\"respectPodDisruptionBudgets\":true,\"protectCriticalNamespaces\":true}"),
-            new Endpoint("PUT", "/node-optimizer", "{\"idleCpuThresholdPct\":15,\"handleSpotInterruptions\":true}"),
+            new Endpoint("PUT", "/node-optimizer", "{\"idleCpuThresholdPct\":15,\"handleSpotInterruptions\":false}"),
             new Endpoint("PUT", "/rebalancer", "{\"scheduleEnabled\":false,\"gracefulDraining\":true}"),
             new Endpoint("POST", "/rebalance", null),
             new Endpoint("PUT", "/node-templates/tpl-1", "{\"name\":\"pool\"}"),

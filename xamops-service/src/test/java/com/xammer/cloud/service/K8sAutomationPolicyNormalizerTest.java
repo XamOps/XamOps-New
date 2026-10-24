@@ -105,6 +105,7 @@ class K8sAutomationPolicyNormalizerTest {
                 case NODE_OPTIMIZER_ACTIONS -> readiness.setNodeOptimizerActions(true);
                 case SCALE_OUT -> readiness.setScaleOut(true);
                 case NODE_TEMPLATES -> readiness.setNodeTemplates(true);
+                case SPOT_INTERRUPTION_ACTIONS -> readiness.setSpotInterruptionActions(true);
             }
         }
     }
@@ -338,13 +339,44 @@ class K8sAutomationPolicyNormalizerTest {
     }
 
     @Test
-    void spotInterruptionHandlingPassesThrough() throws Exception {
-        for (boolean value : new boolean[] {true, false}) {
-            String json = stored(b -> b.getNodeOptimizerPolicy().setHandleSpotInterruptions(value));
-            for (AutomationPolicyBundle b : bothPaths(json)) {
-                assertThat(b.getNodeOptimizerPolicy().isHandleSpotInterruptions()).isEqualTo(value);
-            }
+    void spotInterruptionActionsRow() throws Exception {
+        String json = stored(b -> b.getNodeOptimizerPolicy().setHandleSpotInterruptions(true));
+        ready(K8sReadinessKey.NODE_OPTIMIZER_ACTIONS);
+        for (AutomationPolicyBundle b : bothPaths(json)) {
+            assertThat(b.getNodeOptimizerPolicy().isHandleSpotInterruptions())
+                    .as("node-optimizer-actions alone does not open interruption handling").isFalse();
         }
+        assertRow(b -> b.getNodeOptimizerPolicy().setHandleSpotInterruptions(true),
+                b -> b.getNodeOptimizerPolicy().isHandleSpotInterruptions(),
+                false, true, K8sReadinessKey.SPOT_INTERRUPTION_ACTIONS);
+    }
+    @Test
+    void aStoredBundleWithoutHandleSpotInterruptionsIsServedFalse() throws Exception {
+        JsonNode tree = RAW.readTree(stored(b -> { }));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) tree.get("nodeOptimizerPolicy")).remove("handleSpotInterruptions");
+        String json = RAW.writeValueAsString(tree);
+        assertThat(json).doesNotContain("handleSpotInterruptions");
+        ready(K8sReadinessKey.values());
+        for (AutomationPolicyBundle b : bothPaths(json)) {
+            assertThat(b.getNodeOptimizerPolicy().isHandleSpotInterruptions()).isFalse();
+        }
+    }
+    @Test
+    void defaultsServeHandleSpotInterruptionsFalse() {
+        assertThat(normalizer.defaults().getNodeOptimizerPolicy().isHandleSpotInterruptions()).isFalse();
+        assertThat(new NodeOptimizerPolicyDto().isHandleSpotInterruptions()).isFalse();
+    }
+    @Test
+    void spotInterruptionHandlingIsRefusedWhileNotReady() {
+        NodeOptimizerPolicyDto p = new NodeOptimizerPolicyDto();
+        p.setHandleSpotInterruptions(true);
+        ready(K8sReadinessKey.NODE_OPTIMIZER_ACTIONS);
+        K8sAutomationRefusedException e = refusal(() -> normalizer.validate(Section.NODE_OPTIMIZER, p));
+        assertThat(e.getReason()).isEqualTo(K8sAutomationReason.CONTROLLER_NOT_READY);
+        assertThat(e.getField()).isEqualTo("handleSpotInterruptions");
+        assertThat(e.getMessage()).isEqualTo(K8sReadinessKey.SPOT_INTERRUPTION_ACTIONS.message());
+        ready(K8sReadinessKey.SPOT_INTERRUPTION_ACTIONS);
+        assertThatCode(() -> normalizer.validate(Section.NODE_OPTIMIZER, p)).doesNotThrowAnyException();
     }
 
     // ── Logging ───────────────────────────────────────────────────────────
