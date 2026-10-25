@@ -333,7 +333,8 @@ class SpotInterruptionTrackerIT {
                 SpotFixtures.notice("a", "interruption", "nth-label-legacy", true),
                 SpotFixtures.notice("b", "interruption", "nth-label-legacy", true),
                 SpotFixtures.notice("c", "interruption", "nth-label-legacy", true))));
-        Instant started = Instant.now();
+        // Microsecond-aligned: Linux clocks give nanoseconds and the DB rounds (not truncates) to micros.
+        Instant started = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
         pushActions(
                 SpotFixtures.action("node/c", "refused", false, "spot-interruption", started.toString(), null),
                 SpotFixtures.action("nodes/a,b", "succeeded", false, "spot-interruption", started.toString(),
