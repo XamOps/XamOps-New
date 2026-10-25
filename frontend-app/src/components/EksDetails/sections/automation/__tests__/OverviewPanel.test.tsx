@@ -29,7 +29,6 @@ import { NOT_TURNED_ON_TEXT, OverviewPanel, TODAY_ROWS, WORKLOAD_AUTOSCALER_LINK
 const mockedFetch = apiClient.fetch as unknown as ReturnType<typeof vi.fn>;
 
 const READ_ONLY_TEXT = 'Read-only connection. Automation changes need read-write access.';
-const DEMO_TEXT = "Demo workspace. Changes aren't saved.";
 
 const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
 const res = (cpuRequestM: number | null, memRequestMi: number | null) => ({ cpuRequestM, memRequestMi, cpuLimitM: null, memLimitMi: null });
@@ -160,12 +159,12 @@ function fixture(accountId: 'demo-aws-001' | 'demo-aws-002', edit?: (dto: Capabi
 async function renderPanel(
   dto: CapabilitiesDto,
   cluster = 'prod-eks-cluster',
-  { hrefs, eksData }: { hrefs?: OverviewHrefs; eksData?: UseEksDashboardReturn } = {},
+  { hrefs, eksData, demo = true }: { hrefs?: OverviewHrefs; eksData?: UseEksDashboardReturn; demo?: boolean } = {},
 ) {
   getCapabilities.mockResolvedValue(dto);
   render(
     <MemoryRouter initialEntries={[`/eks-details?name=${cluster}&tab=automation&sub=overview`]}>
-      <K8sCapabilitiesProvider accountId={dto.accountId} demo>
+      <K8sCapabilitiesProvider accountId={dto.accountId} demo={demo}>
         <OverviewPanel clusterName={cluster} accountId={dto.accountId} region="us-east-1" eksData={eksData} hrefs={hrefs} />
       </K8sCapabilitiesProvider>
     </MemoryRouter>,
@@ -264,8 +263,8 @@ describe('Automation › Overview (§9.1)', () => {
     await reasonInDrawer('scale-out', DEMO_READINESS_MESSAGES['scale-out']);
     await reasonInDrawer('node-templates', DEMO_READINESS_MESSAGES['node-templates']);
     await reasonInDrawer('vpa-baseline', DEMO_READINESS_MESSAGES['vpa-apply']);
-    // No readiness key: only the demo session holds it.
-    await reasonInDrawer('spot-interruption', DEMO_TEXT);
+    // The settings action plus the spot-interruption-actions readiness key: readiness leads.
+    await reasonInDrawer('spot-interruption', DEMO_READINESS_MESSAGES['spot-interruption-actions']);
 
     expect(accessValue('Connection')).toHaveTextContent('Read-write');
     expect(accessValue('Your permission')).toHaveTextContent('You can change automation');
@@ -311,10 +310,10 @@ describe('Automation › Overview (§9.1)', () => {
       expect(d).toHaveTextContent(CONTRACT_BLOCK_MESSAGE);
       expect(d).toHaveTextContent('Also needs: read-write access');
     });
-    // Where nothing ranks higher, the connection is the reason.
+    // The spot row's readiness key ranks above the connection too.
     await drawerHas('spot-interruption', (d) => {
-      expect(d).toHaveTextContent(READ_ONLY_TEXT);
-      expect(d).not.toHaveTextContent(DEMO_TEXT);
+      expect(d).toHaveTextContent(DEMO_READINESS_MESSAGES['spot-interruption-actions']);
+      expect(d).toHaveTextContent('Also needs: read-write access');
     });
   });
 
@@ -838,6 +837,59 @@ describe('Automation › Overview: the activity log, its summary and the usage f
       expect([...teamA.querySelectorAll('td')].map((td) => td.textContent)).toEqual(['2.00 vCPU', '0.08 vCPU', '0.05 vCPU']);
     });
     expect(chart.querySelector('[data-chart-source]')).toHaveTextContent("the mean of each namespace's use over 3 days");
+  });
+
+  // The spot row's Apply reads the spot-interruption-actions readiness key as well as the settings
+  // action: with the key false it is Blocked with the server's message, never "Available".
+  describe('spot-interruption row Apply follows spot-interruption-actions readiness', () => {
+    const SPOT_MESSAGE = 'Automatic spot interruption handling is disabled until the node optimizer passes spot interruption validation.';
+    const setSpotReady = (ready: boolean) => (dto: CapabilitiesDto) => {
+      dto.readiness['spot-interruption-actions'] = ready
+        ? { ready: true, reason: null, message: null }
+        : { ready: false, reason: 'CONTROLLER_NOT_READY', message: SPOT_MESSAGE };
+    };
+
+    it('reads Blocked, with the readiness message in the drawer, while the key is false', async () => {
+      const table = await renderPanel(fixture('demo-aws-001', setSpotReady(false)), 'prod-eks-cluster', { demo: false });
+      const row = rowOf(table, 'spot-interruption');
+      await waitFor(() => expect(row.querySelector('[data-gated-lock]')).not.toBeNull());
+      expect(row).toHaveTextContent('Blocked');
+      expect(row).not.toHaveTextContent('Available');
+      // Dot + word, never colour alone: the off-tone dot sits next to the word.
+      expect(row.querySelector('[data-tone="off"]')).not.toBeNull();
+      const dialog = await openDrawer(table, 'spot-interruption');
+      expect(dialog).toHaveTextContent('Blocked');
+      expect(dialog).toHaveTextContent(SPOT_MESSAGE);
+      expect(dialog).not.toHaveTextContent('Available — XamOps may make this change on the cluster.');
+    });
+
+    it('fails closed when the capabilities omit the key', async () => {
+      const table = await renderPanel(
+        fixture('demo-aws-001', (dto) => { delete (dto.readiness as Record<string, unknown>)['spot-interruption-actions']; }),
+        'prod-eks-cluster',
+        { demo: false },
+      );
+      const row = rowOf(table, 'spot-interruption');
+      await waitFor(() => expect(row).toHaveTextContent('Blocked'));
+      expect(row).not.toHaveTextContent('Available');
+    });
+
+    it('reads Available once the key is ready and the settings action is allowed', async () => {
+      const table = await renderPanel(fixture('demo-aws-001', setSpotReady(true)), 'prod-eks-cluster', { demo: false });
+      const row = rowOf(table, 'spot-interruption');
+      await waitFor(() => expect(row).toHaveTextContent('Available'));
+      expect(row.querySelector('[data-tone="good"]')).not.toBeNull();
+      expect(row.querySelector('[data-gated-lock]')).toBeNull();
+    });
+
+    it('keeps the settings action\'s own gate when the key is ready (read-only connection)', async () => {
+      const table = await renderPanel(fixture('demo-aws-002', setSpotReady(true)), 'prod-eks-cluster', { demo: false });
+      const row = rowOf(table, 'spot-interruption');
+      await waitFor(() => expect(row).toHaveTextContent('Blocked'));
+      const dialog = await openDrawer(table, 'spot-interruption');
+      expect(dialog).toHaveTextContent(READ_ONLY_TEXT);
+      expect(dialog).not.toHaveTextContent(SPOT_MESSAGE);
+    });
   });
 
   // FEAT-003: the spot-interruption row surfaces the real node-fleet interruptedNodes, never a

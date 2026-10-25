@@ -27,6 +27,7 @@ import { formatMoney } from '../../../../utils/k8sQuantities';
 import {
   LOADING_CAPABILITY,
   findCluster,
+  rankGates,
   useK8sCapabilities,
   type K8sCapabilitiesValue,
 } from '../../../../hooks/useK8sCapabilities';
@@ -37,7 +38,7 @@ import useNodeAutomationRead, { type ReadState } from '../../../../hooks/useNode
 import type { InsightReadState } from '../../../../hooks/useInsightRead';
 import type { UseEksDashboardReturn } from '../../../../hooks/useEksDashboard';
 import type { AutomationReadResult } from '../../../../api/automationReadApi';
-import type { ActionId, AutomationNodeFleet, CapabilitiesDto, Capability, ReadinessKey } from '../../../../types/k8sAutomation';
+import type { ActionId, AutomationNodeFleet, CapabilitiesDto, Capability, Gate, ReadinessKey } from '../../../../types/k8sAutomation';
 import type { VerticalEngineView } from '../../../../types/verticalRightsizer';
 import type { ActivitySummaryView } from '../../../../types/automationActivity';
 import { AccessBanner } from '../../../CloudK8s/shared/AccessBanner';
@@ -97,8 +98,11 @@ export interface TodayRow {
   label: string;
   /** What XamOps analyses today; null renders a dash. */
   analysis: string | null;
-  /** Where the Apply column comes from: an action's capability, or a readiness key with no control yet. */
-  apply: { actionId: ActionId } | { readiness: ReadinessKey };
+  /**
+   * Where the Apply column comes from: an action's capability, a readiness key with no control yet,
+   * or both (the action's gates plus the readiness key, ranked together).
+   */
+  apply: { actionId: ActionId; readiness?: ReadinessKey } | { readiness: ReadinessKey };
   /** The vertical engine's row, replaced by {@link NOT_TURNED_ON_TEXT} while the engine is off. */
   vertical?: boolean;
   /** The Automation page that shows this analysis, linked under it (its {@link OverviewHrefs} key). */
@@ -138,7 +142,10 @@ export const TODAY_ROWS: readonly TodayRow[] = [
     label: 'Spot interruption handling',
     analysis: 'Interrupted nodes the agent is draining',
     page: { target: 'spotInterruptions', label: 'Automation › Spot interruptions' },
-    apply: { actionId: 'nodeOptimizer.settings' },
+    // The settings action alone carries no readiness key, so the row read "Available" while
+    // spot-interruption-actions was false. Handling is gated by that key (the policy normalizer
+    // coerces handleSpotInterruptions off while it isn't ready), so the row reads it too.
+    apply: { actionId: 'nodeOptimizer.settings', readiness: 'spot-interruption-actions' },
   },
 ];
 
@@ -157,9 +164,15 @@ function readinessCapability(caps: K8sCapabilitiesValue, key: ReadinessKey): Cap
 }
 
 function applyCapability(caps: K8sCapabilitiesValue, row: TodayRow, clusterName: string): Capability {
-  return 'actionId' in row.apply
-    ? caps.can(row.apply.actionId, { cluster: clusterName })
-    : readinessCapability(caps, row.apply.readiness);
+  if (!('actionId' in row.apply)) return readinessCapability(caps, row.apply.readiness);
+  const action = caps.can(row.apply.actionId, { cluster: clusterName });
+  if (!row.apply.readiness || caps.status === 'loading') return action;
+  const readiness = readinessCapability(caps, row.apply.readiness);
+  if (readiness.allowed) return action;
+  // Both must pass: rank the action's gates with the readiness gate (§6.4), so readiness leads
+  // and the connection, permission or demo gates follow under "Also needs".
+  const gates = [action.gate, ...action.also, readiness.gate].filter((g): g is Gate => g !== null);
+  return rankGates(gates);
 }
 
 /** "data 4 min old", or "no data yet" when the agent reported no time. */

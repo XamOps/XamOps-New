@@ -457,10 +457,21 @@ describe('cluster page shell', () => {
   });
 
   it('allows what nothing blocks when capabilities load (read-write, permitted, no demo)', async () => {
+    // The spot row also reads spot-interruption-actions readiness; ready here, so nothing blocks it.
+    getCapabilities.mockReset().mockResolvedValue(capabilities((dto) => {
+      dto.readiness['spot-interruption-actions'] = { ready: true, reason: null, message: null };
+    }));
     renderAt(`${BASE}&tab=automation`);
     const table = await screen.findByRole('table', { name: AUTOMATION_HEADING }, { timeout: 4000 });
     await waitFor(() => expect(rowByLabel(table, 'Spot interruption handling')).toHaveTextContent('Available'));
     expect(document.querySelector('[data-overlay]')).toBeNull();
+  });
+
+  it('blocks the spot row while spot-interruption-actions is not ready (read-write, permitted, no demo)', async () => {
+    renderAt(`${BASE}&tab=automation`);
+    const table = await screen.findByRole('table', { name: AUTOMATION_HEADING }, { timeout: 4000 });
+    await waitFor(() => expect(rowByLabel(table, 'Spot interruption handling')).toHaveTextContent('Blocked'));
+    expect(rowByLabel(table, 'Spot interruption handling')).not.toHaveTextContent('Available');
   });
 
   it('shows the dashboard error with Retry, and no sections', async () => {

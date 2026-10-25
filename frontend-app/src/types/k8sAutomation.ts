@@ -136,6 +136,7 @@ export const READINESS_KEYS = [
   'node-optimizer-actions',
   'scale-out',
   'node-templates',
+  'spot-interruption-actions',
 ] as const;
 
 export type ReadinessKey = (typeof READINESS_KEYS)[number];

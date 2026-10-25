@@ -40,6 +40,8 @@ export const DEMO_READINESS_MESSAGES: Record<ReadinessKey, string> = {
     'Node cordon, drain and spot conversion are disabled until the node optimizer passes safety validation.',
   'scale-out': "Not available: the automation agent doesn't provision nodes. Your cluster autoscaler or Karpenter does.",
   'node-templates': "Not available: the automation agent doesn't use node templates yet.",
+  'spot-interruption-actions':
+    'Automatic spot interruption handling is disabled until the node optimizer passes spot interruption validation.',
 };
 
 /** Demo accounts the fixture answers for; anything else is refused like an account that isn't yours. */
