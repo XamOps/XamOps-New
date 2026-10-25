@@ -35,6 +35,7 @@ import {
   metricCells,
   nowSentence,
   pageState,
+  RECORDING_OFF_SENTENCE,
   recoverySentence,
   recoveryText,
   sourceWords,
@@ -265,7 +266,7 @@ function headerSentence(state: SpotPageState, data: SpotInterruptionsDto | null,
     case 'not-monitored':
       return { clauses: ["XamOps isn't receiving node data from this cluster yet."], chips: [] };
     default:
-      return { clauses: [nowSentence(data!.events, data!.fleet, days)], chips: [] };
+      return { clauses: [nowSentence(data!.events, data!.fleet, days, data!.recordingEnabled)], chips: [] };
   }
 }
 
@@ -290,7 +291,8 @@ export function SpotInterruptionsPage({ clusterName, accountId, region }: SpotIn
   const now = Date.now();
   const rows = useMemo(() => (data ? eventRows(data.events) : []), [data]);
   const open = openKey === null ? null : rows.find((r) => r.key === openKey) ?? null;
-  const showStrip = state === 'loading' || state === 'no-spot' || state === 'none' || state === 'events';
+  const showStrip =
+    state === 'loading' || state === 'recording-off' || state === 'no-spot' || state === 'none' || state === 'events';
 
   const hero = (
     <div className="flex flex-col gap-4" data-k8s-kit="">
@@ -331,6 +333,13 @@ export function SpotInterruptionsPage({ clusterName, accountId, region }: SpotIn
           <p className={`-mt-6 text-center text-[12px] ${MUTED}`}>
             Install the XamOps agent (and the automation agent for notices) on this cluster to record Spot interruptions.
           </p>
+        </div>
+      );
+      break;
+    case 'recording-off':
+      body = (
+        <div data-spot-state="recording-off">
+          <EmptyState icon="mdi:pause-circle-outline" message={RECORDING_OFF_SENTENCE} />
         </div>
       );
       break;
@@ -388,7 +397,7 @@ export function SpotInterruptionsPage({ clusterName, accountId, region }: SpotIn
               <span className="w-full">{COVERAGE_NOTE}</span>
             </p>
           )}
-          {data && !data.recordingEnabled && (
+          {data && !data.recordingEnabled && state !== 'recording-off' && (
             <p className={`text-[12px] ${FAINT}`} data-spot-recording-off="">Recording is turned off on this XamOps deployment.</p>
           )}
         </div>

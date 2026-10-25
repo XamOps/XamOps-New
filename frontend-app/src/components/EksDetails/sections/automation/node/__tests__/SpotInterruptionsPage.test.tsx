@@ -97,13 +97,26 @@ describe('Spot interruptions page states (AC11)', () => {
     expect(api.getSpotInterruptions).toHaveBeenCalledTimes(2);
   });
 
-  it('recording off: a dash, not 0, and the faint line', async () => {
+  it('recording off, no events: header and body say recording is off, a dash not 0, never "No interruptions recorded"', async () => {
     answer(dto({ recordingEnabled: false }));
     renderPage();
-    await screen.findByText('Recording is turned off on this XamOps deployment.');
+    await waitFor(() => expect(document.querySelector('[data-spot-state="recording-off"]')).not.toBeNull());
+    expect(banner()).toHaveTextContent('Recording is turned off on this XamOps deployment');
+    const body = document.querySelector<HTMLElement>('[data-spot-state="recording-off"]')!;
+    expect(body).toHaveTextContent('Recording is turned off on this XamOps deployment');
+    expect(document.querySelector('[data-spot-state="none"]')).toBeNull();
+    expect(document.querySelector('[data-spot-interruptions-page]')!.textContent).not.toMatch(/No interruptions recorded/);
     expect(cell('Spot events')).toHaveTextContent(DASH);
     expect(cell('Spot events')).toHaveTextContent('Recording is off');
     expect(cell('Spot events')).not.toHaveTextContent(/(^|\s)0(\s|$)/);
+  });
+
+  it('recording off with events: the table and the faint line above it', async () => {
+    answer(dto({ recordingEnabled: false, events: [event()] }));
+    renderPage();
+    await screen.findByText('Recording is turned off on this XamOps deployment.');
+    expect(document.querySelector('[data-spot-state="events"]')).not.toBeNull();
+    expect(bodyRows()).toHaveLength(1);
   });
 
   it('handling now not reported: "Not reported" with the report age, never a guessed mode', async () => {

@@ -61,6 +61,12 @@ describe('kindParts and nowSentence (AC27: only a notice is called an interrupti
     expect(nowSentence([], FLEET, 90)).toBe('No interruptions recorded in the last 90 days');
     expect(nowSentence([], null, 30)).toBe('No interruptions recorded in the last 30 days');
   });
+
+  it('recording off: says so instead of "none", and still counts events that exist', () => {
+    expect(nowSentence([], FLEET, 30, false)).toBe('Recording is turned off on this XamOps deployment');
+    expect(nowSentence([], { ...FLEET, spotNodes: 0, spotSharePct: 0 }, 30, false)).toBe('Recording is turned off on this XamOps deployment');
+    expect(nowSentence([unconfirmed()], null, 7, false)).toBe('In the last 7 days: 1 Spot node removed · cause unconfirmed');
+  });
 });
 
 describe('pageState (AC11)', () => {
@@ -70,6 +76,12 @@ describe('pageState (AC11)', () => {
     expect(pageState({ kind: 'ok', data: dto({ coverage: { agentSnapshotAt: null, automationReportAt: null, handlingNow: null }, fleet: null }) })).toBe('not-monitored');
     expect(pageState({ kind: 'ok', data: dto({ fleet: { ...FLEET, spotNodes: 0, spotSharePct: 0 } }) })).toBe('no-spot');
     expect(pageState({ kind: 'ok', data: dto() })).toBe('none');
+    expect(pageState({ kind: 'ok', data: dto({ recordingEnabled: false }) })).toBe('recording-off');
+    expect(pageState({ kind: 'ok', data: dto({ recordingEnabled: false, fleet: { ...FLEET, spotNodes: 0, spotSharePct: 0 } }) })).toBe('recording-off');
+    expect(
+      pageState({ kind: 'ok', data: dto({ recordingEnabled: false, fleet: null, coverage: { agentSnapshotAt: null, automationReportAt: null, handlingNow: null } }) }),
+    ).toBe('not-monitored');
+    expect(pageState({ kind: 'ok', data: dto({ recordingEnabled: false, events: [unconfirmed()] }) })).toBe('events');
     expect(pageState({ kind: 'ok', data: dto({ events: [unconfirmed()] }) })).toBe('events');
     // Events always show, even with no coverage or no spot nodes now.
     expect(pageState({ kind: 'ok', data: dto({ events: [unconfirmed()], fleet: { ...FLEET, spotNodes: 0 } }) })).toBe('events');

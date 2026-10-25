@@ -46,20 +46,31 @@ export function kindParts(events: SpotInterruptionEvent[]): string[] {
   ].filter((p): p is string => typeof p === 'string');
 }
 
-/** The header sentence for a successful read. */
-export function nowSentence(events: SpotInterruptionEvent[], fleet: SpotInterruptionsDto['fleet'], days: number): string {
+export const RECORDING_OFF_SENTENCE = 'Recording is turned off on this XamOps deployment';
+
+/**
+ * The header sentence for a successful read. With recording off and no events nothing was looked
+ * for, so it says that instead of claiming an empty history.
+ */
+export function nowSentence(
+  events: SpotInterruptionEvent[],
+  fleet: SpotInterruptionsDto['fleet'],
+  days: number,
+  recordingEnabled = true,
+): string {
   const parts = kindParts(events);
   if (parts.length > 0) {
     const share = typeof fleet?.spotSharePct === 'number' ? ` · Spot is ${fleet.spotSharePct}% of nodes` : '';
     return `In the last ${days} days: ${parts.join(' · ')}${share}`;
   }
+  if (!recordingEnabled) return RECORDING_OFF_SENTENCE;
   if (fleet?.spotNodes === 0) return 'No spot nodes in this cluster';
   return `No interruptions recorded in the last ${days} days`;
 }
 
 // ─── Page state ──────────────────────────────────────────────────────────────
 
-export type SpotPageState = 'loading' | 'error' | 'not-monitored' | 'no-spot' | 'none' | 'events';
+export type SpotPageState = 'loading' | 'error' | 'not-monitored' | 'recording-off' | 'no-spot' | 'none' | 'events';
 
 export function pageState(read: ReadState<SpotInterruptionsDto>): SpotPageState {
   if (read.kind === 'loading') return 'loading';
@@ -67,6 +78,8 @@ export function pageState(read: ReadState<SpotInterruptionsDto>): SpotPageState 
   const d = read.data;
   if (d.events.length > 0) return 'events';
   if (d.coverage.agentSnapshotAt === null && d.coverage.automationReportAt === null) return 'not-monitored';
+  // Unknown, not empty: with the kill switch off nothing was recorded, so "none" would be a guess.
+  if (!d.recordingEnabled) return 'recording-off';
   if (d.fleet?.spotNodes === 0) return 'no-spot';
   return 'none';
 }
