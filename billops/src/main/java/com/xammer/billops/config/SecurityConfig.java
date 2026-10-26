@@ -74,12 +74,19 @@ public class SecurityConfig {
     public WebSecurityCustomizer webSecurityCustomizer() {
         // antMatchers() was removed in Security 6; requestMatchers() takes the same
         // patterns and accepts them all in one call.
+        //
+        // SECURITY: /api/billops/support/files/** was removed from this bypass list.
+        // While bypassed, Spring Security ran NO filter on it, so support attachments
+        // were downloadable with no authentication at all (unauthenticated info
+        // disclosure). It now falls through to the session chain below, whose
+        // anyRequest().authenticated() rule requires a logged-in session. The remaining
+        // entries are genuinely public: external webhooks and OAuth callbacks that
+        // arrive with no session and authenticate by signature/token inside the handler.
         return (web) -> web.ignoring()
                 .requestMatchers(
                         "/api/billops/webhook/**",
                         "/api/billops/slack/oauth/callback",
-                        "/api/billops/teams/app/manifest.zip",
-                        "/api/billops/support/files/**");
+                        "/api/billops/teams/app/manifest.zip");
     }
 
     /**
