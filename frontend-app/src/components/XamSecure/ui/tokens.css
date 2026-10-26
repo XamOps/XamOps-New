@@ -4,8 +4,9 @@
  * Every custom property is DEFINED on :root (so it is static and theme-free — there is no dark
  * counterpart, no `.dark` / `[data-theme="dark"]` block anywhere in this file). The leak-safety
  * guarantee is about USAGE, not definition: these variables are only ever CONSUMED under the
- * `.xs-overview` subtree (the Overview page root). No global element, `body`, `html`, or Tailwind
- * base layer is restyled, and no other XamSecure tab reads `var(--xs-*)`, so nothing leaks.
+ * `.xs-overview` AND `.xs-issues` subtrees (the Overview page root and the Issues page root). No
+ * global element, `body`, `html`, or Tailwind base layer is restyled, and no other XamSecure tab
+ * reads `var(--xs-*)`, so nothing leaks.
  *
  * The `--xs-` prefix namespaces these away from the existing `--k8s-*` tokens. See
  * ui/README.md for the component ↔ token map.
@@ -241,6 +242,58 @@
   .xs-overview .xs-heartbeat,
   .xs-overview .xs-scanner { animation: none !important; }
   .xs-overview .xs-skeleton {
+    animation: none !important;
+    background: var(--xs-bg-secondary) !important;
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Issues page scope — pulls from the SAME :root tokens as .xs-overview above.
+ * Purely additive: no existing rule or token is altered, no second palette.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.xs-issues {
+  color: var(--xs-text-primary);
+  font-family: var(--xs-font-family);
+}
+
+/* Focus ring (mirrors .xs-overview). */
+.xs-issues *:focus-visible {
+  outline: 2px solid var(--xs-blue-02);
+  outline-offset: 2px;
+}
+
+/* Invisible scrollbar for the fixed-height findings body (mirrors .xs-card-body). */
+.xs-issues .xs-invisible-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.xs-issues .xs-invisible-scroll::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+/* Height-animated collapse container (height driven inline from React). */
+.xs-issues .xs-collapse { overflow: hidden; transition: height .3s ease-in-out; }
+
+/* Loading skeleton — PORTED from .xs-overview .xs-skeleton (byte-identical gradient/
+   size/xs-shimmer/--xs-radius-chip) so the Issues shimmer matches Overview's. The
+   @keyframes xs-shimmer already lives at file scope above (not duplicated). */
+.xs-issues .xs-skeleton {
+  background: linear-gradient(90deg, var(--xs-border-subtle), var(--xs-interactive-hover), var(--xs-border-subtle));
+  background-size: 1200px 100%;
+  animation: xs-shimmer 1.5s linear infinite;
+  border-radius: var(--xs-radius-chip);
+}
+
+/* Reduced motion — extend the collapse/rotate/hover transitions to their final static state. */
+@media (prefers-reduced-motion: reduce) {
+  .xs-issues *,
+  .xs-issues *::before,
+  .xs-issues *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .xs-issues .xs-skeleton {
     animation: none !important;
     background: var(--xs-bg-secondary) !important;
   }
