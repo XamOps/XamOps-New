@@ -287,3 +287,162 @@ describe('IssuesTab — reduced motion', () => {
     collapses.forEach((c) => expect((c as HTMLElement).style.height).toBe('0px'));
   });
 });
+
+/** Issues with varied frameworks (incl. multi-membership and an unassigned one) for the
+ *  By-framework and search tests. */
+const FW_ISSUES: IssueSummary[] = [
+  mk({ check: 'f1', title: 'Public bucket', severity: 'CRITICAL', frameworks: ['CIS', 'SOC2'] }),
+  mk({ check: 'f2', title: 'Open security group', severity: 'HIGH', frameworks: ['CIS'] }),
+  mk({ check: 'f3', title: 'Weak password policy', severity: 'MEDIUM', frameworks: ['SOC2'] }),
+  mk({ check: 'f4', title: 'Unreviewed IAM role', severity: 'LOW', frameworks: [] }),
+];
+
+const searchBox = () => screen.getByRole('textbox', { name: /search issues by title/i });
+
+describe('IssuesTab — real title search', () => {
+  it('narrows rendered titles by case-insensitive substring and restores on clear', () => {
+    draw(<IssuesTab data={ISSUES} isLoading={false} loadDetail={noDetail} />);
+    fireEvent.change(searchBox(), { target: { value: 'critical' } });
+    // Only the two Critical-titled issues survive (title match, case-insensitive).
+    expect(screen.getByText('Critical one')).toBeInTheDocument();
+    expect(screen.getByText('Critical two')).toBeInTheDocument();
+    expect(screen.queryByText('High one')).not.toBeInTheDocument();
+    expect(screen.queryByText('Low one')).not.toBeInTheDocument();
+    // Clearing via the clear button restores everything.
+    fireEvent.click(screen.getByRole('button', { name: /clear search/i }));
+    expect(screen.getByText('High one')).toBeInTheDocument();
+    expect(screen.getByText('Low one')).toBeInTheDocument();
+  });
+
+  it('updates group counts and caption to reflect the filtered set', () => {
+    draw(<IssuesTab data={ISSUES} isLoading={false} loadDetail={noDetail} />);
+    // Baseline: all four severity buckets present → "Showing 4 rows | 5 Findings".
+    expect(screen.getByText('Showing 4 rows | 5 Findings')).toBeInTheDocument();
+    fireEvent.change(searchBox(), { target: { value: 'Critical' } });
+    // Now only the Critical bucket (2 findings) remains.
+    expect(screen.getByText('Showing 1 rows | 2 Findings')).toBeInTheDocument();
+    // The All-chip count tracks the filtered total.
+    expect(screen.getByRole('button', { name: /All2/ })).toBeInTheDocument();
+  });
+
+  it('shows the no-match copy and keeps the search clearable when nothing matches', () => {
+    draw(<IssuesTab data={ISSUES} isLoading={false} loadDetail={noDetail} />);
+    fireEvent.change(searchBox(), { target: { value: 'zzz-nope' } });
+    expect(screen.getByText(/No issues match "zzz-nope"\./)).toBeInTheDocument();
+  });
+});
+
+describe('IssuesTab — active-filter pills', () => {
+  it('shows "No active filters" when nothing is active', () => {
+    draw(<IssuesTab data={ISSUES} isLoading={false} loadDetail={noDetail} />);
+    expect(screen.getByText('No active filters')).toBeInTheDocument();
+  });
+
+  it('shows a Search pill whose × clears the search', () => {
+    draw(<IssuesTab data={ISSUES} isLoading={false} loadDetail={noDetail} />);
+    fireEvent.change(searchBox(), { target: { value: 'High' } });
+    expect(screen.getByText('Search: "High"')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /remove search filter/i }));
+    expect(screen.queryByText('Search: "High"')).not.toBeInTheDocument();
+    expect(screen.getByText('No active filters')).toBeInTheDocument();
+  });
+
+  it('shows a Severity pill whose × clears the severity, and Clear resets both', () => {
+    draw(<IssuesTab data={ISSUES} isLoading={false} loadDetail={noDetail} />);
+    fireEvent.click(chip('High', 1));
+    fireEvent.change(searchBox(), { target: { value: 'one' } });
+    expect(screen.getByText('Severity: High')).toBeInTheDocument();
+    expect(screen.getByText('Search: "one"')).toBeInTheDocument();
+    // Remove just the severity pill.
+    fireEvent.click(screen.getByRole('button', { name: /remove severity filter/i }));
+    expect(screen.queryByText('Severity: High')).not.toBeInTheDocument();
+    expect(screen.getByText('Search: "one"')).toBeInTheDocument();
+    // Clear resets everything.
+    fireEvent.click(screen.getByRole('button', { name: /^Clear$/ }));
+    expect(screen.getByText('No active filters')).toBeInTheDocument();
+  });
+});
+
+describe('IssuesTab — grouping tabs', () => {
+  it('defaults to By severity (aria-pressed) and switches to By framework on click', () => {
+    draw(<IssuesTab data={FW_ISSUES} isLoading={false} loadDetail={noDetail} />);
+    const bySeverity = screen.getByRole('button', { name: /By severity \(\d\)/ });
+    const byFramework = screen.getByRole('button', { name: /By framework \(\d\)/ });
+    expect(bySeverity).toHaveAttribute('aria-pressed', 'true');
+    expect(byFramework).toHaveAttribute('aria-pressed', 'false');
+    // Severity chips are present in severity mode.
+    expect(screen.getByRole('button', { name: /All4/ })).toBeInTheDocument();
+
+    fireEvent.click(byFramework);
+    expect(byFramework).toHaveAttribute('aria-pressed', 'true');
+    // The list-header label follows the active grouping.
+    expect(screen.getByText('By framework')).toBeInTheDocument();
+    // Severity chips are hidden in framework mode.
+    expect(screen.queryByRole('button', { name: /All4/ })).not.toBeInTheDocument();
+
+    // Switching back restores the severity view + chips.
+    fireEvent.click(bySeverity);
+    expect(screen.getByRole('button', { name: /All4/ })).toBeInTheDocument();
+  });
+
+  it('shows the real distinct-framework count: CIS, SOC2 and No framework → 3', () => {
+    draw(<IssuesTab data={FW_ISSUES} isLoading={false} loadDetail={noDetail} />);
+    expect(screen.getByRole('button', { name: /By framework \(3\)/ })).toBeInTheDocument();
+  });
+});
+
+describe('IssuesTab — By-framework grouping (real data)', () => {
+  it('places a multi-framework issue under EACH group and an empty-framework issue under "No framework"', () => {
+    draw(<IssuesTab data={FW_ISSUES} isLoading={false} loadDetail={noDetail} />);
+    fireEvent.click(screen.getByRole('button', { name: /By framework \(3\)/ }));
+    // f1 (CIS+SOC2) renders in both groups → appears twice; always-mounted so visible collapsed.
+    expect(screen.getAllByText('Public bucket')).toHaveLength(2);
+    // f4 ([]) is under the "No framework" group.
+    expect(screen.getByText('Unreviewed IAM role')).toBeInTheDocument();
+    // Group headers show the display names and the "No framework" bucket.
+    expect(screen.getByText('CIS Benchmark')).toBeInTheDocument();
+    expect(screen.getByText('SOC 2')).toBeInTheDocument();
+    expect(screen.getByText('No framework')).toBeInTheDocument();
+  });
+
+  it('caption states the multi-membership total honestly when findings exceed the issue count', () => {
+    draw(<IssuesTab data={FW_ISSUES} isLoading={false} loadDetail={noDetail} />);
+    fireEvent.click(screen.getByRole('button', { name: /By framework \(3\)/ }));
+    // 4 issues → CIS(2) + SOC2(2) + None(1) = 5 findings across 3 groups.
+    expect(screen.getByText(/Showing 3 rows \| 5 Findings \(issues can appear under multiple frameworks\)/))
+      .toBeInTheDocument();
+  });
+
+  it('keeps a framework finding reachable in the DOM while its group is collapsed', () => {
+    draw(<IssuesTab data={FW_ISSUES} isLoading={false} loadDetail={noDetail} />);
+    fireEvent.click(screen.getByRole('button', { name: /By framework \(3\)/ }));
+    // No group expanded, yet the title is mounted (same invariant as severity mode).
+    expect(screen.getByText('Weak password policy')).toBeInTheDocument();
+  });
+
+  it('clicking a framework-group finding opens the drawer', async () => {
+    const loadDetail = vi.fn(noDetail);
+    draw(<IssuesTab data={FW_ISSUES} isLoading={false} loadDetail={loadDetail} />);
+    fireEvent.click(screen.getByRole('button', { name: /By framework \(3\)/ }));
+    // Expand the "No framework" group, then click its row.
+    fireEvent.click(screen.getByRole('button', { name: /No framework/ }));
+    fireEvent.click(screen.getByText('Unreviewed IAM role').closest('button')!);
+    expect(loadDetail).toHaveBeenCalledWith('f4');
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+  });
+});
+
+describe('IssuesTab — chrome placeholders', () => {
+  it('shows the real "Security issues (N)" count and marks the placeholders non-functional', () => {
+    draw(<IssuesTab data={ISSUES} isLoading={false} loadDetail={noDetail} />);
+    expect(screen.getByText('Security issues (5)')).toBeInTheDocument();
+    // Feed / Score journey / Learn more / Whitelist / Share / Create are present but disabled.
+    for (const name of ['Feed', 'Score journey', 'Learn more', 'Whitelist', 'Share', 'Create']) {
+      const el = screen.getByRole('button', { name: new RegExp(name) });
+      expect(el).toHaveAttribute('aria-disabled', 'true');
+    }
+    // The active Issues view toggle is pressed; Feed is not.
+    expect(screen.getByRole('button', { name: 'Issues' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Feed' })).toHaveAttribute('aria-pressed', 'false');
+  });
+});

@@ -273,6 +273,13 @@
 /* Height-animated collapse container (height driven inline from React). */
 .xs-issues .xs-collapse { overflow: hidden; transition: height .3s ease-in-out; }
 
+/* Search pill: border brightens to blue-02 while the input (or clear button) holds focus. */
+.xs-issues .xs-search:focus-within { border-color: var(--xs-blue-02); }
+
+/* Ghost action buttons (Whitelist/Share/Create chrome): border brightens on hover even though
+   the control is a visual-only placeholder, so the affordance reads as interactive on hover. */
+.xs-issues .xs-ghost-btn:hover { border-color: var(--xs-blue-04); }
+
 /* Loading skeleton — PORTED from .xs-overview .xs-skeleton (byte-identical gradient/
    size/xs-shimmer/--xs-radius-chip) so the Issues shimmer matches Overview's. The
    @keyframes xs-shimmer already lives at file scope above (not duplicated). */
