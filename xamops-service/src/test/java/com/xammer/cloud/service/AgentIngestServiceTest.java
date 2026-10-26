@@ -134,12 +134,13 @@ class AgentIngestServiceTest {
                 "autoscaling-rebalance-status",
                 "k8s-resources",
                 "prometheus-metrics",
-                "node-optimizer-report"
+                "node-optimizer-report",
+                "autoscaling-consolidation-plan"
         );
 
         // Test indirectly: verify that getGlobalApiKey works (service is initialized)
         // and that expected collector names are known strings we don't accidentally change
-        assertThat(expected).hasSize(5);
+        assertThat(expected).hasSize(6);
         assertThat(expected).contains("k8s-resources");
         assertThat(expected).contains("prometheus-metrics");
     }
@@ -179,6 +180,44 @@ class AgentIngestServiceTest {
         ArgumentCaptor<AgentDataCache> saved = ArgumentCaptor.forClass(AgentDataCache.class);
         verify(cacheRepository).save(saved.capture());
         assertThat(saved.getAllValues()).extracting(AgentDataCache::getDataType).containsExactly("k8s-resources");
+        verify(cacheRepository, never()).findByClusterConfigIdAndDataType(100L, "autoscaling-policy");
+    }
+
+    @Test
+    void theConsolidationPlanIsStoredAsOneObject_andThePolicyIsStillRefused() {
+        AgentDataCacheRepository cacheRepository = mock(AgentDataCacheRepository.class);
+        when(cacheRepository.findByClusterConfigIdAndDataType(anyLong(), anyString())).thenReturn(Optional.empty());
+        AgentIngestService ingest = new AgentIngestService(
+                mock(KubernetesClusterConfigRepository.class),
+                cacheRepository,
+                mock(AgentEventRepository.class),
+                mock(CloudAccountRepository.class));
+        KubernetesClusterConfig config = new KubernetesClusterConfig();
+        config.setId(100L);
+        config.setClusterName("prod-eks");
+
+        AgentIngestPayload.DataBatch policy = new AgentIngestPayload.DataBatch();
+        policy.setCollector("autoscaling-policy");
+        policy.setItems(List.of(Map.of("autoscalerMode", "full")));
+        AgentIngestPayload.DataBatch plan = new AgentIngestPayload.DataBatch();
+        plan.setCollector("autoscaling-consolidation-plan");
+        plan.setItems(List.of(Map.of("schemaVersion", 1, "mode", "analysis", "moves", List.of())));
+        AgentIngestPayload payload = new AgentIngestPayload();
+        payload.setAgentVersion("v2.1.0");
+        payload.setBatches(List.of(policy, plan));
+
+        AgentIngestResponse response = ingest.processIngest(config, payload, "10.0.0.1");
+
+        assertThat(response.getResults().get("autoscaling-policy").isSuccess()).isFalse();
+        assertThat(response.getResults().get("autoscaling-policy").getError())
+                .isEqualTo("autoscaling-policy is written by XamOps, not by agents");
+        assertThat(response.getResults().get("autoscaling-consolidation-plan").isSuccess()).isTrue();
+        ArgumentCaptor<AgentDataCache> saved = ArgumentCaptor.forClass(AgentDataCache.class);
+        verify(cacheRepository).save(saved.capture());
+        AgentDataCache row = saved.getValue();
+        assertThat(row.getDataType()).isEqualTo("autoscaling-consolidation-plan");
+        assertThat(row.getDataJson()).startsWith("{");
+        assertThat(row.getItemCount()).isEqualTo(1);
         verify(cacheRepository, never()).findByClusterConfigIdAndDataType(100L, "autoscaling-policy");
     }
 

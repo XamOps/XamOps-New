@@ -424,6 +424,11 @@ function assertTableScrolls(name: string, scope: HTMLElement) {
 
 async function mountOverview(theme: 'light' | 'dark') {
   getCapabilities.mockResolvedValue(demoCapabilities('demo-aws-001'));
+  // FEAT-003: the Overview's spot-interruption row now reads the node fleet via useNodeAutomationRead,
+  // so the three autoscaling reads must resolve to clearly-marked demo fixtures (not undefined).
+  getAutomationDashboard.mockResolvedValue(demoAutomationDashboard('prod-eks-cluster'));
+  getNodeFleet.mockResolvedValue(demoNodeFleet('prod-eks-cluster'));
+  getRebalanceStatus.mockResolvedValue({ status: 'idle', message: 'No rebalance has been run yet' });
   serveGateReads();
   render(
     <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>

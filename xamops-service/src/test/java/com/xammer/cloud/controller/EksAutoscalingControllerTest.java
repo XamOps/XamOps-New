@@ -6,13 +6,18 @@ import com.xammer.cloud.config.K8sAutomationReadinessProperties;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.EvictorPolicyDto;
+import com.xammer.cloud.dto.autoscaling.ConsolidationPlanResponse;
 import com.xammer.cloud.dto.k8s.K8sRefusalBody;
+import com.xammer.cloud.dto.spot.SpotInterruptionsDto;
 import com.xammer.cloud.exception.K8sAutomationReason;
 import com.xammer.cloud.exception.K8sAutomationRefusedException;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.K8sAutomationRequestContext;
+import com.xammer.cloud.service.ConsolidationPlanService;
+import com.xammer.cloud.service.ConsolidationRunService;
 import com.xammer.cloud.service.EksAutoscalingService;
 import com.xammer.cloud.service.K8sAutomationPolicyNormalizer;
+import com.xammer.cloud.service.spot.SpotInterruptionReadService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.MethodParameter;
@@ -49,6 +54,9 @@ class EksAutoscalingControllerTest {
     private static final String BASE = "/api/eks/autoscaling/prod-eks";
 
     private EksAutoscalingService service;
+    private ConsolidationPlanService consolidationPlanService;
+    private ConsolidationRunService consolidationRunService;
+    private SpotInterruptionReadService spotReadService;
     private EksAutoscalingController controller;
     private MockMvc mvc;
     private K8sAutomationRequestContext ctx;
@@ -57,8 +65,12 @@ class EksAutoscalingControllerTest {
     @BeforeEach
     void setUp() {
         service = mock(EksAutoscalingService.class);
+        consolidationPlanService = mock(ConsolidationPlanService.class);
+        consolidationRunService = mock(ConsolidationRunService.class);
+        spotReadService = mock(SpotInterruptionReadService.class);
         controller = new EksAutoscalingController(service,
-                new K8sAutomationPolicyNormalizer(new K8sAutomationReadinessProperties()));
+                new K8sAutomationPolicyNormalizer(new K8sAutomationReadinessProperties()),
+                consolidationPlanService, consolidationRunService, spotReadService);
         mvc = MockMvcBuilders.standaloneSetup(controller).build();
 
         CloudAccount account = new CloudAccount();
@@ -174,7 +186,8 @@ class EksAutoscalingControllerTest {
         assertThat(body(retired).get("message").asText()).isEqualTo("The automation agent's rightsizer is retired. "
                 + "Workload rightsizing is configured in Workload autoscaling.");
         assertThat(body(call(HttpMethod.POST, "/rebalance", null)).get("message").asText())
-                .isEqualTo("Rebalancing is blocked: the current rebalancer can drain the same nodes repeatedly.");
+                .isEqualTo("Rebalancing stays gated pending the benefit guard and a soak window; "
+                        + "the ledger already prevents repeated drains of the same nodes.");
         verifyNoInteractions(service);
     }
 
@@ -189,6 +202,79 @@ class EksAutoscalingControllerTest {
         verify(service).setAutoscalingEnabled(config, true, "jane.doe");
         assertThat(call(HttpMethod.PUT, "/mode", "{\"mode\":\"scoped\"}").getStatus()).isEqualTo(200);
         verify(service).setMode(config, "scoped", "jane.doe");
+    }
+
+    // ── Consolidation plan (look-only) ────────────────────────────────────
+
+    @Test
+    void theConsolidationPlanReadReturnsTheServiceBody() throws Exception {
+        when(consolidationPlanService.getPlan(config, ctx.primaryAccount()))
+                .thenReturn(new ConsolidationPlanResponse(ConsolidationPlanResponse.STALE,
+                        "2026-10-24T00:00:00Z", 660L, null, null));
+        MockHttpServletResponse r = call(HttpMethod.GET, "/consolidation-plan", null);
+        assertThat(r.getStatus()).isEqualTo(200);
+        JsonNode b = body(r);
+        assertThat(b.get("freshness").asText()).isEqualTo("STALE");
+        assertThat(b.get("ageSeconds").asLong()).isEqualTo(660L);
+        assertThat(b.get("savings").isNull()).isTrue();
+        verify(consolidationPlanService).getPlan(config, ctx.primaryAccount());
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void theConsolidationPlanCannotBeWritten() throws Exception {
+        assertThat(call(HttpMethod.PUT, "/consolidation-plan", "{}").getStatus()).isEqualTo(405);
+        assertThat(call(HttpMethod.POST, "/consolidation-plan", "{}").getStatus()).isEqualTo(405);
+        assertThat(call(HttpMethod.DELETE, "/consolidation-plan", null).getStatus()).isEqualTo(405);
+        verifyNoInteractions(consolidationPlanService);
+        verifyNoInteractions(service);
+    }
+
+    // ── Spot interruptions (read-only) ────────────────────────────────────
+
+    @Test
+    void spotInterruptionsDefaultTo30DaysAnd200Rows() throws Exception {
+        when(spotReadService.read(config, 30, 200))
+                .thenReturn(new SpotInterruptionsDto(30, false, 365, true, null, null, List.of()));
+        MockHttpServletResponse r = call(HttpMethod.GET, "/spot-interruptions", null);
+        assertThat(r.getStatus()).isEqualTo(200);
+        JsonNode b = body(r);
+        assertThat(b.get("windowDays").asInt()).isEqualTo(30);
+        assertThat(b.get("fleet").isNull()).isTrue();
+        assertThat(b.get("events").isArray()).isTrue();
+        verify(spotReadService).read(config, 30, 200);
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void spotInterruptionsPassValidBounds() throws Exception {
+        assertThat(call(HttpMethod.GET, "/spot-interruptions?days=1&limit=500", null).getStatus()).isEqualTo(200);
+        assertThat(call(HttpMethod.GET, "/spot-interruptions?days=365&limit=1", null).getStatus()).isEqualTo(200);
+        verify(spotReadService).read(config, 1, 500);
+        verify(spotReadService).read(config, 365, 1);
+    }
+
+    @Test
+    void invalidSpotInterruptionParamsAre400InvalidRequestWithTheField_AC9() throws Exception {
+        for (String days : List.of("0", "366", "abc", "-1", "1.5", "")) {
+            MockHttpServletResponse r = call(HttpMethod.GET, "/spot-interruptions?days=" + days, null);
+            assertRefusal(r, 400, "K8S_INVALID_REQUEST", "days");
+            assertThat(body(r).get("message").asText()).isEqualTo("days must be a whole number from 1 to 365.");
+        }
+        for (String limit : List.of("0", "501", "abc")) {
+            MockHttpServletResponse r = call(HttpMethod.GET, "/spot-interruptions?limit=" + limit, null);
+            assertRefusal(r, 400, "K8S_INVALID_REQUEST", "limit");
+            assertThat(body(r).get("message").asText()).isEqualTo("limit must be a whole number from 1 to 500.");
+        }
+        verifyNoInteractions(spotReadService, service);
+    }
+
+    @Test
+    void spotInterruptionsCannotBeWritten() throws Exception {
+        assertThat(call(HttpMethod.PUT, "/spot-interruptions", "{}").getStatus()).isEqualTo(405);
+        assertThat(call(HttpMethod.POST, "/spot-interruptions", "{}").getStatus()).isEqualTo(405);
+        assertThat(call(HttpMethod.DELETE, "/spot-interruptions", null).getStatus()).isEqualTo(405);
+        verifyNoInteractions(spotReadService);
     }
 
     // ── Unexpected failures ───────────────────────────────────────────────

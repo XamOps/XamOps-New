@@ -124,7 +124,7 @@ func (e *Evictor) Run(
 	if err != nil {
 		return nil, nil, fmt.Errorf("list nodes: %w", err)
 	}
-	snap, err := fitsim.BuildSnapshot(ctx, e.k8s)
+	snap, err := fitsim.BuildSnapshot(ctx, e.k8s, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("fit snapshot: %w", err)
 	}

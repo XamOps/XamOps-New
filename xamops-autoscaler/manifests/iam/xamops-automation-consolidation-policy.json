@@ -1,0 +1,35 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DescribeAsgAndInstances",
+      "Effect": "Allow",
+      "Action": [
+        "autoscaling:DescribeAutoScalingGroups",
+        "autoscaling:DescribeAutoScalingInstances",
+        "ec2:DescribeInstances"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DescribeClusterNodegroup",
+      "Effect": "Allow",
+      "Action": "eks:DescribeNodegroup",
+      "Resource": "arn:aws:eks:ap-south-1:102227938259:nodegroup/xamops-test-1/*/*"
+    },
+    {
+      "Sid": "TerminateOnlyManagedNodegroupInstances",
+      "Effect": "Allow",
+      "Action": "autoscaling:TerminateInstanceInAutoScalingGroup",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/eks:cluster-name": "xamops-test-1"
+        },
+        "Null": {
+          "aws:ResourceTag/eks:nodegroup-name": "false"
+        }
+      }
+    }
+  ]
+}

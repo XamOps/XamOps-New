@@ -6,7 +6,7 @@ import java.util.Arrays;
 import java.util.Optional;
 
 /**
- * The eight controller-readiness keys of design §6.7, in property order, each with the reason
+ * The ten controller-readiness keys of design §6.7, in property order, each with the reason
  * the UI and server use while it is not ready and the exact user-facing message.
  *
  * <p>
@@ -23,15 +23,22 @@ public enum K8sReadinessKey {
     VPA_APPLY("vpa-apply", K8sAutomationReason.CONTROLLER_NOT_READY,
             "XamOps doesn't create or update VPA objects yet."),
     EVICTOR_LIVE("evictor-live", K8sAutomationReason.ANALYSE_ONLY,
-            "Live consolidation is disabled until pod-fit simulation is available."),
+            "Live consolidation stays gated pending analysis-reliability work and a soak window; "
+                    + "pod-fit simulation is built."),
     REBALANCER("rebalancer", K8sAutomationReason.CONTROLLER_NOT_READY,
-            "Rebalancing is blocked: the current rebalancer can drain the same nodes repeatedly."),
+            "Rebalancing stays gated pending the benefit guard and a soak window; "
+                    + "the ledger already prevents repeated drains of the same nodes."),
     NODE_OPTIMIZER_ACTIONS("node-optimizer-actions", K8sAutomationReason.CONTROLLER_NOT_READY,
             "Node cordon, drain and spot conversion are disabled until the node optimizer passes safety validation."),
     SCALE_OUT("scale-out", K8sAutomationReason.CONTROLLER_NOT_READY,
             "Not available: the automation agent doesn't provision nodes. Your cluster autoscaler or Karpenter does."),
     NODE_TEMPLATES("node-templates", K8sAutomationReason.CONTROLLER_NOT_READY,
-            "Not available: the automation agent doesn't use node templates yet.");
+            "Not available: the automation agent doesn't use node templates yet."),
+    SPOT_INTERRUPTION_ACTIONS("spot-interruption-actions", K8sAutomationReason.CONTROLLER_NOT_READY,
+            "Automatic spot interruption handling is disabled until the node optimizer passes spot interruption validation."),
+    CONSOLIDATION_ACTIONS("consolidation-actions", K8sAutomationReason.CONTROLLER_NOT_READY,
+            "Live node consolidation is disabled until the consolidation controller passes safety validation "
+                    + "and a soak window; the look-only plans stay visible.");
 
     private final String key;
     private final K8sAutomationReason reason;

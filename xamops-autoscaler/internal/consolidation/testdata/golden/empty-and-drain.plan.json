@@ -1,0 +1,100 @@
+{
+ "schemaVersion": 1,
+ "generatedAt": "2026-10-24T00:00:00Z",
+ "mode": "analysis",
+ "actor": {
+  "kind": "NONE",
+  "evidence": [],
+  "note": "Neither Karpenter nor the Cluster Autoscaler was found. Engine v1 will remove nodes with an ASG terminate that decrements desired capacity, never below the node group minimum. Display only."
+ },
+ "settings": {
+  "underutilizedThresholdPct": 50,
+  "headroomPct": 15,
+  "maxNodesPerPlan": 100
+ },
+ "summary": {
+  "nodesEvaluated": 4,
+  "empty": 1,
+  "drain": 1,
+  "blocked": 0,
+  "kept": 2
+ },
+ "moves": [
+  {
+   "type": "EMPTY",
+   "node": {
+    "name": "node-1",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 10,
+    "memRequestedPct": 3.1
+   },
+   "pods": []
+  },
+  {
+   "type": "DRAIN",
+   "node": {
+    "name": "node-2",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 35,
+    "memRequestedPct": 15.6
+   },
+   "pods": [
+    {
+     "pod": "team-a/web-1",
+     "owner": "ReplicaSet/web-rs",
+     "to": "node-3",
+     "cpuMillis": 250,
+     "memBytes": 536870912
+    },
+    {
+     "pod": "team-a/web-2",
+     "owner": "ReplicaSet/web-rs",
+     "to": "node-4",
+     "cpuMillis": 250,
+     "memBytes": 536870912
+    }
+   ]
+  }
+ ],
+ "blocked": [],
+ "kept": [
+  {
+   "node": {
+    "name": "node-3",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 67.5,
+    "memRequestedPct": 34.4
+   },
+   "reason": "requests above 50% of allocatable (CPU 67.5%, memory 34.4%)"
+  },
+  {
+   "node": {
+    "name": "node-4",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 67.5,
+    "memRequestedPct": 34.4
+   },
+   "reason": "requests above 50% of allocatable (CPU 67.5%, memory 34.4%)"
+  }
+ ]
+}

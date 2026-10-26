@@ -1,0 +1,86 @@
+{
+ "schemaVersion": 1,
+ "generatedAt": "2026-10-24T00:00:00Z",
+ "mode": "analysis",
+ "actor": {
+  "kind": "NONE",
+  "evidence": [],
+  "note": "Neither Karpenter nor the Cluster Autoscaler was found. Engine v1 will remove nodes with an ASG terminate that decrements desired capacity, never below the node group minimum. Display only."
+ },
+ "settings": {
+  "underutilizedThresholdPct": 50,
+  "headroomPct": 15,
+  "maxNodesPerPlan": 100
+ },
+ "summary": {
+  "nodesEvaluated": 3,
+  "empty": 0,
+  "drain": 0,
+  "blocked": 3,
+  "kept": 0
+ },
+ "moves": [],
+ "blocked": [
+  {
+   "node": {
+    "name": "mongo-1",
+    "nodeGroup": "ng-db",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 10,
+    "memRequestedPct": 3.1
+   },
+   "blockers": [
+    {
+     "pod": "team-db/mongo-0",
+     "code": "db-role-unknown",
+     "reason": "database role unknown — refused"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "mongo-2",
+    "nodeGroup": "ng-db",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1b",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 10,
+    "memRequestedPct": 3.1
+   },
+   "blockers": [
+    {
+     "pod": "team-db/mongo-1",
+     "code": "db-role-unknown",
+     "reason": "database role unknown — refused"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "mongo-3",
+    "nodeGroup": "ng-db",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1c",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 10,
+    "memRequestedPct": 3.1
+   },
+   "blockers": [
+    {
+     "pod": "team-db/mongo-2",
+     "code": "db-role-unknown",
+     "reason": "database role unknown — refused"
+    }
+   ]
+  }
+ ],
+ "kept": []
+}

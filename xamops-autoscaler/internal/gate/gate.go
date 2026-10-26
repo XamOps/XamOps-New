@@ -141,6 +141,14 @@ func NodeAction(cfg *config.Config, b policy.PolicyBundle, actionFlag bool, acti
 	return actOrSimulate(cfg)
 }
 
+// Interruption gates spot-interruption drains on nodeOptimizerPolicy.handleSpotInterruptions.
+// The backend serves handleSpotInterruptions=false unless readiness
+// spot-interruption-actions is true, and a served policy that omits the field (or the
+// whole section) decodes to the DefaultBundle value false, so the gate fails closed.
+func Interruption(cfg *config.Config, b policy.PolicyBundle) Decision {
+	return NodeAction(cfg, b, b.NodeOptimizerPolicy.HandleSpotInterruptions, "handleSpotInterruptions")
+}
+
 // RightsizerAnalysis: ENABLE_RIGHTSIZER ∧ workloadRightsizerPolicy.enabled ∧ mode∈{full,scoped}.
 func RightsizerAnalysis(cfg *config.Config, b policy.PolicyBundle) Decision {
 	switch {
@@ -184,4 +192,37 @@ func HPAManager(cfg *config.Config, b policy.PolicyBundle) Decision {
 		return off("autoscalerMode=%q (HPA manager needs full or scoped)", b.AutoscalerMode)
 	}
 	return Decision{Mode: Analyse, Reason: "analysis only (the HPA manager never mutates)"}
+}
+
+// ConsolidationActions: ENABLE_CONSOLIDATION ∧ consolidationPolicy.enabled ∧
+// mode=full; DRY_RUN → Simulate. This is the acting gate for the consolidation
+// controller (EMPTY/DRAIN + the controller-owned ASG terminate), mirroring
+// gate.Evictor. It fails closed on anything other than full mode. The look-only
+// ConsolidationAnalysis gate below is unchanged and keeps computing the plan.
+func ConsolidationActions(cfg *config.Config, b policy.PolicyBundle) Decision {
+	switch {
+	case modeDisabled(b):
+		return off("autoscalerMode=disabled")
+	case !cfg.EnableConsolidation:
+		return off("ENABLE_CONSOLIDATION=false")
+	case b.AutoscalerMode != "full":
+		return off("autoscalerMode=%q (consolidation actions need full)", b.AutoscalerMode)
+	case !b.ConsolidationEnabled():
+		return off("consolidationPolicy.enabled=false")
+	}
+	return actOrSimulate(cfg)
+}
+
+// ConsolidationAnalysis: mode∈{full,scoped}. Consolidation Phase 1 is look-only: it
+// is never Simulate or Live, and no env flag opens it (every ENABLE_* stays false
+// in the manifest, so gating on one would mean no plan is ever computed). The
+// package it gates only lists objects.
+func ConsolidationAnalysis(cfg *config.Config, b policy.PolicyBundle) Decision {
+	switch {
+	case modeDisabled(b):
+		return off("autoscalerMode=disabled")
+	case !fullOrScoped(b):
+		return off("autoscalerMode=%q (consolidation analysis needs full or scoped)", b.AutoscalerMode)
+	}
+	return Decision{Mode: Analyse, Reason: "look-only: consolidation never acts"}
 }

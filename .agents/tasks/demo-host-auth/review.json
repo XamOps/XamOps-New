@@ -1,0 +1,18 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "label": "OAuth state TTL unit ambiguity",
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "detail": "redisCacheService.putString(key, uri, 10) uses putString(String,String,int ttlMinutes) so OAuth state lives 10 minutes, but surrounding comments say '10' without a unit. Cosmetic; consider noting 'minutes'."
+    },
+    {
+      "label": "Demo OAuth requires external console registration",
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "detail": "Google/Microsoft demo callback URLs must be registered in the provider consoles or demo OAuth fails with redirect_uri_mismatch. Correctly out-of-code and documented in GoogleOAuthService/MicrosoftOAuthService comments and plan.md; no code action."
+    }
+  ],
+  "reviewDoc": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/demo-host-auth/review.md"
+}

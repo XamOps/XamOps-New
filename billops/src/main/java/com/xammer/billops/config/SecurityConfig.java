@@ -74,12 +74,19 @@ public class SecurityConfig {
     public WebSecurityCustomizer webSecurityCustomizer() {
         // antMatchers() was removed in Security 6; requestMatchers() takes the same
         // patterns and accepts them all in one call.
+        //
+        // SECURITY: /api/billops/support/files/** was removed from this bypass list.
+        // While bypassed, Spring Security ran NO filter on it, so support attachments
+        // were downloadable with no authentication at all (unauthenticated info
+        // disclosure). It now falls through to the session chain below, whose
+        // anyRequest().authenticated() rule requires a logged-in session. The remaining
+        // entries are genuinely public: external webhooks and OAuth callbacks that
+        // arrive with no session and authenticate by signature/token inside the handler.
         return (web) -> web.ignoring()
                 .requestMatchers(
                         "/api/billops/webhook/**",
                         "/api/billops/slack/oauth/callback",
-                        "/api/billops/teams/app/manifest.zip",
-                        "/api/billops/support/files/**");
+                        "/api/billops/teams/app/manifest.zip");
     }
 
     /**
@@ -109,6 +116,29 @@ public class SecurityConfig {
     @Order(2)
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+                // Security headers — kept identical to xamops-service so CSP is consistent
+                // across every service behind the edge gateway. billops previously set no
+                // CSP or frame protection at all, so any page/response it served carried
+                // none. SAMEORIGIN allows the app's own iframes (embedded Grafana) while
+                // blocking third-party framing; the CSP mirrors xamops-service's enforcing
+                // policy. 'unsafe-inline'/'unsafe-eval' remain in script-src because the
+                // legacy static pages under /js and the CDN <script> tags rely on them;
+                // removing those is a frontend change. object-src 'none', base-uri 'self'
+                // and frame-ancestors 'self' hold regardless of the script policy.
+                .headers(headers -> headers
+                        .frameOptions(frameOptions -> frameOptions.sameOrigin())
+                        .contentSecurityPolicy(csp -> csp.policyDirectives(
+                                "default-src 'self'; "
+                                + "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; "
+                                + "style-src 'self' 'unsafe-inline' https:; "
+                                + "img-src 'self' data: blob: https:; "
+                                + "font-src 'self' data: https:; "
+                                + "connect-src 'self' https: wss:; "
+                                + "object-src 'none'; "
+                                + "base-uri 'self'; "
+                                + "frame-ancestors 'self'"))
+                        .referrerPolicy(referrer -> referrer.policy(
+                                org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN)))
                 .cors(withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests((requests) -> requests

@@ -46,6 +46,14 @@ public interface AgentEventRepository extends JpaRepository<AgentEvent, Long> {
             Long clusterConfigId, String suffix, LocalDateTime since);
 
     /**
+     * One cluster's events of one type created after {@code since} (server zone, like created_at).
+     * Spot-interruption tracking reads its {@code xamops-node-drained} rows with it, for the 2 h
+     * dedup and the removal-inference exclusion (uses idx_agent_event_cluster / idx_agent_event_type).
+     */
+    List<AgentEvent> findByClusterConfigIdAndEventTypeAndCreatedAtAfter(
+            Long clusterConfigId, String eventType, LocalDateTime since);
+
+    /**
      * Find events by type
      */
     List<AgentEvent> findByEventType(String eventType);

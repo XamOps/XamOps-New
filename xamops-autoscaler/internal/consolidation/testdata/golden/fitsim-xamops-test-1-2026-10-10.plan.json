@@ -1,0 +1,82 @@
+{
+ "schemaVersion": 1,
+ "generatedAt": "2026-10-24T00:00:00Z",
+ "mode": "analysis",
+ "actor": {
+  "kind": "NONE",
+  "evidence": [],
+  "note": "Neither Karpenter nor the Cluster Autoscaler was found. Engine v1 will remove nodes with an ASG terminate that decrements desired capacity, never below the node group minimum. Display only."
+ },
+ "settings": {
+  "underutilizedThresholdPct": 50,
+  "headroomPct": 15,
+  "maxNodesPerPlan": 100
+ },
+ "summary": {
+  "nodesEvaluated": 4,
+  "empty": 0,
+  "drain": 0,
+  "blocked": 0,
+  "kept": 4
+ },
+ "moves": [],
+ "blocked": [],
+ "kept": [
+  {
+   "node": {
+    "name": "ip-172-31-18-172.ap-south-1.compute.internal",
+    "nodeGroup": "ng-ondemand-1",
+    "instanceType": "t3.medium",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1c",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 64.5,
+    "memRequestedPct": 28
+   },
+   "reason": "requests above 50% of allocatable (CPU 64.5%, memory 28.0%)"
+  },
+  {
+   "node": {
+    "name": "ip-172-31-26-143.ap-south-1.compute.internal",
+    "nodeGroup": "ng-ondemand-1",
+    "instanceType": "t3.medium",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1c",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 97.2,
+    "memRequestedPct": 64.4
+   },
+   "reason": "requests above 50% of allocatable (CPU 97.2%, memory 64.4%)"
+  },
+  {
+   "node": {
+    "name": "ip-172-31-43-198.ap-south-1.compute.internal",
+    "nodeGroup": "ng-ondemand-1",
+    "instanceType": "t3.medium",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 67.4,
+    "memRequestedPct": 23.7
+   },
+   "reason": "requests above 50% of allocatable (CPU 67.4%, memory 23.7%)"
+  },
+  {
+   "node": {
+    "name": "ip-172-31-9-125.ap-south-1.compute.internal",
+    "nodeGroup": "ng-ondemand-1",
+    "instanceType": "t3.medium",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1b",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 98.4,
+    "memRequestedPct": 53
+   },
+   "reason": "requests above 50% of allocatable (CPU 98.4%, memory 53.0%)"
+  }
+ ]
+}

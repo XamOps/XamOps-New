@@ -1,0 +1,73 @@
+{
+ "schemaVersion": 1,
+ "generatedAt": "2026-10-24T00:00:00Z",
+ "mode": "analysis",
+ "actor": {
+  "kind": "KARPENTER",
+  "evidence": [
+   "Deployment karpenter/karpenter",
+   "node label karpenter.sh/nodepool on 3 node(s)"
+  ],
+  "note": "Karpenter was found on this cluster. Display only."
+ },
+ "settings": {
+  "underutilizedThresholdPct": 50,
+  "headroomPct": 15,
+  "maxNodesPerPlan": 100
+ },
+ "summary": {
+  "nodesEvaluated": 3,
+  "empty": 1,
+  "drain": 0,
+  "blocked": 0,
+  "kept": 2
+ },
+ "moves": [
+  {
+   "type": "EMPTY",
+   "node": {
+    "name": "k-1",
+    "nodeGroup": "default",
+    "instanceType": "c6i.large",
+    "capacityType": "spot",
+    "zone": "ap-south-1b",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 10,
+    "memRequestedPct": 6.3
+   },
+   "pods": []
+  }
+ ],
+ "blocked": [],
+ "kept": [
+  {
+   "node": {
+    "name": "k-2",
+    "nodeGroup": "default",
+    "instanceType": "c6i.large",
+    "capacityType": "spot",
+    "zone": "ap-south-1b",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 60,
+    "memRequestedPct": 31.3
+   },
+   "reason": "requests above 50% of allocatable (CPU 60.0%, memory 31.3%)"
+  },
+  {
+   "node": {
+    "name": "k-3",
+    "nodeGroup": "default",
+    "instanceType": "c6i.large",
+    "capacityType": "spot",
+    "zone": "ap-south-1b",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 60,
+    "memRequestedPct": 31.3
+   },
+   "reason": "requests above 50% of allocatable (CPU 60.0%, memory 31.3%)"
+  }
+ ]
+}

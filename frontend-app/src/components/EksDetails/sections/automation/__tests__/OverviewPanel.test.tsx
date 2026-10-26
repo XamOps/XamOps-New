@@ -8,7 +8,13 @@ vi.mock('../../../../../api/k8sAutomationApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../../api/k8sAutomationApi')>();
   return { ...actual, getCapabilities };
 });
-vi.mock('../../../../../utils/apiClient', () => ({ default: { fetch: vi.fn() } }));
+vi.mock('../../../../../utils/apiClient', () => {
+  const fetch = vi.fn();
+  // k8sAutomationApi (the Node autoscaler reads FEAT-003 uses) calls the NAMED `apiFetch`, while the
+  // vertical/activity/usage reads call the default `fetch` — route both to the same mock so every
+  // read in the Overview is served by one `mockedFetch` implementation.
+  return { default: { fetch }, apiFetch: (url: string, init?: RequestInit) => fetch(url, init) };
+});
 
 import apiClient from '../../../../../utils/apiClient';
 import { K8sCapabilitiesProvider } from '../../../../../hooks/useK8sCapabilities';
@@ -23,7 +29,6 @@ import { NOT_TURNED_ON_TEXT, OverviewPanel, TODAY_ROWS, WORKLOAD_AUTOSCALER_LINK
 const mockedFetch = apiClient.fetch as unknown as ReturnType<typeof vi.fn>;
 
 const READ_ONLY_TEXT = 'Read-only connection. Automation changes need read-write access.';
-const DEMO_TEXT = "Demo workspace. Changes aren't saved.";
 
 const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
 const res = (cpuRequestM: number | null, memRequestMi: number | null) => ({ cpuRequestM, memRequestMi, cpuLimitM: null, memLimitMi: null });
@@ -98,10 +103,19 @@ const NOT_DEPLOYED = { status: 404, body: null };
  * Serves endpoint 1 and the Phase-2 reads (FEAT-004/005/007): by default a backend without them (an
  * untyped 404, Phase 1's view); a write, or any other request, is a test failure.
  */
+/** A node fleet with no interrupted nodes: the default the Node autoscaler reads expect. */
+const NODE_FLEET_EMPTY = {
+  status: 200,
+  body: {
+    totalNodes: 3, onDemandNodes: 2, spotNodes: 1, idleNodes: [], interruptedNodes: [], collectedAt: iso(4 * 60_000),
+    interruptedNodesReported: true, interruptionNoticesReported: true, interruptionNotices: [],
+  },
+};
+
 function serve(
   status = 200,
   body: unknown = ENDPOINT_1,
-  { feed = NOT_DEPLOYED, summary = NOT_DEPLOYED, usage = NOT_DEPLOYED }: { feed?: Answer; summary?: Answer; usage?: Answer } = {},
+  { feed = NOT_DEPLOYED, summary = NOT_DEPLOYED, usage = NOT_DEPLOYED, fleet = NODE_FLEET_EMPTY }: { feed?: Answer; summary?: Answer; usage?: Answer; fleet?: Answer } = {},
 ) {
   mockedFetch.mockImplementation(async (url: string, init?: RequestInit) => {
     if ((init?.method ?? 'GET') !== 'GET') throw new Error(`unexpected write ${url}`);
@@ -120,6 +134,14 @@ function serve(
       const a = pick(usage);
       return json(a.status, a.body);
     }
+    // The Node autoscaler reads (FEAT-003 surfaces the node-fleet's interruptedNodes). The fleet
+    // answer is configurable; the dashboard and rebalance reads just answer so nothing throws.
+    if (/\/api\/eks\/autoscaling\/[^/]+\/node-fleet$/.test(u.pathname)) {
+      const a = pick(fleet);
+      return json(a.status, a.body);
+    }
+    if (/\/api\/eks\/autoscaling\/[^/]+\/rebalance-status$/.test(u.pathname)) return json(200, { status: 'idle' });
+    if (/\/api\/eks\/autoscaling\/[^/]+$/.test(u.pathname)) return json(404, null);
     throw new Error(`unexpected request ${url}`);
   });
 }
@@ -137,12 +159,12 @@ function fixture(accountId: 'demo-aws-001' | 'demo-aws-002', edit?: (dto: Capabi
 async function renderPanel(
   dto: CapabilitiesDto,
   cluster = 'prod-eks-cluster',
-  { hrefs, eksData }: { hrefs?: OverviewHrefs; eksData?: UseEksDashboardReturn } = {},
+  { hrefs, eksData, demo = true }: { hrefs?: OverviewHrefs; eksData?: UseEksDashboardReturn; demo?: boolean } = {},
 ) {
   getCapabilities.mockResolvedValue(dto);
   render(
     <MemoryRouter initialEntries={[`/eks-details?name=${cluster}&tab=automation&sub=overview`]}>
-      <K8sCapabilitiesProvider accountId={dto.accountId} demo>
+      <K8sCapabilitiesProvider accountId={dto.accountId} demo={demo}>
         <OverviewPanel clusterName={cluster} accountId={dto.accountId} region="us-east-1" eksData={eksData} hrefs={hrefs} />
       </K8sCapabilitiesProvider>
     </MemoryRouter>,
@@ -218,7 +240,7 @@ describe('Automation › Overview (§9.1)', () => {
     // Migration: the full gate / reason copy moved off the table row into the row's DetailDrawer.
     // The table row still shows the analysis text and a gated lock + status word (never colour alone).
     expect(rowOf(table, 'workload-rightsizing')).toHaveTextContent('Recommendations');
-    expect(rowOf(table, 'node-consolidation')).toHaveTextContent('Analysis not yet reliable');
+    expect(rowOf(table, 'node-consolidation')).toHaveTextContent('Look-only plan: what could be emptied or drained');
     // Every blocked cell is marked by a lock as well as its words (Iconify draws it after mount).
     await waitFor(() => expect(table.querySelectorAll('[data-gated-lock]')).toHaveLength(TODAY_ROWS.length));
     // The reasons are NOT in the table itself anymore.
@@ -241,8 +263,8 @@ describe('Automation › Overview (§9.1)', () => {
     await reasonInDrawer('scale-out', DEMO_READINESS_MESSAGES['scale-out']);
     await reasonInDrawer('node-templates', DEMO_READINESS_MESSAGES['node-templates']);
     await reasonInDrawer('vpa-baseline', DEMO_READINESS_MESSAGES['vpa-apply']);
-    // No readiness key: only the demo session holds it.
-    await reasonInDrawer('spot-interruption', DEMO_TEXT);
+    // The settings action plus the spot-interruption-actions readiness key: readiness leads.
+    await reasonInDrawer('spot-interruption', DEMO_READINESS_MESSAGES['spot-interruption-actions']);
 
     expect(accessValue('Connection')).toHaveTextContent('Read-write');
     expect(accessValue('Your permission')).toHaveTextContent('You can change automation');
@@ -288,10 +310,10 @@ describe('Automation › Overview (§9.1)', () => {
       expect(d).toHaveTextContent(CONTRACT_BLOCK_MESSAGE);
       expect(d).toHaveTextContent('Also needs: read-write access');
     });
-    // Where nothing ranks higher, the connection is the reason.
+    // The spot row's readiness key ranks above the connection too.
     await drawerHas('spot-interruption', (d) => {
-      expect(d).toHaveTextContent(READ_ONLY_TEXT);
-      expect(d).not.toHaveTextContent(DEMO_TEXT);
+      expect(d).toHaveTextContent(DEMO_READINESS_MESSAGES['spot-interruption-actions']);
+      expect(d).toHaveTextContent('Also needs: read-write access');
     });
   });
 
@@ -334,10 +356,12 @@ describe('Automation › Overview (§9.1)', () => {
     expect(within(agent).getByRole('link', { name: 'Set up monitoring' })).toBeInTheDocument();
   });
 
-  it('reads each source once: endpoint 1, the activity log and its summary, and the usage feed for each chart', async () => {
+  it('reads each source once: endpoint 1, the activity log and its summary, the usage feed and the node fleet', async () => {
     await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', { eksData: DASHBOARD });
     await screen.findByText(/XamOps is watching 3 workloads/);
-    await waitFor(() => expect(mockedFetch).toHaveBeenCalledTimes(5));
+    // The five Phase-1/2 reads plus the three Node autoscaler reads the spot-interruption row shares
+    // (FEAT-003): the agent dashboard, the node fleet (interruptedNodes) and the rebalance status.
+    await waitFor(() => expect(mockedFetch).toHaveBeenCalledTimes(8));
     expect(getCapabilities).toHaveBeenCalledTimes(1);
     expect(endpointOneGets()).toHaveLength(1);
     expect(String(endpointOneGets()[0][0])).toBe('/api/eks/automation/vertical/prod-eks-cluster?accountId=demo-aws-001&region=us-east-1');
@@ -350,6 +374,8 @@ describe('Automation › Overview (§9.1)', () => {
     expect(getsTo(/\/activity\/prod-eks-cluster\/summary$/).map((u) => u.searchParams.get('days'))).toEqual(['7']);
     const usage = getsTo(/\/usage\/prod-eks-cluster$/).map((u) => `${u.searchParams.get('scope')}:${u.searchParams.get('resource')}:${u.searchParams.get('window')}`).sort();
     expect(usage).toEqual(['cluster:cpu:72h', 'namespace:cpu:72h']);
+    // The spot-interruption row reads the node fleet once.
+    expect(getsTo(/\/api\/eks\/autoscaling\/prod-eks-cluster\/node-fleet$/)).toHaveLength(1);
   });
 
   describe('v3 visuals from endpoint 1, the agent and capabilities (FEAT-002)', () => {
@@ -547,6 +573,12 @@ describe('Automation › Overview (§9.1)', () => {
       expect(vpa).toHaveTextContent("Each Kubernetes VPA's target, next to XamOps's suggestion");
       expect(within(vpa).getByRole('link', { name: 'Automation › VPA' })).toHaveAttribute('href', '/v');
       expect(table).not.toHaveTextContent(/Not shown yet|display coming/);
+    });
+    it('points the Node consolidation row at the look-only Consolidation page', async () => {
+      const table = await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', { hrefs: { consolidation: '/c' } });
+      const row = rowOf(table, 'node-consolidation');
+      expect(row).toHaveTextContent('Look-only plan: what could be emptied or drained');
+      expect(within(row).getByRole('link', { name: 'Automation › Consolidation' })).toHaveAttribute('href', '/c');
     });
 
     it('compares requested, used and suggested by namespace, with a memory toggle', async () => {
@@ -805,5 +837,173 @@ describe('Automation › Overview: the activity log, its summary and the usage f
       expect([...teamA.querySelectorAll('td')].map((td) => td.textContent)).toEqual(['2.00 vCPU', '0.08 vCPU', '0.05 vCPU']);
     });
     expect(chart.querySelector('[data-chart-source]')).toHaveTextContent("the mean of each namespace's use over 3 days");
+  });
+
+  // The spot row's Apply reads the spot-interruption-actions readiness key as well as the settings
+  // action: with the key false it is Blocked with the server's message, never "Available".
+  describe('spot-interruption row Apply follows spot-interruption-actions readiness', () => {
+    const SPOT_MESSAGE = 'Automatic spot interruption handling is disabled until the node optimizer passes spot interruption validation.';
+    const setSpotReady = (ready: boolean) => (dto: CapabilitiesDto) => {
+      dto.readiness['spot-interruption-actions'] = ready
+        ? { ready: true, reason: null, message: null }
+        : { ready: false, reason: 'CONTROLLER_NOT_READY', message: SPOT_MESSAGE };
+    };
+
+    it('reads Blocked, with the readiness message in the drawer, while the key is false', async () => {
+      const table = await renderPanel(fixture('demo-aws-001', setSpotReady(false)), 'prod-eks-cluster', { demo: false });
+      const row = rowOf(table, 'spot-interruption');
+      await waitFor(() => expect(row.querySelector('[data-gated-lock]')).not.toBeNull());
+      expect(row).toHaveTextContent('Blocked');
+      expect(row).not.toHaveTextContent('Available');
+      // Dot + word, never colour alone: the off-tone dot sits next to the word.
+      expect(row.querySelector('[data-tone="off"]')).not.toBeNull();
+      const dialog = await openDrawer(table, 'spot-interruption');
+      expect(dialog).toHaveTextContent('Blocked');
+      expect(dialog).toHaveTextContent(SPOT_MESSAGE);
+      expect(dialog).not.toHaveTextContent('Available — XamOps may make this change on the cluster.');
+    });
+
+    it('fails closed when the capabilities omit the key', async () => {
+      const table = await renderPanel(
+        fixture('demo-aws-001', (dto) => { delete (dto.readiness as Record<string, unknown>)['spot-interruption-actions']; }),
+        'prod-eks-cluster',
+        { demo: false },
+      );
+      const row = rowOf(table, 'spot-interruption');
+      await waitFor(() => expect(row).toHaveTextContent('Blocked'));
+      expect(row).not.toHaveTextContent('Available');
+    });
+
+    it('reads Available once the key is ready and the settings action is allowed', async () => {
+      const table = await renderPanel(fixture('demo-aws-001', setSpotReady(true)), 'prod-eks-cluster', { demo: false });
+      const row = rowOf(table, 'spot-interruption');
+      await waitFor(() => expect(row).toHaveTextContent('Available'));
+      expect(row.querySelector('[data-tone="good"]')).not.toBeNull();
+      expect(row.querySelector('[data-gated-lock]')).toBeNull();
+    });
+
+    it('keeps the settings action\'s own gate when the key is ready (read-only connection)', async () => {
+      const table = await renderPanel(fixture('demo-aws-002', setSpotReady(true)), 'prod-eks-cluster', { demo: false });
+      const row = rowOf(table, 'spot-interruption');
+      await waitFor(() => expect(row).toHaveTextContent('Blocked'));
+      const dialog = await openDrawer(table, 'spot-interruption');
+      expect(dialog).toHaveTextContent(READ_ONLY_TEXT);
+      expect(dialog).not.toHaveTextContent(SPOT_MESSAGE);
+    });
+  });
+
+  // FEAT-003: the spot-interruption row surfaces the real node-fleet interruptedNodes, never a
+  // fabricated value — a count + data age when present, an honest em-dash/None when absent or failed.
+  describe('spot-interruption row surfaces real interruptedNodes (FEAT-003 / §3 AC3.4)', () => {
+    const spotCell = (table: HTMLElement) => {
+      const cell = rowOf(table, 'spot-interruption').querySelector<HTMLElement>('[data-analysis="spot-interruption"]');
+      if (!cell) throw new Error('no spot-interruption analysis cell');
+      return cell;
+    };
+
+    it('shows the interrupted node count and data age when nodes are interrupted', async () => {
+      serve(200, ENDPOINT_1, {
+        fleet: { status: 200, body: { totalNodes: 4, onDemandNodes: 2, spotNodes: 2, idleNodes: [], interruptedNodes: ['ip-10-0-1-5', 'ip-10-0-2-9'], collectedAt: iso(3 * 60_000) } },
+      });
+      const table = await renderPanel(fixture('demo-aws-001'));
+      const cell = spotCell(table);
+      await waitFor(() => expect(cell).toHaveTextContent('2 nodes interrupted'));
+      expect(cell).toHaveTextContent('data 3 min old');
+      // The dot carries the attention (warn) tone, never colour alone.
+      expect(cell.querySelector('[data-tone="warn"]')).not.toBeNull();
+    });
+
+    it('reads "None interrupted" when the fleet is read and empty', async () => {
+      const table = await renderPanel(fixture('demo-aws-001'));
+      const cell = spotCell(table);
+      await waitFor(() => expect(cell).toHaveTextContent('None interrupted'));
+      expect(cell.querySelector('[data-tone="good"]')).not.toBeNull();
+    });
+
+    it('shows an honest em-dash (sr-only None) when the fleet read fails', async () => {
+      serve(200, ENDPOINT_1, { fleet: { status: 502, body: { message: 'Bad gateway' } } });
+      const table = await renderPanel(fixture('demo-aws-001'));
+      const cell = spotCell(table);
+      // No fabricated state: the em-dash idiom, no status dot at all.
+      await waitFor(() => expect(within(cell).getByText('None', { selector: '.sr-only' })).toBeInTheDocument());
+      expect(cell.querySelector('[data-tone]')).toBeNull();
+    });
+
+    it('records the last-drain outcome as an honest em-dash in the drawer, pointing at the Spot interruptions page', async () => {
+      const table = await renderPanel(fixture('demo-aws-001'));
+      await waitFor(() => expect(spotCell(table)).toHaveTextContent('None interrupted'));
+      const dialog = await openDrawer(table, 'spot-interruption');
+      expect(dialog).toHaveTextContent('Last drain');
+    });
+
+    it('links the row to Automation › Spot interruptions (AC13), in the cell and the drawer', async () => {
+      const table = await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', { hrefs: { spotInterruptions: '/s' } });
+      const cell = spotCell(table);
+      await waitFor(() => expect(cell).toHaveTextContent('None interrupted'));
+      expect(within(cell).getByRole('link', { name: 'Automation › Spot interruptions' })).toHaveAttribute('href', '/s');
+      const dialog = await openDrawer(table, 'spot-interruption');
+      expect(dialog).toHaveTextContent('Each interruption’s drain outcome is on Automation › Spot interruptions.');
+    });
+
+    it('counts the notices when interruptedNodes is empty (AC18)', async () => {
+      serve(200, ENDPOINT_1, {
+        fleet: {
+          status: 200,
+          body: {
+            ...NODE_FLEET_EMPTY.body,
+            interruptionNotices: [{ nodeName: 'ip-10-0-1-5', kind: 'interruption' }, { nodeName: 'ip-10-0-2-9', kind: 'rebalance' }],
+          },
+        },
+      });
+      const table = await renderPanel(fixture('demo-aws-001'));
+      const cell = spotCell(table);
+      await waitFor(() => expect(cell).toHaveTextContent('1 node with an interruption notice · 1 rebalance recommendation'));
+      expect(cell.querySelector('[data-tone="warn"]')).not.toBeNull();
+      expect(within(cell).queryByText(/None interrupted/)).toBeNull();
+    });
+
+    it('shows an em-dash with the agent-version reason for an older automation agent, never "None interrupted" (AC25)', async () => {
+      serve(200, ENDPOINT_1, {
+        fleet: {
+          status: 200,
+          body: {
+            totalNodes: 3, onDemandNodes: 2, spotNodes: 1, idleNodes: [], interruptedNodes: [], collectedAt: iso(60_000),
+            interruptedNodesReported: true, interruptionNoticesReported: false,
+          },
+        },
+      });
+      const table = await renderPanel(fixture('demo-aws-001'));
+      const cell = spotCell(table);
+      await waitFor(() => expect(cell).toHaveTextContent("this automation agent version doesn't report interruption notices"));
+      expect(within(cell).queryByText(/None interrupted/)).toBeNull();
+      expect(cell.querySelector('[data-tone]')).toBeNull();
+    });
+
+    it('shows an em-dash with the stale reason when the automation report is stale (AC14)', async () => {
+      serve(200, ENDPOINT_1, {
+        fleet: {
+          status: 200,
+          body: {
+            totalNodes: 3, onDemandNodes: 2, spotNodes: 1, idleNodes: null, interruptedNodes: null, interruptionNotices: null, collectedAt: iso(60_000),
+            interruptedNodesReported: false, interruptionNoticesReported: false, interruptedNodesReason: 'stale', interruptedNodesReportAt: iso(12 * 60_000),
+          },
+        },
+      });
+      const table = await renderPanel(fixture('demo-aws-001'));
+      const cell = spotCell(table);
+      await waitFor(() => expect(cell).toHaveTextContent("Not reported: the automation agent's last node report is 12 min old"));
+      expect(within(cell).queryByText(/None interrupted/)).toBeNull();
+      expect(cell.querySelector('[data-tone]')).toBeNull();
+    });
+
+    it('shows an em-dash for a flag-less payload with no interrupted nodes (older backend), never "None interrupted"', async () => {
+      serve(200, ENDPOINT_1, {
+        fleet: { status: 200, body: { totalNodes: 3, onDemandNodes: 2, spotNodes: 1, idleNodes: [], interruptedNodes: [], collectedAt: iso(60_000) } },
+      });
+      const table = await renderPanel(fixture('demo-aws-001'));
+      const cell = spotCell(table);
+      await waitFor(() => expect(cell).toHaveTextContent('Not reported by this XamOps version'));
+      expect(within(cell).queryByText(/None interrupted/)).toBeNull();
+    });
   });
 });

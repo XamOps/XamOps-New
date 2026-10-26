@@ -362,30 +362,73 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
 
         log.info("AWS Role Assumed Successfully. Credentials obtained.");
 
-        // `-t` allocates a PTY. Without it interactive tools (vim, top, less) and in
-        // particular `aws ssm start-session` — the supported way to reach any EC2
-        // instance without SSH keys or a public IP — do not work, because they require a
-        // terminal. Credentials are passed as env vars, never baked into the image.
-        String bashCommand = "export TMOUT=1800 && " +
-                "echo '' && " +
-                "echo 'Authenticated to AWS Account' && " +
-                "echo 'Tip: aws ssm start-session --target <instance-id> to open a shell on any SSM-managed EC2.' && " +
-                "echo '' && " +
-                "exec /bin/bash -i";
-
         return new ProcessBuilder(
-                "docker", "run", "--rm", "-i", "-t",
-                "--name", containerName(sessionId),
+                buildDockerRunCommand(
+                        containerName(sessionId),
+                        List.of(
+                                "-e", "AWS_ACCESS_KEY_ID=" + assumeRole.credentials().accessKeyId(),
+                                "-e", "AWS_SECRET_ACCESS_KEY=" + assumeRole.credentials().secretAccessKey(),
+                                "-e", "AWS_SESSION_TOKEN=" + assumeRole.credentials().sessionToken(),
+                                "-e", "AWS_DEFAULT_REGION=" + defaultAwsRegion,
+                                "-e", "AWS_REGION=" + defaultAwsRegion),
+                        "echo 'Authenticated to AWS Account' && "
+                                + "echo 'Tip: aws ssm start-session --target <instance-id> to open a shell on any SSM-managed EC2.'"));
+    }
+
+    /**
+     * Builds the {@code docker run} argument list shared by all providers.
+     *
+     * <p>Two things matter here and both were the cause of earlier failures:
+     *
+     * <ul>
+     * <li><b>No {@code -t}.</b> We drive the container over Java pipes
+     * ({@code process.getInputStream()/getOutputStream()}), so the backend's stdin is not
+     * a terminal. {@code docker run -t} demands a real TTY on stdin and the container dies
+     * immediately with "the input device is not a TTY". So we use {@code -i} only.
+     * <li><b>PTY inside the container via {@code script}.</b> Interactive tools (vim, top,
+     * less) and especially {@code aws ssm start-session} — the supported way to reach any
+     * EC2 with no SSH key or public IP — require a controlling terminal. {@code script -q
+     * /dev/null -c "bash -i"} allocates a pseudo-TTY in software for the shell without
+     * needing Docker to allocate one on the (piped) host stdin. {@code stty} resize
+     * messages then apply to this PTY.
+     * </ul>
+     *
+     * @param containerName deterministic name so resize/cleanup can target the container
+     * @param envArgs       provider credential {@code -e KEY=VALUE} pairs
+     * @param authEchoChunk provider-specific banner commands run before the shell starts
+     */
+    private List<String> buildDockerRunCommand(String containerName, List<String> envArgs, String authEchoChunk) {
+        // The inner command sets the idle timeout, prints the banner, then hands control to
+        // an interactive bash running under a software PTY. Single-quoted for `script -c`.
+        String inner = "export TMOUT=1800; "
+                + "echo ''; "
+                + authEchoChunk + "; "
+                + "echo ''; "
+                + "exec /bin/bash -i";
+        String scriptCommand = "export TMOUT=1800 && "
+                + "exec script -q /dev/null -c " + shellQuote(inner);
+
+        List<String> cmd = new ArrayList<>(List.of(
+                "docker", "run", "--rm", "-i",
+                "--name", containerName,
                 "--memory=512m", "--cpus=0.5",
-                "-e", "AWS_ACCESS_KEY_ID=" + assumeRole.credentials().accessKeyId(),
-                "-e", "AWS_SECRET_ACCESS_KEY=" + assumeRole.credentials().secretAccessKey(),
-                "-e", "AWS_SESSION_TOKEN=" + assumeRole.credentials().sessionToken(),
-                "-e", "AWS_DEFAULT_REGION=" + defaultAwsRegion,
-                "-e", "AWS_REGION=" + defaultAwsRegion,
                 "-e", "TERM=xterm-256color",
-                "-e", "TMOUT=1800",
-                shellImage,
-                "/bin/bash", "-c", bashCommand);
+                "-e", "TMOUT=1800"));
+        cmd.addAll(envArgs);
+        cmd.add(shellImage);
+        cmd.add("/bin/bash");
+        cmd.add("-c");
+        cmd.add(scriptCommand);
+        return cmd;
+    }
+
+    /**
+     * Wraps a string in single quotes for safe use as one shell word, escaping any
+     * embedded single quotes. Credentials never flow through here (they are passed as
+     * separate {@code -e} ProcessBuilder args, not interpolated into a command line).
+     */
+    private String shellQuote(String s) {
+        return "'" + s.replace("'", "'\\''") + "'";
     }
 
     /**

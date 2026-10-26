@@ -1,6 +1,7 @@
 package com.xammer.cloud.service;
 
 import com.xammer.cloud.config.SchedulingEnvironmentConfig;
+import com.xammer.cloud.service.spot.SpotInterruptionTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -37,11 +38,14 @@ public class AgentDataCleanupScheduler {
 
     private final AgentIngestService agentIngestService;
     private final SchedulingEnvironmentConfig envConfig;
+    private final SpotInterruptionTracker spotInterruptionTracker;
 
     public AgentDataCleanupScheduler(AgentIngestService agentIngestService,
-                                     SchedulingEnvironmentConfig envConfig) {
+                                     SchedulingEnvironmentConfig envConfig,
+                                     SpotInterruptionTracker spotInterruptionTracker) {
         this.agentIngestService = agentIngestService;
         this.envConfig = envConfig;
+        this.spotInterruptionTracker = spotInterruptionTracker;
     }
 
     /** Delete agent cache rows and events older than the retention window. Daily 04:20. */
@@ -61,6 +65,13 @@ public class AgentDataCleanupScheduler {
         } catch (Exception e) {
             // Never let a failed cleanup break the scheduler thread for other jobs.
             log.error("❌ Agent data cleanup failed", e);
+        }
+        // Spot interruption history has its own 365-day retention. Its own try/catch, so it can
+        // never affect the cleanup above, and no new cron slot on prod's single scheduling thread.
+        try {
+            spotInterruptionTracker.purgeExpired();
+        } catch (Exception e) {
+            log.error("❌ Spot interruption history purge failed", e);
         }
     }
 }

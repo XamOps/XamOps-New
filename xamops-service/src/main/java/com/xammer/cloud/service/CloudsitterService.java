@@ -816,10 +816,10 @@ public class CloudsitterService {
             return CloudsitterRecommendationDto.skipped("INSUFFICIENT_DATA");
         }
 
-        // --- 4b. ALB traffic and Prophet schedule ---
+        // --- 4b. ALB traffic and forecast-service schedule ---
         ElasticLoadBalancingV2Client elb = awsClientProvider.getElbv2Client(account, region);
         double[][] albGrid       = fetchAlbHourlyGrid(elb, cw, instanceId, region, startTime, endTime, bucketZone);
-        boolean[][] prophetSchedule = getProphetSchedule(cpuRawSeries);
+        boolean[][] forecastSchedule = getForecastSchedule(cpuRawSeries);
 
         // --- 5. Build per-day recommendation ---
         Map<String, List<Double>>   avgCpuGrid  = new LinkedHashMap<>();
@@ -853,8 +853,8 @@ public class CloudsitterService {
                 boolean netActive      = netAvailable  && avgNet  >= NETWORK_IDLE_THRESHOLD;
                 boolean diskActive     = diskAvailable && avgDisk >= DISK_IDLE_THRESHOLD;
                 boolean albActive      = albGrid != null && albGrid[d][h] > 0;
-                // Prophet replaces the plain CPU threshold as baseline; all other signals stay as guards
-                boolean baselineActive = prophetSchedule != null ? prophetSchedule[d][h] : cpuActive;
+                // The forecast-service p95 replaces the plain CPU threshold as baseline; all other signals stay as guards
+                boolean baselineActive = forecastSchedule != null ? forecastSchedule[d][h] : cpuActive;
                 rawActive[h] = baselineActive || cpuSpiked || memActive || netActive || diskActive || albActive;
             }
 
@@ -1000,41 +1000,62 @@ public class CloudsitterService {
     }
 
     /**
-     * Calls the Prophet forecast service with 30+ days of hourly CPU data and returns a
-     * [7][24] boolean grid where true = Prophet predicts the instance will be active.
-     * Uses yhat_upper (80% confidence upper bound) for a conservative estimate.
-     * Returns null if Prophet is unavailable or the series is too short.
+     * Calls the forecast service (/forecast/usage, resource=cpu) with 30+ days of hourly CPU
+     * data and returns a [7][24] boolean grid where true = the forecast predicts the instance
+     * will be active. Uses the forecast's p95 as the headroom bound; falls back to yhat_upper
+     * (= p90, the upper bound of the central 80% interval) only for older forecast-service
+     * builds that do not return p95.
+     * Returns null if the forecast service is unavailable, the series is too short, or the
+     * response method is {@code histogram} (a flat forecast that cannot separate idle hours
+     * from active ones); the caller then uses the per-hour cpuActive baseline.
+     * An hour-of-day-aware CPU histogram is a deferred follow-up (needs a backtest re-run).
      */
-    private boolean[][] getProphetSchedule(List<Map<String, Object>> cpuRawSeries) {
+    boolean[][] getForecastSchedule(List<Map<String, Object>> cpuRawSeries) {
         if (cpuRawSeries.size() < 48) return null;
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             // The injected RestTemplate has no configured timeout, so a hung forecast
-            // service would pin this request thread indefinitely. Prophet is an enhancement
+            // service would pin this request thread indefinitely. The forecast is an enhancement
             // over the CPU-threshold baseline, so a failure here degrades rather than blocks.
             String json = restTemplate.postForObject(
                     forecastServiceUrl + "/forecast/usage",
-                    new HttpEntity<>(Map.of("data", cpuRawSeries, "periods", 336), headers),
+                    new HttpEntity<>(Map.of("data", cpuRawSeries, "periods", 336, "resource", "cpu"), headers),
                     String.class);
 
             JsonNode root = objectMapper.readTree(json);
             if (!"success".equals(root.path("status").asText())) return null;
+            // The decayed histogram is flat across the horizon (one quantile vector for every
+            // hour), so thresholding it yields an all-on or all-off grid: diurnal instances would
+            // never get stop windows and idle ones would lose the per-hour cpuActive baseline.
+            // Use the per-hour threshold baseline instead, exactly as when the service is down.
+            // Shaped forecasts (ets, or older Prophet builds that send no method) still feed the grid.
+            String method = root.path("method").asText("");
+            if ("histogram".equalsIgnoreCase(method)) {
+                logger.info("CloudSitter: forecast method=histogram is flat across hours, "
+                        + "using per-hour CPU threshold baseline (fallback_reason={})",
+                        root.path("fallback_reason").asText(null));
+                return null;
+            }
 
             boolean[][] grid = new boolean[7][24];
             for (JsonNode pt : root.path("forecast")) {
                 String ds = pt.path("ds").asText();
-                double yhatUpper = pt.path("yhat_upper").asDouble();
+                // p95 is the honest headroom quantile; yhat_upper is only p90 (older builds lack p95).
+                JsonNode p95 = pt.get("p95");
+                double headroom = (p95 != null && p95.isNumber()) ? p95.asDouble() : pt.path("yhat_upper").asDouble();
                 Instant ts = Instant.parse(ds.endsWith("Z") ? ds : ds + "Z");
                 ZonedDateTime zdt = ts.atZone(ZoneOffset.UTC);
                 int d = zdt.getDayOfWeek().getValue() - 1;
                 int h = zdt.getHour();
-                if (yhatUpper >= CPU_IDLE_THRESHOLD) grid[d][h] = true;
+                if (headroom >= CPU_IDLE_THRESHOLD) grid[d][h] = true;
             }
-            logger.info("CloudSitter: Prophet schedule ready, trend={}", root.path("trend_direction").asText("STABLE"));
+            logger.info("CloudSitter: forecast schedule ready, method={}, fallback_reason={}, trend={}",
+                    root.path("method").asText("unknown"), root.path("fallback_reason").asText(null),
+                    root.path("trend_direction").asText("STABLE"));
             return grid;
         } catch (Exception e) {
-            logger.warn("CloudSitter: Prophet unavailable, falling back to threshold analysis: {}", e.getMessage());
+            logger.warn("CloudSitter: forecast service unavailable, falling back to threshold analysis: {}", e.getMessage());
             return null;
         }
     }

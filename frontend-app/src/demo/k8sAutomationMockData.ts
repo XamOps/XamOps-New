@@ -19,8 +19,10 @@ import type {
   CapabilitiesCluster,
   CapabilitiesDto,
   CapabilitiesReadiness,
+  ConsolidationPlanResponse,
   K8sRefusal,
   ReadinessKey,
+  SpotInterruptionsDto,
 } from '../types/k8sAutomation';
 import type { VerticalStatusWire, VerticalWorkloadWire } from '../types/verticalRecommendations';
 import type { ActivityEntryWire, ActivityPageWire } from '../types/automationActivity';
@@ -38,6 +40,8 @@ export const DEMO_READINESS_MESSAGES: Record<ReadinessKey, string> = {
     'Node cordon, drain and spot conversion are disabled until the node optimizer passes safety validation.',
   'scale-out': "Not available: the automation agent doesn't provision nodes. Your cluster autoscaler or Karpenter does.",
   'node-templates': "Not available: the automation agent doesn't use node templates yet.",
+  'spot-interruption-actions':
+    'Automatic spot interruption handling is disabled until the node optimizer passes spot interruption validation.',
 };
 
 /** Demo accounts the fixture answers for; anything else is refused like an account that isn't yours. */
@@ -339,15 +343,57 @@ export function demoAutomationDashboard(cluster: string, now: number = Date.now(
 /** `GET …/node-fleet`: prod's six nodes (3 on-demand, 3 Spot), none idle; eu's three, none idle. */
 export function demoNodeFleet(cluster: string, now: number = Date.now()): AutomationNodeFleet | null {
   if (!isNodeCluster(cluster)) return null;
+  // A fresh report from an automation agent that sends interruptionNotices and saw none: the
+  // Overview reads "None interrupted" for the right reason (spot-interruptions design §B6.4).
+  const reported = {
+    interruptedNodesReported: true,
+    interruptionNoticesReported: true,
+    interruptionNotices: [],
+    spotCandidates: [],
+  };
   return cluster === 'prod-eks-cluster'
-    ? { totalNodes: 6, onDemandNodes: 3, spotNodes: 3, idleNodes: [], interruptedNodes: [], collectedAt: ago(now, 55) }
-    : { totalNodes: 3, onDemandNodes: 3, spotNodes: 0, idleNodes: [], interruptedNodes: [], collectedAt: ago(now, 2 * 60 + 48) };
+    ? { totalNodes: 6, onDemandNodes: 3, spotNodes: 3, idleNodes: [], interruptedNodes: [], collectedAt: ago(now, 55), ...reported }
+    : { totalNodes: 3, onDemandNodes: 3, spotNodes: 0, idleNodes: [], interruptedNodes: [], collectedAt: ago(now, 2 * 60 + 48), ...reported };
+}
+
+/**
+ * `GET …/spot-interruptions`: the recorded history, honest on purpose: no demo events are invented,
+ * so the page shows its empty state. The fleet's Spot share is the demo fleet's; handling now is not
+ * reported (no automation report the demo could stand behind).
+ */
+export function demoSpotInterruptions(cluster: string, days: number, now: number = Date.now()): SpotInterruptionsDto | null {
+  const fleet = demoNodeFleet(cluster, now);
+  if (!fleet) return null;
+  const at = new Date(now).toISOString();
+  return {
+    windowDays: days,
+    truncated: false,
+    retentionDays: 365,
+    recordingEnabled: true,
+    fleet: {
+      totalNodes: fleet.totalNodes,
+      spotNodes: fleet.spotNodes,
+      spotSharePct: fleet.totalNodes > 0 ? Math.round((100 * fleet.spotNodes) / fleet.totalNodes) : null,
+      collectedAt: at,
+    },
+    coverage: { agentSnapshotAt: at, automationReportAt: at, handlingNow: null },
+    events: [],
+  };
 }
 
 /** `GET …/rebalance-status`: what the backend serves before any rebalance has run. */
 export function demoRebalanceStatus(cluster: string): AutomationRebalanceStatus | null {
   if (!isNodeCluster(cluster)) return null;
   return { status: 'idle', message: 'No rebalance has been run yet' };
+}
+
+/**
+ * `GET …/consolidation-plan`: what the backend serves before the automation agent has pushed a
+ * plan. Honest on purpose: no demo nodes, moves or savings are invented.
+ */
+export function demoConsolidationPlan(cluster: string): ConsolidationPlanResponse | null {
+  if (!isNodeCluster(cluster)) return null;
+  return { freshness: 'NO_PLAN', generatedAt: null, ageSeconds: null, plan: null, savings: null };
 }
 
 // ── Activity feed (FEAT-007): GET /api/eks/automation/activity/{cluster} ────────────────────────

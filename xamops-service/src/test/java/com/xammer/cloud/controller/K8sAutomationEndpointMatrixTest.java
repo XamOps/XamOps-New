@@ -6,11 +6,17 @@ import com.xammer.cloud.config.K8sAutomationReadinessProperties;
 import com.xammer.cloud.config.K8sAutomationWebConfig;
 import com.xammer.cloud.config.multitenancy.ImpersonationContext;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto;
+import com.xammer.cloud.dto.autoscaling.ConsolidationPlanResponse;
+import com.xammer.cloud.dto.autoscaling.ConsolidationRunResponse;
+import com.xammer.cloud.dto.spot.SpotInterruptionsDto;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.K8sAutomationGuardInterceptor;
 import com.xammer.cloud.security.K8sAutomationTestWorld;
+import com.xammer.cloud.service.ConsolidationPlanService;
+import com.xammer.cloud.service.ConsolidationRunService;
 import com.xammer.cloud.service.EksAutoscalingService;
 import com.xammer.cloud.service.K8sAutomationPolicyNormalizer;
+import com.xammer.cloud.service.spot.SpotInterruptionReadService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -35,20 +41,21 @@ import static com.xammer.cloud.security.K8sAutomationTestWorld.TENANT_B_AWS;
 import static com.xammer.cloud.security.K8sAutomationTestWorld.TENANT_B_DB_ID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * The owner-required persona matrix across all 16 {@code /api/eks/autoscaling/**} endpoints
+ * The owner-required persona matrix across all 19 {@code /api/eks/autoscaling/**} endpoints
  * (design §6.6 endpoint matrix, plan item 6 and the verification contract).
  *
  * <p>
  * MockMvc runs the real controller behind the real {@link K8sAutomationGuardInterceptor},
  * registered on {@link K8sAutomationWebConfig#GUARDED_PATHS} exactly as production registers it,
  * over the real {@code K8sAutomationAccessService} and {@code CloudAccountAccessService} with
- * in-memory repositories. Only {@link EksAutoscalingService} is mocked, so every denial also
- * proves the service was never reached.
+ * in-memory repositories. Only {@link EksAutoscalingService}, {@link ConsolidationPlanService} and
+ * {@link SpotInterruptionReadService} are mocked, so every denial also proves no service was reached.
  */
 class K8sAutomationEndpointMatrixTest {
 
@@ -68,20 +75,23 @@ class K8sAutomationEndpointMatrixTest {
         }
     }
 
-    /** The 16 endpoints of EksAutoscalingController, with complete, allowed bodies. */
+    /** The 19 endpoints of EksAutoscalingController, with complete, allowed bodies. */
     static final List<Endpoint> ENDPOINTS = List.of(
             new Endpoint("GET", "", null),
             new Endpoint("GET", "/rightsizing", null),
             new Endpoint("GET", "/rebalance-status", null),
             new Endpoint("GET", "/node-fleet", null),
             new Endpoint("GET", "/evictor-candidates", null),
+            new Endpoint("GET", "/consolidation-plan", null),
+            new Endpoint("GET", "/consolidation-runs", null),
+            new Endpoint("GET", "/spot-interruptions", null),
             new Endpoint("PUT", "/enabled", "{\"enabled\":true}"),
             new Endpoint("PUT", "/mode", "{\"mode\":\"scoped\"}"),
             new Endpoint("PUT", "/scale-out-policy", "{\"enabled\":true}"),
             new Endpoint("PUT", "/evictor-policy", "{\"enabled\":true,\"analyseOnly\":true}"),
             new Endpoint("PUT", "/workload-rightsizer", "{\"enabled\":false}"),
             new Endpoint("PUT", "/safety-guards", "{\"respectPodDisruptionBudgets\":true,\"protectCriticalNamespaces\":true}"),
-            new Endpoint("PUT", "/node-optimizer", "{\"idleCpuThresholdPct\":15,\"handleSpotInterruptions\":true}"),
+            new Endpoint("PUT", "/node-optimizer", "{\"idleCpuThresholdPct\":15,\"handleSpotInterruptions\":false}"),
             new Endpoint("PUT", "/rebalancer", "{\"scheduleEnabled\":false,\"gracefulDraining\":true}"),
             new Endpoint("POST", "/rebalance", null),
             new Endpoint("PUT", "/node-templates/tpl-1", "{\"name\":\"pool\"}"),
@@ -105,6 +115,9 @@ class K8sAutomationEndpointMatrixTest {
 
     private K8sAutomationTestWorld world;
     private EksAutoscalingService service;
+    private ConsolidationPlanService consolidationPlanService;
+    private ConsolidationRunService consolidationRunService;
+    private SpotInterruptionReadService spotInterruptionReadService;
     private MockMvc mvc;
     private ClientUserDetails tenantAUser;
 
@@ -114,8 +127,16 @@ class K8sAutomationEndpointMatrixTest {
         world.addConfig(201L, TENANT_B_DB_ID, TENANT_B_ONLY_CLUSTER);
         service = mock(EksAutoscalingService.class);
         when(service.getDashboard(any())).thenReturn(new AutoscalerDashboardDto());
+        consolidationPlanService = mock(ConsolidationPlanService.class);
+        when(consolidationPlanService.getPlan(any(), any())).thenReturn(ConsolidationPlanResponse.noPlan());
+        consolidationRunService = mock(ConsolidationRunService.class);
+        when(consolidationRunService.getRuns(any(), any())).thenReturn(ConsolidationRunResponse.noRuns());
+        spotInterruptionReadService = mock(SpotInterruptionReadService.class);
+        when(spotInterruptionReadService.read(any(), anyInt(), anyInt())).thenReturn(
+                new SpotInterruptionsDto(30, false, 365, true, null, null, List.of()));
         EksAutoscalingController controller = new EksAutoscalingController(service,
-                new K8sAutomationPolicyNormalizer(new K8sAutomationReadinessProperties()));
+                new K8sAutomationPolicyNormalizer(new K8sAutomationReadinessProperties()),
+                consolidationPlanService, consolidationRunService, spotInterruptionReadService);
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .addMappedInterceptors(K8sAutomationWebConfig.GUARDED_PATHS.toArray(String[]::new),
                         new K8sAutomationGuardInterceptor(world.accessService))
@@ -155,17 +176,20 @@ class K8sAutomationEndpointMatrixTest {
         } else {
             assertThat(b.get("detail").asText()).isEqualTo(detail);
         }
-        verifyNoInteractions(service);
+        verifyNoInteractions(service, consolidationPlanService, spotInterruptionReadService);
     }
 
     private int serviceCalls() {
-        return Mockito.mockingDetails(service).getInvocations().size();
+        return Mockito.mockingDetails(service).getInvocations().size()
+                + Mockito.mockingDetails(consolidationPlanService).getInvocations().size()
+                + Mockito.mockingDetails(consolidationRunService).getInvocations().size()
+                + Mockito.mockingDetails(spotInterruptionReadService).getInvocations().size();
     }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("all")
     void coversEveryEndpoint(Endpoint e) {
-        assertThat(ENDPOINTS).hasSize(16);
+        assertThat(ENDPOINTS).hasSize(19);
         assertThat(ENDPOINTS.stream().filter(Endpoint::mutation)).hasSize(11);
     }
 
@@ -200,13 +224,13 @@ class K8sAutomationEndpointMatrixTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("all")
-    void anotherTenantsClusterIsRefusedOnAll16(Endpoint e) throws Exception {
+    void anotherTenantsClusterIsRefusedOnAll18(Endpoint e) throws Exception {
         assertRefusedBeforeTheService(call(e, TENANT_B_ONLY_CLUSTER, TENANT_B_AWS), 403, "K8S_NO_ACCOUNT_ACCESS", null);
     }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("all")
-    void anotherTenantsCloudAccountIdAsAccountIdIsRefusedOnAll16(Endpoint e) throws Exception {
+    void anotherTenantsCloudAccountIdAsAccountIdIsRefusedOnAll18(Endpoint e) throws Exception {
         // Before the guard, this number went straight into findByCloudAccountIdAndClusterName and
         // reached tenant B's modern config (cloud_account_id = 42) for the same cluster name.
         assertRefusedBeforeTheService(call(e, CLUSTER, String.valueOf(TENANT_B_DB_ID)), 403, "K8S_NO_ACCOUNT_ACCESS", null);

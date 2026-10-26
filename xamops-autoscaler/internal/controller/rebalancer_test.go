@@ -39,7 +39,7 @@ func (p *countingPlanner) Plan(ctx context.Context, nodes []string) (drain.Plan,
 }
 
 func fitCounting(c *fake.Clientset) *countingPlanner {
-	return &countingPlanner{inner: drain.NewFitPlanner(c, fitsim.Options{Guards: policy.DefaultBundle().SafetyGuards, SelfNamespace: selfNS})}
+	return &countingPlanner{inner: drain.NewFitPlanner(c, nil, fitsim.Options{Guards: policy.DefaultBundle().SafetyGuards, SelfNamespace: selfNS})}
 }
 
 func rebalancerNode(name string, age time.Duration, labels map[string]string) *corev1.Node {
@@ -107,41 +107,47 @@ func TestRebalancerOffReturnsNil(t *testing.T) {
 	}
 }
 
-// The simulator refuses both candidates (protected namespace); the refusal is
-// terminal and never re-planned.
-func TestRebalancerSameOperationRunsOnce(t *testing.T) {
+// No candidate set is drainable (both host a protected-namespace pod), so the fit
+// simulation proves no net node reduction. The FEAT-005 benefit guard refuses to
+// start BEFORE any ledger "running" write: the refusal is NOT terminal (nothing is
+// recorded live), so it is re-evaluated — and honestly re-refused — every cycle.
+func TestRebalancerBenefitGuardRefusesWhenNoReduction(t *testing.T) {
 	c := blockedCluster()
 	p := fitCounting(c)
 	rb := NewRebalancer(c, false)
 
 	res, recs := runOnce(t, rb, c, p, runningCfg(""), gate.Live, 1, false)
-	if res.Status != state.StateRefused || res.OperationID != "gen-1" || res.DryRun {
+	if res.Status != policy.ActionRefused || res.OperationID != "gen-1" || res.DryRun {
 		t.Fatalf("first run = %+v", res)
 	}
-	if len(recs) != 2 || recs[0].Target != "node/node-old" || recs[1].Target != "node/node-young" {
-		t.Fatalf("expected one refusal per candidate, oldest first, got %+v", recs)
+	if len(recs) != 0 {
+		t.Fatalf("the benefit guard refuses before any drain record: %+v", recs)
 	}
-	for _, r := range recs {
-		if r.Status != policy.ActionRefused || !strings.Contains(r.Reason, "critical-namespace") {
-			t.Errorf("record = %+v", r)
-		}
+	if !strings.Contains(res.Reason, "no net node reduction achievable") {
+		t.Errorf("result reason must be the honest no-benefit reason: %q", res.Reason)
 	}
-	if !strings.Contains(res.Reason, "critical-namespace") {
-		t.Errorf("result reason must carry the plan reasons: %q", res.Reason)
+	// Nothing was written to the ledger as running; the operation is not terminal.
+	op, ok, err := state.New(c, selfNS, ledgerName, true).Get(context.Background(), "gen-1")
+	if err != nil {
+		t.Fatalf("ledger read: %v", err)
 	}
-	first := p.calls
+	if ok {
+		t.Errorf("the guard must write nothing to the ledger, got %+v", op)
+	}
 
+	// Every cycle re-evaluates the guard (not terminal): the planner runs again and
+	// the refusal is re-reported, still with no ledger write and no drain record.
 	for i := 0; i < 3; i++ {
 		res, recs = runOnce(t, rb, c, p, runningCfg(""), gate.Live, 1, false)
-		if len(recs) != 0 || res.Status != state.StateRefused {
+		if len(recs) != 0 || res.Status != policy.ActionRefused {
 			t.Fatalf("re-run %d: status=%s recs=%+v", i, res.Status, recs)
 		}
-		if res.Reason != "operation gen-1 already refused; not re-run" {
-			t.Errorf("reason = %q", res.Reason)
+		if !strings.Contains(res.Reason, "no net node reduction achievable") {
+			t.Errorf("re-run %d reason = %q", i, res.Reason)
 		}
 	}
-	if p.calls != first || first == 0 {
-		t.Errorf("planner calls %d after re-runs, %d after the first run", p.calls, first)
+	if p.calls == 0 {
+		t.Error("the benefit guard must run the fit simulation")
 	}
 	for _, n := range []string{"node-old", "node-young"} {
 		if node, _ := c.CoreV1().Nodes().Get(context.Background(), n, metav1.GetOptions{}); node.Spec.Unschedulable {
@@ -151,32 +157,47 @@ func TestRebalancerSameOperationRunsOnce(t *testing.T) {
 	assertNoPodDelete(t, c)
 }
 
+// A terminal live outcome persists across a process restart: the completed operation
+// is read from the ledger and never re-run (the benefit guard is not even reached).
 func TestRebalancerRestartPersistence(t *testing.T) {
-	c := blockedCluster()
+	c := drainableCluster()
+	replaceOnEviction(c, "node-spot")
 	p := fitCounting(c)
-	runOnce(t, NewRebalancer(c, false), c, p, runningCfg(""), gate.Live, 1, false)
+	res, _ := runOnce(t, NewRebalancer(c, false), c, p, runningCfg("op-persist"), gate.Live, 1, false)
+	if res.Status != state.StateCompleted {
+		t.Fatalf("first run = %+v", res)
+	}
 	first := p.calls
 
 	// New process: new Rebalancer, new Ledger, same API.
-	res, recs := runOnce(t, NewRebalancer(c, false), c, p, runningCfg(""), gate.Live, 1, false)
+	res, recs := runOnce(t, NewRebalancer(c, false), c, p, runningCfg("op-persist"), gate.Live, 1, false)
 	if len(recs) != 0 || p.calls != first {
 		t.Fatalf("operation re-run after restart: calls=%d/%d recs=%+v", p.calls, first, recs)
 	}
-	if res.OperationID != "gen-1" || res.Status != state.StateRefused {
+	if res.OperationID != "op-persist" || res.Status != state.StateCompleted {
 		t.Errorf("after restart = %+v", res)
 	}
 }
 
+// A terminal operation is never re-run under its own id, but a NEW operation id is a
+// fresh operation and is evaluated (and here drained) again.
 func TestRebalancerNewOperationIDRunsAgain(t *testing.T) {
-	c := blockedCluster()
+	c := drainableCluster()
+	replaceOnEviction(c, "node-spot")
 	p := fitCounting(c)
 	rb := NewRebalancer(c, false)
-	runOnce(t, rb, c, p, runningCfg("op-a"), gate.Live, 1, false)
+	if res, _ := runOnce(t, rb, c, p, runningCfg("op-a"), gate.Live, 1, false); res.Status != state.StateCompleted {
+		t.Fatalf("op-a first run = %+v", res)
+	}
 	first := p.calls
-	runOnce(t, rb, c, p, runningCfg("op-a"), gate.Live, 1, false)
-	res, recs := runOnce(t, rb, c, p, runningCfg("op-b"), gate.Live, 1, false)
-	if p.calls != 2*first || len(recs) != 2 || res.OperationID != "op-b" {
-		t.Errorf("calls=%d (first %d) recs=%d res=%+v", p.calls, first, len(recs), res)
+	// op-a is terminal: re-running it does not touch the planner.
+	if _, recs := runOnce(t, rb, c, p, runningCfg("op-a"), gate.Live, 1, false); len(recs) != 0 || p.calls != first {
+		t.Fatalf("op-a re-run: calls=%d/%d recs=%+v", p.calls, first, recs)
+	}
+	// op-b is a new operation: it is evaluated afresh (planner runs again).
+	res, _ := runOnce(t, rb, c, p, runningCfg("op-b"), gate.Live, 1, false)
+	if p.calls <= first || res.OperationID != "op-b" || res.Status != state.StateCompleted {
+		t.Errorf("op-b: calls=%d (first %d) res=%+v", p.calls, first, res)
 	}
 }
 
@@ -206,16 +227,20 @@ func TestRebalancerDryRunSimulatesOnceAndWritesNothing(t *testing.T) {
 	assertOnlyReads(t, c)
 }
 
-// With the fail-closed planner a dry run still reports status simulated, but nothing
-// was simulated as drainable.
+// With the fail-closed planner no set is drainable, so the benefit guard refuses in
+// Simulate too (honest "refused: no benefit"): the dry run reports status simulated,
+// nothing simulated as drainable, and no drain records.
 func TestRebalancerDryRunUnavailablePlanner(t *testing.T) {
 	c := drainableCluster()
 	res, recs := runOnce(t, NewRebalancer(c, true), c, drain.UnavailablePlanner{}, runningCfg(""), gate.Simulate, 1, true)
 	if res.Status != policy.ActionSimulated || res.NodesSimulated != 0 || !res.DryRun {
 		t.Fatalf("res = %+v", res)
 	}
-	if len(recs) != 2 || recs[0].Status != policy.ActionRefused || !recs[0].DryRun {
-		t.Fatalf("recs = %+v", recs)
+	if len(recs) != 0 {
+		t.Fatalf("the benefit guard refuses before any drain record: %+v", recs)
+	}
+	if !strings.Contains(res.Reason, "no net node reduction achievable") {
+		t.Errorf("reason = %q", res.Reason)
 	}
 	assertOnlyReads(t, c)
 }

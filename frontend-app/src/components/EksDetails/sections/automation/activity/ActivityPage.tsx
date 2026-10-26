@@ -171,7 +171,7 @@ const SOURCES: Array<{ id: SourceFilter; label: string }> = [
   { id: 'hpa', label: 'HPA' },
 ];
 
-const pill = (pressed: boolean) =>
+export const pill = (pressed: boolean) =>
   `inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${FOCUS} ${
     pressed
       ? 'border-[rgba(0,0,0,0.88)] bg-[rgba(0,0,0,0.88)] text-white dark:border-[rgba(255,255,255,0.92)] dark:bg-[rgba(255,255,255,0.92)] dark:text-black'

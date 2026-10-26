@@ -28,6 +28,7 @@ jobs:
       media-ops:  ${{ steps.diff.outputs.media-ops }}
       agent:      ${{ steps.diff.outputs.agent }}
       autoscaler: ${{ steps.diff.outputs.autoscaler }}
+      forecast:   ${{ steps.diff.outputs.forecast }}
       routing:    ${{ steps.diff.outputs.routing }}
     steps:
       - name: Checkout source
@@ -42,6 +43,16 @@ jobs:
           if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
             BASE=$(git hash-object -t tree /dev/null)
           fi
+          # Guard: after a rebase / force-push / rewritten history, github.event.before can point at
+          # a commit that is not reachable in this checkout, and `git diff "$BASE"` then FAILS and
+          # bricks the whole Detect job -> every service skips -> nothing deploys. If BASE is not a
+          # valid commit here, fall back to the empty tree so the diff treats everything as changed
+          # (safe: a superset build/deploy) instead of crashing the pipeline.
+          EMPTY_TREE=$(git hash-object -t tree /dev/null)
+          if [ "$BASE" != "$EMPTY_TREE" ] && ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            echo "BASE $BASE not reachable in this checkout (rebase/force-push?) -> empty tree (treat all as changed)"
+            BASE="$EMPTY_TREE"
+          fi
 
           echo "Comparing $BASE → ${{ github.sha }}"
           CHANGED=$(git diff --name-only "$BASE" "${{ github.sha }}")
@@ -55,7 +66,7 @@ jobs:
           # health survived for as long as it did.
           if echo "$CHANGED" | grep -q "^\.github/workflows/"; then
             echo "CI workflow changed -> treating all services as changed"
-            CHANGED=$(printf '%s\nbillops/\nxamops-service/\nfrontend-app/\nmedia-ops-service/\nxamops-agent/\nxamops-autoscaler/\n' "$CHANGED")
+            CHANGED=$(printf '%s\nbillops/\nxamops-service/\nfrontend-app/\nmedia-ops-service/\nxamops-agent/\nxamops-autoscaler/\nforecast-service/\n' "$CHANGED")
           fi
 
           if echo "$CHANGED" | grep -q "^billops/"; then
@@ -102,6 +113,12 @@ jobs:
             echo "autoscaler=true" >> $GITHUB_OUTPUT
           else
             echo "autoscaler=false" >> $GITHUB_OUTPUT
+          fi
+
+          if echo "$CHANGED" | grep -q "^forecast-service/"; then
+            echo "forecast=true" >> $GITHUB_OUTPUT
+          else
+            echo "forecast=false" >> $GITHUB_OUTPUT
           fi
 
 
@@ -1146,3 +1163,228 @@ jobs:
             -t ghcr.io/xamops/xamops-autoscaler:sha-${{ github.sha }} \
             --push \
             ./xamops-autoscaler
+
+
+  # ══════════════════════════════════════════════════════════
+  #  FORECAST-SERVICE (Python/Flask usage forecaster)
+  # ══════════════════════════════════════════════════════════
+  #
+  # Same three-job shape as billops: build/test -> GHCR push -> SSH-via-bastion
+  # docker pull + docker run on UAT. xamops-service UAT reaches this container as
+  # http://xamops-forecast-uat:5002 (application-uat.properties), so the container
+  # name and the xamops-network membership below must not change.
+
+  forecast-build-test:
+    name: "[forecast-service] Build & Test"
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.forecast == 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # Must track `FROM python:3.11-slim` in forecast-service/Dockerfile.
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: forecast-service/requirements*.txt
+
+      - name: Install pinned dependencies
+        working-directory: forecast-service
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run service tests
+        working-directory: forecast-service
+        run: python -m pytest -q --junitxml=test-reports/service.xml
+
+      # Separate invocation so backtest/pytest.ini (which registers the `slow` marker)
+      # is the one in effect. The Chronos contract test skips itself unless
+      # BACKTEST_SLOW=1 (it downloads model weights and needs torch, which is not in
+      # requirements.txt), so this job deliberately leaves BACKTEST_SLOW unset.
+      - name: Run backtest tests
+        working-directory: forecast-service
+        run: python -m pytest backtest/tests -q -rs --junitxml=test-reports/backtest.xml
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forecast-test-reports
+          path: forecast-service/test-reports/
+          if-no-files-found: ignore
+
+  forecast-docker-push:
+    name: "[forecast-service] Build & Push Docker Image"
+    runs-on: ubuntu-latest
+    needs: [changes, forecast-build-test]
+    if: |
+      needs.changes.outputs.forecast == 'true' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # The forecast-service Dockerfile is self-contained (python:3.11-slim, pip install
+      # of the pinned requirements.txt, COPY of the source, gunicorn entrypoint), so it
+      # needs no pre-built artifact and no Dockerfile patch step (unlike the Java jar
+      # flow for billops/xamops-service).
+      - name: Build & Push Docker image
+        run: |
+          docker buildx build \
+            --no-cache \
+            --provenance=false \
+            -t ghcr.io/xamops/forecast-service:latest \
+            -t ghcr.io/xamops/forecast-service:sha-${{ github.sha }} \
+            --push \
+            ./forecast-service
+
+  forecast-deploy:
+    name: "[forecast-service] Deploy to UAT"
+    runs-on: ubuntu-latest
+    needs: [changes, forecast-docker-push]
+    if: |
+      needs.changes.outputs.forecast == 'true' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push'
+    environment: uat
+    steps:
+      # Only config.py is needed: the health gate asserts the running image reports
+      # the VERSION from this commit, which is what proves the new image is serving
+      # (the old Prophet-only image reports an older version but is otherwise healthy).
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: forecast-service/config.py
+          sparse-checkout-cone-mode: false
+          lfs: false
+
+      - name: Read expected forecast version
+        id: ver
+        run: |
+          v=$(sed -nE "s/^[[:space:]]*VERSION = '([^']+)'.*/\1/p" forecast-service/config.py | head -1)
+          if [ -z "$v" ]; then
+            echo "::error::could not read VERSION from forecast-service/config.py"
+            exit 1
+          fi
+          echo "expected forecast-service version: $v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Setup SSH Keys
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          cat << 'SSHKEY' > ~/.ssh/bastion_key
+          ${{ secrets.BASTION_SSH_KEY }}
+          SSHKEY
+          chmod 600 ~/.ssh/bastion_key
+          cat << 'SSHKEY' > ~/.ssh/uat_key
+          ${{ secrets.SSH_KEY }}
+          SSHKEY
+          chmod 600 ~/.ssh/uat_key
+          cat > ~/.ssh/config << 'EOF'
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+            ServerAliveInterval 60
+            ServerAliveCountMax 10
+          EOF
+          chmod 600 ~/.ssh/config
+          echo "✅ SSH keys configured!"
+
+      - name: Test Bastion Connection
+        run: |
+          ssh -i ~/.ssh/bastion_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
+            ec2-user@${{ secrets.BASTION_HOST }} "echo '✅ Bastion connected!'"
+
+      - name: Deploy forecast-service via Bastion
+        run: |
+          ssh \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=30 \
+            -o "ProxyCommand=ssh -i ~/.ssh/bastion_key -o StrictHostKeyChecking=no -W %h:%p ec2-user@${{ secrets.BASTION_HOST }}" \
+            -i ~/.ssh/uat_key \
+            ec2-user@${{ secrets.SSH_HOST }} << 'ENDSSH'
+
+            echo "🔄 Deploying forecast-service..."
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            docker pull ghcr.io/xamops/forecast-service:latest
+
+            docker network inspect xamops-network >/dev/null 2>&1 || docker network create xamops-network
+
+            # xamops-service resolves http://xamops-forecast-uat:5002 (see
+            # xamops-service/src/main/resources/application-uat.properties), so the name
+            # must not change. This also removes any older compose-built container.
+            docker stop xamops-forecast-uat 2>/dev/null || true
+            docker rm   xamops-forecast-uat 2>/dev/null || true
+
+            docker run -d \
+              --name xamops-forecast-uat \
+              --restart unless-stopped \
+              --network xamops-network \
+              --memory=2g --memory-swap=2g \
+              -p 5002:5002 \
+              -e FLASK_ENV=uat \
+              -e LOG_LEVEL=INFO \
+              -e PORT=5002 \
+              -e WORKERS=2 \
+              -e THREADS=4 \
+              -e TIMEOUT=180 \
+              ghcr.io/xamops/forecast-service:latest
+
+            # Probed from the host against the published port. Ready only on HTTP 200
+            # with "status": "healthy" AND "version" equal to the VERSION in this
+            # commit's forecast-service/config.py, so a stale image cannot pass.
+            # 12 x 10s = ~2 minutes; the RestartCount guard catches a crash loop early.
+            expected="${{ steps.ver.outputs.version }}"
+            echo "⏳ waiting for xamops-forecast-uat to report version ${expected}..."
+            rm -f /tmp/forecast-health.json
+            ready=0
+            for i in $(seq 1 12); do
+              # curl's %{http_code} already prints 000 on a refused connection, so no
+              # '|| echo 000' fallback: appending one concatenated to "000000", which is
+              # not equal to "000" and silently passed the check.
+              code=$(curl -s -o /tmp/forecast-health.json -m 5 -w '%{http_code}' http://localhost:5002/health 2>/dev/null)
+              if [ "$code" = "200" ] \
+                && grep -qE '"status": *"healthy"' /tmp/forecast-health.json \
+                && grep -qE "\"version\": *\"${expected}\"" /tmp/forecast-health.json; then
+                echo "xamops-forecast-uat healthy (HTTP $code)"
+                ready=1; break
+              fi
+              # Detect a container that is restarting rather than merely slow to boot.
+              restarts=$(docker inspect -f '{{.RestartCount}}' xamops-forecast-uat 2>/dev/null || echo 0)
+              if [ "${restarts:-0}" -ge 3 ]; then
+                echo "❌ xamops-forecast-uat is crash-looping (${restarts} restarts)"
+                break
+              fi
+              sleep 10
+            done
+
+            if [ "$ready" = "1" ]; then
+              echo "✅ xamops-forecast-uat is up and healthy"
+              cat /tmp/forecast-health.json; echo
+              docker ps --filter "name=xamops-forecast-uat"
+            else
+              echo "❌ xamops-forecast-uat failed to become ready (expected version ${expected})"
+              echo "─── last health response (HTTP ${code:-none}) ───"
+              cat /tmp/forecast-health.json 2>/dev/null || echo "(no body)"
+              echo
+              echo "─── restart count: $(docker inspect -f '{{.RestartCount}}' xamops-forecast-uat 2>/dev/null) ───"
+              echo "─── last 120 log lines ───"
+              docker logs --tail=120 xamops-forecast-uat 2>&1 || true
+              exit 1
+            fi
+
+            docker image prune -f
+            echo "🚀 forecast-service deployment complete!"
+          ENDSSH

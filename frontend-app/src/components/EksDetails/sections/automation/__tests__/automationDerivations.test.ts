@@ -8,7 +8,7 @@ import type {
   VerticalWorkloadWire,
 } from '../../../../../types/verticalRightsizer';
 import type { EksDashboard } from '../../../../../types/eksTypes';
-import type { CapabilitiesCluster } from '../../../../../types/k8sAutomation';
+import type { AutomationNodeFleet, CapabilitiesCluster } from '../../../../../types/k8sAutomation';
 import {
   COOLDOWN_MS,
   DAY_MS,
@@ -28,6 +28,7 @@ import {
   parseWorkloadParam,
   podRequests,
   recentChanges,
+  spotAnalysisState,
   timelineLanes,
   vpaFeatureStatus,
   withParam,
@@ -433,5 +434,72 @@ describe('units (glossary v2 rule 6)', () => {
     expect(workloadStatusChip(one(wire('api')))).toMatchObject({ key: 'over-provisioned', tone: 'warn', label: 'Over-provisioned' });
     expect(workloadStatusChip(one(THROTTLED))).toMatchObject({ key: 'needs-more', tone: 'bad' });
     expect(workloadStatusChip(one(SINGLE))).toMatchObject({ key: 'skipped', tone: 'off', label: 'Skipped: only 1 replica' });
+  });
+});
+
+describe('spotAnalysisState (spot-interruptions design §B6.3; AC18, AC25)', () => {
+  const ok = (over: Partial<AutomationNodeFleet>) => ({
+    kind: 'ok' as const,
+    data: {
+      totalNodes: 3, onDemandNodes: 2, spotNodes: 1, idleNodes: [], interruptedNodes: [], collectedAt: new Date(NOW - 60_000).toISOString(),
+      ...over,
+    } as AutomationNodeFleet,
+  });
+  const fresh = (notices: AutomationNodeFleet['interruptionNotices']) =>
+    ok({ interruptedNodesReported: true, interruptionNoticesReported: true, interruptionNotices: notices });
+
+  it('1. loading and error are a bare dash', () => {
+    expect(spotAnalysisState({ kind: 'loading' }, NOW)).toEqual({ kind: 'dash', reason: null });
+    expect(spotAnalysisState({ kind: 'error', message: 'x' }, NOW)).toEqual({ kind: 'dash', reason: null });
+  });
+
+  it('2. no fresh report: not-reported, stale with an age, stale without one', () => {
+    expect(spotAnalysisState(ok({ interruptedNodesReported: false, interruptedNodesReason: 'not-reported' }), NOW)).toEqual({
+      kind: 'dash', reason: "Not reported: the automation agent's node report hasn't arrived",
+    });
+    const stale = spotAnalysisState(
+      ok({ interruptedNodesReported: false, interruptedNodesReason: 'stale', interruptedNodesReportAt: new Date(NOW - 12 * 60_000).toISOString() }),
+      NOW,
+    );
+    expect(stale).toEqual({ kind: 'dash', reason: "Not reported: the automation agent's last node report is 12 min old" });
+    expect(stale.kind === 'dash' && stale.reason).not.toMatch(/old old|data /);
+    for (const at of [undefined, null, 'not-a-time']) {
+      expect(spotAnalysisState(ok({ interruptedNodesReported: false, interruptedNodesReason: 'stale', interruptedNodesReportAt: at }), NOW)).toEqual({
+        kind: 'dash', reason: "Not reported: the automation agent's last node report is stale",
+      });
+    }
+  });
+
+  it('3. a fresh notice-aware report counts notices by kind, and only an empty one reads "None interrupted"', () => {
+    expect(spotAnalysisState(fresh([{ nodeName: 'a', kind: 'interruption' }]), NOW)).toEqual({ kind: 'warn', label: '1 node with an interruption notice' });
+    expect(spotAnalysisState(fresh([{ nodeName: 'a', kind: 'rebalance' }]), NOW)).toEqual({ kind: 'warn', label: '1 node with a rebalance recommendation' });
+    expect(spotAnalysisState(fresh([{ nodeName: 'a', kind: 'interruption' }, { nodeName: 'b', kind: 'rebalance' }]), NOW)).toEqual({
+      kind: 'warn', label: '1 node with an interruption notice · 1 rebalance recommendation',
+    });
+    expect(spotAnalysisState(fresh([{ nodeName: 'a', kind: 'interruption' }, { nodeName: 'b', kind: 'interruption' }]), NOW)).toEqual({
+      kind: 'warn', label: '2 nodes with an interruption notice',
+    });
+    expect(spotAnalysisState(fresh([{ nodeName: 'a', kind: 'capacity-rebalance-v2' }]), NOW)).toEqual({ kind: 'warn', label: '1 node with a spot notice' });
+    expect(spotAnalysisState(fresh([]), NOW)).toEqual({ kind: 'good', label: 'None interrupted' });
+    // The notices are counted even when the legacy interruptedNodes is empty (AC18).
+    expect(spotAnalysisState({ ...fresh([{ nodeName: 'a', kind: 'interruption' }]) }, NOW).kind).toBe('warn');
+  });
+
+  it('4. an older automation agent: a legacy count is real, an empty list is a dash with the agent-version reason', () => {
+    const older = (interruptedNodes: string[]) => ok({ interruptedNodesReported: true, interruptionNoticesReported: false, interruptedNodes });
+    expect(spotAnalysisState(older([]), NOW)).toEqual({
+      kind: 'dash', reason: "Not reported: this automation agent version doesn't report interruption notices. Update xamops-automation.",
+    });
+    expect(spotAnalysisState(older(['n1']), NOW)).toEqual({ kind: 'warn', label: '1 node interrupted' });
+  });
+
+  it('5. neither flag (an older backend): zero is not evidence, a positive count is', () => {
+    expect(spotAnalysisState(ok({}), NOW)).toEqual({ kind: 'dash', reason: 'Not reported by this XamOps version' });
+    expect(spotAnalysisState(ok({ interruptedNodes: ['a', 'b'] }), NOW)).toEqual({ kind: 'warn', label: '2 nodes interrupted' });
+    expect(spotAnalysisState(ok({ interruptedNodes: null }), NOW)).toEqual({ kind: 'dash', reason: 'Not reported by this XamOps version' });
+    // Malformed: reported true but no list falls to state 5, never "None interrupted".
+    expect(spotAnalysisState(ok({ interruptionNoticesReported: true, interruptionNotices: null }), NOW)).toEqual({
+      kind: 'dash', reason: 'Not reported by this XamOps version',
+    });
   });
 });

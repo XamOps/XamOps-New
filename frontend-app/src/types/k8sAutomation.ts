@@ -136,6 +136,7 @@ export const READINESS_KEYS = [
   'node-optimizer-actions',
   'scale-out',
   'node-templates',
+  'spot-interruption-actions',
 ] as const;
 
 export type ReadinessKey = (typeof READINESS_KEYS)[number];
@@ -353,9 +354,91 @@ export interface AutomationNodeFleet {
   totalNodes: number;
   onDemandNodes: number;
   spotNodes: number;
-  idleNodes: Array<{ nodeName: string; cpuUsagePct: number | null; memUsagePct: number | null; reason?: string }>;
-  interruptedNodes: string[];
+  /** `null` = not observed (no fresh automation report); `[]` = the report found none. */
+  idleNodes: Array<{ nodeName: string; cpuUsagePct: number | null; memUsagePct: number | null; reason?: string }> | null;
+  interruptedNodes: string[] | null;
   collectedAt: string | null;
+  /** False when no fresh automation report was served (the fleet is synthesized or empty). */
+  interruptedNodesReported?: boolean;
+  interruptedNodesReason?: 'stale' | 'not-reported';
+  /** With reason `stale`: when the last (stale) report arrived, UTC ISO. */
+  interruptedNodesReportAt?: string | null;
+  interruptedNodesDetectionFailed?: boolean;
+  /** NTH / Karpenter notices the automation agent saw this cycle; `null` = not reported. */
+  interruptionNotices?: Array<{ nodeName: string; kind: 'interruption' | 'rebalance' | string }> | null;
+  /** True only when the report carried `interruptionNotices` (older automation agents don't). */
+  interruptionNoticesReported?: boolean;
+  /** On-demand nodes the automation agent would move to Spot; `null` = not reported. Not read by the v3 pages. */
+  spotCandidates?: Array<Record<string, unknown>> | null;
+}
+
+// ── Spot interruptions (GET /api/eks/autoscaling/{cluster}/spot-interruptions) ───────────────────
+// The backend's recorded Spot interruption history (SpotInterruptionsDto). Every time is a UTC ISO
+// string; `null` = unknown (not reported, not observed), never "none".
+
+export type HandlingMode = 'live' | 'simulate' | 'off' | 'not-eligible' | 'unknown';
+export type RecoveryStatus =
+  | 'tracking'
+  | 'recovered'
+  | 'not-observed'
+  | 'node-not-removed'
+  | 'no-workloads'
+  | 'no-snapshot'
+  | 'not-measurable';
+export type SpotNoticeKind = 'interruption' | 'rebalance' | 'unconfirmed';
+
+export interface SpotInterruptionHandling {
+  mode: HandlingMode;
+  reason: string | null;
+}
+
+export interface SpotInterruptionEvent {
+  id: number;
+  nodeName: string;
+  nodeCreatedAt: string;
+  instanceId: string | null;
+  instanceType: string | null;
+  zone: string | null;
+  capacityType: string | null;
+  nodegroup: string | null;
+  /** A kind a future backend adds is counted as "other". */
+  noticeKind: SpotNoticeKind | string;
+  /** nth-taint | nth-label-legacy | karpenter-event | node-removed */
+  sources: string[];
+  noticedAt: string;
+  rebalanceNoticedAt: string | null;
+  interruptionNoticedAt: string | null;
+  nodeRemovedAt: string | null;
+  cordonedBeforeRemoval: boolean | null;
+  handling: SpotInterruptionHandling | null;
+  drain: { status: string; reason: string | null; dryRun: boolean | null; finishedAt: string | null } | null;
+  workloads: Array<{ namespace: string; kind: string; name: string; podsOnNode: number }> | null;
+  podCount: number | null;
+  workloadsTruncated: boolean | null;
+  workloadsSnapshotAt: string | null;
+  nodeLastSeenAt: string | null;
+  recovery: {
+    status: RecoveryStatus;
+    lowerSeconds: number | null;
+    upperSeconds: number | null;
+    recoveredByFirstSighting: boolean;
+    observedAt: string | null;
+  };
+  pending: { firstSeenAt: string; lastSeenAt: string | null; maxPods: number | null } | null;
+}
+
+export interface SpotInterruptionsDto {
+  windowDays: number;
+  truncated: boolean;
+  retentionDays: number;
+  recordingEnabled: boolean;
+  fleet: { totalNodes: number; spotNodes: number; spotSharePct: number | null; collectedAt: string } | null;
+  coverage: {
+    agentSnapshotAt: string | null;
+    automationReportAt: string | null;
+    handlingNow: SpotInterruptionHandling | null;
+  };
+  events: SpotInterruptionEvent[];
 }
 
 export interface AutomationRebalanceStatus {
@@ -365,6 +448,201 @@ export interface AutomationRebalanceStatus {
 }
 
 export type AutomationEvictorCandidate = Record<string, unknown>;
+
+// ── Consolidation plan (GET /api/eks/autoscaling/{cluster}/consolidation-plan) ───────────────────
+// The automation agent's look-only plan (xamops-autoscaler internal/consolidation, schemaVersion 1)
+// as the backend serves it (ConsolidationPlanResponse / ConsolidationPlanDto), priced by the cost
+// engine. Nothing in it acts on the cluster.
+
+/** CURRENT: fresh and priced; STALE: older than 10 min (not priced); NO_PLAN; UNREADABLE. */
+export type ConsolidationFreshness = 'CURRENT' | 'STALE' | 'NO_PLAN' | 'UNREADABLE';
+/** v1 invariant I0: a node is only ever emptied or drained. There is no REPLACE. */
+export type ConsolidationMoveType = 'EMPTY' | 'DRAIN';
+export type ConsolidationActorKind = 'KARPENTER' | 'CLUSTER_AUTOSCALER' | 'MULTIPLE' | 'NONE';
+
+export interface ConsolidationNodeRef {
+  name: string;
+  nodeGroup: string;
+  instanceType: string;
+  /** The raw label value, e.g. `ON_DEMAND` or `spot`; empty when the node has none. */
+  capacityType: string;
+  zone: string;
+  fargate: boolean;
+  /** Requests of allocatable, rounded to 0.1. */
+  cpuRequestedPct: number;
+  memRequestedPct: number;
+}
+
+export interface ConsolidationPodMove {
+  /** `namespace/name`. */
+  pod: string;
+  /** `Kind/name`, or empty when the pod has no owner. */
+  owner: string;
+  /** The receiving node. */
+  to: string;
+  cpuMillis: number;
+  memBytes: number;
+}
+
+export interface ConsolidationMove {
+  type: ConsolidationMoveType;
+  node: ConsolidationNodeRef;
+  /** Always empty for EMPTY. */
+  pods: ConsolidationPodMove[];
+}
+
+export interface ConsolidationBlocker {
+  /** `namespace/name`, or empty for a node-level reason. */
+  pod: string;
+  code: string;
+  reason: string;
+}
+
+export interface ConsolidationBlockedNode {
+  node: ConsolidationNodeRef;
+  blockers: ConsolidationBlocker[];
+}
+
+export interface ConsolidationKeptNode {
+  node: ConsolidationNodeRef;
+  reason: string;
+}
+
+export interface ConsolidationActor {
+  kind: ConsolidationActorKind;
+  evidence: string[];
+  note: string;
+}
+
+export interface ConsolidationPlan {
+  schemaVersion: number;
+  generatedAt: string;
+  mode: string;
+  actor: ConsolidationActor;
+  settings: { underutilizedThresholdPct: number; headroomPct: number; maxNodesPerPlan: number };
+  summary: { nodesEvaluated: number; empty: number; drain: number; blocked: number; kept: number };
+  moves: ConsolidationMove[];
+  blocked: ConsolidationBlockedNode[];
+  kept: ConsolidationKeptNode[];
+}
+
+/** One removed node's monthly cost from the cost engine (NodeCostDto). `monthlyCost` null = unpriced. */
+export interface ConsolidationNodeCost {
+  nodeName: string;
+  instanceType: string | null;
+  capacityType: string | null;
+  capacityTypeInferred: boolean;
+  monthlyCost: number | null;
+  /** PRICE_LIST | SPOT_HISTORY, or null when unpriced. */
+  source: string | null;
+  /** A NodeRate.Reason name when unpriced, else null. */
+  reason: string | null;
+  note: string | null;
+}
+
+export interface ConsolidationSavings {
+  /** The sum of every move node's monthly cost; null while any is unpriced. */
+  projectedMonthlySavings: number | null;
+  /** The sum of the priced ones; null when none is priced. */
+  pricedMonthlySubtotal: number | null;
+  pricedNodes: number;
+  unpricedNodes: number;
+  /** One per plan move, in plan order. */
+  nodes: ConsolidationNodeCost[];
+}
+
+export interface ConsolidationPlanResponse {
+  freshness: ConsolidationFreshness;
+  generatedAt: string | null;
+  ageSeconds: number | null;
+  /** Null for NO_PLAN and UNREADABLE. */
+  plan: ConsolidationPlan | null;
+  /** Non-null only when CURRENT. */
+  savings: ConsolidationSavings | null;
+}
+
+// ── Consolidation runs (GET /api/eks/autoscaling/{cluster}/consolidation-runs) ───────────────────
+// The consolidation controller's run history (xamops-autoscaler internal/consolidation run.go,
+// schemaVersion 1) as the backend serves it (ConsolidationRunResponse / ConsolidationRunDto). The
+// ACTING counterpart of the look-only plan: a run says what the controller actually did this cycle.
+// Mirrors the Go JSON exactly — no field is omitted, empty lists are [].
+
+/** OK: the history read; NO_RUNS: none stored; UNREADABLE: stored history couldn't be parsed. */
+export type ConsolidationRunStatus = 'OK' | 'NO_RUNS' | 'UNREADABLE';
+/** The gate mode the controller ran in: a simulation never acts. */
+export type ConsolidationRunMode = 'simulate' | 'live';
+/** One node's outcome in a run (mirror of the Go RunStatus* constants). */
+export type ConsolidationRunNodeStatus =
+  | 'removed'
+  | 'deferred'
+  | 'simulated'
+  | 'skipped'
+  | 'refused'
+  | 'aborted';
+/** The removal decision; empty when the node never reached the removal step (skipped before drain). */
+export type ConsolidationRunDecision = '' | 'xamops-asg' | 'defer-to-actor' | 'refuse';
+
+/** Counts of a run's node verdicts; `considered` equals `nodes.length`. */
+export interface ConsolidationRunSummary {
+  considered: number;
+  removed: number;
+  deferred: number;
+  simulated: number;
+  skipped: number;
+  refused: number;
+  aborted: number;
+  podsEvicted: number;
+}
+
+/** One node's outcome in a run. `reason` is the sentence explaining `status` (an abort's reason too). */
+export interface ConsolidationRunNode {
+  /** The same node shape the plan carries, including `providerId`. */
+  node: ConsolidationNodeRef;
+  moveType: ConsolidationMoveType;
+  status: ConsolidationRunNodeStatus;
+  decision: ConsolidationRunDecision;
+  reason: string;
+  podsEvicted: number;
+}
+
+/** One consolidation run as the controller recorded it. */
+export interface ConsolidationRun {
+  schemaVersion: number;
+  /** `consolidation-<unixSeconds>`, shared by the paired actions / events records. */
+  runId: string;
+  /** RFC 3339 UTC time the controller built this record. */
+  generatedAt: string;
+  mode: ConsolidationRunMode;
+  /** True when `mode !== 'live'` (a simulation took no cloud or cluster action). */
+  dryRun: boolean;
+  actor: ConsolidationActor;
+  summary: ConsolidationRunSummary;
+  nodes: ConsolidationRunNode[];
+}
+
+/**
+ * The priced nodes the NEWEST run actually removed (its `removed` nodes). Null unless that run
+ * removed at least one node; an unpriceable removed node nulls `realizedMonthlySavings` rather than
+ * reporting a partial sum, like the plan's projected savings.
+ */
+export interface ConsolidationRealizedSavings {
+  /** The sum over every removed node, only when all are priced; null otherwise. */
+  realizedMonthlySavings: number | null;
+  /** The sum over the priced removed nodes; null when none is priced. */
+  pricedMonthlySubtotal: number | null;
+  pricedNodes: number;
+  unpricedNodes: number;
+  /** One entry per removed node, in run order (NodeCostDto). */
+  nodes: ConsolidationNodeCost[];
+}
+
+export interface ConsolidationRunResponse {
+  status: ConsolidationRunStatus;
+  /** Newest-first; `[]` when none. */
+  runs: ConsolidationRun[];
+  /** Null unless the newest run removed at least one node. */
+  realizedSavings: ConsolidationRealizedSavings | null;
+}
 
 /** `{ success: true, message }` on every 2xx mutation; the UI refetches instead of trusting it. */
 export interface AutomationSaveResult {

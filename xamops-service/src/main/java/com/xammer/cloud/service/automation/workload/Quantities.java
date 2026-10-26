@@ -61,6 +61,20 @@ public final class Quantities {
     }
 
     /**
+     * Reads a CPU quantity as fractional millicores, without rounding.
+     *
+     * <p>{@code "1234567n" -> 1.234567}, {@code "250m" -> 250.0}, {@code "2" -> 2000.0}. For usage
+     * history, where {@link #cpuMillis(String, String)}'s rounding to whole millicores would flatten
+     * idle containers (metrics-server reports nanocores). Same throw-on-null/blank/unparseable/
+     * negative {@link QuantityParseException} contract.
+     *
+     * @throws QuantityParseException on null, blank, unparseable or negative input
+     */
+    public static double cpuMillisPrecise(String quantity, String field) {
+        return baseUnits(quantity, field).multiply(MILLIS_PER_UNIT).doubleValue();
+    }
+
+    /**
      * Reads a memory quantity as integer bytes.
      *
      * <p>{@code "250Mi" -> 262144000}, {@code "1Gi" -> 1073741824}, {@code "64Mi" -> 67108864}.

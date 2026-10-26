@@ -107,6 +107,30 @@ class QuantitiesTest {
         assertThat(failure).hasMessageContaining("250x");
     }
 
+    @ParameterizedTest
+    @CsvSource({
+            "1234567n, 1.234567",   // metrics-server nanocores: cpuMillis would flatten this to 1
+            "250m, 250.0",
+            "2, 2000.0",
+            "0.25, 250.0",
+            "500u, 0.5",
+            "0, 0.0"
+    })
+    @DisplayName("precise CPU keeps fractional millicores instead of rounding to whole ones")
+    void cpuParsesToPreciseMillicores(String quantity, double expectedMillis) {
+        assertThat(Quantities.cpuMillisPrecise(quantity, "the CPU usage")).isEqualTo(expectedMillis);
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"   ", "-100m", "abc", "250x"})
+    @DisplayName("precise CPU keeps the throw contract: absent, negative and unreadable all throw")
+    void preciseCpuThrowsLikeTheRest(String quantity) {
+        assertThatThrownBy(() -> Quantities.cpuMillisPrecise(quantity, "the CPU usage"))
+                .isInstanceOf(QuantityParseException.class)
+                .hasMessageContaining("the CPU usage");
+    }
+
     @Test
     @DisplayName("MiB conversion is used for the wire format and stays exact for whole MiB")
     void mebibyteConversion() {

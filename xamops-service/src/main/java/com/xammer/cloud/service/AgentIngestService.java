@@ -16,13 +16,20 @@ import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.AgentEventRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
+import com.xammer.cloud.service.spot.AgentBatchStoredEvent;
+import com.xammer.cloud.service.spot.ServerTime;
+import com.xammer.cloud.service.spot.SpotInterruptionTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.xammer.cloud.service.automation.workload.usage.store.UsageSampleCapture;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -38,6 +45,10 @@ import java.util.Set;
  * 4. Each batch is processed and stored in agent_data_cache
  * 5. Agent status is updated
  * 6. Event is logged
+ *
+ * A stored k8s-resources snapshot is also handed to {@link UsageSampleCapture} for the hourly
+ * usage rollups. That only schedules work after the ingest commits, on its own bounded thread, and
+ * never throws; the push result, item count, agent status and event are unaffected by it.
  */
 @Service
 public class AgentIngestService {
@@ -53,9 +64,16 @@ public class AgentIngestService {
      * "k8s-resources"                → K8sResources (full cluster snapshot — xamops-agent)
      * "prometheus-metrics"           → PrometheusMetrics (utilization + cost + Falco — xamops-agent)
      * "node-optimizer-report"        → NodeOptimizerReport (idle nodes + spot candidates — xamops-automation)
+     * "autoscaling-consolidation-plan" → ConsolidationPlanDto (look-only plan — xamops-automation)
      *
      * All other collectors (trivy, kubescape, autoscaling-events, autoscaling-rightsizing,
-     * hpa-recommendations, vpa-recommendations, autoscaling-evictor-candidates) push a list → stored as JSON array.
+     * hpa-recommendations, vpa-recommendations, autoscaling-evictor-candidates,
+     * autoscaling-consolidation-runs) push a list → stored as JSON array.
+     *
+     * "autoscaling-consolidation-runs" is a LIST collector on purpose: the consolidation controller
+     * appends one ConsolidationRunDto per run (run history), so it is deliberately NOT in
+     * SINGLE_OBJECT_COLLECTORS (not a single server-owned object) and NOT in SERVER_OWNED_COLLECTORS
+     * (the agent is its writer, like the look-only consolidation plan).
      */
     /**
      * Data types only XamOps writes. An agent key must not be able to replace the automation
@@ -63,18 +81,22 @@ public class AgentIngestService {
      */
     static final Set<String> SERVER_OWNED_COLLECTORS = Set.of("autoscaling-policy");
 
+    private static final String K8S_RESOURCES = "k8s-resources";
+
     private static final Set<String> SINGLE_OBJECT_COLLECTORS = Set.of(
             "autoscaling-metrics",
             "autoscaling-rebalance-status",
             "k8s-resources",
             "prometheus-metrics",
-            "node-optimizer-report"
+            "node-optimizer-report",
+            "autoscaling-consolidation-plan"
     );
 
     private final KubernetesClusterConfigRepository clusterConfigRepository;
     private final AgentDataCacheRepository agentDataCacheRepository;
     private final AgentEventRepository agentEventRepository;
     private final CloudAccountRepository cloudAccountRepository;
+    private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
     @Value("${xamops.agent.api-key:xamops_DEFAULT_KEY_CHANGE_IN_PRODUCTION}")
@@ -90,15 +112,42 @@ public class AgentIngestService {
     @Value("${xamops.agent.legacy-global-key.enabled:true}")
     private boolean legacyGlobalKeyEnabled;
 
+    /** Null when constructed without it (tests): usage capture is then skipped. */
+    private final UsageSampleCapture usageSampleCapture;
+
     public AgentIngestService(
             KubernetesClusterConfigRepository clusterConfigRepository,
             AgentDataCacheRepository agentDataCacheRepository,
             AgentEventRepository agentEventRepository,
             CloudAccountRepository cloudAccountRepository) {
+        this(clusterConfigRepository, agentDataCacheRepository, agentEventRepository, cloudAccountRepository, null);
+    }
+
+    /** Without an event publisher (tests): spot-interruption tracking then observes nothing. */
+    public AgentIngestService(
+            KubernetesClusterConfigRepository clusterConfigRepository,
+            AgentDataCacheRepository agentDataCacheRepository,
+            AgentEventRepository agentEventRepository,
+            CloudAccountRepository cloudAccountRepository,
+            UsageSampleCapture usageSampleCapture) {
+        this(clusterConfigRepository, agentDataCacheRepository, agentEventRepository, cloudAccountRepository,
+                usageSampleCapture, event -> { });
+    }
+
+    @Autowired
+    public AgentIngestService(
+            KubernetesClusterConfigRepository clusterConfigRepository,
+            AgentDataCacheRepository agentDataCacheRepository,
+            AgentEventRepository agentEventRepository,
+            CloudAccountRepository cloudAccountRepository,
+            UsageSampleCapture usageSampleCapture,
+            ApplicationEventPublisher eventPublisher) {
         this.clusterConfigRepository = clusterConfigRepository;
         this.agentDataCacheRepository = agentDataCacheRepository;
         this.agentEventRepository = agentEventRepository;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.usageSampleCapture = usageSampleCapture;
+        this.eventPublisher = eventPublisher;
 
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule());
@@ -397,6 +446,9 @@ public class AgentIngestService {
                     response.addResult(batch.getCollector(), result);
                     if (result.isSuccess()) {
                         totalItemsReceived += result.getItemsProcessed();
+                        if (K8S_RESOURCES.equals(batch.getCollector())) {
+                            captureUsageSafely(clusterConfig, batch);
+                        }
                     }
                 } catch (Exception e) {
                     logger.error("Error processing batch {}: {}", batch.getCollector(), e.getMessage());
@@ -422,6 +474,23 @@ public class AgentIngestService {
         }
 
         return response;
+    }
+
+    /**
+     * Hands a stored {@code k8s-resources} snapshot to the usage rollup. Only schedules work (after
+     * commit, on its own thread) and swallows any failure: the push result never depends on it.
+     */
+    private void captureUsageSafely(KubernetesClusterConfig clusterConfig, DataBatch batch) {
+        if (usageSampleCapture == null) {
+            return;
+        }
+        try {
+            usageSampleCapture.submit(clusterConfig.getId(), clusterConfig.getCloudAccountId(),
+                    batch.getItems().get(0), batch.getCollectedAt());
+        } catch (RuntimeException e) {
+            logger.warn("Usage rollup capture could not be scheduled for cluster config {}: {}",
+                    clusterConfig.getId(), e.toString());
+        }
     }
 
     /**
@@ -460,9 +529,17 @@ public class AgentIngestService {
                 .findByClusterConfigIdAndDataType(clusterConfigId, batch.getCollector());
 
         int itemCount = SINGLE_OBJECT_COLLECTORS.contains(batch.getCollector()) ? 1 : batch.getItems().size();
+        // Spot-interruption removal inference compares consecutive snapshots, so keep the one being
+        // replaced (and when the server received it) before it is overwritten.
+        String prevJson = null;
+        Instant prevReceivedAt = null;
         AgentDataCache cache;
         if (existingCache.isPresent()) {
             cache = existingCache.get();
+            if (SpotInterruptionTracker.K8S_RESOURCES_COLLECTOR.equals(batch.getCollector())) {
+                prevJson = cache.getDataJson();
+                prevReceivedAt = ServerTime.serverInstant(cache.getReceivedAt());
+            }
             cache.setDataJson(dataJson);
             cache.setItemCount(itemCount);
             cache.setAgentVersion(agentVersion);
@@ -474,6 +551,13 @@ public class AgentIngestService {
         }
 
         agentDataCacheRepository.save(cache);
+
+        // Observed after the ingest transaction commits (SpotInterruptionTracker): publishing is all
+        // ingest does, so tracking can never fail or roll back a push.
+        if (SpotInterruptionTracker.COLLECTORS.contains(batch.getCollector())) {
+            eventPublisher.publishEvent(new AgentBatchStoredEvent(
+                    clusterConfigId, batch.getCollector(), dataJson, prevJson, prevReceivedAt));
+        }
 
         logger.debug("Saved {} items for collector {} (cluster ID: {})",
                 itemCount, batch.getCollector(), clusterConfigId);

@@ -256,6 +256,14 @@ public class SupportAdminController {
     }
 
     // 2b. Get Chat History by accountId (kept for backward compat — user-side still uses accountId)
+    // SECURITY: was missing an authorization annotation, so it was gated only by the
+    // chain-level authenticated() fallback — any logged-in user (including non-admins)
+    // could read any account's chat history by iterating accountId. Restrict to admins,
+    // matching every other read method in this admin controller.
+    // NOTE: this still does not scope accountId to the admin's allowed clients the way
+    // getInbox() does via getAllowedClientIds(); a cross-tenant admin IDOR remains and
+    // should be closed as a follow-up.
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     @GetMapping("/chat/{accountId}")
     public List<SupportMessage> getChatHistory(@PathVariable String accountId,
                                                 @RequestParam(required = false) Long userId) {
@@ -573,6 +581,16 @@ public class SupportAdminController {
     }
 
     // 6. Serve file attachment
+    // SECURITY: requires an authenticated session (defense-in-depth alongside removing
+    // this path from the WebSecurityCustomizer bypass). isAuthenticated() rather than an
+    // admin role because the owning billops user also legitimately views their own
+    // attachments, not just support admins.
+    // NOTE: tenantId/filename come straight from the path. filename is a single path
+    // segment (the {filename:.+} still cannot contain '/'), but tenantId is not validated
+    // against the caller's tenant, so an authenticated user could read another tenant's
+    // attachment if they know the tenant id + filename — a cross-tenant IDOR to close as
+    // a follow-up by scoping tenantId to the caller.
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/files/{tenantId}/{filename:.+}")
     public ResponseEntity<Resource> serveFile(
             @PathVariable String tenantId,

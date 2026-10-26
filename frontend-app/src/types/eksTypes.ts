@@ -365,7 +365,7 @@ export type EksSubtabId =
   | 'pods' | 'containers' | 'resources'
   | 'node-groups' | 'karpenter' | 'utilization'
   | 'overview' | 'workload-autoscaling' | 'pod-autoscaling' | 'node-autoscaling' | 'rebalancing' | 'guardrails' | 'activity'
-  | 'workload-autoscaler' | 'workload-autoscaler-policies' | 'node-autoscaler' | 'hpa' | 'vpa'
+  | 'workload-autoscaler' | 'workload-autoscaler-policies' | 'node-autoscaler' | 'consolidation' | 'spot-interruptions' | 'hpa' | 'vpa'
   | 'vulnerabilities' | 'compliance' | 'runtime'
   | 'connections' | 'install';
 
@@ -519,10 +519,11 @@ export interface NodeFleetReport {
   totalNodes: number;
   onDemandNodes: number;
   spotNodes: number;
-  idleNodes: IdleNodeInfo[];
-  spotCandidates: SpotCandidateInfo[];
-  interruptedNodes: string[];
-  estimatedSavingsPct: number;
+  /** `null` = not observed (the backend had no fresh automation report); `[]` = observed, none. */
+  idleNodes: IdleNodeInfo[] | null;
+  spotCandidates: SpotCandidateInfo[] | null;
+  interruptedNodes: string[] | null;
+  estimatedSavingsPct: number | null;
   collectedAt: string;
 }
 

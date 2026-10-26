@@ -1,0 +1,505 @@
+{
+ "apiVersion": "v1",
+ "items": [
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "my-src",
+    "creationTimestamp": null,
+    "labels": {
+     "eks.amazonaws.com/capacityType": "ON_DEMAND",
+     "eks.amazonaws.com/nodegroup": "ng-db",
+     "kubernetes.io/hostname": "my-src",
+     "node.kubernetes.io/instance-type": "m5.xlarge",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "16Gi",
+     "pods": "30"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "my-anchor",
+    "creationTimestamp": null,
+    "labels": {
+     "eks.amazonaws.com/capacityType": "ON_DEMAND",
+     "eks.amazonaws.com/nodegroup": "ng-db",
+     "kubernetes.io/hostname": "my-anchor",
+     "node.kubernetes.io/instance-type": "m5.xlarge",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "16Gi",
+     "pods": "30"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aws-node-my-src",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-aws-node-my-src",
+    "creationTimestamp": null,
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "name": "aws-node",
+      "uid": "uid-kube-system-aws-node",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "my-src"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "kube-proxy-my-src",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-kube-proxy-my-src",
+    "creationTimestamp": null,
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "name": "kube-proxy",
+      "uid": "uid-kube-system-kube-proxy",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "my-src"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aws-node-my-anchor",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-aws-node-my-anchor",
+    "creationTimestamp": null,
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "name": "aws-node",
+      "uid": "uid-kube-system-aws-node",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "my-anchor"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "kube-proxy-my-anchor",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-kube-proxy-my-anchor",
+    "creationTimestamp": null,
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "name": "kube-proxy",
+      "uid": "uid-kube-system-kube-proxy",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "my-anchor"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "filler",
+    "namespace": "team-db",
+    "uid": "uid-team-db-filler",
+    "creationTimestamp": null,
+    "labels": {
+     "app": "filler"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "filler-rs",
+      "uid": "uid-team-db-filler-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "2200m",
+        "memory": "4Gi"
+       }
+      }
+     }
+    ],
+    "nodeName": "my-anchor"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "mysql-0",
+    "namespace": "team-db",
+    "uid": "uid-team-db-mysql-0",
+    "creationTimestamp": null,
+    "labels": {
+     "app": "mysql"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "StatefulSet",
+      "name": "mysql",
+      "uid": "uid-team-db-mysql",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "volumes": [
+     {
+      "name": "data",
+      "persistentVolumeClaim": {
+       "claimName": "data-mysql-0"
+      }
+     }
+    ],
+    "containers": [
+     {
+      "name": "app",
+      "image": "mysql:8.4.6",
+      "resources": {
+       "requests": {
+        "cpu": "200m",
+        "memory": "256Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "my-src"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "ReplicaSet",
+   "apiVersion": "apps/v1",
+   "metadata": {
+    "name": "filler-rs",
+    "namespace": "team-db",
+    "uid": "uid-team-db-filler-rs",
+    "creationTimestamp": null
+   },
+   "spec": {
+    "replicas": 2,
+    "selector": null,
+    "template": {
+     "metadata": {
+      "creationTimestamp": null
+     },
+     "spec": {
+      "containers": null
+     }
+    }
+   },
+   "status": {
+    "replicas": 0
+   }
+  },
+  {
+   "kind": "StatefulSet",
+   "apiVersion": "apps/v1",
+   "metadata": {
+    "name": "mysql",
+    "namespace": "team-db",
+    "uid": "uid-team-db-mysql",
+    "creationTimestamp": null
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": null,
+    "template": {
+     "metadata": {
+      "creationTimestamp": null
+     },
+     "spec": {
+      "containers": null
+     }
+    },
+    "serviceName": "",
+    "updateStrategy": {}
+   },
+   "status": {
+    "replicas": 0,
+    "availableReplicas": 0
+   }
+  },
+  {
+   "kind": "PersistentVolumeClaim",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "data-mysql-0",
+    "namespace": "team-db",
+    "creationTimestamp": null
+   },
+   "spec": {
+    "accessModes": [
+     "ReadWriteOnce"
+    ],
+    "resources": {
+     "requests": {
+      "storage": "1Gi"
+     }
+    },
+    "volumeName": "pv-team-db-data-mysql-0",
+    "storageClassName": "gp3"
+   },
+   "status": {
+    "phase": "Bound"
+   }
+  },
+  {
+   "kind": "PersistentVolume",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "pv-team-db-data-mysql-0",
+    "creationTimestamp": null
+   },
+   "spec": {
+    "capacity": {
+     "storage": "1Gi"
+    },
+    "csi": {
+     "driver": "ebs.csi.aws.com",
+     "volumeHandle": "vol-data-mysql-0",
+     "fsType": "ext4"
+    },
+    "accessModes": [
+     "ReadWriteOnce"
+    ],
+    "claimRef": {
+     "kind": "PersistentVolumeClaim",
+     "namespace": "team-db",
+     "name": "data-mysql-0"
+    },
+    "storageClassName": "gp3",
+    "nodeAffinity": {
+     "required": {
+      "nodeSelectorTerms": [
+       {
+        "matchExpressions": [
+         {
+          "key": "topology.kubernetes.io/zone",
+          "operator": "In",
+          "values": [
+           "ap-south-1a"
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "phase": "Bound"
+   }
+  }
+ ],
+ "kind": "List"
+}

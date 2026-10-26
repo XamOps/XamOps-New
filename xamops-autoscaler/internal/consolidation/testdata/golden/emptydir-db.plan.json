@@ -1,0 +1,81 @@
+{
+ "schemaVersion": 1,
+ "generatedAt": "2026-10-24T00:00:00Z",
+ "mode": "analysis",
+ "actor": {
+  "kind": "NONE",
+  "evidence": [],
+  "note": "Neither Karpenter nor the Cluster Autoscaler was found. Engine v1 will remove nodes with an ASG terminate that decrements desired capacity, never below the node group minimum. Display only."
+ },
+ "settings": {
+  "underutilizedThresholdPct": 50,
+  "headroomPct": 15,
+  "maxNodesPerPlan": 100
+ },
+ "summary": {
+  "nodesEvaluated": 3,
+  "empty": 0,
+  "drain": 0,
+  "blocked": 2,
+  "kept": 1
+ },
+ "moves": [],
+ "blocked": [
+  {
+   "node": {
+    "name": "ed-1",
+    "nodeGroup": "ng-db",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 10,
+    "memRequestedPct": 3.1
+   },
+   "blockers": [
+    {
+     "pod": "team-db/pg-unsafe-0",
+     "code": "db-emptydir",
+     "reason": "database with an emptyDir at its data path"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "ed-2",
+    "nodeGroup": "ng-db",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1b",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 10,
+    "memRequestedPct": 3.1
+   },
+   "blockers": [
+    {
+     "pod": "team-db/pg-unsafe-1",
+     "code": "db-emptydir",
+     "reason": "database with an emptyDir at its data path"
+    }
+   ]
+  }
+ ],
+ "kept": [
+  {
+   "node": {
+    "name": "ed-anchor",
+    "nodeGroup": "ng-db",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 60,
+    "memRequestedPct": 26.6
+   },
+   "reason": "requests above 50% of allocatable (CPU 60.0%, memory 26.6%)"
+  }
+ ]
+}

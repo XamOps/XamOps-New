@@ -66,6 +66,28 @@ public class SecurityConfig {
     @Order(2)
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
+            // Security headers — kept identical to xamops-service so CSP is consistent
+            // across every service behind the edge gateway. media-ops previously set no
+            // CSP or frame protection, so any response it served carried none. SAMEORIGIN
+            // allows the app's own iframes while blocking third-party framing; the CSP
+            // mirrors xamops-service's enforcing policy, including blob:/data: image and
+            // wss: connect sources that the media streaming UI relies on. object-src
+            // 'none', base-uri 'self' and frame-ancestors 'self' hold regardless of the
+            // script policy.
+            .headers(headers -> headers
+                .frameOptions(frameOptions -> frameOptions.sameOrigin())
+                .contentSecurityPolicy(csp -> csp.policyDirectives(
+                        "default-src 'self'; "
+                        + "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; "
+                        + "style-src 'self' 'unsafe-inline' https:; "
+                        + "img-src 'self' data: blob: https:; "
+                        + "font-src 'self' data: https:; "
+                        + "connect-src 'self' https: wss:; "
+                        + "object-src 'none'; "
+                        + "base-uri 'self'; "
+                        + "frame-ancestors 'self'"))
+                .referrerPolicy(referrer -> referrer.policy(
+                        org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN)))
             .csrf(csrf -> csrf.disable())
             // Return 401 JSON instead of redirecting to /login (this service has no login page)
             .exceptionHandling(ex -> ex

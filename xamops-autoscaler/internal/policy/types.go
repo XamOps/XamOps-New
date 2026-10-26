@@ -15,8 +15,35 @@ type PolicyBundle struct {
 	NodeOptimizerPolicy      NodeOptimizerPolicy      `json:"nodeOptimizerPolicy"`
 	NodeTemplates            []NodeTemplate           `json:"nodeTemplates"`
 	Rebalancer               RebalancerConfig         `json:"rebalancer"`
+	ConsolidationPolicy      ConsolidationPolicy      `json:"consolidationPolicy"`
 	SafetyGuards             SafetyGuards             `json:"safetyGuards"`
 }
+
+// ConsolidationPolicy controls the consolidation controller (EMPTY + DRAIN moves
+// plus the controller-owned ASG terminate). It is default-OFF; the backend serves
+// enabled=false unless readiness consolidation-actions is true.
+type ConsolidationPolicy struct {
+	Enabled bool `json:"enabled"`
+	// ConsolidateAfterSeconds is the T4 idle dwell: a candidate node must have stayed
+	// a candidate for at least this long before the controller acts on it.
+	ConsolidateAfterSeconds int `json:"consolidateAfterSeconds"`
+	// MaxConcurrentDisruptions caps, per node group, how many candidates the
+	// controller may act on in one cycle (I6). The global drain budget still applies.
+	MaxConcurrentDisruptions int `json:"maxConcurrentDisruptions"`
+	// DwellSeconds is the cooldown between consolidation runs on the same node group.
+	DwellSeconds int `json:"dwellSeconds"`
+}
+
+// ConsolidationEnabled reports whether the consolidation controller is enabled by the
+// policy bundle (mode is checked separately by the gate).
+func (b PolicyBundle) ConsolidationEnabled() bool { return b.ConsolidationPolicy.Enabled }
+
+// Consolidation clamp defaults (applied by Normalize on a non-positive decode).
+const (
+	DefaultConsolidateAfterSeconds  = 600
+	DefaultMaxConcurrentDisruptions = 1
+	DefaultConsolidationDwellSecond = 600
+)
 
 type ScaleOutPolicy struct {
 	Enabled                     bool `json:"enabled"`
@@ -225,6 +252,7 @@ const (
 	ControllerRightsizer    = "rightsizer"
 	ControllerHPAManager    = "hpa-manager"
 	ControllerVPAManager    = "vpa-manager"
+	ControllerConsolidator  = "consolidation"
 )
 
 // ActionRecord is one action or simulation, pushed as collector "autoscaling-actions".
@@ -268,6 +296,25 @@ func (b *PolicyBundle) Normalize() []string {
 		warnings = append(warnings, fmt.Sprintf(
 			"workloadRightsizerPolicy.minMemoryMib=%d is not positive — using %d", rs.MinMemoryMib, DefaultMinMemoryMib))
 		rs.MinMemoryMib = DefaultMinMemoryMib
+	}
+	cp := &b.ConsolidationPolicy
+	if cp.ConsolidateAfterSeconds <= 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"consolidationPolicy.consolidateAfterSeconds=%d is not positive — using %d",
+			cp.ConsolidateAfterSeconds, DefaultConsolidateAfterSeconds))
+		cp.ConsolidateAfterSeconds = DefaultConsolidateAfterSeconds
+	}
+	if cp.MaxConcurrentDisruptions <= 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"consolidationPolicy.maxConcurrentDisruptions=%d is not positive — using %d",
+			cp.MaxConcurrentDisruptions, DefaultMaxConcurrentDisruptions))
+		cp.MaxConcurrentDisruptions = DefaultMaxConcurrentDisruptions
+	}
+	if cp.DwellSeconds <= 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"consolidationPolicy.dwellSeconds=%d is not positive — using %d",
+			cp.DwellSeconds, DefaultConsolidationDwellSecond))
+		cp.DwellSeconds = DefaultConsolidationDwellSecond
 	}
 	if b.SafetyGuards.ProtectCriticalNamespaces && len(b.SafetyGuards.CriticalNamespaces) == 0 {
 		warnings = append(warnings,
@@ -332,5 +379,11 @@ func DefaultBundle() PolicyBundle {
 			CriticalNamespaces:          []string{"kube-system", "monitoring", "ingress-nginx", "xamops-system"},
 		},
 		Rebalancer: RebalancerConfig{Status: "idle"},
+		ConsolidationPolicy: ConsolidationPolicy{
+			Enabled:                  false, // off by default — user must opt in
+			ConsolidateAfterSeconds:  DefaultConsolidateAfterSeconds,
+			MaxConcurrentDisruptions: DefaultMaxConcurrentDisruptions,
+			DwellSeconds:             DefaultConsolidationDwellSecond,
+		},
 	}
 }

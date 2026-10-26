@@ -1,0 +1,385 @@
+{
+ "schemaVersion": 1,
+ "generatedAt": "2026-10-24T00:00:00Z",
+ "mode": "analysis",
+ "actor": {
+  "kind": "NONE",
+  "evidence": [],
+  "note": "Neither Karpenter nor the Cluster Autoscaler was found. Engine v1 will remove nodes with an ASG terminate that decrements desired capacity, never below the node group minimum. Display only."
+ },
+ "settings": {
+  "underutilizedThresholdPct": 50,
+  "headroomPct": 15,
+  "maxNodesPerPlan": 100
+ },
+ "summary": {
+  "nodesEvaluated": 18,
+  "empty": 0,
+  "drain": 0,
+  "blocked": 16,
+  "kept": 2
+ },
+ "moves": [],
+ "blocked": [
+  {
+   "node": {
+    "name": "n-bare",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 30,
+    "memRequestedPct": 9.4
+   },
+   "blockers": [
+    {
+     "pod": "team-a/bare-1",
+     "code": "no-controller",
+     "reason": "bare pod (no controller)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "n-cordoned",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 0,
+    "memRequestedPct": 0
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "node-cordoned",
+     "reason": "node is cordoned"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "n-do-not-disrupt",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 30,
+    "memRequestedPct": 9.4
+   },
+   "blockers": [
+    {
+     "pod": "team-a/dnd-1",
+     "code": "do-not-disrupt",
+     "reason": "do-not-evict annotation"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "n-do-not-evict",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 30,
+    "memRequestedPct": 9.4
+   },
+   "blockers": [
+    {
+     "pod": "team-a/dne-1",
+     "code": "do-not-disrupt",
+     "reason": "do-not-evict annotation"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "n-fargate",
+    "nodeGroup": "",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": true,
+    "providerId": "",
+    "cpuRequestedPct": 0,
+    "memRequestedPct": 0
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "fargate-node",
+     "reason": "Fargate node"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "n-host-port",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 30,
+    "memRequestedPct": 9.4
+   },
+   "blockers": [
+    {
+     "pod": "team-a/agent-1",
+     "code": "host-port",
+     "reason": "host port"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "n-kube-system",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 30,
+    "memRequestedPct": 9.4
+   },
+   "blockers": [
+    {
+     "pod": "kube-system/coredns-1",
+     "code": "critical-namespace",
+     "reason": "critical namespace"
+    },
+    {
+     "pod": "kube-system/coredns-1",
+     "code": "kube-system-no-pdb",
+     "reason": "kube-system pod without PDB"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "n-local",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 30,
+    "memRequestedPct": 9.4
+   },
+   "blockers": [
+    {
+     "pod": "team-a/cache-1",
+     "code": "local-storage-no-replica",
+     "reason": "local storage, no redundant replica"
+    },
+    {
+     "pod": "team-a/cache-1",
+     "code": "single-replica",
+     "reason": "single replica"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "n-not-ready",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 0,
+    "memRequestedPct": 0
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "node-not-ready",
+     "reason": "node is not Ready"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "n-pdb",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 30,
+    "memRequestedPct": 9.4
+   },
+   "blockers": [
+    {
+     "pod": "team-b/web-1",
+     "code": "pdb-no-disruptions:team-b/web",
+     "reason": "PodDisruptionBudget team-b/web at limit"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "n-pvc",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 30,
+    "memRequestedPct": 9.4
+   },
+   "blockers": [
+    {
+     "pod": "team-c/db-0",
+     "code": "pvc-volume-unmodelled",
+     "reason": "persistent volume claim with unmodellable zone affinity"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "n-removal-disabled",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 0,
+    "memRequestedPct": 0
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "removal-disabled",
+     "reason": "removal disabled (label cloudk8s.xammer.in/removal-disabled)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "n-safe-to-evict",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 30,
+    "memRequestedPct": 9.4
+   },
+   "blockers": [
+    {
+     "pod": "team-a/safe-1",
+     "code": "safe-to-evict-false",
+     "reason": "do-not-evict annotation"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "n-statefulset",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 30,
+    "memRequestedPct": 9.4
+   },
+   "blockers": [
+    {
+     "pod": "team-c/queue-0",
+     "code": "statefulset",
+     "reason": "StatefulSet pod"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "n-strand",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 42.5,
+    "memRequestedPct": 7.8
+   },
+   "blockers": [
+    {
+     "pod": "team-a/big-1",
+     "code": "strand",
+     "reason": "no other node has room (keeping 15% headroom)"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "n-unmanaged",
+    "nodeGroup": "",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 0,
+    "memRequestedPct": 0
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "unmanaged-node",
+     "reason": "unmanaged node (no EKS node group or Karpenter node pool)"
+    }
+   ]
+  }
+ ],
+ "kept": [
+  {
+   "node": {
+    "name": "recv-1",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 60,
+    "memRequestedPct": 26.6
+   },
+   "reason": "requests above 50% of allocatable (CPU 60.0%, memory 26.6%)"
+  },
+  {
+   "node": {
+    "name": "recv-2",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 60,
+    "memRequestedPct": 26.6
+   },
+   "reason": "requests above 50% of allocatable (CPU 60.0%, memory 26.6%)"
+  }
+ ]
+}

@@ -126,6 +126,93 @@ def effective(pod):
     return cpu, mem
 
 
+# ── PV zone-affinity resolution ──────────────────────────────────────────────
+#
+# These two globals are populated by Cluster.__init__ from the snapshot's PVs/PVCs.
+# The reduced live snapshots (reduce_item) drop PV/PVC objects, so for those inputs
+# the maps stay empty and every PVC pod is treated as unmodellable — matching the Go
+# simulator when it is given no PVC/PV lists.
+_PVC_BY_KEY = {}   # "ns/name" -> PVC object
+_PV_BY_NAME = {}   # name -> PV object
+
+
+def _modellable_node_affinity(required):
+    """A PV's required node-affinity is modellable when every term uses only
+    match-expressions with In/NotIn/Exists (no match-fields)."""
+    for term in required.get("nodeSelectorTerms") or []:
+        if term.get("matchFields"):
+            return False
+        for e in term.get("matchExpressions") or []:
+            if e.get("operator") not in ("In", "NotIn", "Exists"):
+                return False
+    return True
+
+
+def volume_node_affinity(pod):
+    """Resolve the pod's PVC volumes -> PVC -> PV -> spec.nodeAffinity.required,
+    ANDing the terms. Returns (required_selector_or_None, all_modellable)."""
+    spec = pod.get("spec") or {}
+    ns = meta(pod).get("namespace")
+    terms, all_modellable = [], True
+    for v in spec.get("volumes") or []:
+        pvc_ref = v.get("persistentVolumeClaim")
+        if pvc_ref is None:
+            continue
+        pvc = _PVC_BY_KEY.get(f"{ns}/{pvc_ref.get('claimName')}")
+        if pvc is None:
+            all_modellable = False
+            continue
+        pvc_spec, pvc_status = pvc.get("spec") or {}, pvc.get("status") or {}
+        if pvc_status.get("phase") != "Bound" or not pvc_spec.get("volumeName"):
+            all_modellable = False
+            continue
+        pv = _PV_BY_NAME.get(pvc_spec["volumeName"])
+        if pv is None:
+            all_modellable = False
+            continue
+        required = (((pv.get("spec") or {}).get("nodeAffinity") or {}).get("required"))
+        if required is None:
+            continue   # a PV with no node-affinity constrains nothing — still modellable
+        if not _modellable_node_affinity(required):
+            all_modellable = False
+            continue
+        terms += required.get("nodeSelectorTerms") or []
+    if not terms:
+        return None, all_modellable
+    return {"nodeSelectorTerms": terms}, all_modellable
+
+
+def pvc_fully_modellable(pod):
+    _, ok = volume_node_affinity(pod)
+    return ok
+
+
+def volume_affinity_ok(pod, node):
+    """The PV zone predicate: the node must satisfy the pod's resolved volume
+    node-affinity (terms ORed, expressions ANDed), mirroring fits()."""
+    required, _ = volume_node_affinity(pod)
+    if required is None:
+        return True
+    lbls = meta(node).get("labels") or {}
+    name = meta(node)["name"]
+    for term in required.get("nodeSelectorTerms") or []:
+        exprs, fields = term.get("matchExpressions") or [], term.get("matchFields") or []
+        if not exprs and not fields:
+            continue
+        ok = all(expression_holds(e, lbls) for e in exprs)
+        for f in fields:
+            vals = f.get("values") or []
+            if f.get("key") != "metadata.name" or f.get("operator") not in ("In", "NotIn"):
+                ok = False
+            elif f.get("operator") == "In" and name not in vals:
+                ok = False
+            elif f.get("operator") == "NotIn" and name in vals:
+                ok = False
+        if ok:
+            return True
+    return False
+
+
 def refusals(pod):
     spec = pod.get("spec") or {}
     out = []
@@ -137,8 +224,13 @@ def refusals(pod):
     if any(t.get("whenUnsatisfiable") == "DoNotSchedule" for t in spec.get("topologySpreadConstraints") or []):
         out.append("topology-spread")
     volumes = spec.get("volumes") or []
-    if any(v.get("persistentVolumeClaim") is not None for v in volumes):
-        out.append("pvc-volume")
+    # A PVC volume whose PV zone-affinity can be fully modelled (bound PVC -> bound
+    # PV -> parseable node-affinity) carries NO refusal: the zone predicate in
+    # node_accepts handles it. A PVC that is unbound, has no PV, or carries
+    # node-affinity the model cannot represent stays refused, fail-closed, with the
+    # narrower pvc-volume-unmodelled code (mirrors fitsim snapshot.go unmodelled()).
+    if any(v.get("persistentVolumeClaim") is not None for v in volumes) and not pvc_fully_modellable(pod):
+        out.append("pvc-volume-unmodelled")
     if any(v.get("ephemeral") is not None for v in volumes):
         out.append("ephemeral-volume")
     containers = (spec.get("initContainers") or []) + (spec.get("containers") or [])
@@ -251,7 +343,7 @@ def node_accepts(pod, node):
     lbls = meta(node).get("labels") or {}
     if any(lbls.get(k) != v or k not in lbls for k, v in (spec.get("nodeSelector") or {}).items()):
         return False
-    return node_affinity_ok(pod, node)
+    return node_affinity_ok(pod, node) and volume_affinity_ok(pod, node)
 
 
 def ready(node):
@@ -271,6 +363,11 @@ class Cluster:
         self.nodes = {meta(n)["name"]: n for n in kinds.get("Node", [])}
         self.pods = kinds.get("Pod", [])
         self.pdbs = kinds.get("PodDisruptionBudget", [])
+        # PV/PVC index for the zone predicate (module-level so the free functions
+        # refusals()/node_accepts() can reach it, mirroring fitsim's snapshot build).
+        global _PVC_BY_KEY, _PV_BY_NAME
+        _PVC_BY_KEY = {key(c): c for c in kinds.get("PersistentVolumeClaim", [])}
+        _PV_BY_NAME = {meta(v)["name"]: v for v in kinds.get("PersistentVolume", [])}
         self.replicas = {}
         for kind in ("ReplicaSet", "StatefulSet"):
             for o in kinds.get(kind, []):

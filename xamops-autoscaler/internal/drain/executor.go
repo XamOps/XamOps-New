@@ -17,6 +17,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/xamops/automation/internal/gate"
+	"github.com/xamops/automation/internal/obslog"
 	"github.com/xamops/automation/internal/policy"
 	"github.com/xamops/automation/internal/telemetry"
 )
@@ -76,6 +77,11 @@ type Executor struct {
 	k8s           kubernetes.Interface
 	planner       Planner
 	selfNamespace string
+	// selfNode is the node currently hosting the agent pod (downward API
+	// spec.nodeName, plumbed via SetSelfNode). The executor refuses to cordon or
+	// include it in any drain set (never-cordon/drain-self invariant, FEAT-002). Empty
+	// disables the check (single-node dev where the node name is unknown).
+	selfNode string
 
 	// ReplacementTimeout bounds the wait for each evicted pod's replacement and for
 	// the final verification. PDBRetry bounds retries of a 429 (PDB) eviction.
@@ -124,6 +130,29 @@ func (e *Executor) restoreContext(ctx context.Context) (context.Context, context
 
 // SelfNamespace returns the always-protected namespace.
 func (e *Executor) SelfNamespace() string { return e.selfNamespace }
+
+// SetSelfNode records the node hosting the agent pod so the executor can refuse to
+// cordon or drain it (never-cordon/drain-self). Empty leaves the check disabled.
+func (e *Executor) SetSelfNode(node string) { e.selfNode = node }
+
+// SelfNode returns the never-cordon/drain-self node (empty when unknown).
+func (e *Executor) SelfNode() string { return e.selfNode }
+
+// selfNodeViolation returns a non-empty refusal reason when nodes contains the node
+// hosting the agent pod. It complements selfNamespaceViolation (which only refuses
+// MOVING agent-namespace pods): here the host node itself must never be cordoned or
+// drained, or the agent would fence/evict itself.
+func (e *Executor) selfNodeViolation(nodes []string) string {
+	if e.selfNode == "" {
+		return ""
+	}
+	for _, n := range nodes {
+		if n == e.selfNode {
+			return fmt.Sprintf("node %s hosts the automation agent itself — refused (never cordon or drain the agent's own node)", e.selfNode)
+		}
+	}
+	return ""
+}
 
 func nodeTarget(nodes []string) string {
 	if len(nodes) == 1 {
@@ -186,6 +215,11 @@ func (r *run) done(status, reportStatus string, verified bool, reason string) Ou
 		detail = "no further detail"
 	}
 	log.Printf("Drain[%s %s %s]: %s (verified=%v) — %s", r.controller, rec.Action, rec.Target, status, verified, detail)
+	// Structured companion of the human Drain[...] line (hardening-design.md observability
+	// baseline). The free-text line above is kept for the node-regression.
+	obslog.Drain(
+		fmt.Sprintf("Drain[%s %s %s]: %s", r.controller, rec.Action, rec.Target, status),
+		rec.OperationID, nodeTarget(r.nodes), r.controller, r.mode.String(), status)
 	return Outcome{Reports: r.reports, Actions: []policy.ActionRecord{rec}, Status: status, Plan: r.plan, Evicted: r.evicted}
 }
 
@@ -203,6 +237,12 @@ func (r *run) prepare(ctx context.Context) *Outcome {
 	}
 	if r.budget == nil {
 		o := r.done(policy.ActionRefused, StatusRefused, false, "no drain budget")
+		return &o
+	}
+	// Never cordon or drain the node hosting the agent itself (FEAT-002). Checked
+	// before any budget reservation, alongside selfNamespaceViolation below.
+	if reason := e.selfNodeViolation(r.nodes); reason != "" {
+		o := r.done(policy.ActionRefused, StatusRefused, false, reason)
 		return &o
 	}
 	for _, n := range r.nodes {
@@ -763,6 +803,67 @@ func (e *Executor) RecoverOrphans(ctx context.Context, mode gate.Mode) []policy.
 		out = append(out, telemetry.Finish(rec, policy.ActionSucceeded, verified, "orphaned drain from an earlier process"))
 	}
 	return out
+}
+
+// UncordonAllXamopsNodes is the operator recovery lever (FEAT-002, agent-ha-design.md
+// AC4.10): it lists every node and, for each one this autoscaler cordoned
+// (annotation xamops.io/drain-cordoned-by == xamops-automation), uncordons it
+// (spec.unschedulable=false) and clears the cordoned-by + drain-state annotations,
+// emitting one ActionRecord per node. Live writes; Simulate reports only; any other
+// mode does nothing. The never-cordon/drain-self invariant is honoured — the agent's
+// own node is never touched here either (it would never be XamOps-cordoned, but the
+// guard keeps the invariant explicit). Nodes NOT cordoned by this autoscaler are left
+// untouched.
+func (e *Executor) UncordonAllXamopsNodes(ctx context.Context, mode gate.Mode) []policy.ActionRecord {
+	if mode != gate.Live && mode != gate.Simulate {
+		return nil
+	}
+	nodes, err := e.k8s.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Printf("WARN: drain: list nodes for uncordon-all: %v", err)
+		return nil
+	}
+	var out []policy.ActionRecord
+	for _, n := range nodes.Items {
+		if n.Annotations[AnnotationCordonedBy] != CordonedByXamops {
+			continue
+		}
+		if e.selfNode != "" && n.Name == e.selfNode {
+			continue // never touch the agent's own node
+		}
+		rec := telemetry.NewAction(ControllerExecutor, "uncordon-all", "node/"+n.Name, mode != gate.Live)
+		rec.OperationID = n.Annotations[AnnotationOperation]
+		telemetry.SetDetail(&rec, "wasUnschedulable", n.Spec.Unschedulable)
+		if mode == gate.Simulate {
+			out = append(out, telemetry.Finish(rec, policy.ActionSimulated, false,
+				"XamOps-cordoned node; live mode would uncordon it and clear the cordoned-by/drain-state annotations"))
+			continue
+		}
+		if err := e.clearXamopsCordon(ctx, n.Name); err != nil {
+			out = append(out, telemetry.Finish(rec, policy.ActionFailed, false, fmt.Sprintf("uncordon node: %v", err)))
+			continue
+		}
+		after, err := e.k8s.CoreV1().Nodes().Get(ctx, n.Name, metav1.GetOptions{})
+		verified := err == nil && !after.Spec.Unschedulable && after.Annotations[AnnotationCordonedBy] == ""
+		if verified {
+			rec.Verification = "node read back schedulable with the cordoned-by annotation cleared"
+		}
+		out = append(out, telemetry.Finish(rec, policy.ActionSucceeded, verified, "uncordoned a node this autoscaler had cordoned"))
+	}
+	return out
+}
+
+// clearXamopsCordon uncordons a node and clears the cordoned-by + drain-state
+// annotations (a merge patch nils the keys).
+func (e *Executor) clearXamopsCordon(ctx context.Context, name string) error {
+	patch := map[string]interface{}{
+		"metadata": map[string]interface{}{"annotations": map[string]interface{}{
+			AnnotationCordonedBy: nil,
+			AnnotationState:      nil,
+		}},
+		"spec": map[string]interface{}{"unschedulable": false},
+	}
+	return e.patchNode(ctx, name, patch)
 }
 
 // ── API helpers ─────────────────────────────────────────────────────────────

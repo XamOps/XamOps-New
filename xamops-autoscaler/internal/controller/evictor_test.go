@@ -104,7 +104,7 @@ func testEvictorPolicy(analyseOnly bool) policy.EvictorPolicy {
 }
 
 func fitExec(c *fake.Clientset) *drain.Executor {
-	e := drain.NewExecutor(c, drain.NewFitPlanner(c, fitsim.Options{Guards: policy.DefaultBundle().SafetyGuards, SelfNamespace: selfNS}), selfNS)
+	e := drain.NewExecutor(c, drain.NewFitPlanner(c, nil, fitsim.Options{Guards: policy.DefaultBundle().SafetyGuards, SelfNamespace: selfNS}), selfNS)
 	e.ReplacementTimeout, e.PDBRetry, e.PollInterval = 300*time.Millisecond, 50*time.Millisecond, 10*time.Millisecond
 	return e
 }

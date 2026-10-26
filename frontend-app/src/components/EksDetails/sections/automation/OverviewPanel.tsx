@@ -27,16 +27,18 @@ import { formatMoney } from '../../../../utils/k8sQuantities';
 import {
   LOADING_CAPABILITY,
   findCluster,
+  rankGates,
   useK8sCapabilities,
   type K8sCapabilitiesValue,
 } from '../../../../hooks/useK8sCapabilities';
 import useAutomationRead from '../../../../hooks/useAutomationRead';
 import useAutomationActivity, { useActivitySummary, type UseAutomationActivityState } from '../../../../hooks/useAutomationActivity';
 import useAutomationUsage from '../../../../hooks/useAutomationUsage';
+import useNodeAutomationRead, { type ReadState } from '../../../../hooks/useNodeAutomationRead';
 import type { InsightReadState } from '../../../../hooks/useInsightRead';
 import type { UseEksDashboardReturn } from '../../../../hooks/useEksDashboard';
 import type { AutomationReadResult } from '../../../../api/automationReadApi';
-import type { ActionId, CapabilitiesDto, Capability, ReadinessKey } from '../../../../types/k8sAutomation';
+import type { ActionId, AutomationNodeFleet, CapabilitiesDto, Capability, Gate, ReadinessKey } from '../../../../types/k8sAutomation';
 import type { VerticalEngineView } from '../../../../types/verticalRightsizer';
 import type { ActivitySummaryView } from '../../../../types/automationActivity';
 import { AccessBanner } from '../../../CloudK8s/shared/AccessBanner';
@@ -73,13 +75,14 @@ import {
   namespaceRollup,
   nodeAutoscalerStatus,
   recentChanges,
+  spotAnalysisState,
   timelineLanes,
   vpaFeatureStatus,
   workloadAutoscalerStatus,
   type FeatureStatus,
   type Resource,
 } from './automationDerivations';
-import { CARD, INK, InPageLink, MUTED, ReadFailureCard, readFailureText } from './automationUi';
+import { CARD, FAINT, INK, InPageLink, MUTED, ReadFailureCard, readFailureText } from './automationUi';
 import { dayLabel, feedTimeline, feedWeekCounts, savingNow, weekCounts, type WeekCounts } from './activity/activityInsights';
 import { activityResultChip } from './activity/activityText';
 import { ClusterUsageCard, ResourceToggle } from './insightCards';
@@ -95,18 +98,27 @@ export interface TodayRow {
   label: string;
   /** What XamOps analyses today; null renders a dash. */
   analysis: string | null;
-  /** Where the Apply column comes from: an action's capability, or a readiness key with no control yet. */
-  apply: { actionId: ActionId } | { readiness: ReadinessKey };
+  /**
+   * Where the Apply column comes from: an action's capability, a readiness key with no control yet,
+   * or both (the action's gates plus the readiness key, ranked together).
+   */
+  apply: { actionId: ActionId; readiness?: ReadinessKey } | { readiness: ReadinessKey };
   /** The vertical engine's row, replaced by {@link NOT_TURNED_ON_TEXT} while the engine is off. */
   vertical?: boolean;
   /** The Automation page that shows this analysis, linked under it (its {@link OverviewHrefs} key). */
-  page?: { target: 'hpa' | 'vpa'; label: string };
+  page?: { target: 'hpa' | 'vpa' | 'consolidation' | 'spotInterruptions'; label: string };
 }
 
-/** §9.1 item 4, in display order. The HPA and VPA rows point at the pages that now show them. */
+/** §9.1 item 4, in display order. The consolidation, HPA and VPA rows point at the pages that now show them. */
 export const TODAY_ROWS: readonly TodayRow[] = [
   { id: 'workload-rightsizing', label: 'Workload rightsizing', analysis: 'Recommendations', apply: { actionId: 'vertical.apply' }, vertical: true },
-  { id: 'node-consolidation', label: 'Node consolidation', analysis: 'Analysis not yet reliable', apply: { actionId: 'evictor.live' } },
+  {
+    id: 'node-consolidation',
+    label: 'Node consolidation',
+    analysis: 'Look-only plan: what could be emptied or drained',
+    page: { target: 'consolidation', label: 'Automation › Consolidation' },
+    apply: { actionId: 'evictor.live' },
+  },
   { id: 'node-optimizer', label: 'Node optimizer', analysis: 'Idle-node thresholds', apply: { actionId: 'nodeOptimizer.actions' } },
   { id: 'rebalancing', label: 'Rebalancing', analysis: null, apply: { actionId: 'rebalance.trigger' } },
   {
@@ -125,7 +137,16 @@ export const TODAY_ROWS: readonly TodayRow[] = [
     page: { target: 'vpa', label: 'Automation › VPA' },
     apply: { readiness: 'vpa-apply' },
   },
-  { id: 'spot-interruption', label: 'Spot interruption handling', analysis: 'Protective · state not shown yet', apply: { actionId: 'nodeOptimizer.settings' } },
+  {
+    id: 'spot-interruption',
+    label: 'Spot interruption handling',
+    analysis: 'Interrupted nodes the agent is draining',
+    page: { target: 'spotInterruptions', label: 'Automation › Spot interruptions' },
+    // The settings action alone carries no readiness key, so the row read "Available" while
+    // spot-interruption-actions was false. Handling is gated by that key (the policy normalizer
+    // coerces handleSpotInterruptions off while it isn't ready), so the row reads it too.
+    apply: { actionId: 'nodeOptimizer.settings', readiness: 'spot-interruption-actions' },
+  },
 ];
 
 /** A readiness key with no control of its own (VPA): ready, or its server message. */
@@ -143,9 +164,15 @@ function readinessCapability(caps: K8sCapabilitiesValue, key: ReadinessKey): Cap
 }
 
 function applyCapability(caps: K8sCapabilitiesValue, row: TodayRow, clusterName: string): Capability {
-  return 'actionId' in row.apply
-    ? caps.can(row.apply.actionId, { cluster: clusterName })
-    : readinessCapability(caps, row.apply.readiness);
+  if (!('actionId' in row.apply)) return readinessCapability(caps, row.apply.readiness);
+  const action = caps.can(row.apply.actionId, { cluster: clusterName });
+  if (!row.apply.readiness || caps.status === 'loading') return action;
+  const readiness = readinessCapability(caps, row.apply.readiness);
+  if (readiness.allowed) return action;
+  // Both must pass: rank the action's gates with the readiness gate (§6.4), so readiness leads
+  // and the connection, permission or demo gates follow under "Also needs".
+  const gates = [action.gate, ...action.also, readiness.gate].filter((g): g is Gate => g !== null);
+  return rankGates(gates);
 }
 
 /** "data 4 min old", or "no data yet" when the agent reported no time. */
@@ -298,6 +325,76 @@ function analysisText(caps: K8sCapabilitiesValue, row: TodayRow): string {
   return row.analysis;
 }
 
+/** The honest em-dash + sr-only "None" idiom this file uses whenever there is no value to show. */
+function Dash() {
+  return <><span aria-hidden="true">—</span><span className="sr-only">None</span></>;
+}
+
+/**
+ * The spot-interruption row's Analysis cell, from the real node-fleet read. Its state is
+ * {@link spotAnalysisState} (one pure function, unit-tested), and it never fabricates:
+ *  - warn → a StatusDot with the notice (or legacy interrupted) count and the fleet's data age,
+ *    under the honest "Protective" framing;
+ *  - good → "None interrupted", reachable only from a fresh report by an agent that sends
+ *    `interruptionNotices` and lists none;
+ *  - dash → the em-dash + sr-only "None" idiom, with the reason in FAINT text (not reported, stale,
+ *    an older automation agent), so missing data never reads as "healthy".
+ * The page link renders here because the generic Analysis cell is skipped for this row.
+ */
+function SpotAnalysis({ fleet, now, pageHref }: { fleet: ReadState<AutomationNodeFleet>; now: number; pageHref?: string }) {
+  const state = spotAnalysisState(fleet, now);
+  const age = fleet.kind === 'ok' ? dataAge(fleet.data.collectedAt, now) : null;
+  return (
+    <span className={MUTED} data-analysis="spot-interruption">
+      {state.kind === 'dash' ? (
+        <>
+          <Dash />
+          {state.reason && <span className={`block text-[12px] ${FAINT}`} data-spot-reason="">{state.reason}</span>}
+        </>
+      ) : (
+        <>
+          <span className="block"><span className="text-[12px]">Protective</span></span>
+          <StatusDot tone={state.kind} label={state.label} detail={age} />
+        </>
+      )}
+      {pageHref && (
+        <span className="mt-0.5 block text-[12px]" data-analysis-page="spotInterruptions">
+          <InPageLink to={pageHref}>Automation › Spot interruptions</InPageLink>
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * The spot-interruption row's drawer "Last drain" line. The node-fleet read serves no last-drain
+ * outcome; each interruption's drain outcome is recorded on Automation › Spot interruptions, so the
+ * line is the honest em-dash with that pointer, and a link when the page's href exists.
+ */
+function spotDrawerData(pageHref?: string): DrawerDatum[] {
+  return [
+    {
+      label: 'What XamOps does',
+      value: 'On a spot interruption XamOps drains the node — protective and gated, additive to the node’s own interruption handler; it never forces a move.',
+    },
+    pageHref
+      ? {
+        label: 'Last drain',
+        value: (
+          <span>
+            {'Each interruption’s drain outcome is on '}
+            <InPageLink to={pageHref}>Automation › Spot interruptions</InPageLink>.
+          </span>
+        ),
+      }
+      : {
+        label: 'Last drain',
+        value: null,
+        reason: "Each interruption's drain outcome is on Automation › Spot interruptions.",
+      },
+  ];
+}
+
 /** How this analysis is calculated / where Apply comes from — the §7 provenance, in the drawer. */
 function howCalculatedData(row: TodayRow): DrawerDatum[] {
   return [
@@ -322,14 +419,19 @@ function howCalculatedData(row: TodayRow): DrawerDatum[] {
 function TodayTable({
   caps,
   clusterName,
+  fleet,
+  now,
   workloadAutoscalerHref,
   pageHrefs = {},
 }: {
   caps: K8sCapabilitiesValue;
   clusterName: string;
+  /** The node-fleet read, so the spot-interruption row can surface real interruptedNodes (FEAT-003). */
+  fleet: ReadState<AutomationNodeFleet>;
+  now: number;
   workloadAutoscalerHref?: string;
-  /** The HPA and VPA pages, linked under the rows they show. */
-  pageHrefs?: { hpa?: string; vpa?: string };
+  /** The HPA, VPA and Consolidation pages, linked under the rows they show. */
+  pageHrefs?: { hpa?: string; vpa?: string; consolidation?: string; spotInterruptions?: string };
 }) {
   const headingId = useId();
   const location = useLocation();
@@ -349,6 +451,7 @@ function TodayTable({
       width: '34%',
       cell: (row) => {
         if (row.vertical && engineOff) return <span className={MUTED}>{NOT_TURNED_ON_TEXT}</span>;
+        if (row.id === 'spot-interruption') return <SpotAnalysis fleet={fleet} now={now} pageHref={pageHrefs.spotInterruptions} />;
         const text = analysisText(caps, row);
         return (
           <span className={MUTED} data-analysis={row.id}>
@@ -413,6 +516,7 @@ function TodayTable({
         : { title: 'Apply', data: applyDrawerData(applyCapability(caps, row, clusterName)) };
     return [
       capabilitySection,
+      ...(row.id === 'spot-interruption' ? [{ title: 'Spot interruption', data: spotDrawerData(pageHrefs.spotInterruptions) } as DrawerSection] : []),
       applySection,
       { title: 'How this is calculated', data: howCalculatedData(row) },
     ];
@@ -932,6 +1036,10 @@ export interface OverviewHrefs {
   /** Automation › Node autoscaler, the Node autoscaler card's next step. */
   nodeAutoscaler?: string;
   nodeAutoscalerLabel?: string;
+  /** Automation › Consolidation, linked under the Node consolidation row. */
+  consolidation?: string;
+  /** Automation › Spot interruptions, linked under the Spot interruption handling row. */
+  spotInterruptions?: string;
 }
 
 export interface OverviewPanelProps {
@@ -953,6 +1061,8 @@ export function OverviewPanel({ clusterName, accountId, region, eksData, hrefs =
   const feedFilters = useMemo(() => ({ features: [], results: [], q: '', from: weekAgo }), [weekAgo]);
   const feed = useAutomationActivity({ clusterName, accountId, region, filters: feedFilters, limit: TIMELINE_ENTRY_LIMIT });
   const summary = useActivitySummary({ clusterName, accountId, region }, 7);
+  // The node-fleet read (interruptedNodes) for the spot-interruption capability row (FEAT-003).
+  const nodeRead = useNodeAutomationRead(clusterName, accountId, region);
   const location = useLocation();
   const now = Date.now();
   const view = read.result?.kind === 'ok' ? read.result.view.vertical : null;
@@ -996,8 +1106,10 @@ export function OverviewPanel({ clusterName, accountId, region, eksData, hrefs =
           <TodayTable
             caps={caps}
             clusterName={clusterName}
+            fleet={nodeRead.fleet}
+            now={now}
             workloadAutoscalerHref={hrefs.workloadAutoscaler}
-            pageHrefs={{ hpa: hrefs.hpa, vpa: hrefs.vpa }}
+            pageHrefs={{ hpa: hrefs.hpa, vpa: hrefs.vpa, consolidation: hrefs.consolidation, spotInterruptions: hrefs.spotInterruptions }}
           />
         </div>
       }

@@ -595,6 +595,13 @@ public class AwsAccountService {
      * database actually ended up with.
      *
      * <p>
+     * The {@code k8s_workload_*} usage-rollup tables (V20261024_37) are cleared the same way.
+     * Their foreign keys to {@code kubernetes_cluster_config} also cascade, but this delete
+     * does not depend on that; where Flyway never ran (the local profile) the
+     * {@code hasColumn} guard skips them. So is the Spot interruption history
+     * ({@code k8s_spot_interruption_event}, V20261024_38), for the same reasons.
+     *
+     * <p>
      * Runs before the cluster configs are deleted, while the subquery can still resolve
      * them.
      */
@@ -602,7 +609,9 @@ public class AwsAccountService {
         if (!hasColumn("kubernetes_cluster_config", "cloud_account_id")) {
             return;
         }
-        for (String table : List.of("agent_data_cache", "agent_events")) {
+        for (String table : List.of("agent_data_cache", "agent_events",
+                "k8s_workload_usage_sample", "k8s_workload_usage_hourly", "k8s_workload_usage_daily",
+                "k8s_workload_identity", "k8s_spot_interruption_event")) {
             if (!hasColumn(table, "cluster_config_id")) {
                 continue;
             }

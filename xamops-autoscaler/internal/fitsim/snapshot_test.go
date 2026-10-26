@@ -14,7 +14,7 @@ import (
 func TestBuildSnapshotMatchesFromObjects(t *testing.T) {
 	o := section4Fixture()
 	c := fake.NewSimpleClientset(o.runtimeObjects()...)
-	s, err := BuildSnapshot(context.Background(), c)
+	s, err := BuildSnapshot(context.Background(), c, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,8 +23,8 @@ func TestBuildSnapshotMatchesFromObjects(t *testing.T) {
 			t.Errorf("unexpected %s %s", a.GetVerb(), a.GetResource().Resource)
 		}
 	}
-	if len(c.Actions()) != 5 {
-		t.Errorf("expected 5 lists (nodes, pods, pdbs, rs, sts), got %d", len(c.Actions()))
+	if len(c.Actions()) != 7 {
+		t.Errorf("expected 7 lists (nodes, pods, pdbs, rs, sts, pvc, pv), got %d", len(c.Actions()))
 	}
 	ref := o.snapshot()
 	for _, n := range []string{"node-a", "node-b", "node-c", "node-d"} {

@@ -1,0 +1,1 @@
+{"ts":"2026-01-01T00:00:00.000000000Z","stream":"pdbs","type":"ADDED","object":{"apiVersion":"policy/v1","kind":"PodDisruptionBudget","metadata":{"namespace":"team-a","name":"web-pdb"},"spec":{"selector":{"matchLabels":{"app":"web"}},"minAvailable":2},"status":{"disruptionsAllowed":1,"currentHealthy":0,"desiredHealthy":0,"expectedPods":0}}}

@@ -654,7 +654,7 @@
       "refused": [
         {
           "pod": "apps/multi-refuse",
-          "reason": "pvc-volume; host-port"
+          "reason": "pvc-volume-unmodelled; host-port"
         }
       ],
       "strands": []
@@ -883,7 +883,7 @@
       "refused": [
         {
           "pod": "apps/pvc",
-          "reason": "pvc-volume"
+          "reason": "pvc-volume-unmodelled"
         }
       ],
       "strands": []

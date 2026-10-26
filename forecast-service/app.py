@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from models.prophet_forecaster import ProphetForecaster
+from models.usage_forecaster import UsageForecaster, normalize_resource, QUANTILE_SEMANTICS
 import logging
 from datetime import datetime
 import os
@@ -43,8 +44,10 @@ logger.info(f"🔒 Allowed Origins: {', '.join(app.config['ALLOWED_ORIGINS'])}")
 if not app.config['DEBUG']:
     logging.getLogger('werkzeug').setLevel(logging.WARNING)
 
-# Initialize forecaster (reuse instance)
+# Initialize forecasters (reuse instances).
+# Prophet serves /forecast/cost only; ProphetForecaster.forecast_usage is no longer used.
 forecaster = ProphetForecaster()
+usage_forecaster = UsageForecaster()
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -137,7 +140,21 @@ def forecast_cost():
 
 @app.route('/forecast/usage', methods=['POST'])
 def forecast_usage():
-    """Forecast hourly resource usage for CloudSitter schedule recommendations"""
+    """Forecast hourly resource usage (percent) for CloudSitter schedule recommendations.
+
+    Request: {data: [{ds, y}], periods: int = 336, resource: "cpu" | "memory" | "mem"}
+      resource (case-insensitive) picks the method:
+        memory -> AutoETS(season_length=24); cpu -> decayed-percentile histogram.
+      DEFAULT: when resource is missing or null, the decayed histogram (CPU rule) is used
+      and fallback_reason="resource_unspecified". Any other value -> 400.
+      The histogram is also used when fewer than 48 usable hourly points exist or the
+      ETS fit fails; fallback_reason then says why.
+
+    Response: {status, forecast: [{ds, yhat, yhat_lower, yhat_upper, p50, p90, p95}],
+               trend_direction, method, fallback_reason, resource, metadata}
+      yhat = p50, yhat_lower = p10, yhat_upper = p90 (upper bound of the central 80 %
+      interval, kept for backward compatibility; NOT a P95). Use p95 for headroom.
+    """
     start_time = datetime.now()
     try:
         request_data = request.get_json()
@@ -167,21 +184,39 @@ def forecast_usage():
             return jsonify({'status': 'error',
                             'message': f'Too much data: {len(data)} points (maximum {app.config["MAX_USAGE_DATA_POINTS"]} allowed)'}), 400
 
-        logger.info(f"📊 Usage forecast request: {len(data)} hourly points, {periods} periods")
+        try:
+            resource = normalize_resource(request_data.get('resource'))
+        except ValueError as ve:
+            return jsonify({'status': 'error', 'message': str(ve)}), 400
 
-        forecast_result, trend_direction = forecaster.forecast_usage(data=data, periods=periods)
+        logger.info(f"📊 Usage forecast request: {len(data)} hourly points, {periods} periods, resource={resource}")
+
+        result = usage_forecaster.forecast_usage(data=data, periods=periods, resource=resource)
+        forecast_result = result['forecast']
+        trend_direction = result['trend_direction']
 
         processing_time = (datetime.now() - start_time).total_seconds()
-        logger.info(f"✅ Usage forecast complete: {len(forecast_result)} predictions in {processing_time:.2f}s, trend={trend_direction}")
+        logger.info(f"✅ Usage forecast complete: {len(forecast_result)} predictions in {processing_time:.2f}s, "
+                    f"method={result['method']}, resource={resource}, "
+                    f"fallback_reason={result['fallback_reason']}, trend={trend_direction}")
 
         return jsonify({
             'status': 'success',
             'forecast': forecast_result,
             'trend_direction': trend_direction,
+            'method': result['method'],
+            'fallback_reason': result['fallback_reason'],
+            'resource': resource,
             'metadata': {
                 'data_points': len(data),
                 'forecast_periods': periods,
-                'processing_time_seconds': round(processing_time, 2)
+                'processing_time_seconds': round(processing_time, 2),
+                'method': result['method'],
+                'fallback_reason': result['fallback_reason'],
+                'resource': resource,
+                'history_points_used': result['history_points_used'],
+                'quantile_semantics': QUANTILE_SEMANTICS,
+                'model_params': result['model_params'],
             }
         }), 200
 

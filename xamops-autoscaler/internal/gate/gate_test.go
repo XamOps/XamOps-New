@@ -1,7 +1,10 @@
 package gate
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -212,6 +215,96 @@ func TestHPAManagerNeverLive(t *testing.T) {
 	}
 }
 
+// Consolidation analysis is look-only: over every combination of the 7 ENABLE_*
+// flags, DRY_RUN and the autoscaler mode it is Off or Analyse, Analyse exactly for
+// full and scoped.
+func TestConsolidationAnalysisNeverActs(t *testing.T) {
+	rows := 0
+	for bits := 0; bits < 1<<7; bits++ {
+		on := func(i int) bool { return bits&(1<<i) != 0 }
+		for _, dry := range []bool{false, true} {
+			for _, mode := range []string{"full", "scoped", "disabled", "", "bogus"} {
+				rows++
+				cfg := &config.Config{
+					EnableEvictor: on(0), EnableRightsizer: on(1), EnableRebalancer: on(2), EnableHPAManager: on(3),
+					EnableVPAManager: on(4), EnableNodeOptimizer: on(5), EnableRightsizerApply: on(6), DryRun: dry,
+				}
+				got := ConsolidationAnalysis(cfg, bundle(mode))
+				want := Off
+				if mode == "full" || mode == "scoped" {
+					want = Analyse
+				}
+				if got.Mode != want {
+					t.Errorf("flags=%07b dry=%v mode=%q: got %s, want %s", bits, dry, mode, got, want)
+				}
+				if got.Reason == "" {
+					t.Errorf("flags=%07b dry=%v mode=%q: empty reason", bits, dry, mode)
+				}
+			}
+		}
+	}
+	if rows != 128*2*5 {
+		t.Fatalf("cross product has %d rows, want %d", rows, 128*2*5)
+	}
+	if got := ConsolidationAnalysis(&config.Config{}, bundle("disabled")); got.Reason != "autoscalerMode=disabled" {
+		t.Errorf("disabled reason = %q", got.Reason)
+	}
+}
+
+// ConsolidationActions is the acting consolidation gate: it mirrors Evictor. Off
+// unless ENABLE_CONSOLIDATION ∧ consolidationPolicy.enabled ∧ mode=full; Simulate
+// under DRY_RUN, Live otherwise. ConsolidationAnalysis is unaffected (still Analyse
+// for full/scoped regardless of the env flag / policy flag).
+func TestConsolidationActionsCrossProduct(t *testing.T) {
+	for _, env := range []bool{false, true} {
+		for _, enabled := range []bool{false, true} {
+			for _, dry := range []bool{false, true} {
+				for _, mode := range []string{"full", "scoped", "disabled", "", "bogus"} {
+					cfg := &config.Config{EnableConsolidation: env, DryRun: dry}
+					b := bundle(mode)
+					b.ConsolidationPolicy.Enabled = enabled
+					name := fmt.Sprintf("env=%v/enabled=%v/dry=%v/mode=%s", env, enabled, dry, mode)
+
+					want := Off
+					if env && mode == "full" && enabled {
+						want = Live
+						if dry {
+							want = Simulate
+						}
+					}
+					got := ConsolidationActions(cfg, b)
+					if got.Mode != want {
+						t.Errorf("%s: got %s, want %s", name, got, want)
+					}
+					if got.Reason == "" {
+						t.Errorf("%s: empty reason", name)
+					}
+
+					// The look-only analysis gate is independent of the env flag and the
+					// policy flag: Analyse for full/scoped, Off otherwise.
+					wantA := Off
+					if mode == "full" || mode == "scoped" {
+						wantA = Analyse
+					}
+					if a := ConsolidationAnalysis(cfg, b); a.Mode != wantA {
+						t.Errorf("%s: analysis got %s, want %s", name, a, wantA)
+					}
+				}
+			}
+		}
+	}
+
+	// The env-off and policy-off reasons name their condition.
+	if got := ConsolidationActions(&config.Config{EnableConsolidation: false}, bundle("full")); got.Reason != "ENABLE_CONSOLIDATION=false" {
+		t.Errorf("env-off reason = %q", got.Reason)
+	}
+	full := bundle("full")
+	full.ConsolidationPolicy.Enabled = false
+	if got := ConsolidationActions(&config.Config{EnableConsolidation: true}, full); !strings.Contains(got.Reason, "consolidationPolicy.enabled=false") {
+		t.Errorf("policy-off reason = %q", got.Reason)
+	}
+}
+
 func TestUnknownModeFailsClosed(t *testing.T) {
 	cfg := &config.Config{EnableRebalancer: true, EnableEvictor: true, EnableNodeOptimizer: true,
 		EnableRightsizer: true, EnableHPAManager: true}
@@ -229,5 +322,63 @@ func TestUnknownModeFailsClosed(t *testing.T) {
 		if d.Mode != Off {
 			t.Errorf("%s with empty mode: got %s, want off", name, d)
 		}
+	}
+}
+
+// The interruption gate opens only when the served policy sets
+// handleSpotInterruptions=true; an absent field, an absent section or a null section
+// decode (through the real FetchPolicy path) to false and the gate is Off.
+func TestInterruptionGateFailsClosed(t *testing.T) {
+	bodies := map[string]string{
+		"field absent":   `{"autoscalerMode":"full","nodeOptimizerPolicy":{"enabled":true}}`,
+		"false":          `{"autoscalerMode":"full","nodeOptimizerPolicy":{"enabled":true,"handleSpotInterruptions":false}}`,
+		"true":           `{"autoscalerMode":"full","nodeOptimizerPolicy":{"enabled":true,"handleSpotInterruptions":true}}`,
+		"section absent": `{"autoscalerMode":"full"}`,
+		"section null":   `{"autoscalerMode":"full","nodeOptimizerPolicy":null}`,
+	}
+	cases := []struct {
+		body string
+		cfg  config.Config
+		want Mode
+	}{
+		{"field absent", config.Config{EnableNodeOptimizer: true, DryRun: false}, Off},
+		{"field absent", config.Config{EnableNodeOptimizer: true, DryRun: true}, Off},
+		{"false", config.Config{EnableNodeOptimizer: true, DryRun: false}, Off},
+		{"false", config.Config{EnableNodeOptimizer: true, DryRun: true}, Off},
+		{"section absent", config.Config{EnableNodeOptimizer: true, DryRun: false}, Off},
+		{"section absent", config.Config{EnableNodeOptimizer: true, DryRun: true}, Off},
+		{"section null", config.Config{EnableNodeOptimizer: true, DryRun: false}, Off},
+		{"section null", config.Config{EnableNodeOptimizer: true, DryRun: true}, Off},
+		{"true", config.Config{EnableNodeOptimizer: true, DryRun: false}, Live},
+		{"true", config.Config{EnableNodeOptimizer: true, DryRun: true}, Simulate},
+		{"true", config.Config{EnableNodeOptimizer: false, DryRun: false}, Off},
+	}
+	for _, tc := range cases {
+		name := fmt.Sprintf("%s/enable=%v/dry=%v", tc.body, tc.cfg.EnableNodeOptimizer, tc.cfg.DryRun)
+		t.Run(name, func(t *testing.T) {
+			body := bodies[tc.body]
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(body))
+			}))
+			defer srv.Close()
+			b, err := policy.NewClient(srv.URL, "k", "c", "1").FetchPolicy(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg := tc.cfg
+			got := Interruption(&cfg, b)
+			if got.Mode != tc.want {
+				t.Fatalf("got %s, want %s", got, tc.want)
+			}
+			if tc.body != "true" && b.NodeOptimizerPolicy.HandleSpotInterruptions {
+				t.Errorf("%s decoded handleSpotInterruptions=true", tc.body)
+			}
+			// With the section present and enabled the reason names the flag; an absent or
+			// null section is already Off at nodeOptimizerPolicy.enabled=false.
+			if (tc.body == "field absent" || tc.body == "false") && !strings.Contains(got.Reason, "handleSpotInterruptions") {
+				t.Errorf("reason %q does not name handleSpotInterruptions", got.Reason)
+			}
+		})
 	}
 }

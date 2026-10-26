@@ -1,0 +1,17 @@
+# Top-level pins for forecast-service (Docker target: CPython 3.11, linux).
+# Compile (lock for requirements.txt):
+#   ~/.local/bin/uv pip compile --python-version 3.11 --python-platform x86_64-unknown-linux-gnu requirements.in -o /tmp/fs-lock.txt
+flask==3.0.3
+flask-cors==6.0.0
+prophet==1.1.5
+cmdstanpy==1.1.0
+pandas==2.1.4
+numpy==1.26.4
+gunicorn==23.0.0
+python-dateutil==2.9.0
+plotly==5.24.1
+# AutoETS for /forecast/usage memory (matches the backtest harness pin).
+statsforecast==2.1.1
+# Transitive (statsforecast -> fugue -> triad) guard: pyarrow 26 requires NumPy>=2 at import
+# time but does not declare it, so the resolver would pick it alongside numpy==1.26.4.
+pyarrow==25.0.0

@@ -12,7 +12,7 @@ public class NodeOptimizerPolicyDto {
     private int idleMemThresholdPct = 20;
     private boolean autoCordonIdleNodes = false;
     private boolean autoDrainIdleNodes = false;
-    private boolean handleSpotInterruptions = true;
+    private boolean handleSpotInterruptions = false;
     /** 0 = disabled, otherwise maintain this % of nodes as spot */
     private int spotRatioTargetPct = 0;
     private boolean karpenterEnabled = false;

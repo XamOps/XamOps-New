@@ -1,0 +1,111 @@
+{
+ "schemaVersion": 1,
+ "generatedAt": "2026-10-24T00:00:00Z",
+ "mode": "analysis",
+ "actor": {
+  "kind": "NONE",
+  "evidence": [],
+  "note": "Neither Karpenter nor the Cluster Autoscaler was found. Engine v1 will remove nodes with an ASG terminate that decrements desired capacity, never below the node group minimum. Display only."
+ },
+ "settings": {
+  "underutilizedThresholdPct": 50,
+  "headroomPct": 15,
+  "maxNodesPerPlan": 100
+ },
+ "summary": {
+  "nodesEvaluated": 5,
+  "empty": 1,
+  "drain": 0,
+  "blocked": 2,
+  "kept": 2
+ },
+ "moves": [
+  {
+   "type": "EMPTY",
+   "node": {
+    "name": "b-1",
+    "nodeGroup": "ng-b",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 10,
+    "memRequestedPct": 3.1
+   },
+   "pods": []
+  }
+ ],
+ "blocked": [
+  {
+   "node": {
+    "name": "a-1",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 20,
+    "memRequestedPct": 6.3
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "last-node-in-group",
+     "reason": "last node in node group ng-a"
+    }
+   ]
+  },
+  {
+   "node": {
+    "name": "b-2",
+    "nodeGroup": "ng-b",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 10,
+    "memRequestedPct": 3.1
+   },
+   "blockers": [
+    {
+     "pod": "",
+     "code": "last-node-in-group",
+     "reason": "last node in node group ng-b"
+    }
+   ]
+  }
+ ],
+ "kept": [
+  {
+   "node": {
+    "name": "c-1",
+    "nodeGroup": "ng-c",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 60,
+    "memRequestedPct": 26.6
+   },
+   "reason": "requests above 50% of allocatable (CPU 60.0%, memory 26.6%)"
+  },
+  {
+   "node": {
+    "name": "c-2",
+    "nodeGroup": "ng-c",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 60,
+    "memRequestedPct": 26.6
+   },
+   "reason": "requests above 50% of allocatable (CPU 60.0%, memory 26.6%)"
+  }
+ ]
+}

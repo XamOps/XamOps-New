@@ -1,0 +1,80 @@
+{
+ "schemaVersion": 1,
+ "generatedAt": "2026-10-24T00:00:00Z",
+ "mode": "analysis",
+ "actor": {
+  "kind": "CLUSTER_AUTOSCALER",
+  "evidence": [
+   "Deployment kube-system/cluster-autoscaler"
+  ],
+  "note": "The Cluster Autoscaler was found on this cluster. Display only."
+ },
+ "settings": {
+  "underutilizedThresholdPct": 50,
+  "headroomPct": 15,
+  "maxNodesPerPlan": 100
+ },
+ "summary": {
+  "nodesEvaluated": 3,
+  "empty": 0,
+  "drain": 1,
+  "blocked": 0,
+  "kept": 2
+ },
+ "moves": [
+  {
+   "type": "DRAIN",
+   "node": {
+    "name": "ca-1",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 20,
+    "memRequestedPct": 6.3
+   },
+   "pods": [
+    {
+     "pod": "team-a/web-1",
+     "owner": "ReplicaSet/web-rs",
+     "to": "ca-2",
+     "cpuMillis": 200,
+     "memBytes": 268435456
+    }
+   ]
+  }
+ ],
+ "blocked": [],
+ "kept": [
+  {
+   "node": {
+    "name": "ca-2",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 65,
+    "memRequestedPct": 28.1
+   },
+   "reason": "requests above 50% of allocatable (CPU 65.0%, memory 28.1%)"
+  },
+  {
+   "node": {
+    "name": "ca-3",
+    "nodeGroup": "ng-a",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 65,
+    "memRequestedPct": 28.1
+   },
+   "reason": "requests above 50% of allocatable (CPU 65.0%, memory 28.1%)"
+  }
+ ]
+}

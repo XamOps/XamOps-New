@@ -33,7 +33,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code ddl-auto=update}, so Hibernate sees this table on every boot: if the entity and the
  * migration ever disagree about a column or about the unique key's name, Hibernate silently alters
  * the customer's table instead of the mismatch being caught here. {@code VerticalPolicyMigrationPgTest}
- * covers the Flyway side of the same file; this covers Hibernate's.
+ * covers the Flyway side of the same file; this covers Hibernate's. {@code k8s_spot_interruption_event}
+ * is guarded the same way, built from {@code V20261024_38__k8s_spot_interruption_event.sql}
+ * ({@code SpotInterruptionMigrationPgTest} covers its Flyway side).
  */
 @DataJpaTest
 @ContextConfiguration(classes = JpaSliceTestConfig.class)
@@ -45,10 +47,14 @@ class SchemaUpdateNoAlterPgTest {
             List.of("json_data", "schedule_json", "encrypted_pat", "encrypted_token");
 
     /** Tables that exist in full and must therefore produce no DDL at all. */
-    private static final List<String> GUARDED_TABLES = List.of("vertical_workload_policy");
+    private static final List<String> GUARDED_TABLES =
+            List.of("vertical_workload_policy", "k8s_spot_interruption_event");
 
     private static final String VERTICAL_POLICY_MIGRATION =
             "/db/migration/V20261010_1__vertical_workload_policy.sql";
+
+    private static final String SPOT_INTERRUPTION_MIGRATION =
+            "/db/migration/V20261024_38__k8s_spot_interruption_event.sql";
 
     private static Path scriptDir;
     private static Path script;
@@ -74,6 +80,9 @@ class SchemaUpdateNoAlterPgTest {
         PgTestSupport.execute(url, "CREATE TABLE kubernetes_cluster_config ("
                 + "id bigserial PRIMARY KEY, cluster_name varchar(255) NOT NULL)");
         MigrationScript.of(VERTICAL_POLICY_MIGRATION).applyTo(url);
+        // k8s_spot_interruption_event, exactly as Flyway would create it (its FK needs only
+        // kubernetes_cluster_config(id), created above).
+        MigrationScript.of(SPOT_INTERRUPTION_MIGRATION).applyTo(url);
 
         try {
             scriptDir = Files.createTempDirectory("lobtext-schema-update-");

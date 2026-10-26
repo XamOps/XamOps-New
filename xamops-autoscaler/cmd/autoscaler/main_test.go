@@ -25,9 +25,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
+	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/xamops/automation/internal/config"
 	"github.com/xamops/automation/internal/controller"
+	"github.com/xamops/automation/internal/metrics"
 	"github.com/xamops/automation/internal/policy"
 	"github.com/xamops/automation/internal/pusher"
 	"github.com/xamops/automation/internal/telemetry"
@@ -188,17 +190,24 @@ func writeVerbs(c *fake.Clientset) []string {
 
 func runTestCycle(t *testing.T, cfg *config.Config, c *fake.Clientset, srvURL string) {
 	t.Helper()
+	runTestCycleWith(t, cfg, c, srvURL, metrics.New())
+}
+
+// runTestCycleWith is runTestCycle with the caller's metrics set, so counters can be
+// asserted across cycles.
+func runTestCycleWith(t *testing.T, cfg *config.Config, c *fake.Clientset, srvURL string, mset *metrics.Set) {
+	t.Helper()
 	cfg.ServerURL, cfg.APIKey, cfg.ClusterName, cfg.CloudAccountID = srvURL, "test-key", "test-cluster", "123456789012"
 	cfg.PrometheusURL = srvURL
 	cfg.MaxRetries, cfg.RetryDelay = 1, 0
 	cfg.DrainTimeoutSeconds = 30
 	cfg.PodNamespace, cfg.StateConfigMap = "xamops-system", "xamops-automation-state"
 
-	runCycle(context.Background(), cfg, c,
+	runCycle(context.Background(), cfg, mset, c, nil, // nil dynamic client: Collect lists no operator CRs
 		policy.NewClient(cfg.ServerURL, cfg.APIKey, cfg.ClusterName, cfg.CloudAccountID),
 		pusher.New(cfg.ServerURL, cfg.APIKey, cfg.ClusterName, cfg.CloudAccountID, cfg.MaxRetries, cfg.RetryDelay),
 		controller.NewEvictor(c, cfg.DryRun),
-		controller.NewRightsizer(c, cfg.PrometheusURL, cfg.DryRun),
+		controller.NewRightsizer(c, cfg.PrometheusURL, cfg.DryRun, metrics.New()),
 		controller.NewRebalancer(c, cfg.DryRun),
 		controller.NewHPAManager(c, cfg.PrometheusURL, cfg.DryRun),
 		controller.NewVPAManager(c, nil, cfg.DryRun),
@@ -297,6 +306,58 @@ func TestRunCycleDryRunAllActionsWritesNothing(t *testing.T) {
 		if r["dryRun"] != true || r["estimatedSavingsPct"] != nil {
 			t.Errorf("node optimizer report = %s", raw)
 		}
+	}
+}
+
+// 10-analyse-only + DRY_RUN=false with every ENABLE_* off: the look-only
+// consolidation plan is still pushed (exactly one item, EMPTY/DRAIN moves only) and
+// the cycle writes nothing.
+func TestRunCycleAllFlagsOffPushesConsolidationPlanAndWritesNothing(t *testing.T) {
+	srv, cap := backend(t, fixture(t, "10-analyse-only.json"))
+	c := seededCluster()
+	cfg := &config.Config{DryRun: false}
+	runTestCycle(t, cfg, c, srv.URL)
+
+	if w := writeVerbs(c); len(w) != 0 {
+		t.Errorf("all-flags-off cycle issued writes: %v", w)
+	}
+	items := cap.items("autoscaling-consolidation-plan")
+	if len(items) != 1 {
+		t.Fatalf("consolidation plan items = %d, want 1", len(items))
+	}
+	var plan struct {
+		SchemaVersion int    `json:"schemaVersion"`
+		Mode          string `json:"mode"`
+		Summary       struct {
+			NodesEvaluated int `json:"nodesEvaluated"`
+		} `json:"summary"`
+		Moves []struct {
+			Type string `json:"type"`
+		} `json:"moves"`
+	}
+	if err := json.Unmarshal(items[0], &plan); err != nil {
+		t.Fatal(err)
+	}
+	if plan.Mode != "analysis" || plan.SchemaVersion != 1 || plan.Summary.NodesEvaluated != 4 {
+		t.Errorf("plan = %s", items[0])
+	}
+	for _, m := range plan.Moves {
+		if m.Type != "EMPTY" && m.Type != "DRAIN" {
+			t.Errorf("move type %q (only EMPTY and DRAIN exist in v1)", m.Type)
+		}
+	}
+}
+
+// 00-default-bundle (autoscalerMode=disabled): no consolidation plan is pushed.
+func TestRunCycleDisabledModePushesNoConsolidationPlan(t *testing.T) {
+	srv, cap := backend(t, fixture(t, "00-default-bundle.json"))
+	c := seededCluster()
+	runTestCycle(t, &config.Config{DryRun: false}, c, srv.URL)
+	if items := cap.items("autoscaling-consolidation-plan"); len(items) != 0 {
+		t.Errorf("consolidation plan pushed in disabled mode: %s", items)
+	}
+	if w := writeVerbs(c); len(w) != 0 {
+		t.Errorf("writes: %v", w)
 	}
 }
 
@@ -585,28 +646,16 @@ func TestRunCycleDryRunSection4FixtureRefusesWithReasons(t *testing.T) {
 		t.Errorf("DRY_RUN cycle issued writes: %v", w)
 	}
 
-	recs := drainRecords(t, cap)
-	if len(recs) == 0 {
-		t.Fatal("no drain records")
-	}
-	all := ""
-	for _, r := range recs {
+	// No node is drainable, so no net node reduction is achievable: the FEAT-005
+	// benefit guard refuses the rebalancer before any drain record is produced, in
+	// Simulate as in Live. Any drain records that do appear (from other controllers)
+	// must still be honest refusals/skips, never a simulated drain.
+	for _, r := range drainRecords(t, cap) {
 		if r.Status == policy.ActionSimulated {
 			t.Errorf("simulated drain on a fixture with no drainable node: %+v", r)
 		}
 		if r.Status == policy.ActionRefused && r.Reason == "" {
 			t.Errorf("refusal without a reason: %+v", r)
-		}
-		all += r.Reason + "\n"
-	}
-	for _, want := range []string{
-		"blocked team-b/pdb-guarded-web-1: pdb-no-disruptions:team-b/pdb-guarded-web",
-		"blocked xamops-system/xamops-automation-1: critical-namespace; self-namespace; single-replica",
-		"strand team-a/overprovisioned-api-1: no other node fits it",
-		"strand team-a/overprovisioned-api-2: no other node fits it",
-	} {
-		if !strings.Contains(all, want) {
-			t.Errorf("no refusal mentions %q:\n%s", want, all)
 		}
 	}
 
@@ -616,15 +665,47 @@ func TestRunCycleDryRunSection4FixtureRefusesWithReasons(t *testing.T) {
 	}
 	var st map[string]interface{}
 	_ = json.Unmarshal(rs[0], &st)
-	if st["status"] != policy.ActionSimulated || st["nodesSimulated"] != float64(0) || !strings.Contains(st["reason"].(string), "strand") {
+	if st["status"] != policy.ActionSimulated || st["nodesSimulated"] != float64(0) ||
+		!strings.Contains(st["reason"].(string), "no net node reduction achievable") {
 		t.Errorf("rebalance status = %s", rs[0])
 	}
+
+	// The simulator's detailed reasons stay observable on the evictor-candidate fit
+	// summaries: every node is non-drainable and carries its blockers/strands.
+	all := ""
 	for _, raw := range cap.items("autoscaling-evictor-candidates") {
-		var c map[string]interface{}
+		var c struct {
+			CanEvict bool `json:"canEvict"`
+			Fit      *struct {
+				Drainable bool `json:"drainable"`
+				Blocked   []struct {
+					Pod    string `json:"pod"`
+					Reason string `json:"reason"`
+				} `json:"blocked"`
+				Strands []string `json:"strands"`
+			} `json:"fit"`
+		}
 		_ = json.Unmarshal(raw, &c)
-		fit, _ := c["fit"].(map[string]interface{})
-		if c["canEvict"] != false || fit == nil || fit["drainable"] != false {
+		if c.CanEvict != false || c.Fit == nil || c.Fit.Drainable != false {
 			t.Errorf("candidate = %s", raw)
+		}
+		if c.Fit != nil {
+			for _, b := range c.Fit.Blocked {
+				all += b.Pod + ": " + b.Reason + "\n"
+			}
+			for _, s := range c.Fit.Strands {
+				all += "strand " + s + "\n"
+			}
+		}
+	}
+	for _, want := range []string{
+		"team-b/pdb-guarded-web-1: pdb-no-disruptions:team-b/pdb-guarded-web",
+		"xamops-system/xamops-automation-1: critical-namespace; self-namespace; single-replica",
+		"strand team-a/overprovisioned-api-1",
+		"strand team-a/overprovisioned-api-2",
+	} {
+		if !strings.Contains(all, want) {
+			t.Errorf("no candidate fit mentions %q:\n%s", want, all)
 		}
 	}
 }
@@ -709,5 +790,237 @@ func TestRunCycleEvictorAndRebalancerDrainsReachNodeDrainProgress(t *testing.T) 
 				}
 			}
 		})
+	}
+}
+
+// scrapeMetrics returns the /metrics text of mset.
+func scrapeMetrics(t *testing.T, mset *metrics.Set) string {
+	t.Helper()
+	srv := httptest.NewServer(mset.Handler())
+	defer srv.Close()
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET /metrics: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
+}
+
+// nodeWrites lists the patch-nodes targets and whether any eviction was created.
+func nodeWrites(c *fake.Clientset) (patched []string, evictions int) {
+	for _, a := range c.Actions() {
+		if pa, ok := a.(k8stesting.PatchAction); ok && a.GetResource().Resource == "nodes" {
+			patched = append(patched, pa.GetName())
+		}
+		if a.GetVerb() == "create" && a.GetResource().Resource == "pods" && a.GetSubresource() == "eviction" {
+			evictions++
+		}
+	}
+	return patched, evictions
+}
+
+// F1: a node XamOps already drained (cordoned + drain-state=drained) is never
+// re-cordoned, evicted or verified again, and xamops_drains_total is not counted
+// again; an operator uncordon makes it eligible again.
+func TestRunCycleDoesNotReDrainAlreadyDrainedNode(t *testing.T) {
+	body := []byte(`{"autoscalerMode":"full","nodeOptimizerPolicy":{"enabled":true,"autoDrainIdleNodes":true,"maxParallelDrains":1}}`)
+	srv, _ := backend(t, body)
+	nodeB := cycleNode("node-b", nil)
+	nodeB.Spec.Unschedulable = true
+	nodeB.Annotations = map[string]string{"xamops.io/drain-state": "drained"}
+	c := fake.NewSimpleClientset(
+		cycleNode("node-a", nil), nodeB, cycleNode("node-c", nil),
+		cyclePod("kube-system", "aws-node-a", "node-a", "DaemonSet", "aws-node", nil),
+		cyclePod("kube-system", "aws-node-b", "node-b", "DaemonSet", "aws-node", nil),
+		cyclePod("kube-system", "aws-node-c", "node-c", "DaemonSet", "aws-node", nil),
+		cyclePod("default", "web-1", "node-c", "ReplicaSet", "web-rs", map[string]string{"app": "web"}),
+	)
+	cfg := &config.Config{DryRun: false, EnableNodeOptimizer: true}
+	mset := metrics.New()
+	const succeeded = `xamops_drains_total{controller="node-optimizer",result="succeeded"} `
+
+	// Cycle 1: node-a (fresh, idle) is drained; node-b is left alone.
+	runTestCycleWith(t, cfg, c, srv.URL, mset)
+	patched, ev := nodeWrites(c)
+	for _, n := range patched {
+		if n == "node-b" {
+			t.Errorf("cycle 1 patched already-drained node-b: %v", patched)
+		}
+	}
+	if ev != 0 {
+		t.Errorf("cycle 1 created %d eviction(s)", ev)
+	}
+	a, err := c.CoreV1().Nodes().Get(context.Background(), "node-a", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.Spec.Unschedulable || a.Annotations["xamops.io/drain-state"] != "drained" {
+		t.Fatalf("node-a after cycle 1: unschedulable=%v annotations=%v", a.Spec.Unschedulable, a.Annotations)
+	}
+
+	// Cycle 2: node-a and node-b are both already drained — no node write at all.
+	c.ClearActions()
+	runTestCycleWith(t, cfg, c, srv.URL, mset)
+	if patched, ev := nodeWrites(c); len(patched) != 0 || ev != 0 {
+		t.Errorf("cycle 2 re-drained: patched=%v evictions=%d", patched, ev)
+	}
+	out := scrapeMetrics(t, mset)
+	if !strings.Contains(out, succeeded+"1\n") {
+		t.Errorf("want exactly one succeeded node-optimizer drain after two cycles:\n%s", grepLines(out, "xamops_drains_total"))
+	}
+	if strings.Contains(out, `xamops_drains_total{controller="node-optimizer",result="skipped"}`) {
+		t.Errorf("already-drained node counted as skipped:\n%s", grepLines(out, "xamops_drains_total"))
+	}
+
+	// Cycle 3: an operator uncordons node-a (the stale annotation stays): eligible again.
+	a.Spec.Unschedulable = false
+	if _, err := c.CoreV1().Nodes().Update(context.Background(), a, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	c.ClearActions()
+	runTestCycleWith(t, cfg, c, srv.URL, mset)
+	patched, _ = nodeWrites(c)
+	drainedA := false
+	for _, n := range patched {
+		drainedA = drainedA || n == "node-a"
+		if n == "node-b" {
+			t.Errorf("cycle 3 patched already-drained node-b: %v", patched)
+		}
+	}
+	if !drainedA {
+		t.Errorf("operator-uncordoned node-a was not drained again: patched=%v", patched)
+	}
+	if out := scrapeMetrics(t, mset); !strings.Contains(out, succeeded+"2\n") {
+		t.Errorf("want two succeeded node-optimizer drains after the uncordon:\n%s", grepLines(out, "xamops_drains_total"))
+	}
+}
+
+func grepLines(s, substr string) string {
+	var out []string
+	for _, l := range strings.Split(s, "\n") {
+		if strings.Contains(l, substr) {
+			out = append(out, l)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// OQ-14: a served policy without handleSpotInterruptions never opens the
+// interruption drain, even with DRY_RUN=false and ENABLE_NODE_OPTIMIZER=true on a
+// cluster with an interrupted node (node-4). The "true" row proves the assertion
+// sees an interruption record when the policy does allow it.
+func TestRunCycleInterruptionFieldAbsentNeverDrains(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		wantRecord bool
+	}{
+		{"field absent", `{"autoscalerMode":"full","nodeOptimizerPolicy":{"enabled":true}}`, false},
+		{"true", `{"autoscalerMode":"full","nodeOptimizerPolicy":{"enabled":true,"handleSpotInterruptions":true}}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, cap := backend(t, []byte(tc.body))
+			c := seededCluster()
+			runTestCycle(t, &config.Config{DryRun: false, EnableNodeOptimizer: true}, c, srv.URL)
+
+			interruption := 0
+			for _, raw := range cap.items("autoscaling-actions") {
+				var a struct {
+					Details map[string]interface{} `json:"details"`
+				}
+				if err := json.Unmarshal(raw, &a); err != nil {
+					t.Fatal(err)
+				}
+				if a.Details["trigger"] == "spot-interruption" {
+					interruption++
+				}
+			}
+			if (interruption > 0) != tc.wantRecord {
+				t.Errorf("spot-interruption action records = %d, want any=%v", interruption, tc.wantRecord)
+			}
+			if tc.wantRecord {
+				return
+			}
+			patched, ev := nodeWrites(c)
+			for _, n := range patched {
+				if n == "node-4" {
+					t.Errorf("interrupted node-4 patched with handleSpotInterruptions absent: %v", patched)
+				}
+			}
+			if ev != 0 {
+				t.Errorf("%d eviction(s) with handleSpotInterruptions absent", ev)
+			}
+		})
+	}
+}
+
+// The node optimizer report carries NTH interruption notices as observation only: a
+// spot-itn-tainted node is reported but is not added to the spot-interruption drain
+// call, whose input stays the legacy-label list (node-4).
+func TestRunCycleInterruptionNoticesAreObservationOnly(t *testing.T) {
+	srv, cap := backend(t, fixture(t, "11-dryrun-actions.json"))
+	c := seededCluster()
+	itn := cycleNode("node-5", map[string]string{"karpenter.sh/capacity-type": "spot"})
+	itn.Spec.Taints = []corev1.Taint{{Key: "aws-node-termination-handler/spot-itn", Effect: corev1.TaintEffectNoSchedule}}
+	if err := c.Tracker().Add(itn); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{DryRun: true, EnableNodeOptimizer: true}
+	runTestCycle(t, cfg, c, srv.URL)
+	if w := writeVerbs(c); len(w) != 0 {
+		t.Errorf("DRY_RUN cycle issued writes: %v", w)
+	}
+
+	var targets []string
+	for _, raw := range cap.items("autoscaling-actions") {
+		var a struct {
+			Target  string                 `json:"target"`
+			Details map[string]interface{} `json:"details"`
+		}
+		if err := json.Unmarshal(raw, &a); err != nil {
+			t.Fatal(err)
+		}
+		if a.Details["trigger"] == "spot-interruption" {
+			targets = append(targets, a.Target)
+		}
+	}
+	if strings.Join(targets, ",") != "node/node-4" {
+		t.Errorf("spot-interruption drain targets = %v, want [node/node-4]", targets)
+	}
+
+	reports := cap.items("node-optimizer-report")
+	if len(reports) != 1 {
+		t.Fatalf("node-optimizer-report items = %d", len(reports))
+	}
+	var r struct {
+		InterruptedNodes    []string `json:"interruptedNodes"`
+		InterruptionNotices []struct {
+			NodeName      string `json:"nodeName"`
+			Kind          string `json:"kind"`
+			Source        string `json:"source"`
+			DrainEligible bool   `json:"drainEligible"`
+		} `json:"interruptionNotices"`
+		InterruptionHandling *struct {
+			Mode   string `json:"mode"`
+			Reason string `json:"reason"`
+		} `json:"interruptionHandling"`
+	}
+	if err := json.Unmarshal(reports[0], &r); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(r.InterruptedNodes, ",") != "node-4" {
+		t.Errorf("interruptedNodes = %v", r.InterruptedNodes)
+	}
+	if len(r.InterruptionNotices) != 2 ||
+		r.InterruptionNotices[0].NodeName != "node-4" || r.InterruptionNotices[0].Source != "nth-label-legacy" || !r.InterruptionNotices[0].DrainEligible ||
+		r.InterruptionNotices[1].NodeName != "node-5" || r.InterruptionNotices[1].Source != "nth-taint" ||
+		r.InterruptionNotices[1].Kind != "interruption" || r.InterruptionNotices[1].DrainEligible {
+		t.Errorf("interruptionNotices = %+v", r.InterruptionNotices)
+	}
+	if r.InterruptionHandling == nil || r.InterruptionHandling.Mode != "simulate" || r.InterruptionHandling.Reason == "" {
+		t.Errorf("interruptionHandling = %+v\n%s", r.InterruptionHandling, reports[0])
 	}
 }

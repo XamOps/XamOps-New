@@ -100,7 +100,7 @@ describe('resolveSectionRoute', () => {
       'cost:cluster',
       'workloads:workloads,pods,containers,resources',
       'nodes:nodes,node-groups,karpenter,utilization',
-      'automation:overview,workload-autoscaler,workload-autoscaler-policies,node-autoscaler,hpa,vpa,activity',
+      'automation:overview,workload-autoscaler,workload-autoscaler-policies,node-autoscaler,consolidation,spot-interruptions,hpa,vpa,activity',
       'security:vulnerabilities',
     ]);
     for (const s of EKS_SECTIONS) expect(s.subs.some((x) => x.id === s.defaultSub)).toBe(true);
@@ -113,6 +113,8 @@ describe('resolveSectionRoute', () => {
       ['workload-autoscaler', 'Workloads', 'Workload autoscaler'],
       ['workload-autoscaler-policies', 'Policies', 'Workload autoscaler'],
       ['node-autoscaler', 'Node autoscaler', null],
+      ['consolidation', 'Consolidation', null],
+      ['spot-interruptions', 'Spot interruptions', null],
       ['hpa', 'HPA', null],
       ['vpa', 'VPA', null],
       ['activity', 'Activity', null],
@@ -150,9 +152,19 @@ describe('sub aliases and page params (automation-v2 design §3.2)', () => {
         guardrails: 'node-autoscaler',
         rebalancing: 'node-autoscaler',
         spot: 'node-autoscaler',
+        interruptions: 'spot-interruptions',
         'pod-autoscaling': 'hpa',
       },
     });
+  });
+
+  it('opens Spot interruptions at ?sub=spot-interruptions and ?sub=interruptions; ?sub=spot stays Node autoscaler (AC13)', () => {
+    expect(resolve(`${BASE}&tab=automation&sub=spot-interruptions`)).toEqual({ tab: 'automation', sub: 'spot-interruptions', corrected: null });
+    const alias = resolve(`${BASE}&tab=automation&sub=interruptions`);
+    expect([alias.tab, alias.sub]).toEqual(['automation', 'spot-interruptions']);
+    expect(params(alias.corrected).get('sub')).toBe('spot-interruptions');
+    const spot = resolve(`${BASE}&tab=automation&sub=spot`);
+    expect([spot.tab, spot.sub]).toEqual(['automation', 'node-autoscaler']);
   });
 
   it.each(Object.entries(SUB_ALIASES.automation))(
@@ -283,6 +295,8 @@ describe('sectionNavEntries (Addendum 1, J-2..J-4)', () => {
       ['overview', 'Overview', false],
       ['group:workload-autoscaler', 'Workload autoscaler', true],
       ['node-autoscaler', 'Node autoscaler', false],
+      ['consolidation', 'Consolidation', false],
+      ['spot-interruptions', 'Spot interruptions', false],
       ['hpa', 'HPA', false],
       ['vpa', 'VPA', false],
       ['activity', 'Activity', false],

@@ -84,10 +84,12 @@ describe('ClusterStatusStrip (§4.2, D10)', () => {
   it('shows Not monitored and no counts for the empty shell, whatever score it carries', async () => {
     const shell = demoEksEmptyShellDashboard('staging-eks-cluster') as unknown as EksDashboard;
     const strip = renderStrip({ cluster: 'staging-eks-cluster', data: shell });
-    await waitFor(() => expect(value('Health')).toBe('Not monitored'));
+    // Health already reads Not monitored from the empty dashboard while capabilities load,
+    // so wait on Node automation, which only settles once capabilities resolve.
+    await waitFor(() => expect(value('Node automation')).toBe('Not installed'));
+    expect(value('Health')).toBe('Not monitored');
     expect(value('Nodes ready')).toBe('—');
     expect(value('Pods running')).toBe('—');
-    expect(value('Node automation')).toBe('Not installed');
     // workloadHealth.clusterHealthScore is 100 in the shell; it is never rendered.
     expect(strip).not.toHaveTextContent('100');
     expect(strip).not.toHaveTextContent(/score/i);

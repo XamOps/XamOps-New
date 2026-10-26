@@ -12,6 +12,7 @@ import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.RebalancerConfigD
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.SafetyGuardsDto;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.ScaleOutPolicyDto;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.WorkloadRightsizerPolicyDto;
+import com.xammer.cloud.dto.autoscaling.ConsolidationPolicyDto;
 import com.xammer.cloud.dto.autoscaling.HpaManagerPolicyDto;
 import com.xammer.cloud.dto.autoscaling.NodeOptimizerPolicyDto;
 import com.xammer.cloud.dto.autoscaling.VpaManagerPolicyDto;
@@ -77,7 +78,7 @@ public class K8sAutomationPolicyNormalizer {
 
     /** The section a write endpoint replaces. */
     public enum Section {
-        SCALE_OUT, EVICTOR, WORKLOAD_RIGHTSIZER, SAFETY_GUARDS, NODE_OPTIMIZER, REBALANCER, MODE
+        SCALE_OUT, EVICTOR, WORKLOAD_RIGHTSIZER, SAFETY_GUARDS, NODE_OPTIMIZER, REBALANCER, CONSOLIDATION, MODE
     }
 
     /**
@@ -135,6 +136,12 @@ public class K8sAutomationPolicyNormalizer {
                             b.getNodeOptimizerPolicy().setAutoDrainIdleNodes(false);
                             b.getNodeOptimizerPolicy().setSpotRatioTargetPct(0);
                         }),
+                new Coercion(K8sReadinessKey.SPOT_INTERRUPTION_ACTIONS, "nodeOptimizerPolicy.handleSpotInterruptions",
+                        b -> b.getNodeOptimizerPolicy().isHandleSpotInterruptions(),
+                        b -> b.getNodeOptimizerPolicy().setHandleSpotInterruptions(false)),
+                new Coercion(K8sReadinessKey.CONSOLIDATION_ACTIONS, "consolidationPolicy.enabled",
+                        b -> b.getConsolidationPolicy().isEnabled(),
+                        b -> b.getConsolidationPolicy().setEnabled(false)),
                 new Coercion(K8sReadinessKey.REBALANCER, "rebalancer.status,rebalancer.scheduleEnabled,rebalancer.enabled",
                         b -> !"idle".equals(b.getRebalancer().getStatus()) || b.getRebalancer().isScheduleEnabled()
                                 || b.getRebalancer().isEnabled(),
@@ -251,6 +258,7 @@ public class K8sAutomationPolicyNormalizer {
             case NODE_OPTIMIZER -> validateNodeOptimizer(cast(body, NodeOptimizerPolicyDto.class));
             case SAFETY_GUARDS -> validateSafetyGuards(cast(body, SafetyGuardsDto.class));
             case REBALANCER -> validateRebalancer(cast(body, RebalancerConfigDto.class));
+            case CONSOLIDATION -> validateConsolidation(cast(body, ConsolidationPolicyDto.class));
             case MODE -> {
                 if (!(body instanceof String mode) || !MODES.contains(mode)) {
                     throw K8sAutomationRefusedException.of(K8sAutomationReason.INVALID_POLICY,
@@ -353,6 +361,9 @@ public class K8sAutomationPolicyNormalizer {
         if (p.getSpotRatioTargetPct() != 0) {
             requireReady(K8sReadinessKey.NODE_OPTIMIZER_ACTIONS, "spotRatioTargetPct");
         }
+        if (p.isHandleSpotInterruptions()) {
+            requireReady(K8sReadinessKey.SPOT_INTERRUPTION_ACTIONS, "handleSpotInterruptions");
+        }
         if (p.getMaxParallelDrains() != 1) {
             throw K8sAutomationRefusedException.of(K8sAutomationReason.GUARDRAIL_LOCKED,
                     "Parallel drains stay at 1 while automation lacks pod-fit simulation.", "maxParallelDrains");
@@ -402,6 +413,15 @@ public class K8sAutomationPolicyNormalizer {
             throw K8sAutomationRefusedException.of(K8sAutomationReason.INVALID_POLICY,
                     "The schedule is at most 64 characters.", "scheduleCron");
         }
+    }
+
+    private void validateConsolidation(ConsolidationPolicyDto p) {
+        if (p.isEnabled()) {
+            requireReady(K8sReadinessKey.CONSOLIDATION_ACTIONS, "enabled");
+        }
+        range("consolidateAfterSeconds", "Consolidate-after delay", p.getConsolidateAfterSeconds(), 60, 86400);
+        range("maxConcurrentDisruptions", "Max concurrent disruptions", p.getMaxConcurrentDisruptions(), 1, 10);
+        range("dwellSeconds", "Dwell", p.getDwellSeconds(), 60, 86400);
     }
 
     private void requireReady(K8sReadinessKey key, String field) {
@@ -503,6 +523,12 @@ public class K8sAutomationPolicyNormalizer {
         }
         if (b.getSafetyGuards().getCriticalNamespaces() == null) {
             b.getSafetyGuards().setCriticalNamespaces(new ArrayList<>(DEFAULT_CRITICAL_NAMESPACES));
+        }
+        if (b.getConsolidationPolicy() == null) {
+            // Controller off, the serve defaults 600/1/600 (mirrors the Go DefaultBundle).
+            ConsolidationPolicyDto off = new ConsolidationPolicyDto();
+            off.setEnabled(false);
+            b.setConsolidationPolicy(off);
         }
     }
 

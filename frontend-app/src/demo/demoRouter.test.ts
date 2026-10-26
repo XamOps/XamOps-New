@@ -789,7 +789,10 @@ describe('demo router — node automation reads (ROLE_XAMOPS)', () => {
     // Fields nothing measures stay absent (types/k8sAutomation.ts §10.3).
     expect(JSON.stringify(dashboard)).not.toMatch(/costSavedThisWeek|nodesSavedToday|lastRebalanceSavingsPercent/);
     const fleet = await readDemoBody(`${base('prod-eks-cluster')}/node-fleet?accountId=demo-aws-001`);
-    expect(fleet).toMatchObject({ totalNodes: 6, onDemandNodes: 3, spotNodes: 3, idleNodes: [], interruptedNodes: [] });
+    expect(fleet).toMatchObject({
+      totalNodes: 6, onDemandNodes: 3, spotNodes: 3, idleNodes: [], interruptedNodes: [],
+      interruptedNodesReported: true, interruptionNoticesReported: true, interruptionNotices: [], spotCandidates: [],
+    });
     expect(typeof fleet.collectedAt).toBe('string');
     expect(await readDemoBody(`${base('prod-eks-cluster')}/rebalance-status?accountId=demo-aws-001`)).toEqual({
       status: 'idle',
@@ -803,7 +806,35 @@ describe('demo router — node automation reads (ROLE_XAMOPS)', () => {
     expect(dashboard.agentStatus).toMatchObject({ mode: 'disabled', lastSyncAt: null });
   });
 
-  it.each(['', '/node-fleet', '/rebalance-status'])('answers any other cluster 404 K8S_CLUSTER_NOT_REGISTERED (%s)', async (path) => {
+  it('answers the consolidation plan honestly: NO_PLAN, with no invented nodes or savings', async () => {
+    for (const cluster of ['prod-eks-cluster', 'eu-eks-cluster']) {
+      expect(await readDemoBody(`${base(cluster)}/consolidation-plan?accountId=demo-aws-001`)).toEqual({
+        freshness: 'NO_PLAN',
+        generatedAt: null,
+        ageSeconds: null,
+        plan: null,
+        savings: null,
+      });
+    }
+  });
+  it('answers the spot interruption history honestly: no invented events, the demo fleet share, handling not reported', async () => {
+    const prod = await readDemoBody(`${base('prod-eks-cluster')}/spot-interruptions?accountId=demo-aws-001&days=90&limit=200`);
+    expect(prod).toMatchObject({
+      windowDays: 90,
+      truncated: false,
+      retentionDays: 365,
+      recordingEnabled: true,
+      fleet: { totalNodes: 6, spotNodes: 3, spotSharePct: 50 },
+      coverage: { handlingNow: null },
+      events: [],
+    });
+    expect(typeof prod.coverage.agentSnapshotAt).toBe('string');
+    expect(typeof prod.coverage.automationReportAt).toBe('string');
+    const eu = await readDemoBody(`${base('eu-eks-cluster')}/spot-interruptions?accountId=demo-aws-001`);
+    expect(eu).toMatchObject({ windowDays: 30, fleet: { totalNodes: 3, spotNodes: 0, spotSharePct: 0 }, events: [] });
+  });
+
+  it.each(['', '/node-fleet', '/rebalance-status', '/consolidation-plan', '/spot-interruptions'])('answers any other cluster 404 K8S_CLUSTER_NOT_REGISTERED (%s)', async (path) => {
     const response = resolveDemoResponse(`${base('staging-eks-cluster')}${path}${q}`);
     expect(response?.status).toBe(404);
     expect((await response!.json()).code).toBe('K8S_CLUSTER_NOT_REGISTERED');
@@ -814,6 +845,9 @@ describe('demo router — node automation reads (ROLE_XAMOPS)', () => {
     ['PUT', '/mode'],
     ['PUT', '/node-optimizer'],
     ['PUT', '/rebalancer'],
+    ['PUT', '/consolidation-plan'],
+    ['POST', '/consolidation-plan'],
+    ['POST', '/spot-interruptions'],
     ['POST', '/rebalance'],
     ['DELETE', '/node-templates/t1'],
   ])('refuses the node automation write %s %s with 403 K8S_DEMO, never a read fixture', async (method, path) => {

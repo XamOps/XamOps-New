@@ -15,6 +15,7 @@ import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.RebalancerConfigD
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.SafetyGuardsDto;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.ScaleOutPolicyDto;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.WorkloadRightsizerPolicyDto;
+import com.xammer.cloud.dto.autoscaling.ConsolidationPolicyDto;
 import com.xammer.cloud.dto.autoscaling.HpaManagerPolicyDto;
 import com.xammer.cloud.dto.autoscaling.NodeOptimizerPolicyDto;
 import com.xammer.cloud.dto.autoscaling.VpaManagerPolicyDto;
@@ -105,6 +106,8 @@ class K8sAutomationPolicyNormalizerTest {
                 case NODE_OPTIMIZER_ACTIONS -> readiness.setNodeOptimizerActions(true);
                 case SCALE_OUT -> readiness.setScaleOut(true);
                 case NODE_TEMPLATES -> readiness.setNodeTemplates(true);
+                case SPOT_INTERRUPTION_ACTIONS -> readiness.setSpotInterruptionActions(true);
+                case CONSOLIDATION_ACTIONS -> readiness.setConsolidationActions(true);
             }
         }
     }
@@ -338,13 +341,44 @@ class K8sAutomationPolicyNormalizerTest {
     }
 
     @Test
-    void spotInterruptionHandlingPassesThrough() throws Exception {
-        for (boolean value : new boolean[] {true, false}) {
-            String json = stored(b -> b.getNodeOptimizerPolicy().setHandleSpotInterruptions(value));
-            for (AutomationPolicyBundle b : bothPaths(json)) {
-                assertThat(b.getNodeOptimizerPolicy().isHandleSpotInterruptions()).isEqualTo(value);
-            }
+    void spotInterruptionActionsRow() throws Exception {
+        String json = stored(b -> b.getNodeOptimizerPolicy().setHandleSpotInterruptions(true));
+        ready(K8sReadinessKey.NODE_OPTIMIZER_ACTIONS);
+        for (AutomationPolicyBundle b : bothPaths(json)) {
+            assertThat(b.getNodeOptimizerPolicy().isHandleSpotInterruptions())
+                    .as("node-optimizer-actions alone does not open interruption handling").isFalse();
         }
+        assertRow(b -> b.getNodeOptimizerPolicy().setHandleSpotInterruptions(true),
+                b -> b.getNodeOptimizerPolicy().isHandleSpotInterruptions(),
+                false, true, K8sReadinessKey.SPOT_INTERRUPTION_ACTIONS);
+    }
+    @Test
+    void aStoredBundleWithoutHandleSpotInterruptionsIsServedFalse() throws Exception {
+        JsonNode tree = RAW.readTree(stored(b -> { }));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) tree.get("nodeOptimizerPolicy")).remove("handleSpotInterruptions");
+        String json = RAW.writeValueAsString(tree);
+        assertThat(json).doesNotContain("handleSpotInterruptions");
+        ready(K8sReadinessKey.values());
+        for (AutomationPolicyBundle b : bothPaths(json)) {
+            assertThat(b.getNodeOptimizerPolicy().isHandleSpotInterruptions()).isFalse();
+        }
+    }
+    @Test
+    void defaultsServeHandleSpotInterruptionsFalse() {
+        assertThat(normalizer.defaults().getNodeOptimizerPolicy().isHandleSpotInterruptions()).isFalse();
+        assertThat(new NodeOptimizerPolicyDto().isHandleSpotInterruptions()).isFalse();
+    }
+    @Test
+    void spotInterruptionHandlingIsRefusedWhileNotReady() {
+        NodeOptimizerPolicyDto p = new NodeOptimizerPolicyDto();
+        p.setHandleSpotInterruptions(true);
+        ready(K8sReadinessKey.NODE_OPTIMIZER_ACTIONS);
+        K8sAutomationRefusedException e = refusal(() -> normalizer.validate(Section.NODE_OPTIMIZER, p));
+        assertThat(e.getReason()).isEqualTo(K8sAutomationReason.CONTROLLER_NOT_READY);
+        assertThat(e.getField()).isEqualTo("handleSpotInterruptions");
+        assertThat(e.getMessage()).isEqualTo(K8sReadinessKey.SPOT_INTERRUPTION_ACTIONS.message());
+        ready(K8sReadinessKey.SPOT_INTERRUPTION_ACTIONS);
+        assertThatCode(() -> normalizer.validate(Section.NODE_OPTIMIZER, p)).doesNotThrowAnyException();
     }
 
     // ── Logging ───────────────────────────────────────────────────────────
@@ -667,5 +701,69 @@ class K8sAutomationPolicyNormalizerTest {
         assertThat(refusal(() -> normalizer.validate(Section.MODE, null)).getField()).isEqualTo("mode");
         assertThatThrownBy(() -> normalizer.replaceSection(normalizer.defaults(), Section.MODE, 3))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // ── Consolidation (FEAT-003) ──────────────────────────────────────────
+
+    @Test
+    void anOmittedConsolidationPolicyIsServedDisabledWithTheIntervalDefaults() {
+        // No consolidationPolicy in the stored bundle: fillMissing seeds enabled=false / 600 / 1 / 600.
+        ready(K8sReadinessKey.values());
+        for (AutomationPolicyBundle b : bothPaths("{\"autoscalerMode\":\"full\"}")) {
+            assertThat(b.getConsolidationPolicy()).isNotNull();
+            assertThat(b.getConsolidationPolicy().isEnabled()).isFalse();
+            assertThat(b.getConsolidationPolicy().getConsolidateAfterSeconds()).isEqualTo(600);
+            assertThat(b.getConsolidationPolicy().getMaxConcurrentDisruptions()).isEqualTo(1);
+            assertThat(b.getConsolidationPolicy().getDwellSeconds()).isEqualTo(600);
+        }
+        assertThat(normalizer.defaults().getConsolidationPolicy().isEnabled()).isFalse();
+    }
+
+    @Test
+    void consolidationActionsRow_storedEnabledIsCoercedFalseWhileNotReady() throws Exception {
+        String json = stored(b -> {
+            ConsolidationPolicyDto p = new ConsolidationPolicyDto();
+            p.setEnabled(true);
+            b.setConsolidationPolicy(p);
+        });
+        for (AutomationPolicyBundle b : bothPaths(json)) {
+            assertThat(b.getConsolidationPolicy().isEnabled())
+                    .as("served with consolidation disabled while consolidation-actions isn't ready").isFalse();
+        }
+        ready(K8sReadinessKey.CONSOLIDATION_ACTIONS);
+        for (AutomationPolicyBundle b : bothPaths(json)) {
+            assertThat(b.getConsolidationPolicy().isEnabled())
+                    .as("served enabled once consolidation-actions is ready").isTrue();
+        }
+    }
+
+    @Test
+    void consolidationEnabledWriteIsRefusedWhileNotReady_thenRanges() {
+        ConsolidationPolicyDto on = new ConsolidationPolicyDto();
+        on.setEnabled(true);
+        K8sAutomationRefusedException e = refusal(() -> normalizer.validate(Section.CONSOLIDATION, on));
+        assertThat(e.getReason()).isEqualTo(K8sAutomationReason.CONTROLLER_NOT_READY);
+        assertThat(e.getField()).isEqualTo("enabled");
+        assertThat(e.getMessage()).isEqualTo(K8sReadinessKey.CONSOLIDATION_ACTIONS.message());
+
+        // A disabled policy with a bad interval is a range refusal, not a readiness one.
+        ConsolidationPolicyDto badAfter = new ConsolidationPolicyDto();
+        badAfter.setConsolidateAfterSeconds(59);
+        assertThat(refusal(() -> normalizer.validate(Section.CONSOLIDATION, badAfter)).getField())
+                .isEqualTo("consolidateAfterSeconds");
+        ConsolidationPolicyDto badDisruptions = new ConsolidationPolicyDto();
+        badDisruptions.setMaxConcurrentDisruptions(11);
+        assertThat(refusal(() -> normalizer.validate(Section.CONSOLIDATION, badDisruptions)).getField())
+                .isEqualTo("maxConcurrentDisruptions");
+        ConsolidationPolicyDto badDwell = new ConsolidationPolicyDto();
+        badDwell.setDwellSeconds(86401);
+        assertThat(refusal(() -> normalizer.validate(Section.CONSOLIDATION, badDwell)).getField())
+                .isEqualTo("dwellSeconds");
+
+        // Defaults (disabled, 600/1/600) pass; enabled passes once the key is ready.
+        assertThatCode(() -> normalizer.validate(Section.CONSOLIDATION, new ConsolidationPolicyDto()))
+                .doesNotThrowAnyException();
+        ready(K8sReadinessKey.CONSOLIDATION_ACTIONS);
+        assertThatCode(() -> normalizer.validate(Section.CONSOLIDATION, on)).doesNotThrowAnyException();
     }
 }

@@ -67,13 +67,14 @@ const (
 // order below (the Python oracle uses the same codes and order).
 const (
 	// Refused
-	ReasonPodAffinity      = "pod-affinity"
-	ReasonPodAntiAffinity  = "pod-anti-affinity"
-	ReasonTopologySpread   = "topology-spread"
-	ReasonPVCVolume        = "pvc-volume"
-	ReasonEphemeralVolume  = "ephemeral-volume"
-	ReasonHostPort         = "host-port"
-	ReasonExtendedResource = "extended-resource" // + ":" + sorted names joined by ","
+	ReasonPodAffinity         = "pod-affinity"
+	ReasonPodAntiAffinity     = "pod-anti-affinity"
+	ReasonTopologySpread      = "topology-spread"
+	ReasonPVCVolume           = "pvc-volume"
+	ReasonPVCVolumeUnmodelled = "pvc-volume-unmodelled" // bound PVC whose PV zone-affinity cannot be modelled
+	ReasonEphemeralVolume     = "ephemeral-volume"
+	ReasonHostPort            = "host-port"
+	ReasonExtendedResource    = "extended-resource" // + ":" + sorted names joined by ","
 
 	// Blocked
 	ReasonCriticalNamespace = "critical-namespace"
@@ -107,6 +108,8 @@ type Node struct {
 	Allocatable   Resources
 	// Requested = sum of eff over every bound pod (DaemonSets included); Pods = count.
 	Requested Resources
+	// ProviderID is spec.providerID (e.g. aws:///ap-south-1c/i-0abc…), "" when unset.
+	ProviderID string
 }
 
 // Free returns allocatable - requested (may be negative on an overcommitted node).
@@ -139,6 +142,14 @@ type Pod struct {
 	Tolerations          []corev1.Toleration
 	NodeSelector         map[string]string
 	RequiredNodeAffinity *corev1.NodeSelector
+	// VolumeNodeAffinity holds the ANDed required node-selector terms resolved from
+	// the pod's bound PVC -> PV -> spec.nodeAffinity.required (the zone constraint the
+	// EBS CSI driver stamps). nil when the pod has no fully-modellable zonal PV.
+	VolumeNodeAffinity *corev1.NodeSelector
+	// HasEmptyDirAtDataPath reports that the pod mounts a non-Memory emptyDir (a
+	// drain of an emptyDir-backed database is data loss). The data path is not
+	// resolved in v1, so any non-Memory emptyDir counts.
+	HasEmptyDirAtDataPath bool
 	// Owner is the controller owner reference, nil when there is none.
 	Owner *Owner
 	// ControllerReplicas is spec.replicas of the owning ReplicaSet/StatefulSet
@@ -146,6 +157,10 @@ type Pod struct {
 	ControllerReplicas *int32
 	// Unmodelled lists the refusal codes (section 3.4) found when the pod was built.
 	Unmodelled []string
+	// DBVerdict is the stateful-protection verdict code (db-*) when this pod is a
+	// detected database that must be refused, "" otherwise. Set during snapshot
+	// construction; consulted before the zone predicate.
+	DBVerdict string
 }
 
 // Key returns "namespace/name".

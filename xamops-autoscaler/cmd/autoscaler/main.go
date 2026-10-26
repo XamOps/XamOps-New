@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,15 +15,21 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/leaderelection"
+	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	metricsv "k8s.io/metrics/pkg/client/clientset/versioned"
 
 	"github.com/xamops/automation/internal/config"
+	"github.com/xamops/automation/internal/consolidation"
 	"github.com/xamops/automation/internal/controller"
 	"github.com/xamops/automation/internal/drain"
 	"github.com/xamops/automation/internal/fitsim"
 	"github.com/xamops/automation/internal/gate"
+	"github.com/xamops/automation/internal/metrics"
+	"github.com/xamops/automation/internal/obslog"
 	"github.com/xamops/automation/internal/policy"
 	"github.com/xamops/automation/internal/pusher"
+	"github.com/xamops/automation/internal/removal"
 	"github.com/xamops/automation/internal/state"
 	"github.com/xamops/automation/internal/telemetry"
 )
@@ -75,9 +82,13 @@ func main() {
 	policyClient := policy.NewClient(cfg.ServerURL, cfg.APIKey, cfg.ClusterName, cfg.CloudAccountID)
 	push := pusher.New(cfg.ServerURL, cfg.APIKey, cfg.ClusterName, cfg.CloudAccountID, cfg.MaxRetries, cfg.RetryDelay)
 
+	// Observability baseline (FEAT-001): one metric set for the whole process, served
+	// on :9090 /metrics; handles are passed into the control loop.
+	mset := metrics.New()
+
 	// ── Controller instances (all respect DryRun flag) ───────────────────
 	evictor := controller.NewEvictor(k8s, cfg.DryRun)
-	rightsizer := controller.NewRightsizer(k8s, cfg.PrometheusURL, cfg.DryRun)
+	rightsizer := controller.NewRightsizer(k8s, cfg.PrometheusURL, cfg.DryRun, mset)
 	rebalancer := controller.NewRebalancer(k8s, cfg.DryRun)
 	hpaMgr := controller.NewHPAManager(k8s, cfg.PrometheusURL, cfg.DryRun)
 	vpaMgr := controller.NewVPAManager(k8s, dc, cfg.DryRun)
@@ -87,35 +98,177 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// ── One-shot operator command: RUN_MODE=uncordon-all ─────────────────
+	// An operator runs the agent image once to uncordon every node this autoscaler
+	// cordoned (fenced-fleet recovery, AC4.10). Honours DRY_RUN and never-self.
+	if cfg.RunMode == runModeUncordonAll {
+		runUncordonAll(ctx, cfg, k8s)
+		return
+	}
+
 	// ── Health server ────────────────────────────────────────────────────
 	go startHealthServer()
 
-	// ── Main control loop ────────────────────────────────────────────────
-	loopDone := make(chan struct{})
-	go func() {
-		defer close(loopDone)
-		runControlLoop(ctx, cfg, k8s, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
-	}()
+	// ── Metrics server (:9090 /metrics) ──────────────────────────────────
+	go startMetricsServer(mset)
 
-	// ── Heartbeat loop ────────────────────────────────────────────────────
+	// ── Heartbeat loop (served by leader AND standby) ─────────────────────
 	go runHeartbeatLoop(ctx, cfg, push)
 
-	// ── Graceful shutdown ─────────────────────────────────────────────────
+	// loop runs the control loop; shared by the leader-election and the direct paths.
+	loop := func(loopCtx context.Context) {
+		runControlLoop(loopCtx, cfg, mset, k8s, dc, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
+	}
+
+	// ── Graceful shutdown signal ──────────────────────────────────────────
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
 
-	log.Println("Shutdown signal received — stopping automation agent...")
-	cancel()
-	// Wait for the in-flight cycle: an interrupted drain aborts, restores its nodes on
-	// a detached context, records the ledger outcome and pushes its telemetry. The
-	// bound stays inside the pod's 60s terminationGracePeriodSeconds.
-	select {
-	case <-loopDone:
-		log.Println("Automation agent stopped")
-	case <-time.After(shutdownWait):
-		log.Printf("WARN: in-flight cycle did not finish within %s — exiting; orphan recovery handles any node left draining", shutdownWait)
+	if !cfg.EnableLeaderElection {
+		// Single-replica / dev: run the loop directly as before.
+		log.Println("Leader election disabled — running the control loop directly")
+		mset.SetLeader(true)
+		loopDone := make(chan struct{})
+		go func() {
+			defer close(loopDone)
+			loop(ctx)
+		}()
+		<-sigChan
+		log.Println("Shutdown signal received — stopping automation agent...")
+		cancel()
+		// Wait for the in-flight cycle: an interrupted drain aborts, restores its nodes
+		// on a detached context, records the ledger outcome and pushes its telemetry.
+		// The bound stays inside the pod's 60s terminationGracePeriodSeconds.
+		select {
+		case <-loopDone:
+			log.Println("Automation agent stopped")
+		case <-time.After(shutdownWait):
+			log.Printf("WARN: in-flight cycle did not finish within %s — exiting; orphan recovery handles any node left draining", shutdownWait)
+		}
+		return
 	}
+
+	// ── Leader election (coordination.k8s.io Lease) ───────────────────────
+	// A multi-replica Deployment runs exactly one active apply/drain loop: only the
+	// replica holding the Lease runs runControlLoop; standbys keep serving health +
+	// heartbeat + /metrics (SetLeader(0)). The existing ledger idempotency makes
+	// handover safe — no new drain logic. Lease identity is the pod name (POD_NAME),
+	// falling back to the hostname.
+	identity := cfg.PodName
+	if identity == "" {
+		if h, err := os.Hostname(); err == nil {
+			identity = h
+		} else {
+			identity = "xamops-automation"
+		}
+	}
+	mset.SetLeaderIdentity(identity)
+	mset.SetLeader(false)
+
+	lock := &resourcelock.LeaseLock{
+		LeaseMeta:  metav1.ObjectMeta{Name: leaderElectionLeaseName, Namespace: cfg.PodNamespace},
+		Client:     k8s.CoordinationV1(),
+		LockConfig: resourcelock.ResourceLockConfig{Identity: identity},
+	}
+
+	// leaderCtx is cancelled on SIGTERM to release the lease and stop leading.
+	leaderCtx, leaderCancel := context.WithCancel(ctx)
+	go func() {
+		<-sigChan
+		log.Println("Shutdown signal received — stopping automation agent...")
+		leaderCancel()
+	}()
+
+	lc := &loopController{run: loop}
+	leaderelection.RunOrDie(leaderCtx, leaderelection.LeaderElectionConfig{
+		Lock:            lock,
+		ReleaseOnCancel: true,
+		LeaseDuration:   leaseDuration,
+		RenewDeadline:   renewDeadline,
+		RetryPeriod:     retryPeriod,
+		Name:            leaderElectionLeaseName,
+		Callbacks: leaderelection.LeaderCallbacks{
+			OnStartedLeading: func(c context.Context) {
+				log.Printf("Became leader (%s) — starting the control loop", identity)
+				mset.SetLeader(true)
+				lc.start(c) // runs the loop ONLY while leading
+			},
+			OnStoppedLeading: func() {
+				log.Printf("Lost/released leadership (%s) — control loop stopping; serving health + heartbeat + /metrics only", identity)
+				mset.SetLeader(false)
+				lc.stop()
+			},
+			OnNewLeader: func(leader string) {
+				if leader != identity {
+					log.Printf("Standby — current leader is %s", leader)
+				}
+			},
+		},
+	})
+	cancel()
+	log.Println("Automation agent stopped")
+}
+
+// loopController starts/stops a leader-gated loop. It is the small testable unit
+// behind the leaderelection callbacks: start() runs the loop ONLY while leading;
+// stop() cancels it. A standby that never calls start() never runs the loop.
+type loopController struct {
+	run      func(context.Context) // the control loop to run while leading
+	cancel   context.CancelFunc
+	started  bool
+	runCount int // number of times the loop was started (0 for a pure standby)
+}
+
+// start runs the loop under a fresh child context; it is a no-op if already running.
+func (l *loopController) start(parent context.Context) {
+	if l.started {
+		return
+	}
+	ctx, cancel := context.WithCancel(parent)
+	l.cancel = cancel
+	l.started = true
+	l.runCount++
+	go l.run(ctx)
+}
+
+// stop cancels the running loop (no-op if not running).
+func (l *loopController) stop() {
+	if !l.started {
+		return
+	}
+	l.cancel()
+	l.started = false
+}
+
+// Leader-election lease (coordination.k8s.io) name and timings.
+const (
+	leaderElectionLeaseName = "xamops-automation-leader"
+	leaseDuration           = 15 * time.Second
+	renewDeadline           = 10 * time.Second
+	retryPeriod             = 2 * time.Second
+
+	runModeUncordonAll = "uncordon-all"
+)
+
+// runUncordonAll executes the one-shot operator recovery lever: uncordon every node
+// this autoscaler cordoned. It mirrors the per-cycle drain machinery's safety —
+// DRY_RUN simulates (never writes), the executor's never-cordon/drain-self invariant
+// skips the agent's own node — and runs once, then returns so main() exits.
+func runUncordonAll(ctx context.Context, cfg *config.Config, k8s kubernetes.Interface) {
+	mode := gate.Live
+	if cfg.DryRun {
+		mode = gate.Simulate
+		log.Println("RUN_MODE=uncordon-all under DRY_RUN=true — simulating; no node is written")
+	} else {
+		log.Println("RUN_MODE=uncordon-all — uncordoning every node this autoscaler cordoned")
+	}
+	exec := drain.NewExecutor(k8s, nil, cfg.PodNamespace)
+	exec.SetSelfNode(cfg.NodeName)
+	recs := exec.UncordonAllXamopsNodes(ctx, mode)
+	for _, r := range recs {
+		log.Printf("uncordon-all: %s status=%s verified=%v %s", r.Target, r.Status, r.Verified, r.Verification)
+	}
+	log.Printf("RUN_MODE=uncordon-all complete — %d XamOps-cordoned node(s) handled", len(recs))
 }
 
 // shutdownWait bounds the wait for the in-flight cycle after SIGTERM (grace period 60s).
@@ -125,7 +278,9 @@ const shutdownWait = 50 * time.Second
 func runControlLoop(
 	ctx context.Context,
 	cfg *config.Config,
+	mset *metrics.Set,
 	k8s kubernetes.Interface,
+	dc dynamic.Interface,
 	policyClient *policy.Client,
 	push *pusher.Pusher,
 	evictor *controller.Evictor,
@@ -150,7 +305,7 @@ func runControlLoop(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			runCycle(ctx, cfg, k8s, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
+			runCycle(ctx, cfg, mset, k8s, dc, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
 		}
 	}
 }
@@ -159,6 +314,7 @@ func runControlLoop(
 type cycleActions struct {
 	records []policy.ActionRecord
 	events  []policy.AutoscalingEvent
+	mset    *metrics.Set
 }
 
 // add records each action and its paired legacy event (same ID). nodeCount is the
@@ -172,6 +328,19 @@ func (c *cycleActions) add(eventType string, nodeCount int, recs ...policy.Actio
 
 func (c *cycleActions) addOutcome(eventType string, o drain.Outcome) {
 	c.add(eventType, len(o.Reports), o.Actions...)
+	// xamops_drains_total{controller,result} — result is the drain Outcome.Status
+	// (succeeded/refused/skipped/aborted/failed/simulated). The controller label comes
+	// from the outcome's own action record (falls back to the drain-executor name).
+	if o.Status != "" {
+		controllerName := drain.ControllerExecutor
+		if len(o.Actions) > 0 && o.Actions[0].Controller != "" {
+			controllerName = o.Actions[0].Controller
+		}
+		c.mset.IncDrain(controllerName, o.Status)
+		// One re-plan is recorded per cycle-level drain outcome (we do not fabricate
+		// per-eviction replan counts we cannot observe here).
+		c.mset.IncDrainReplan(controllerName)
+	}
 }
 
 // addRightsizer records the rightsizer's per-container actions. Simulated, refused,
@@ -215,22 +384,48 @@ func (c *cycleActions) addRightsizer(recs []policy.ActionRecord) {
 type cycleDecisions struct {
 	Rebalancer, Evictor, NodeOptimizer, Cordon, IdleDrain, SpotRatio, Karpenter, Interruption,
 	Rightsizer, RightsizerApply, HPAManager gate.Decision
+	// Consolidation is look-only (Off or Analyse); it is not a node action.
+	Consolidation gate.Decision
+	// ConsolidationActions is the acting consolidation gate (Off / Simulate / Live).
+	ConsolidationActions gate.Decision
 }
 
 func decide(cfg *config.Config, b policy.PolicyBundle) cycleDecisions {
 	nop := b.NodeOptimizerPolicy
 	return cycleDecisions{
-		Rebalancer:      gate.Rebalancer(cfg, b),
-		Evictor:         gate.Evictor(cfg, b),
-		NodeOptimizer:   gate.NodeOptimizerAnalysis(cfg, b),
-		Cordon:          gate.NodeAction(cfg, b, nop.AutoCordonIdleNodes, "autoCordonIdleNodes"),
-		IdleDrain:       gate.NodeAction(cfg, b, nop.AutoDrainIdleNodes, "autoDrainIdleNodes"),
-		SpotRatio:       gate.NodeAction(cfg, b, nop.SpotRatioTargetPct > 0, "spotRatioTargetPct"),
-		Karpenter:       gate.NodeAction(cfg, b, nop.SpotRatioTargetPct > 0 && nop.KarpenterEnabled, "karpenterEnabled"),
-		Interruption:    gate.NodeAction(cfg, b, nop.HandleSpotInterruptions, "handleSpotInterruptions"),
-		Rightsizer:      gate.RightsizerAnalysis(cfg, b),
-		RightsizerApply: gate.RightsizerApply(cfg, b),
-		HPAManager:      gate.HPAManager(cfg, b),
+		Rebalancer:           gate.Rebalancer(cfg, b),
+		Evictor:              gate.Evictor(cfg, b),
+		NodeOptimizer:        gate.NodeOptimizerAnalysis(cfg, b),
+		Cordon:               gate.NodeAction(cfg, b, nop.AutoCordonIdleNodes, "autoCordonIdleNodes"),
+		IdleDrain:            gate.NodeAction(cfg, b, nop.AutoDrainIdleNodes, "autoDrainIdleNodes"),
+		SpotRatio:            gate.NodeAction(cfg, b, nop.SpotRatioTargetPct > 0, "spotRatioTargetPct"),
+		Karpenter:            gate.NodeAction(cfg, b, nop.SpotRatioTargetPct > 0 && nop.KarpenterEnabled, "karpenterEnabled"),
+		Interruption:         gate.Interruption(cfg, b),
+		Rightsizer:           gate.RightsizerAnalysis(cfg, b),
+		RightsizerApply:      gate.RightsizerApply(cfg, b),
+		HPAManager:           gate.HPAManager(cfg, b),
+		Consolidation:        gate.ConsolidationAnalysis(cfg, b),
+		ConsolidationActions: gate.ConsolidationActions(cfg, b),
+	}
+}
+
+// byController returns the gate decision for each controller label, used to set the
+// xamops_gate_decision gauge and emit per-controller structured gate lines.
+func (d cycleDecisions) byController() map[string]gate.Decision {
+	return map[string]gate.Decision{
+		"rebalancer":            d.Rebalancer,
+		"evictor":               d.Evictor,
+		"node-optimizer":        d.NodeOptimizer,
+		"cordon":                d.Cordon,
+		"idle-drain":            d.IdleDrain,
+		"spot-ratio":            d.SpotRatio,
+		"karpenter":             d.Karpenter,
+		"interruption":          d.Interruption,
+		"rightsizer":            d.Rightsizer,
+		"rightsizer-apply":      d.RightsizerApply,
+		"hpa-manager":           d.HPAManager,
+		"consolidation":         d.Consolidation,
+		"consolidation-actions": d.ConsolidationActions,
 	}
 }
 
@@ -249,10 +444,29 @@ func (d cycleDecisions) nodeActionMode() gate.Mode {
 	return m
 }
 
+// consolidationProvider builds the cloud provider for the consolidation controller.
+// Under gate.Simulate the provider is never called, so it returns nil (no AWS
+// credentials are resolved). Under gate.Live it loads the AWS config and returns an
+// AWSProvider; a load failure logs and returns nil, which the controller treats as a
+// fail-closed refusal (node left cordoned+drained, never terminated).
+func consolidationProvider(ctx context.Context, cfg *config.Config, mode gate.Mode) removal.CloudProvider {
+	if mode != gate.Live {
+		return nil
+	}
+	awsCfg, err := removal.LoadAWSConfig(ctx, os.Getenv("AWS_REGION"))
+	if err != nil {
+		log.Printf("WARN: consolidation: load AWS config: %v — removals will refuse fail-closed", err)
+		return nil
+	}
+	return removal.NewAWSProvider(awsCfg, cfg.ClusterName)
+}
+
 func runCycle(
 	ctx context.Context,
 	cfg *config.Config,
+	mset *metrics.Set,
 	k8s kubernetes.Interface,
+	dc dynamic.Interface,
 	policyClient *policy.Client,
 	push *pusher.Pusher,
 	evictor *controller.Evictor,
@@ -263,13 +477,18 @@ func runCycle(
 	nodeOpt *controller.NodeOptimizer,
 ) {
 	log.Println("── Automation cycle start ──────────────────────────────────────")
+	cycleStart := time.Now()
+	defer func() { mset.ObserveCycle(time.Since(cycleStart).Seconds()) }()
 
 	// 1. Fetch current policy from XamOps backend (normalized by the client)
 	bundle, err := policyClient.FetchPolicy(ctx)
 	if err != nil {
+		mset.IncPolicyFetchError()
 		log.Printf("ERROR: fetch policy: %v", err)
 		return
 	}
+	// 'policy-fetched' substring is relied on by the node-regression — keep it.
+	log.Printf("policy-fetched: mode=%s", bundle.AutoscalerMode)
 
 	if bundle.AutoscalerMode == "disabled" {
 		log.Println("Automation mode=disabled — idle this cycle")
@@ -278,9 +497,15 @@ func runCycle(
 
 	// 2. Gate decisions, once per cycle
 	d := decide(cfg, bundle)
-	log.Printf("Gates — rebalancer=%s | evictor=%s | nodeopt=%s cordon=%s idleDrain=%s spotRatio=%s karpenter=%s interruption=%s | rightsizer=%s apply=%s | hpa=%s",
+	log.Printf("Gates — rebalancer=%s | evictor=%s | nodeopt=%s cordon=%s idleDrain=%s spotRatio=%s karpenter=%s interruption=%s | rightsizer=%s apply=%s | hpa=%s | consolidation=%s actions=%s",
 		d.Rebalancer, d.Evictor, d.NodeOptimizer, d.Cordon, d.IdleDrain, d.SpotRatio, d.Karpenter, d.Interruption,
-		d.Rightsizer, d.RightsizerApply, d.HPAManager)
+		d.Rightsizer, d.RightsizerApply, d.HPAManager, d.Consolidation, d.ConsolidationActions)
+	// Structured companions of the human 'policy-fetched'/'Gates —' lines above.
+	obslog.Cycle("policy-fetched", slog.String("mode", bundle.AutoscalerMode))
+	for controllerName, dec := range d.byController() {
+		mset.SetGateDecision(controllerName, dec.Mode.String())
+		obslog.Gate("Gates — "+controllerName, controllerName, dec.Mode.String())
+	}
 
 	// 3. Per-cycle drain machinery: one global budget, one executor, one ledger.
 	var inflight []string
@@ -290,18 +515,24 @@ func runCycle(
 		inflight = drain.InflightNodes(nodes.Items)
 	}
 	budget := drain.NewBudget(bundle.NodeOptimizerPolicy.MaxParallelDrains, inflight)
-	planner := drain.NewFitPlanner(k8s, fitsim.Options{Guards: bundle.SafetyGuards, SelfNamespace: cfg.PodNamespace})
+	// xamops_drain_budget_inflight — nodes already in flight consuming budget this cycle.
+	mset.SetDrainBudgetInflight(len(inflight))
+	planner := drain.NewFitPlanner(k8s, dc, fitsim.Options{Guards: bundle.SafetyGuards, SelfNamespace: cfg.PodNamespace})
 	exec := drain.NewExecutor(k8s, planner, cfg.PodNamespace)
+	exec.SetSelfNode(cfg.NodeName) // never-cordon/drain-self (FEAT-002)
 	ledger := state.New(k8s, cfg.PodNamespace, cfg.StateConfigMap, cfg.DryRun)
 	log.Printf("Drain budget capacity=%d inflight=%v planner=fitsim selfNamespace=%s",
 		budget.Capacity(), inflight, cfg.PodNamespace)
 
 	var batches []pusher.Batch
-	acts := &cycleActions{}
+	acts := &cycleActions{mset: mset}
 	var drainReports []controller.DrainProgressReport
 
 	// Orphaned drains from an earlier process are handled before anything else.
-	acts.add("scale-in", 1, exec.RecoverOrphans(ctx, d.nodeActionMode())...)
+	orphanRecs := exec.RecoverOrphans(ctx, d.nodeActionMode())
+	acts.add("scale-in", 1, orphanRecs...)
+	// xamops_orphans_recovered_total — count the orphaned drains this cycle recovered.
+	mset.AddOrphansRecovered(len(orphanRecs))
 
 	// ── 1. Rebalancer (highest priority — changes node topology) ─────────────
 	armed := cfg.EnableRebalancer && bundle.AutoscalerMode == "full" && bundle.Rebalancer.Enabled
@@ -417,6 +648,8 @@ func runCycle(
 		}
 		if report != nil {
 			report.DryRun = cfg.DryRun
+			dec := d.Interruption
+			report.InterruptionHandling = &dec
 			batches = append(batches, pusher.Batch{
 				Collector:   "node-optimizer-report",
 				Items:       []interface{}{report},
@@ -479,6 +712,55 @@ func runCycle(
 					}
 				}
 			}
+		}
+	}
+
+	// ── 7. Consolidation ──────────────────────────────────────────────────────
+	// The plan is collected + analyzed exactly ONCE. The look-only plan is always
+	// pushed (DT_CONSOLIDATION_PLAN) while the analysis gate is on; when the acting
+	// gate (ConsolidationActions) is Simulate/Live the SAME Input + Plan are handed to
+	// the controller, which never re-collects or re-analyzes.
+	if d.Consolidation.Mode != gate.Off {
+		cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		copts := fitsim.Options{Guards: bundle.SafetyGuards, SelfNamespace: cfg.PodNamespace}
+		now := time.Now()
+		in, err := consolidation.Collect(cctx, k8s, dc)
+		if err != nil {
+			log.Printf("WARN: consolidation collect: %v", err)
+			cancel()
+		} else {
+			plan := consolidation.Analyze(in, copts, now)
+			batches = append(batches, pusher.Batch{
+				Collector:   "autoscaling-consolidation-plan",
+				Items:       []interface{}{plan},
+				Count:       1,
+				CollectedAt: time.Now(),
+			})
+			log.Printf("Consolidation (look-only): %d empty, %d drain, %d blocked, %d kept of %d node(s) — actor=%s",
+				plan.Summary.Empty, plan.Summary.Drain, plan.Summary.Blocked, plan.Summary.Kept,
+				plan.Summary.NodesEvaluated, plan.Actor.Kind)
+
+			// Acting gate: hand the same in+plan to the controller (leader-only — this
+			// whole cycle runs under leader election).
+			if ca := d.ConsolidationActions; ca.Mode == gate.Simulate || ca.Mode == gate.Live {
+				provider := consolidationProvider(cctx, cfg, ca.Mode)
+				consolidator := controller.NewConsolidator(provider, exec, mset)
+				cres, cerr := consolidator.Execute(cctx, in, plan, ca.Mode, copts,
+					bundle.ConsolidationPolicy, budget, now)
+				if cerr != nil {
+					log.Printf("ERROR: consolidation controller: %v", cerr)
+				}
+				acts.add("node-replace", 1, cres.Actions...)
+				if cres.Run != nil {
+					batches = append(batches, pusher.Batch{
+						Collector:   "autoscaling-consolidation-run",
+						Items:       []interface{}{cres.Run},
+						Count:       1,
+						CollectedAt: time.Now(),
+					})
+				}
+			}
+			cancel()
 		}
 	}
 
@@ -550,5 +832,19 @@ func startHealthServer() {
 	log.Println("Health server listening on :8081")
 	if err := http.ListenAndServe(":8081", mux); err != nil {
 		log.Printf("Health server error: %v", err)
+	}
+}
+
+// startMetricsServer serves the Prometheus metric set on a dedicated :9090 /metrics
+// listener (separate from the :8081 health server). Port 9090 matches
+// agent-ha-design.md's "ports: add containerPort 9090 (metrics)" and the manifest
+// change FEAT-002 adds; keeping it off the health port leaves /healthz and /readyz
+// untouched.
+func startMetricsServer(mset *metrics.Set) {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", mset.Handler())
+	log.Println("Metrics server listening on :9090")
+	if err := http.ListenAndServe(":9090", mux); err != nil {
+		log.Printf("Metrics server error: %v", err)
 	}
 }

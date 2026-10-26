@@ -28,7 +28,7 @@ class K8sAutomationReadinessPropertiesTest {
     @Test
     void absentKeysBindFalse() {
         K8sAutomationReadinessProperties p = bind(Map.of());
-        assertThat(p.asMap()).hasSize(8).allSatisfy((key, ready) -> assertThat(ready).as(key.key()).isFalse());
+        assertThat(p.asMap()).hasSize(10).allSatisfy((key, ready) -> assertThat(ready).as(key.key()).isFalse());
     }
 
     @Test
@@ -56,14 +56,16 @@ class K8sAutomationReadinessPropertiesTest {
     void everyKeyHasAReasonAndMessageInPropertyOrder() {
         assertThat(K8sReadinessKey.values()).extracting(K8sReadinessKey::key).containsExactly(
                 "vertical-rightsizing", "hpa-apply", "vpa-apply", "evictor-live", "rebalancer",
-                "node-optimizer-actions", "scale-out", "node-templates");
+                "node-optimizer-actions", "scale-out", "node-templates", "spot-interruption-actions",
+                "consolidation-actions");
         for (K8sReadinessKey key : K8sReadinessKey.values()) {
             assertThat(key.message()).as(key.key()).isNotBlank();
             assertThat(key.reason()).isEqualTo(key == K8sReadinessKey.EVICTOR_LIVE
                     ? K8sAutomationReason.ANALYSE_ONLY : K8sAutomationReason.CONTROLLER_NOT_READY);
         }
         assertThat(K8sReadinessKey.REBALANCER.message())
-                .isEqualTo("Rebalancing is blocked: the current rebalancer can drain the same nodes repeatedly.");
+                .isEqualTo("Rebalancing stays gated pending the benefit guard and a soak window; "
+                        + "the ledger already prevents repeated drains of the same nodes.");
     }
 
     @Test
@@ -78,6 +80,27 @@ class K8sAutomationReadinessPropertiesTest {
         List<String> keys = java.util.Arrays.stream(K8sReadinessKey.values()).map(K8sReadinessKey::key).toList();
         for (String key : keys) {
             assertThat(props.getProperty(PREFIX + "." + key)).as(key).isEqualTo("false");
+        }
+    }
+    @Test
+    void noProfileOverridesSpotInterruptionActions() throws Exception {
+        String key = PREFIX + ".spot-interruption-actions";
+        java.nio.file.Path dir = java.nio.file.Path.of("src/main/resources");
+        List<java.nio.file.Path> files;
+        try (java.util.stream.Stream<java.nio.file.Path> s = java.nio.file.Files.list(dir)) {
+            files = s.filter(f -> f.getFileName().toString().matches("application.*\\.properties")).toList();
+        }
+        assertThat(files).contains(dir.resolve("application.properties"));
+        for (java.nio.file.Path f : files) {
+            Properties props = new Properties();
+            try (InputStream in = java.nio.file.Files.newInputStream(f)) {
+                props.load(in);
+            }
+            if (f.getFileName().toString().equals("application.properties")) {
+                assertThat(props.getProperty(key)).as(f.toString()).isEqualTo("false");
+            } else {
+                assertThat(props.containsKey(key)).as(f + " must not override " + key).isFalse();
+            }
         }
     }
 }
