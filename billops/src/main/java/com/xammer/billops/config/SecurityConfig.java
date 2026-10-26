@@ -109,6 +109,29 @@ public class SecurityConfig {
     @Order(2)
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+                // Security headers — kept identical to xamops-service so CSP is consistent
+                // across every service behind the edge gateway. billops previously set no
+                // CSP or frame protection at all, so any page/response it served carried
+                // none. SAMEORIGIN allows the app's own iframes (embedded Grafana) while
+                // blocking third-party framing; the CSP mirrors xamops-service's enforcing
+                // policy. 'unsafe-inline'/'unsafe-eval' remain in script-src because the
+                // legacy static pages under /js and the CDN <script> tags rely on them;
+                // removing those is a frontend change. object-src 'none', base-uri 'self'
+                // and frame-ancestors 'self' hold regardless of the script policy.
+                .headers(headers -> headers
+                        .frameOptions(frameOptions -> frameOptions.sameOrigin())
+                        .contentSecurityPolicy(csp -> csp.policyDirectives(
+                                "default-src 'self'; "
+                                + "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; "
+                                + "style-src 'self' 'unsafe-inline' https:; "
+                                + "img-src 'self' data: blob: https:; "
+                                + "font-src 'self' data: https:; "
+                                + "connect-src 'self' https: wss:; "
+                                + "object-src 'none'; "
+                                + "base-uri 'self'; "
+                                + "frame-ancestors 'self'"))
+                        .referrerPolicy(referrer -> referrer.policy(
+                                org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN)))
                 .cors(withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests((requests) -> requests
