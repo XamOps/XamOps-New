@@ -84,6 +84,7 @@ public class EksAutoscalingService {
     public static final String DT_REBALANCE_STATUS   = "autoscaling-rebalance-status";
     public static final String DT_EVICTOR_CANDIDATES = "autoscaling-evictor-candidates";
     public static final String DT_CONSOLIDATION_PLAN = "autoscaling-consolidation-plan";
+    public static final String DT_CONSOLIDATION_RUNS = "autoscaling-consolidation-runs";
 
     /** Event-type prefix of configuration changes XamOps records. */
     public static final String CHANGE_EVENT_PREFIX = "autoscaling_";

@@ -67,7 +67,13 @@ public class AgentIngestService {
      * "autoscaling-consolidation-plan" → ConsolidationPlanDto (look-only plan — xamops-automation)
      *
      * All other collectors (trivy, kubescape, autoscaling-events, autoscaling-rightsizing,
-     * hpa-recommendations, vpa-recommendations, autoscaling-evictor-candidates) push a list → stored as JSON array.
+     * hpa-recommendations, vpa-recommendations, autoscaling-evictor-candidates,
+     * autoscaling-consolidation-runs) push a list → stored as JSON array.
+     *
+     * "autoscaling-consolidation-runs" is a LIST collector on purpose: the consolidation controller
+     * appends one ConsolidationRunDto per run (run history), so it is deliberately NOT in
+     * SINGLE_OBJECT_COLLECTORS (not a single server-owned object) and NOT in SERVER_OWNED_COLLECTORS
+     * (the agent is its writer, like the look-only consolidation plan).
      */
     /**
      * Data types only XamOps writes. An agent key must not be able to replace the automation

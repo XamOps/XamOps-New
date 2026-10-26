@@ -7,11 +7,13 @@ import com.xammer.cloud.config.K8sAutomationWebConfig;
 import com.xammer.cloud.config.multitenancy.ImpersonationContext;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto;
 import com.xammer.cloud.dto.autoscaling.ConsolidationPlanResponse;
+import com.xammer.cloud.dto.autoscaling.ConsolidationRunResponse;
 import com.xammer.cloud.dto.spot.SpotInterruptionsDto;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.K8sAutomationGuardInterceptor;
 import com.xammer.cloud.security.K8sAutomationTestWorld;
 import com.xammer.cloud.service.ConsolidationPlanService;
+import com.xammer.cloud.service.ConsolidationRunService;
 import com.xammer.cloud.service.EksAutoscalingService;
 import com.xammer.cloud.service.K8sAutomationPolicyNormalizer;
 import com.xammer.cloud.service.spot.SpotInterruptionReadService;
@@ -45,7 +47,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * The owner-required persona matrix across all 18 {@code /api/eks/autoscaling/**} endpoints
+ * The owner-required persona matrix across all 19 {@code /api/eks/autoscaling/**} endpoints
  * (design §6.6 endpoint matrix, plan item 6 and the verification contract).
  *
  * <p>
@@ -73,7 +75,7 @@ class K8sAutomationEndpointMatrixTest {
         }
     }
 
-    /** The 18 endpoints of EksAutoscalingController, with complete, allowed bodies. */
+    /** The 19 endpoints of EksAutoscalingController, with complete, allowed bodies. */
     static final List<Endpoint> ENDPOINTS = List.of(
             new Endpoint("GET", "", null),
             new Endpoint("GET", "/rightsizing", null),
@@ -81,6 +83,7 @@ class K8sAutomationEndpointMatrixTest {
             new Endpoint("GET", "/node-fleet", null),
             new Endpoint("GET", "/evictor-candidates", null),
             new Endpoint("GET", "/consolidation-plan", null),
+            new Endpoint("GET", "/consolidation-runs", null),
             new Endpoint("GET", "/spot-interruptions", null),
             new Endpoint("PUT", "/enabled", "{\"enabled\":true}"),
             new Endpoint("PUT", "/mode", "{\"mode\":\"scoped\"}"),
@@ -113,6 +116,7 @@ class K8sAutomationEndpointMatrixTest {
     private K8sAutomationTestWorld world;
     private EksAutoscalingService service;
     private ConsolidationPlanService consolidationPlanService;
+    private ConsolidationRunService consolidationRunService;
     private SpotInterruptionReadService spotInterruptionReadService;
     private MockMvc mvc;
     private ClientUserDetails tenantAUser;
@@ -125,12 +129,14 @@ class K8sAutomationEndpointMatrixTest {
         when(service.getDashboard(any())).thenReturn(new AutoscalerDashboardDto());
         consolidationPlanService = mock(ConsolidationPlanService.class);
         when(consolidationPlanService.getPlan(any(), any())).thenReturn(ConsolidationPlanResponse.noPlan());
+        consolidationRunService = mock(ConsolidationRunService.class);
+        when(consolidationRunService.getRuns(any(), any())).thenReturn(ConsolidationRunResponse.noRuns());
         spotInterruptionReadService = mock(SpotInterruptionReadService.class);
         when(spotInterruptionReadService.read(any(), anyInt(), anyInt())).thenReturn(
                 new SpotInterruptionsDto(30, false, 365, true, null, null, List.of()));
         EksAutoscalingController controller = new EksAutoscalingController(service,
                 new K8sAutomationPolicyNormalizer(new K8sAutomationReadinessProperties()),
-                consolidationPlanService, spotInterruptionReadService);
+                consolidationPlanService, consolidationRunService, spotInterruptionReadService);
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .addMappedInterceptors(K8sAutomationWebConfig.GUARDED_PATHS.toArray(String[]::new),
                         new K8sAutomationGuardInterceptor(world.accessService))
@@ -176,13 +182,14 @@ class K8sAutomationEndpointMatrixTest {
     private int serviceCalls() {
         return Mockito.mockingDetails(service).getInvocations().size()
                 + Mockito.mockingDetails(consolidationPlanService).getInvocations().size()
+                + Mockito.mockingDetails(consolidationRunService).getInvocations().size()
                 + Mockito.mockingDetails(spotInterruptionReadService).getInvocations().size();
     }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("all")
     void coversEveryEndpoint(Endpoint e) {
-        assertThat(ENDPOINTS).hasSize(18);
+        assertThat(ENDPOINTS).hasSize(19);
         assertThat(ENDPOINTS.stream().filter(Endpoint::mutation)).hasSize(11);
     }
 

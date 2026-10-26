@@ -63,11 +63,22 @@ class K8sReadinessKeyTest {
                 "Automatic spot interruption handling is disabled until the node optimizer passes spot interruption validation.");
         assertThat(K8sReadinessKey.fromKey("spot-interruption-actions")).contains(K8sReadinessKey.SPOT_INTERRUPTION_ACTIONS);
     }
+
+    @Test
+    void consolidationActionsKeyReasonAndMessage() {
+        assertThat(K8sReadinessKey.CONSOLIDATION_ACTIONS.key()).isEqualTo("consolidation-actions");
+        assertThat(K8sReadinessKey.CONSOLIDATION_ACTIONS.reason()).isEqualTo(K8sAutomationReason.CONTROLLER_NOT_READY);
+        assertThat(K8sReadinessKey.CONSOLIDATION_ACTIONS.message()).isEqualTo(
+                "Live node consolidation is disabled until the consolidation controller passes safety validation "
+                        + "and a soak window; the look-only plans stay visible.");
+        assertThat(K8sReadinessKey.fromKey("consolidation-actions")).contains(K8sReadinessKey.CONSOLIDATION_ACTIONS);
+    }
     @Test
     void everyKeyHasAReasonAndNonBlankMessageInPropertyOrder() {
         assertThat(K8sReadinessKey.values()).extracting(K8sReadinessKey::key).containsExactly(
                 "vertical-rightsizing", "hpa-apply", "vpa-apply", "evictor-live", "rebalancer",
-                "node-optimizer-actions", "scale-out", "node-templates", "spot-interruption-actions");
+                "node-optimizer-actions", "scale-out", "node-templates", "spot-interruption-actions",
+                "consolidation-actions");
         for (K8sReadinessKey key : K8sReadinessKey.values()) {
             assertThat(key.message()).as(key.key()).isNotBlank();
             assertThat(key.reason()).isEqualTo(key == K8sReadinessKey.EVICTOR_LIVE

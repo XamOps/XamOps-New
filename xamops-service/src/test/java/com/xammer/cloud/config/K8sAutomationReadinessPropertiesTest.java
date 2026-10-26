@@ -28,7 +28,7 @@ class K8sAutomationReadinessPropertiesTest {
     @Test
     void absentKeysBindFalse() {
         K8sAutomationReadinessProperties p = bind(Map.of());
-        assertThat(p.asMap()).hasSize(9).allSatisfy((key, ready) -> assertThat(ready).as(key.key()).isFalse());
+        assertThat(p.asMap()).hasSize(10).allSatisfy((key, ready) -> assertThat(ready).as(key.key()).isFalse());
     }
 
     @Test
@@ -56,7 +56,8 @@ class K8sAutomationReadinessPropertiesTest {
     void everyKeyHasAReasonAndMessageInPropertyOrder() {
         assertThat(K8sReadinessKey.values()).extracting(K8sReadinessKey::key).containsExactly(
                 "vertical-rightsizing", "hpa-apply", "vpa-apply", "evictor-live", "rebalancer",
-                "node-optimizer-actions", "scale-out", "node-templates", "spot-interruption-actions");
+                "node-optimizer-actions", "scale-out", "node-templates", "spot-interruption-actions",
+                "consolidation-actions");
         for (K8sReadinessKey key : K8sReadinessKey.values()) {
             assertThat(key.message()).as(key.key()).isNotBlank();
             assertThat(key.reason()).isEqualTo(key == K8sReadinessKey.EVICTOR_LIVE

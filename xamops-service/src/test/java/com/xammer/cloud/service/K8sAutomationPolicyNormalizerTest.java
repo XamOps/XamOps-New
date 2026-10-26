@@ -15,6 +15,7 @@ import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.RebalancerConfigD
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.SafetyGuardsDto;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.ScaleOutPolicyDto;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.WorkloadRightsizerPolicyDto;
+import com.xammer.cloud.dto.autoscaling.ConsolidationPolicyDto;
 import com.xammer.cloud.dto.autoscaling.HpaManagerPolicyDto;
 import com.xammer.cloud.dto.autoscaling.NodeOptimizerPolicyDto;
 import com.xammer.cloud.dto.autoscaling.VpaManagerPolicyDto;
@@ -106,6 +107,7 @@ class K8sAutomationPolicyNormalizerTest {
                 case SCALE_OUT -> readiness.setScaleOut(true);
                 case NODE_TEMPLATES -> readiness.setNodeTemplates(true);
                 case SPOT_INTERRUPTION_ACTIONS -> readiness.setSpotInterruptionActions(true);
+                case CONSOLIDATION_ACTIONS -> readiness.setConsolidationActions(true);
             }
         }
     }
@@ -699,5 +701,69 @@ class K8sAutomationPolicyNormalizerTest {
         assertThat(refusal(() -> normalizer.validate(Section.MODE, null)).getField()).isEqualTo("mode");
         assertThatThrownBy(() -> normalizer.replaceSection(normalizer.defaults(), Section.MODE, 3))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // ── Consolidation (FEAT-003) ──────────────────────────────────────────
+
+    @Test
+    void anOmittedConsolidationPolicyIsServedDisabledWithTheIntervalDefaults() {
+        // No consolidationPolicy in the stored bundle: fillMissing seeds enabled=false / 600 / 1 / 600.
+        ready(K8sReadinessKey.values());
+        for (AutomationPolicyBundle b : bothPaths("{\"autoscalerMode\":\"full\"}")) {
+            assertThat(b.getConsolidationPolicy()).isNotNull();
+            assertThat(b.getConsolidationPolicy().isEnabled()).isFalse();
+            assertThat(b.getConsolidationPolicy().getConsolidateAfterSeconds()).isEqualTo(600);
+            assertThat(b.getConsolidationPolicy().getMaxConcurrentDisruptions()).isEqualTo(1);
+            assertThat(b.getConsolidationPolicy().getDwellSeconds()).isEqualTo(600);
+        }
+        assertThat(normalizer.defaults().getConsolidationPolicy().isEnabled()).isFalse();
+    }
+
+    @Test
+    void consolidationActionsRow_storedEnabledIsCoercedFalseWhileNotReady() throws Exception {
+        String json = stored(b -> {
+            ConsolidationPolicyDto p = new ConsolidationPolicyDto();
+            p.setEnabled(true);
+            b.setConsolidationPolicy(p);
+        });
+        for (AutomationPolicyBundle b : bothPaths(json)) {
+            assertThat(b.getConsolidationPolicy().isEnabled())
+                    .as("served with consolidation disabled while consolidation-actions isn't ready").isFalse();
+        }
+        ready(K8sReadinessKey.CONSOLIDATION_ACTIONS);
+        for (AutomationPolicyBundle b : bothPaths(json)) {
+            assertThat(b.getConsolidationPolicy().isEnabled())
+                    .as("served enabled once consolidation-actions is ready").isTrue();
+        }
+    }
+
+    @Test
+    void consolidationEnabledWriteIsRefusedWhileNotReady_thenRanges() {
+        ConsolidationPolicyDto on = new ConsolidationPolicyDto();
+        on.setEnabled(true);
+        K8sAutomationRefusedException e = refusal(() -> normalizer.validate(Section.CONSOLIDATION, on));
+        assertThat(e.getReason()).isEqualTo(K8sAutomationReason.CONTROLLER_NOT_READY);
+        assertThat(e.getField()).isEqualTo("enabled");
+        assertThat(e.getMessage()).isEqualTo(K8sReadinessKey.CONSOLIDATION_ACTIONS.message());
+
+        // A disabled policy with a bad interval is a range refusal, not a readiness one.
+        ConsolidationPolicyDto badAfter = new ConsolidationPolicyDto();
+        badAfter.setConsolidateAfterSeconds(59);
+        assertThat(refusal(() -> normalizer.validate(Section.CONSOLIDATION, badAfter)).getField())
+                .isEqualTo("consolidateAfterSeconds");
+        ConsolidationPolicyDto badDisruptions = new ConsolidationPolicyDto();
+        badDisruptions.setMaxConcurrentDisruptions(11);
+        assertThat(refusal(() -> normalizer.validate(Section.CONSOLIDATION, badDisruptions)).getField())
+                .isEqualTo("maxConcurrentDisruptions");
+        ConsolidationPolicyDto badDwell = new ConsolidationPolicyDto();
+        badDwell.setDwellSeconds(86401);
+        assertThat(refusal(() -> normalizer.validate(Section.CONSOLIDATION, badDwell)).getField())
+                .isEqualTo("dwellSeconds");
+
+        // Defaults (disabled, 600/1/600) pass; enabled passes once the key is ready.
+        assertThatCode(() -> normalizer.validate(Section.CONSOLIDATION, new ConsolidationPolicyDto()))
+                .doesNotThrowAnyException();
+        ready(K8sReadinessKey.CONSOLIDATION_ACTIONS);
+        assertThatCode(() -> normalizer.validate(Section.CONSOLIDATION, on)).doesNotThrowAnyException();
     }
 }

@@ -36,6 +36,7 @@ public class AutomationPolicyBundle {
     private List<NodeTemplateDto> nodeTemplates;
     private RebalancerConfigDto rebalancer;
     private SafetyGuardsDto safetyGuards;
+    private ConsolidationPolicyDto consolidationPolicy;
 
     public String getAutoscalerMode() { return autoscalerMode; }
     public void setAutoscalerMode(String autoscalerMode) { this.autoscalerMode = autoscalerMode; }
@@ -66,4 +67,9 @@ public class AutomationPolicyBundle {
 
     public SafetyGuardsDto getSafetyGuards() { return safetyGuards; }
     public void setSafetyGuards(SafetyGuardsDto safetyGuards) { this.safetyGuards = safetyGuards; }
+
+    public ConsolidationPolicyDto getConsolidationPolicy() { return consolidationPolicy; }
+    public void setConsolidationPolicy(ConsolidationPolicyDto consolidationPolicy) {
+        this.consolidationPolicy = consolidationPolicy;
+    }
 }

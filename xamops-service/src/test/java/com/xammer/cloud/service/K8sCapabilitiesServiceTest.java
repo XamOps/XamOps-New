@@ -171,7 +171,7 @@ class K8sCapabilitiesServiceTest {
 
         assertThat(dto.readiness().keySet()).containsExactly("vertical-rightsizing", "hpa-apply", "vpa-apply",
                 "evictor-live", "rebalancer", "node-optimizer-actions", "scale-out", "node-templates",
-                "spot-interruption-actions");
+                "spot-interruption-actions", "consolidation-actions");
         assertThat(dto.readiness().get("evictor-live")).satisfies(r -> {
             assertThat(r.ready()).isTrue();
             assertThat(r.reason()).isNull();

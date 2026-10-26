@@ -14,6 +14,7 @@ import com.xammer.cloud.exception.K8sAutomationRefusedException;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.K8sAutomationRequestContext;
 import com.xammer.cloud.service.ConsolidationPlanService;
+import com.xammer.cloud.service.ConsolidationRunService;
 import com.xammer.cloud.service.EksAutoscalingService;
 import com.xammer.cloud.service.K8sAutomationPolicyNormalizer;
 import com.xammer.cloud.service.spot.SpotInterruptionReadService;
@@ -54,6 +55,7 @@ class EksAutoscalingControllerTest {
 
     private EksAutoscalingService service;
     private ConsolidationPlanService consolidationPlanService;
+    private ConsolidationRunService consolidationRunService;
     private SpotInterruptionReadService spotReadService;
     private EksAutoscalingController controller;
     private MockMvc mvc;
@@ -64,10 +66,11 @@ class EksAutoscalingControllerTest {
     void setUp() {
         service = mock(EksAutoscalingService.class);
         consolidationPlanService = mock(ConsolidationPlanService.class);
+        consolidationRunService = mock(ConsolidationRunService.class);
         spotReadService = mock(SpotInterruptionReadService.class);
         controller = new EksAutoscalingController(service,
                 new K8sAutomationPolicyNormalizer(new K8sAutomationReadinessProperties()),
-                consolidationPlanService, spotReadService);
+                consolidationPlanService, consolidationRunService, spotReadService);
         mvc = MockMvcBuilders.standaloneSetup(controller).build();
 
         CloudAccount account = new CloudAccount();

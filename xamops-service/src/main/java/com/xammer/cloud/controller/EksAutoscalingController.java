@@ -4,6 +4,7 @@ import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.*;
 import com.xammer.cloud.dto.autoscaling.ConsolidationPlanResponse;
+import com.xammer.cloud.dto.autoscaling.ConsolidationRunResponse;
 import com.xammer.cloud.dto.autoscaling.NodeOptimizerPolicyDto;
 import com.xammer.cloud.dto.autoscaling.WorkloadRightsizingDto;
 import com.xammer.cloud.dto.k8s.K8sRefusalBody;
@@ -12,6 +13,7 @@ import com.xammer.cloud.exception.K8sAutomationReason;
 import com.xammer.cloud.exception.K8sAutomationRefusedException;
 import com.xammer.cloud.security.K8sAutomationRequestContext;
 import com.xammer.cloud.service.ConsolidationPlanService;
+import com.xammer.cloud.service.ConsolidationRunService;
 import com.xammer.cloud.service.EksAutoscalingService;
 import com.xammer.cloud.service.K8sAutomationPolicyNormalizer;
 import com.xammer.cloud.service.K8sAutomationPolicyNormalizer.Section;
@@ -55,15 +57,18 @@ public class EksAutoscalingController {
     private final EksAutoscalingService autoscalingService;
     private final K8sAutomationPolicyNormalizer normalizer;
     private final ConsolidationPlanService consolidationPlanService;
+    private final ConsolidationRunService consolidationRunService;
     private final SpotInterruptionReadService spotInterruptionReadService;
 
     public EksAutoscalingController(EksAutoscalingService autoscalingService,
                                     K8sAutomationPolicyNormalizer normalizer,
                                     ConsolidationPlanService consolidationPlanService,
+                                    ConsolidationRunService consolidationRunService,
                                     SpotInterruptionReadService spotInterruptionReadService) {
         this.autoscalingService = autoscalingService;
         this.normalizer = normalizer;
         this.consolidationPlanService = consolidationPlanService;
+        this.consolidationRunService = consolidationRunService;
         this.spotInterruptionReadService = spotInterruptionReadService;
     }
 
@@ -123,6 +128,13 @@ public class EksAutoscalingController {
     public ResponseEntity<ConsolidationPlanResponse> getConsolidationPlan(
             @RequestAttribute(K8sAutomationRequestContext.ATTRIBUTE) K8sAutomationRequestContext ctx) {
         return ResponseEntity.ok(consolidationPlanService.getPlan(config(ctx), ctx.primaryAccount()));
+    }
+
+    /** GET /api/eks/autoscaling/{clusterName}/consolidation-runs?accountId=xxx — run history, never acts */
+    @GetMapping("/{clusterName}/consolidation-runs")
+    public ResponseEntity<ConsolidationRunResponse> getConsolidationRuns(
+            @RequestAttribute(K8sAutomationRequestContext.ATTRIBUTE) K8sAutomationRequestContext ctx) {
+        return ResponseEntity.ok(consolidationRunService.getRuns(config(ctx), ctx.primaryAccount()));
     }
 
     /**

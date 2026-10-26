@@ -41,9 +41,14 @@ public record ConsolidationPlanDto(int schemaVersion, String generatedAt, String
     public record Summary(int nodesEvaluated, int empty, int drain, int blocked, int kept) {
     }
 
-    /** A node as the agent saw it. {@code capacityType} is the raw label value (e.g. ON_DEMAND, spot). */
+    /**
+     * A node as the agent saw it. {@code capacityType} is the raw label value (e.g. ON_DEMAND, spot);
+     * {@code providerId} is the cloud provider id (e.g. {@code aws:///<zone>/i-...}), mirroring the Go
+     * {@code NodeRef.ProviderID}. Reused by {@link ConsolidationRunDto} for its per-node records.
+     */
     public record NodeRef(String name, String nodeGroup, String instanceType, String capacityType,
-                          String zone, boolean fargate, double cpuRequestedPct, double memRequestedPct) {
+                          String zone, boolean fargate, String providerId, double cpuRequestedPct,
+                          double memRequestedPct) {
     }
 
     /** One pod's simulated placement: {@code pod} is ns/name, {@code owner} Kind/name ("" when none). */

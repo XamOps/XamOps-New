@@ -6,7 +6,7 @@ import java.util.Arrays;
 import java.util.Optional;
 
 /**
- * The nine controller-readiness keys of design §6.7, in property order, each with the reason
+ * The ten controller-readiness keys of design §6.7, in property order, each with the reason
  * the UI and server use while it is not ready and the exact user-facing message.
  *
  * <p>
@@ -35,7 +35,10 @@ public enum K8sReadinessKey {
     NODE_TEMPLATES("node-templates", K8sAutomationReason.CONTROLLER_NOT_READY,
             "Not available: the automation agent doesn't use node templates yet."),
     SPOT_INTERRUPTION_ACTIONS("spot-interruption-actions", K8sAutomationReason.CONTROLLER_NOT_READY,
-            "Automatic spot interruption handling is disabled until the node optimizer passes spot interruption validation.");
+            "Automatic spot interruption handling is disabled until the node optimizer passes spot interruption validation."),
+    CONSOLIDATION_ACTIONS("consolidation-actions", K8sAutomationReason.CONTROLLER_NOT_READY,
+            "Live node consolidation is disabled until the consolidation controller passes safety validation "
+                    + "and a soak window; the look-only plans stay visible.");
 
     private final String key;
     private final K8sAutomationReason reason;
