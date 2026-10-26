@@ -433,16 +433,14 @@ describe('IssuesTab — By-framework grouping (real data)', () => {
 });
 
 describe('IssuesTab — toolbar', () => {
-  it('shows the real "Security issues (N)" sub-tab and the Score journey placeholder', () => {
+  it('shows the real "Security issues (N)" sub-tab', () => {
     draw(<IssuesTab data={ISSUES} isLoading={false} loadDetail={noDetail} />);
     expect(screen.getByText('Security issues (5)')).toBeInTheDocument();
-    const scoreJourney = screen.getByRole('button', { name: /Score journey/ });
-    expect(scoreJourney).toHaveAttribute('aria-disabled', 'true');
   });
 
-  it('does not render the removed placeholder chrome (Feed / Learn more / Whitelist / Share / Create)', () => {
+  it('does not render the removed placeholder chrome (Feed / Learn more / Whitelist / Share / Create / Score journey)', () => {
     draw(<IssuesTab data={ISSUES} isLoading={false} loadDetail={noDetail} />);
-    for (const name of ['Feed', 'Learn more', 'Whitelist', 'Share', 'Create']) {
+    for (const name of ['Feed', 'Learn more', 'Whitelist', 'Share', 'Create', 'Score journey']) {
       expect(screen.queryByRole('button', { name: new RegExp(name) })).toBeNull();
     }
   });
