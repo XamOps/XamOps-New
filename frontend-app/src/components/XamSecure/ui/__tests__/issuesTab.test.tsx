@@ -432,17 +432,18 @@ describe('IssuesTab — By-framework grouping (real data)', () => {
   });
 });
 
-describe('IssuesTab — chrome placeholders', () => {
-  it('shows the real "Security issues (N)" count and marks the placeholders non-functional', () => {
+describe('IssuesTab — toolbar', () => {
+  it('shows the real "Security issues (N)" sub-tab and the Score journey placeholder', () => {
     draw(<IssuesTab data={ISSUES} isLoading={false} loadDetail={noDetail} />);
     expect(screen.getByText('Security issues (5)')).toBeInTheDocument();
-    // Feed / Score journey / Learn more / Whitelist / Share / Create are present but disabled.
-    for (const name of ['Feed', 'Score journey', 'Learn more', 'Whitelist', 'Share', 'Create']) {
-      const el = screen.getByRole('button', { name: new RegExp(name) });
-      expect(el).toHaveAttribute('aria-disabled', 'true');
+    const scoreJourney = screen.getByRole('button', { name: /Score journey/ });
+    expect(scoreJourney).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('does not render the removed placeholder chrome (Feed / Learn more / Whitelist / Share / Create)', () => {
+    draw(<IssuesTab data={ISSUES} isLoading={false} loadDetail={noDetail} />);
+    for (const name of ['Feed', 'Learn more', 'Whitelist', 'Share', 'Create']) {
+      expect(screen.queryByRole('button', { name: new RegExp(name) })).toBeNull();
     }
-    // The active Issues view toggle is pressed; Feed is not.
-    expect(screen.getByRole('button', { name: 'Issues' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Feed' })).toHaveAttribute('aria-pressed', 'false');
   });
 });
