@@ -56,6 +56,10 @@ metadata:
     app: xamops-automation
 rules:
   # ── Read access (needed to make safe decisions) ──────────────────────────
+  # PersistentVolumeClaims and PersistentVolumes feed the stateful/zone protection
+  # (FEAT-005 / stateful-db-fixtures report §5): the fit simulator resolves each
+  # pod's PVC → PV → topology.kubernetes.io/zone node-affinity so a zonal volume is
+  # placed same-AZ only. PVs are cluster-scoped, hence listed here, not in the Role.
   - apiGroups: [""]
     resources:
       - nodes
@@ -64,6 +68,17 @@ rules:
       - replicationcontrollers
       - services
       - persistentvolumeclaims
+      - persistentvolumes
+    verbs: ["get", "list", "watch"]
+
+  # ── Operator Custom Resources for database-role detection (FEAT-005) ───────
+  # The stateful protection layer reads operator CR status (never DB credentials) to
+  # tell a primary from a sync standby — currently the allow-listed CloudNativePG
+  # Cluster (postgresql.cnpg.io). Read-only; a cluster without the CRD installed is
+  # treated as zero CRs. Extend the allow-list here when more operators are added.
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources:
+      - clusters
     verbs: ["get", "list", "watch"]
 
   - apiGroups: ["apps"]
@@ -440,6 +455,18 @@ spec:
       # one node never takes out both the leader and the standby at once.
       # PREFERRED: also keep off the xamops-agent's node when possible.
       affinity:
+        # ── Spot avoidance (FEAT-005) ──────────────────────────────────────
+        # The agent is the component that decides drains and ASG terminations, so it
+        # must not itself ride a spot node that can be reclaimed mid-decision. REQUIRED
+        # anti-affinity to spot capacity: schedule only where xamops.io/capacity is not
+        # "spot" (on-demand pools, or nodes that simply do not carry the label).
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: xamops.io/capacity
+                    operator: NotIn
+                    values: ["spot"]
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             - labelSelector:

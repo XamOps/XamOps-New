@@ -10,6 +10,7 @@ import (
 	policyv1 "k8s.io/api/policy/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -27,10 +28,14 @@ type objects struct {
 	rss   []appsv1.ReplicaSet
 	stss  []appsv1.StatefulSet
 	deps  []appsv1.Deployment
+	pvcs  []corev1.PersistentVolumeClaim
+	pvs   []corev1.PersistentVolume
+	crs   []unstructured.Unstructured
 }
 
 func (o *objects) input() Input {
-	return Input{Nodes: o.nodes, Pods: o.pods, PDBs: o.pdbs, ReplicaSets: o.rss, StatefulSets: o.stss, Deployments: o.deps}
+	return Input{Nodes: o.nodes, Pods: o.pods, PDBs: o.pdbs, ReplicaSets: o.rss, StatefulSets: o.stss,
+		Deployments: o.deps, PVCs: o.pvcs, PVs: o.pvs, CRs: o.crs}
 }
 
 // runtimeObjects returns every object (for fake clientsets and testdata files).
@@ -53,6 +58,15 @@ func (o *objects) runtimeObjects() []runtime.Object {
 	}
 	for i := range o.deps {
 		out = append(out, &o.deps[i])
+	}
+	for i := range o.pvcs {
+		out = append(out, &o.pvcs[i])
+	}
+	for i := range o.pvs {
+		out = append(out, &o.pvs[i])
+	}
+	for i := range o.crs {
+		out = append(out, &o.crs[i])
 	}
 	return out
 }
@@ -155,6 +169,71 @@ func (o *objects) deployment(ns, name string, replicas *int32, lbls map[string]s
 	})
 }
 
+// zonalPVC adds a Bound PVC and its PV pinned to zone via the PV's required
+// node-affinity (the shape the EBS CSI driver writes). The pod references the PVC
+// by claim name; the simulator resolves PVC -> PV -> zone.
+func (o *objects) zonalPVC(ns, claim, zone string) {
+	sc := "gp3"
+	pv := "pv-" + ns + "-" + claim
+	o.pvcs = append(o.pvcs, corev1.PersistentVolumeClaim{
+		TypeMeta:   metav1.TypeMeta{Kind: "PersistentVolumeClaim", APIVersion: "v1"},
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: claim},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			StorageClassName: &sc, VolumeName: pv,
+			Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")}},
+		},
+		Status: corev1.PersistentVolumeClaimStatus{Phase: corev1.ClaimBound},
+	})
+	o.pvs = append(o.pvs, corev1.PersistentVolume{
+		TypeMeta:   metav1.TypeMeta{Kind: "PersistentVolume", APIVersion: "v1"},
+		ObjectMeta: metav1.ObjectMeta{Name: pv},
+		Spec: corev1.PersistentVolumeSpec{
+			Capacity:         corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")},
+			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			StorageClassName: sc,
+			ClaimRef:         &corev1.ObjectReference{Kind: "PersistentVolumeClaim", Namespace: ns, Name: claim},
+			PersistentVolumeSource: corev1.PersistentVolumeSource{CSI: &corev1.CSIPersistentVolumeSource{
+				Driver: "ebs.csi.aws.com", VolumeHandle: "vol-" + claim, FSType: "ext4"}},
+			NodeAffinity: &corev1.VolumeNodeAffinity{Required: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+				MatchExpressions: []corev1.NodeSelectorRequirement{{Key: LabelZone, Operator: corev1.NodeSelectorOpIn, Values: []string{zone}}}}}}},
+		},
+		Status: corev1.PersistentVolumeStatus{Phase: corev1.VolumeBound},
+	})
+}
+
+// pvcVol attaches a PVC-backed volume to a pod.
+func pvcVol(p *corev1.Pod, name, claim string) {
+	p.Spec.Volumes = append(p.Spec.Volumes, corev1.Volume{Name: name, VolumeSource: corev1.VolumeSource{
+		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: claim}}})
+}
+
+// emptyDirVol attaches a non-Memory emptyDir volume to a pod.
+func emptyDirVol(p *corev1.Pod, name string) {
+	p.Spec.Volumes = append(p.Spec.Volumes, corev1.Volume{Name: name,
+		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
+}
+
+// setImage sets the pod's app container image so the stateful layer can detect a
+// database by image.
+func setImage(p *corev1.Pod, img string) { p.Spec.Containers[0].Image = img }
+
+// cnpgCluster adds a CloudNativePG Cluster CR with the given currentPrimary and,
+// when sync>0, synchronous.number replication.
+func (o *objects) cnpgCluster(ns, name, currentPrimary string, sync int64) {
+	obj := map[string]interface{}{
+		"apiVersion": "postgresql.cnpg.io/v1",
+		"kind":       "Cluster",
+		"metadata":   map[string]interface{}{"namespace": ns, "name": name},
+		"status":     map[string]interface{}{"currentPrimary": currentPrimary},
+	}
+	if sync > 0 {
+		obj["spec"] = map[string]interface{}{"postgresql": map[string]interface{}{
+			"synchronous": map[string]interface{}{"number": sync}}}
+	}
+	o.crs = append(o.crs, unstructured.Unstructured{Object: obj})
+}
+
 // dsPods adds n kube-system DaemonSet pods of cpu/mem each to node.
 func (o *objects) dsPods(nodeName string, n int, cpu, mem string) {
 	names := []string{"aws-node", "kube-proxy", "ebs-csi-node", "node-exporter", "fluent-bit"}
@@ -244,6 +323,18 @@ func loadList(t *testing.T, path string) *objects {
 			var x appsv1.Deployment
 			err = json.Unmarshal(it, &x)
 			o.deps = append(o.deps, x)
+		case "PersistentVolumeClaim":
+			var x corev1.PersistentVolumeClaim
+			err = json.Unmarshal(it, &x)
+			o.pvcs = append(o.pvcs, x)
+		case "PersistentVolume":
+			var x corev1.PersistentVolume
+			err = json.Unmarshal(it, &x)
+			o.pvs = append(o.pvs, x)
+		case "Cluster":
+			var x unstructured.Unstructured
+			err = json.Unmarshal(it, &x)
+			o.crs = append(o.crs, x)
 		}
 		if err != nil {
 			t.Fatalf("%s: decode %s: %v", path, head.Kind, err)

@@ -15,6 +15,163 @@ var syntheticFixtures = map[string]func() *objects{
 	"actor-karpenter":          actorKarpenterFixture,
 	"actor-cluster-autoscaler": actorClusterAutoscalerFixture,
 	"all-blocked":              allBlockedFixture,
+	// Stateful / zone cases (FEAT-005 step 1): each carries a committed plan with the
+	// new db-* and pvc-volume-unmodelled codes.
+	"zonal-pv-places":  zonalPVPlacesFixture,
+	"zonal-pv-strands": zonalPVStrandsFixture,
+	"cnpg-cluster":     cnpgClusterFixture,
+	"single-mysql":     singleMySQLFixture,
+	"mongo-rs":         mongoRSFixture,
+	"emptydir-db":      emptyDirDBFixture,
+	"pdb-dense":        pdbDenseFixture,
+}
+
+// zoneNode adds a Ready stateful-pool node in zone with 4 CPU / 16Gi and 2
+// DaemonSet pods (100m).
+func (o *objects) zoneNode(name, group, zone string) *corev1.Node {
+	n := o.node(name, group, "4", "16Gi")
+	n.Labels[LabelZone] = zone
+	o.dsPods(name, 2, "100m", "128Mi")
+	return n
+}
+
+// zonalPVPlacesFixture: a drainable (ReplicaSet, non-DB) pod bound to a zonal PV in
+// ap-south-1a drains to the in-zone receiver and never to the busy 1b node (same AZ
+// places). The PV zone-affinity models, so there is NO pvc-volume refusal — the
+// zone predicate in fits() does the work. z-src is underutilized; z-recv (1a) is a
+// receiver with room; z-far (1b) is kept busy; z-anchor holds the group floor.
+func zonalPVPlacesFixture() *objects {
+	o := &objects{}
+	o.zoneNode("z-src", "ng-z", "ap-south-1a")
+	o.rs("team-z", "cache-rs", 3)
+	p := o.pod("team-z", "cache-0", "z-src", "ReplicaSet", "cache-rs", "200m", "256Mi", map[string]string{"app": "cache"})
+	setImage(p, "nginx:1.27")
+	pvcVol(p, "data", "data-cache-0")
+	o.zonalPVC("team-z", "data-cache-0", "ap-south-1a")
+	// Two kept receivers (busy, so neither is an EMPTY candidate) each with ~1000m
+	// free: z-far (1b) sorts first, so without the zone predicate the pod would land
+	// there; the in-zone z-recv (1a) is the only valid target.
+	o.receiver("z-far", "ng-z")
+	o.nodes[len(o.nodes)-1].Labels[LabelZone] = "ap-south-1b"
+	o.receiver("z-recv", "ng-z")
+	o.nodes[len(o.nodes)-1].Labels[LabelZone] = "ap-south-1a"
+	return o
+}
+
+// zonalPVStrandsFixture: the same drainable pod, but every other node is in a
+// different AZ, so it strands rather than crossing AZs (cross-AZ strands). The node
+// is blocked by the strand, not by a pvc refusal.
+func zonalPVStrandsFixture() *objects {
+	o := &objects{}
+	o.zoneNode("z-src", "ng-z", "ap-south-1a")
+	o.rs("team-z", "cache-rs", 3)
+	p := o.pod("team-z", "cache-0", "z-src", "ReplicaSet", "cache-rs", "200m", "256Mi", map[string]string{"app": "cache"})
+	setImage(p, "nginx:1.27")
+	pvcVol(p, "data", "data-cache-0")
+	o.zonalPVC("team-z", "data-cache-0", "ap-south-1a")
+	// Both receivers are in 1b: the pod's 1a volume cannot follow it, so it strands.
+	o.zoneNode("z-far-1", "ng-z", "ap-south-1b")
+	o.zoneNode("z-far-2", "ng-z", "ap-south-1b")
+	return o
+}
+
+// cnpgClusterFixture: a CloudNativePG Cluster of two instances (primary +
+// synchronous/quorum standby) resolved through the Cluster CR status and
+// spec.postgresql.synchronous. Both pods are refused (db-primary / db-sync-standby);
+// their node is blocked.
+func cnpgClusterFixture() *objects {
+	o := &objects{}
+	o.zoneNode("cnpg-1", "ng-db", "ap-south-1a")
+	o.zoneNode("cnpg-2", "ng-db", "ap-south-1b")
+	o.zoneNode("cnpg-anchor", "ng-db", "ap-south-1a")
+	o.pod("team-db", "filler", "cnpg-anchor", "ReplicaSet", "filler-rs", "2200m", "4Gi", map[string]string{"app": "filler"})
+	o.rs("team-db", "filler-rs", 2)
+	o.cnpgCluster("team-db", "pg", "pg-1", 1)
+	for _, inst := range []struct{ name, node, zone, role string }{
+		{"pg-1", "cnpg-1", "ap-south-1a", "primary"},
+		{"pg-2", "cnpg-2", "ap-south-1b", "replica"},
+	} {
+		p := o.pod("team-db", inst.name, inst.node, "Cluster", "pg", "200m", "256Mi", map[string]string{
+			"cnpg.io/cluster": "pg", "cnpg.io/instanceRole": inst.role})
+		p.OwnerReferences[0].APIVersion = "postgresql.cnpg.io/v1"
+		setImage(p, "postgres:16.10")
+		pvcVol(p, "pgdata", inst.name)
+		o.zonalPVC("team-db", inst.name, inst.zone)
+	}
+	return o
+}
+
+// singleMySQLFixture: a single-instance MySQL StatefulSet with a zonal PVC and no
+// PDB. Detected as a database of unknown role (no role label), refused
+// db-role-unknown; the single replica also yields local-storage-no-replica? No —
+// MySQL here has no emptyDir, so only db-role-unknown applies.
+func singleMySQLFixture() *objects {
+	o := &objects{}
+	o.zoneNode("my-src", "ng-db", "ap-south-1a")
+	o.zoneNode("my-anchor", "ng-db", "ap-south-1a")
+	o.pod("team-db", "filler", "my-anchor", "ReplicaSet", "filler-rs", "2200m", "4Gi", map[string]string{"app": "filler"})
+	o.rs("team-db", "filler-rs", 2)
+	o.sts("team-db", "mysql", 1)
+	p := o.pod("team-db", "mysql-0", "my-src", "StatefulSet", "mysql", "200m", "256Mi", map[string]string{"app": "mysql"})
+	setImage(p, "mysql:8.4.6")
+	pvcVol(p, "data", "data-mysql-0")
+	o.zonalPVC("team-db", "data-mysql-0", "ap-south-1a")
+	return o
+}
+
+// mongoRSFixture: a 3-replica MongoDB StatefulSet (no operator) with zonal PVCs,
+// detected by image as a database of unknown role (db-role-unknown).
+func mongoRSFixture() *objects {
+	o := &objects{}
+	o.sts("team-db", "mongo", 3)
+	for i, zone := range []string{"ap-south-1a", "ap-south-1b", "ap-south-1c"} {
+		node := "mongo-" + string(rune('1'+i))
+		o.zoneNode(node, "ng-db", zone)
+		name := "mongo-" + string(rune('0'+i))
+		p := o.pod("team-db", name, node, "StatefulSet", "mongo", "200m", "256Mi", map[string]string{"app": "mongo"})
+		setImage(p, "mongo:7.0.24")
+		pvcVol(p, "data", "data-"+name)
+		o.zonalPVC("team-db", "data-"+name, zone)
+	}
+	return o
+}
+
+// emptyDirDBFixture: a database on an emptyDir, refused db-emptydir regardless of
+// replica count (here 2 replicas, so the look-only local-storage-no-replica rule
+// does NOT fire — only the fail-closed db-emptydir refusal keeps it blocked).
+func emptyDirDBFixture() *objects {
+	o := &objects{}
+	o.sts("team-db", "pg-unsafe", 2)
+	for i, zone := range []string{"ap-south-1a", "ap-south-1b"} {
+		node := "ed-" + string(rune('1'+i))
+		o.zoneNode(node, "ng-db", zone)
+		name := "pg-unsafe-" + string(rune('0'+i))
+		p := o.pod("team-db", name, node, "StatefulSet", "pg-unsafe", "200m", "256Mi", map[string]string{"app": "pg-unsafe"})
+		setImage(p, "postgres:16.10")
+		emptyDirVol(p, "data")
+	}
+	o.zoneNode("ed-anchor", "ng-db", "ap-south-1a")
+	o.pod("team-db", "filler", "ed-anchor", "ReplicaSet", "filler-rs", "2200m", "4Gi", map[string]string{"app": "filler"})
+	o.rs("team-db", "filler-rs", 2)
+	return o
+}
+
+// pdbDenseFixture: one underutilized node whose web pods are each selected by two
+// PDBs (one at its limit), so the pod is blocked by multiple-pdbs and the at-limit
+// PDB; a receiver keeps the group above the floor.
+func pdbDenseFixture() *objects {
+	o := &objects{}
+	o.node("pd-src", "ng-a", "4", "16Gi")
+	o.dsPods("pd-src", 2, "100m", "128Mi")
+	web := map[string]string{"app": "web", "tier": "frontend"}
+	o.rs("team-a", "web-rs", 4)
+	o.pod("team-a", "web-1", "pd-src", "ReplicaSet", "web-rs", "200m", "256Mi", web)
+	o.pod("team-a", "web-2", "pd-src", "ReplicaSet", "web-rs", "200m", "256Mi", web)
+	o.pdb("team-a", "web-app", map[string]string{"app": "web"}, 1)
+	o.pdb("team-a", "web-tier", map[string]string{"tier": "frontend"}, 0)
+	o.receiver("pd-recv-1", "ng-a")
+	o.receiver("pd-recv-2", "ng-a")
+	return o
 }
 
 // receiver adds a 4 CPU / 16Gi node of group with 2 DaemonSet pods (100m) and a

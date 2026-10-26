@@ -108,6 +108,9 @@ func shuffled(in Input, r *rand.Rand) Input {
 		ReplicaSets:  append(in.ReplicaSets[:0:0], in.ReplicaSets...),
 		StatefulSets: append(in.StatefulSets[:0:0], in.StatefulSets...),
 		Deployments:  append(in.Deployments[:0:0], in.Deployments...),
+		PVCs:         append(in.PVCs[:0:0], in.PVCs...),
+		PVs:          append(in.PVs[:0:0], in.PVs...),
+		CRs:          append(in.CRs[:0:0], in.CRs...),
 	}
 	r.Shuffle(len(out.Nodes), func(i, j int) { out.Nodes[i], out.Nodes[j] = out.Nodes[j], out.Nodes[i] })
 	r.Shuffle(len(out.Pods), func(i, j int) { out.Pods[i], out.Pods[j] = out.Pods[j], out.Pods[i] })
@@ -121,6 +124,9 @@ func shuffled(in Input, r *rand.Rand) Input {
 	r.Shuffle(len(out.Deployments), func(i, j int) {
 		out.Deployments[i], out.Deployments[j] = out.Deployments[j], out.Deployments[i]
 	})
+	r.Shuffle(len(out.PVCs), func(i, j int) { out.PVCs[i], out.PVCs[j] = out.PVCs[j], out.PVCs[i] })
+	r.Shuffle(len(out.PVs), func(i, j int) { out.PVs[i], out.PVs[j] = out.PVs[j], out.PVs[i] })
+	r.Shuffle(len(out.CRs), func(i, j int) { out.CRs[i], out.CRs[j] = out.CRs[j], out.CRs[i] })
 	return out
 }
 

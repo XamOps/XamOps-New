@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/xamops/automation/internal/fitsim"
+	"github.com/xamops/automation/internal/stateful"
 )
 
 // checkInvariants asserts the plan invariants against its input:
@@ -178,6 +179,124 @@ func randomCluster(seed int64) *objects {
 			}
 		}
 	}
+	return o
+}
+
+// blockerCodes returns the blocker codes recorded against pod ns/name across the
+// whole plan.
+func blockerCodes(p Plan, pod string) []string {
+	var out []string
+	for _, b := range p.Blocked {
+		for _, x := range b.Blockers {
+			if x.Pod == pod {
+				out = append(out, x.Code)
+			}
+		}
+	}
+	return out
+}
+
+func hasCode(codes []string, want string) bool {
+	for _, c := range codes {
+		if c == want {
+			return true
+		}
+	}
+	return false
+}
+
+// TestI15DatabaseRolesRefusedWithDistinctReason exercises each db-* role code
+// distinctly (the stateful-DB-fixtures report §5 "Tests to add"): the CNPG primary
+// and its synchronous standby, an operator-less DB of unknown role, and a database
+// on an emptyDir. Each is a look-only blocker with a DB-specific code, and the plan
+// never moves any of them, whatever the policy toggles.
+func TestI15DatabaseRolesRefusedWithDistinctReason(t *testing.T) {
+	cases := []struct {
+		name    string
+		fixture func() *objects
+		pod     string
+		code    string
+	}{
+		{"cnpg primary", cnpgClusterFixture, "team-db/pg-1", stateful.CodeDBPrimary},
+		{"cnpg sync standby", cnpgClusterFixture, "team-db/pg-2", stateful.CodeDBSyncStandby},
+		{"operator-less DB, unknown role", singleMySQLFixture, "team-db/mysql-0", stateful.CodeDBRoleUnknown},
+		{"emptyDir DB", emptyDirDBFixture, "team-db/pg-unsafe-0", stateful.CodeDBEmptyDir},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			for _, opts := range []fitsim.Options{testOptions(), relaxedOptions()} {
+				in := c.fixture().input()
+				p := Analyze(in, opts, goldenNow)
+				checkInvariants(t, c.name, in, p)
+				if codes := blockerCodes(p, c.pod); !hasCode(codes, c.code) {
+					t.Errorf("%s: %s blockers %v, want %s", c.name, c.pod, codes, c.code)
+				}
+				for _, m := range p.Moves {
+					for _, pm := range m.Pods {
+						if pm.Pod == c.pod {
+							t.Errorf("%s: protected DB pod %s was planned for a move to %s", c.name, c.pod, pm.To)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestI15OnlyReadyReplicaRefused: a detected database StatefulSet scaled to a single
+// ready replica (no emptyDir, no role label) is refused db-role-unknown first; a
+// StatefulSet with a PVC whose replica count is exactly 1 would otherwise be the
+// db-only-ready-replica case. This pins that a single-instance DB never moves.
+func TestI15OnlyReadyReplicaRefused(t *testing.T) {
+	in := singleMySQLFixture().input()
+	p := Analyze(in, relaxedOptions(), goldenNow)
+	checkInvariants(t, "single-mysql", in, p)
+	codes := blockerCodes(p, "team-db/mysql-0")
+	if !hasCode(codes, stateful.CodeDBRoleUnknown) && !hasCode(codes, stateful.CodeDBOnlyReadyReplica) {
+		t.Errorf("mysql-0 blockers %v, want a db-role-unknown or db-only-ready-replica refusal", codes)
+	}
+}
+
+// TestI16ZonalVolumePlacesInZone: a drainable pod bound to a zonal PV is placed only
+// on an in-zone node, and strands (never crosses AZs) when no in-zone receiver
+// exists. The analyzer, not just fitsim, honours the PV zone predicate.
+func TestI16ZonalVolumePlacesInZone(t *testing.T) {
+	inPlace := zonalPVPlacesFixture().input()
+	pPlace := Analyze(inPlace, testOptions(), goldenNow)
+	checkInvariants(t, "zonal-pv-places", inPlace, pPlace)
+	placed := ""
+	for _, m := range pPlace.Moves {
+		for _, pm := range m.Pods {
+			if pm.Pod == "team-z/cache-0" {
+				placed = pm.To
+			}
+		}
+	}
+	zoneOf := map[string]string{}
+	for _, n := range inPlace.Nodes {
+		zoneOf[n.Name] = n.Labels[LabelZone]
+	}
+	if placed == "" {
+		t.Fatalf("cache-0 was not placed: blocked=%v", pPlace.Blocked)
+	}
+	if zoneOf[placed] != "ap-south-1a" {
+		t.Errorf("cache-0 placed on %s (zone %s), want an ap-south-1a node", placed, zoneOf[placed])
+	}
+
+	inStrand := zonalPVStrandsFixture().input()
+	pStrand := Analyze(inStrand, testOptions(), goldenNow)
+	checkInvariants(t, "zonal-pv-strands", inStrand, pStrand)
+	if !hasCode(blockerCodes(pStrand, "team-z/cache-0"), CodeStrand) {
+		t.Errorf("cache-0 should strand (no in-zone receiver), blockers %v", blockerCodes(pStrand, "team-z/cache-0"))
+	}
+}
+
+// relaxedOptions turns the StatefulSet and single-replica policy guards off, to
+// prove the stateful layer's db-* protection is independent of policy toggles.
+func relaxedOptions() fitsim.Options {
+	o := testOptions()
+	o.Guards.ProtectStatefulSets = false
+	o.Guards.ProtectSingleReplicas = false
 	return o
 }
 

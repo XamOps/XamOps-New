@@ -1,0 +1,77 @@
+{
+ "schemaVersion": 1,
+ "generatedAt": "2026-10-24T00:00:00Z",
+ "mode": "analysis",
+ "actor": {
+  "kind": "NONE",
+  "evidence": [],
+  "note": "Neither Karpenter nor the Cluster Autoscaler was found. Engine v1 will remove nodes with an ASG terminate that decrements desired capacity, never below the node group minimum. Display only."
+ },
+ "settings": {
+  "underutilizedThresholdPct": 50,
+  "headroomPct": 15,
+  "maxNodesPerPlan": 100
+ },
+ "summary": {
+  "nodesEvaluated": 3,
+  "empty": 2,
+  "drain": 0,
+  "blocked": 1,
+  "kept": 0
+ },
+ "moves": [
+  {
+   "type": "EMPTY",
+   "node": {
+    "name": "z-far-1",
+    "nodeGroup": "ng-z",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1b",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 5,
+    "memRequestedPct": 1.6
+   },
+   "pods": []
+  },
+  {
+   "type": "EMPTY",
+   "node": {
+    "name": "z-far-2",
+    "nodeGroup": "ng-z",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1b",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 5,
+    "memRequestedPct": 1.6
+   },
+   "pods": []
+  }
+ ],
+ "blocked": [
+  {
+   "node": {
+    "name": "z-src",
+    "nodeGroup": "ng-z",
+    "instanceType": "m5.xlarge",
+    "capacityType": "ON_DEMAND",
+    "zone": "ap-south-1a",
+    "fargate": false,
+    "providerId": "",
+    "cpuRequestedPct": 10,
+    "memRequestedPct": 3.1
+   },
+   "blockers": [
+    {
+     "pod": "team-z/cache-0",
+     "code": "strand",
+     "reason": "no other node has room (keeping 15% headroom)"
+    }
+   ]
+  }
+ ],
+ "kept": []
+}
