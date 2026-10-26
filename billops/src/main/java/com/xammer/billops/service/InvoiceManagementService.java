@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.itextpdf.barcodes.BarcodeQRCode;
+import com.itextpdf.io.image.ImageData;
+import com.itextpdf.io.image.ImageDataFactory;
 import com.itextpdf.kernel.colors.ColorConstants;
 import com.itextpdf.kernel.colors.DeviceRgb;
 import com.itextpdf.kernel.geom.PageSize;
@@ -16,6 +18,7 @@ import com.itextpdf.layout.element.Cell;
 import com.itextpdf.layout.element.Image;
 import com.itextpdf.layout.element.Paragraph;
 import com.itextpdf.layout.element.Table;
+import com.itextpdf.layout.properties.HorizontalAlignment;
 import com.itextpdf.layout.properties.TextAlignment;
 import com.itextpdf.layout.properties.UnitValue;
 import com.itextpdf.layout.properties.VerticalAlignment;
@@ -39,13 +42,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StreamUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.annotation.PostConstruct;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -916,6 +924,9 @@ public class InvoiceManagementService {
             DeviceRgb regionBg    = new DeviceRgb(243, 245, 250);  // very light grey
             DeviceRgb subtotalBg  = new DeviceRgb(210, 216, 238);  // medium indigo
 
+            // ── AWS logo (top-left), as on the AWS console bill summary ─────────
+            addAwsLogo(document);
+
             // ── Title ──────────────────────────────────────────────────────────
             document.add(new Paragraph("Detailed Bill")
                     .setBold().setFontSize(16).setTextAlignment(TextAlignment.CENTER)
@@ -1105,6 +1116,69 @@ public class InvoiceManagementService {
             throw new RuntimeException("Detail bill PDF generation failed", e);
         }
         return new ByteArrayInputStream(out.toByteArray());
+    }
+
+    /**
+     * Renders the AWS logo at the top-left of the detailed bill, the way the AWS
+     * Billing console prints it on the "AWS bill summary" report.
+     *
+     * <p>Prefers the bundled {@code aws-icon.png} brand asset. The file is looked up on the
+     * classpath and then on the filesystem (relative to where the service runs), mirroring
+     * {@link PdfGenerationService#addLogo}. When no image is found — e.g. the asset is not
+     * deployed alongside the service — it falls back to the "aws" wordmark in AWS orange,
+     * the same text mark {@code AwsInvoiceService} already uses, so a logo always appears.
+     */
+    private void addAwsLogo(Document document) {
+        byte[] bytes = null;
+        try {
+            // 1. Classpath (jar / resources)
+            for (String cp : new String[]{"static/icons/aws-icon.png", "icons/aws-icon.png", "aws-icon.png"}) {
+                ClassPathResource res = new ClassPathResource(cp);
+                if (res.exists()) {
+                    try (InputStream is = res.getInputStream()) {
+                        bytes = StreamUtils.copyToByteArray(is);
+                    }
+                    break;
+                }
+            }
+            // 2. Filesystem, relative to where the app runs (billops or repo root)
+            if (bytes == null) {
+                for (String p : new String[]{
+                        "../frontend-app/public/icons/aws-icon.png",
+                        "frontend-app/public/icons/aws-icon.png"}) {
+                    File file = new File(p);
+                    if (file.exists()) {
+                        bytes = Files.readAllBytes(file.toPath());
+                        break;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("[InvoiceGen] Could not load AWS logo image, falling back to wordmark: {}", e.getMessage());
+            bytes = null;
+        }
+
+        if (bytes != null) {
+            try {
+                ImageData imageData = ImageDataFactory.create(bytes);
+                Image logo = new Image(imageData);
+                logo.scaleToFit(70, 42);
+                logo.setHorizontalAlignment(HorizontalAlignment.LEFT);
+                logo.setMarginBottom(6);
+                document.add(logo);
+                return;
+            } catch (Exception e) {
+                logger.warn("[InvoiceGen] AWS logo image could not be rendered, falling back to wordmark: {}",
+                        e.getMessage());
+            }
+        }
+
+        // Fallback: the "aws" wordmark in AWS orange.
+        document.add(new Paragraph("aws")
+                .setFontColor(new DeviceRgb(255, 153, 0))
+                .setBold().setFontSize(22)
+                .setTextAlignment(TextAlignment.LEFT)
+                .setMarginBottom(6));
     }
 
     // --- END PDF GENERATION ---
