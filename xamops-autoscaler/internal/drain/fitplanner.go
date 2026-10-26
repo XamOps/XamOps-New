@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/xamops/automation/internal/fitsim"
@@ -15,13 +16,16 @@ import (
 // (internal/fitsim, plan.md section 3).
 type FitPlanner struct {
 	k8s  kubernetes.Interface
+	dyn  dynamic.Interface
 	opts fitsim.Options
 }
 
 // NewFitPlanner returns a fitsim-backed planner with the cycle's guards and the
-// autoscaler's own namespace.
-func NewFitPlanner(k8s kubernetes.Interface, opts fitsim.Options) *FitPlanner {
-	return &FitPlanner{k8s: k8s, opts: opts}
+// autoscaler's own namespace. dyn is the dynamic client the fresh snapshot uses to
+// re-list the allow-listed operator CRs for the stateful/DB protection re-check; a
+// nil dyn lists no CRs.
+func NewFitPlanner(k8s kubernetes.Interface, dyn dynamic.Interface, opts fitsim.Options) *FitPlanner {
+	return &FitPlanner{k8s: k8s, dyn: dyn, opts: opts}
 }
 
 // Plan simulates draining nodes as one set.
@@ -31,7 +35,7 @@ func (p *FitPlanner) Plan(ctx context.Context, nodes []string) (Plan, error) {
 
 // Replan simulates draining nodes as one set, ignoring the pods in evictedUIDs.
 func (p *FitPlanner) Replan(ctx context.Context, nodes []string, evictedUIDs map[string]bool) (Plan, error) {
-	s, err := fitsim.BuildSnapshot(ctx, p.k8s)
+	s, err := fitsim.BuildSnapshot(ctx, p.k8s, p.dyn)
 	if err != nil {
 		return Plan{Nodes: append([]string(nil), nodes...), FitChecked: false, Reasons: []string{"snapshot: " + err.Error()}}, err
 	}
@@ -43,7 +47,7 @@ func (p *FitPlanner) Replan(ctx context.Context, nodes []string, evictedUIDs map
 
 // SelectSet runs fitsim.PlanDrainSet over one snapshot.
 func (p *FitPlanner) SelectSet(ctx context.Context, candidates []string, capacity int) ([]string, map[string]Plan, error) {
-	s, err := fitsim.BuildSnapshot(ctx, p.k8s)
+	s, err := fitsim.BuildSnapshot(ctx, p.k8s, p.dyn)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -57,7 +61,7 @@ func (p *FitPlanner) SelectSet(ctx context.Context, candidates []string, capacit
 
 // PlanEach simulates draining each node on its own, over one snapshot.
 func (p *FitPlanner) PlanEach(ctx context.Context, nodes []string) (map[string]Plan, error) {
-	s, err := fitsim.BuildSnapshot(ctx, p.k8s)
+	s, err := fitsim.BuildSnapshot(ctx, p.k8s, p.dyn)
 	if err != nil {
 		return nil, err
 	}

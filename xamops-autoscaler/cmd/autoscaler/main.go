@@ -116,7 +116,7 @@ func main() {
 
 	// loop runs the control loop; shared by the leader-election and the direct paths.
 	loop := func(loopCtx context.Context) {
-		runControlLoop(loopCtx, cfg, mset, k8s, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
+		runControlLoop(loopCtx, cfg, mset, k8s, dc, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
 	}
 
 	// ── Graceful shutdown signal ──────────────────────────────────────────
@@ -279,6 +279,7 @@ func runControlLoop(
 	cfg *config.Config,
 	mset *metrics.Set,
 	k8s kubernetes.Interface,
+	dc dynamic.Interface,
 	policyClient *policy.Client,
 	push *pusher.Pusher,
 	evictor *controller.Evictor,
@@ -303,7 +304,7 @@ func runControlLoop(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			runCycle(ctx, cfg, mset, k8s, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
+			runCycle(ctx, cfg, mset, k8s, dc, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
 		}
 	}
 }
@@ -443,6 +444,7 @@ func runCycle(
 	cfg *config.Config,
 	mset *metrics.Set,
 	k8s kubernetes.Interface,
+	dc dynamic.Interface,
 	policyClient *policy.Client,
 	push *pusher.Pusher,
 	evictor *controller.Evictor,
@@ -493,7 +495,7 @@ func runCycle(
 	budget := drain.NewBudget(bundle.NodeOptimizerPolicy.MaxParallelDrains, inflight)
 	// xamops_drain_budget_inflight — nodes already in flight consuming budget this cycle.
 	mset.SetDrainBudgetInflight(len(inflight))
-	planner := drain.NewFitPlanner(k8s, fitsim.Options{Guards: bundle.SafetyGuards, SelfNamespace: cfg.PodNamespace})
+	planner := drain.NewFitPlanner(k8s, dc, fitsim.Options{Guards: bundle.SafetyGuards, SelfNamespace: cfg.PodNamespace})
 	exec := drain.NewExecutor(k8s, planner, cfg.PodNamespace)
 	exec.SetSelfNode(cfg.NodeName) // never-cordon/drain-self (FEAT-002)
 	ledger := state.New(k8s, cfg.PodNamespace, cfg.StateConfigMap, cfg.DryRun)
@@ -694,7 +696,7 @@ func runCycle(
 	// ── 7. Consolidation (look-only plan: EMPTY + DRAIN, never acts) ─────────
 	if d.Consolidation.Mode != gate.Off {
 		cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		plan, err := consolidation.Run(cctx, k8s, fitsim.Options{Guards: bundle.SafetyGuards, SelfNamespace: cfg.PodNamespace}, time.Now())
+		plan, err := consolidation.Run(cctx, k8s, dc, fitsim.Options{Guards: bundle.SafetyGuards, SelfNamespace: cfg.PodNamespace}, time.Now())
 		cancel()
 		if err != nil {
 			log.Printf("WARN: consolidation analysis: %v", err)

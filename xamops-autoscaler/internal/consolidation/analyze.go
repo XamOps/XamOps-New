@@ -10,6 +10,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 
 	"github.com/xamops/automation/internal/fitsim"
@@ -23,6 +24,11 @@ type Input struct {
 	ReplicaSets  []appsv1.ReplicaSet
 	StatefulSets []appsv1.StatefulSet
 	Deployments  []appsv1.Deployment
+	// PVCs, PVs and CRs carry the stateful/zone data (MEDIUM-1): the zonal-PV
+	// node-affinity and the operator Custom Resources the db-* protection reads.
+	PVCs []corev1.PersistentVolumeClaim
+	PVs  []corev1.PersistentVolume
+	CRs  []unstructured.Unstructured
 }
 
 // candidate is a node that survived classification and the evictability checks.
@@ -53,7 +59,8 @@ type candidate struct {
 // (100-HeadroomPct)/100, so receivers keep 15% free. Placement uses effective
 // requests, never usage.
 func Analyze(in Input, opts fitsim.Options, now time.Time) Plan {
-	snap := fitsim.FromObjects(in.Nodes, in.Pods, in.PDBs, in.ReplicaSets, in.StatefulSets)
+	snap := fitsim.FromObjectsWithCRs(in.Nodes, in.Pods, in.PDBs, in.ReplicaSets, in.StatefulSets,
+		in.PVCs, in.PVs, in.CRs)
 	head := withHeadroom(snap)
 
 	snapPods := map[string]*fitsim.Pod{}
@@ -292,6 +299,7 @@ func nodeRef(n *fitsim.Node) NodeRef {
 		CapacityType:    firstLabel(n.Labels, LabelKarpenterCapacity, LabelEKSCapacity),
 		Zone:            firstLabel(n.Labels, LabelZone, LabelZoneBeta),
 		Fargate:         isFargate(n.Labels),
+		ProviderID:      n.ProviderID,
 		CPURequestedPct: pct(n.Requested.MilliCPU, n.Allocatable.MilliCPU),
 		MemRequestedPct: pct(n.Requested.MemoryBytes, n.Allocatable.MemoryBytes),
 	}

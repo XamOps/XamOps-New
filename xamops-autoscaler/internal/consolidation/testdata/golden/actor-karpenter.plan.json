@@ -32,6 +32,7 @@
     "capacityType": "spot",
     "zone": "ap-south-1b",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 10,
     "memRequestedPct": 6.3
    },
@@ -48,6 +49,7 @@
     "capacityType": "spot",
     "zone": "ap-south-1b",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 60,
     "memRequestedPct": 31.3
    },
@@ -61,6 +63,7 @@
     "capacityType": "spot",
     "zone": "ap-south-1b",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 60,
     "memRequestedPct": 31.3
    },

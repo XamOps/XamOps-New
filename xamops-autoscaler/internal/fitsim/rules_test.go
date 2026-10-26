@@ -208,12 +208,12 @@ func rulesExpectations() map[string]expectation {
 		"s-sidecar": strand("apps/sidecar"), "s-init-big": strand("apps/init-big"), "s-init-ok": mv("init-ok", "t2-plain"),
 		"s-overhead": strand("apps/overhead"), "s-alloc": strand("apps/alloc"),
 
-		"s-pvc": refused("apps/pvc", ReasonPVCVolume), "s-ephemeral": refused("apps/ephemeral", ReasonEphemeralVolume),
+		"s-pvc": refused("apps/pvc", ReasonPVCVolumeUnmodelled), "s-ephemeral": refused("apps/ephemeral", ReasonEphemeralVolume),
 		"s-hostport": refused("apps/hostport", ReasonHostPort), "s-podaff": refused("apps/podaff", ReasonPodAffinity),
 		"s-antiaff": refused("apps/antiaff", ReasonPodAntiAffinity), "s-antiaff-preferred": mv("antiaff-preferred", "t2-plain"),
 		"s-spread-dns": refused("apps/spread-dns", ReasonTopologySpread), "s-spread-anyway": mv("spread-anyway", "t2-plain"),
 		"s-extended":               refused("apps/extended", ReasonExtendedResource+":ephemeral-storage,nvidia.com/gpu"),
-		"s-multi-refuse":           refused("apps/multi-refuse", ReasonPVCVolume+"; "+ReasonHostPort),
+		"s-multi-refuse":           refused("apps/multi-refuse", ReasonPVCVolumeUnmodelled+"; "+ReasonHostPort),
 		"s-refused-in-kube-system": refused("kube-system/refused-in-kube-system", ReasonHostPort),
 
 		"s-critical":         blocked("kube-system/critical", "t2-plain", ReasonCriticalNamespace),

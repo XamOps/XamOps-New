@@ -87,6 +87,7 @@ type NodeRef struct {
 	CapacityType    string  `json:"capacityType"`
 	Zone            string  `json:"zone"`
 	Fargate         bool    `json:"fargate"`
+	ProviderID      string  `json:"providerId"`
 	CPURequestedPct float64 `json:"cpuRequestedPct"`
 	MemRequestedPct float64 `json:"memRequestedPct"`
 }

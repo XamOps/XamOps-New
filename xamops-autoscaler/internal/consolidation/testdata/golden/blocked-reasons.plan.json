@@ -29,6 +29,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 30,
     "memRequestedPct": 9.4
    },
@@ -48,6 +49,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 0,
     "memRequestedPct": 0
    },
@@ -67,6 +69,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 30,
     "memRequestedPct": 9.4
    },
@@ -86,6 +89,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 30,
     "memRequestedPct": 9.4
    },
@@ -105,6 +109,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": true,
+    "providerId": "",
     "cpuRequestedPct": 0,
     "memRequestedPct": 0
    },
@@ -124,6 +129,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 30,
     "memRequestedPct": 9.4
    },
@@ -143,6 +149,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 30,
     "memRequestedPct": 9.4
    },
@@ -167,6 +174,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 30,
     "memRequestedPct": 9.4
    },
@@ -191,6 +199,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 0,
     "memRequestedPct": 0
    },
@@ -210,6 +219,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 30,
     "memRequestedPct": 9.4
    },
@@ -229,14 +239,15 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 30,
     "memRequestedPct": 9.4
    },
    "blockers": [
     {
      "pod": "team-c/db-0",
-     "code": "pvc-volume",
-     "reason": "persistent volume claim"
+     "code": "pvc-volume-unmodelled",
+     "reason": "persistent volume claim with unmodellable zone affinity"
     }
    ]
   },
@@ -248,6 +259,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 0,
     "memRequestedPct": 0
    },
@@ -267,6 +279,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 30,
     "memRequestedPct": 9.4
    },
@@ -286,6 +299,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 30,
     "memRequestedPct": 9.4
    },
@@ -305,6 +319,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 42.5,
     "memRequestedPct": 7.8
    },
@@ -324,6 +339,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 0,
     "memRequestedPct": 0
    },
@@ -345,6 +361,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 60,
     "memRequestedPct": 26.6
    },
@@ -358,6 +375,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 60,
     "memRequestedPct": 26.6
    },

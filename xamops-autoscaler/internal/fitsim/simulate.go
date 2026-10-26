@@ -79,6 +79,12 @@ func SimulateDrain(s *Snapshot, nodes []string, o Options) Plan {
 			pdbMatched[b.Key()]++
 			pdbByKey[b.Key()] = b
 		}
+		// Stateful/DB protection (I15): a detected database is Refused-class and runs
+		// BEFORE the zone predicate, so a protected pod never reaches placement.
+		if p.DBVerdict != "" {
+			plan.Refused = append(plan.Refused, Finding{Pod: p.Key(), Reason: p.DBVerdict})
+			continue
+		}
 		if len(p.Unmodelled) > 0 {
 			plan.Refused = append(plan.Refused, Finding{Pod: p.Key(), Reason: strings.Join(p.Unmodelled, "; ")})
 			continue
@@ -265,7 +271,8 @@ func fits(p *Pod, t *Node, f *Resources) bool {
 	}
 	return toleratesAll(p.Tolerations, t.Taints) &&
 		matchesNodeSelectorMap(p.NodeSelector, t.Labels) &&
-		matchesRequiredAffinity(p.RequiredNodeAffinity, t)
+		matchesRequiredAffinity(p.RequiredNodeAffinity, t) &&
+		matchesRequiredAffinity(p.VolumeNodeAffinity, t)
 }
 
 func toleratesAll(tols []corev1.Toleration, taints []corev1.Taint) bool {

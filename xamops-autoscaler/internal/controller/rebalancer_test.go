@@ -39,7 +39,7 @@ func (p *countingPlanner) Plan(ctx context.Context, nodes []string) (drain.Plan,
 }
 
 func fitCounting(c *fake.Clientset) *countingPlanner {
-	return &countingPlanner{inner: drain.NewFitPlanner(c, fitsim.Options{Guards: policy.DefaultBundle().SafetyGuards, SelfNamespace: selfNS})}
+	return &countingPlanner{inner: drain.NewFitPlanner(c, nil, fitsim.Options{Guards: policy.DefaultBundle().SafetyGuards, SelfNamespace: selfNS})}
 }
 
 func rebalancerNode(name string, age time.Duration, labels map[string]string) *corev1.Node {

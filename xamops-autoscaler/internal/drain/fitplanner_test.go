@@ -120,7 +120,7 @@ func evictions(c *fake.Clientset) int {
 }
 
 func fitExecutor(c *fake.Clientset) *Executor {
-	return fastExecutor(c, NewFitPlanner(c, fitOptions()))
+	return fastExecutor(c, NewFitPlanner(c, nil, fitOptions()))
 }
 
 func TestFitPlannerLiveDrainReplansBeforeEveryEviction(t *testing.T) {
@@ -240,7 +240,7 @@ func TestFitPlannerSelfNamespaceRefused(t *testing.T) {
 	c := fitCluster(self)
 	opts := fitOptions()
 	opts.Guards = policy.SafetyGuards{}
-	e := fastExecutor(c, NewFitPlanner(c, opts))
+	e := fastExecutor(c, NewFitPlanner(c, nil, opts))
 	for _, mode := range []gate.Mode{gate.Live, gate.Simulate} {
 		out := e.Drain(context.Background(), "evictor", "op", []string{"node-a"}, mode, NewBudget(1, nil))
 		if out.Status != policy.ActionRefused || !strings.Contains(out.Actions[0].Reason, "blocked xamops-system/xamops-automation-1: self-namespace") {

@@ -29,6 +29,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 40,
     "memRequestedPct": 9.4
    },
@@ -52,6 +53,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 42.5,
     "memRequestedPct": 7.8
    },
@@ -73,6 +75,7 @@
     "capacityType": "ON_DEMAND",
     "zone": "ap-south-1a",
     "fargate": false,
+    "providerId": "",
     "cpuRequestedPct": 60,
     "memRequestedPct": 26.6
    },

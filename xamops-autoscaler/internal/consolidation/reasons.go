@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/xamops/automation/internal/fitsim"
+	"github.com/xamops/automation/internal/stateful"
 )
 
 // Well-known labels and annotations.
@@ -48,13 +49,23 @@ const (
 // Suffixed codes are formatted with the suffix.
 var reasons = map[string]string{
 	// fitsim refused (unmodelled)
-	fitsim.ReasonPodAffinity:      "required pod affinity (not modelled)",
-	fitsim.ReasonPodAntiAffinity:  "required pod anti-affinity (not modelled)",
-	fitsim.ReasonTopologySpread:   "DoNotSchedule topology spread (not modelled)",
-	fitsim.ReasonPVCVolume:        "persistent volume claim",
-	fitsim.ReasonEphemeralVolume:  "ephemeral volume",
-	fitsim.ReasonHostPort:         "host port",
-	fitsim.ReasonExtendedResource: "requests extended resource %s",
+	fitsim.ReasonPodAffinity:         "required pod affinity (not modelled)",
+	fitsim.ReasonPodAntiAffinity:     "required pod anti-affinity (not modelled)",
+	fitsim.ReasonTopologySpread:      "DoNotSchedule topology spread (not modelled)",
+	fitsim.ReasonPVCVolume:           "persistent volume claim",
+	fitsim.ReasonPVCVolumeUnmodelled: "persistent volume claim with unmodellable zone affinity",
+	fitsim.ReasonEphemeralVolume:     "ephemeral volume",
+
+	// stateful / database protection (I15), Refused-class.
+	stateful.CodeDBPrimary:          "database primary",
+	stateful.CodeDBSyncStandby:      "active synchronous standby",
+	stateful.CodeDBRoleUnknown:      "database role unknown — refused",
+	stateful.CodeDBOnlyReadyReplica: "only ready database replica",
+	stateful.CodeDBLagUnknown:       "database replication lag unknown — refused",
+	stateful.CodeDBLagHigh:          "database replication lag above limit",
+	stateful.CodeDBEmptyDir:         "database with an emptyDir at its data path",
+	fitsim.ReasonHostPort:           "host port",
+	fitsim.ReasonExtendedResource:   "requests extended resource %s",
 
 	// fitsim blocked
 	fitsim.ReasonCriticalNamespace: "critical namespace",

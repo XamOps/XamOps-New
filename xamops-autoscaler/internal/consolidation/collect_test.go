@@ -21,13 +21,13 @@ func TestRunListsOnlyAndMatchesAnalyze(t *testing.T) {
 			c := fake.NewSimpleClientset(o.runtimeObjects()...)
 			c.ClearActions()
 
-			p, err := Run(context.Background(), c, testOptions(), goldenNow)
+			p, err := Run(context.Background(), c, nil, testOptions(), goldenNow)
 			if err != nil {
 				t.Fatal(err)
 			}
 			acts := c.Actions()
-			if len(acts) != 6 {
-				t.Errorf("%d API call(s), want 6 lists", len(acts))
+			if len(acts) != 8 {
+				t.Errorf("%d API call(s), want 8 lists (nodes, pods, pdbs, rs, sts, deploys, pvc, pv)", len(acts))
 			}
 			for _, a := range acts {
 				if a.GetVerb() != "list" || a.GetSubresource() != "" {
