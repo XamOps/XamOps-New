@@ -203,7 +203,7 @@ func runTestCycleWith(t *testing.T, cfg *config.Config, c *fake.Clientset, srvUR
 	cfg.DrainTimeoutSeconds = 30
 	cfg.PodNamespace, cfg.StateConfigMap = "xamops-system", "xamops-automation-state"
 
-	runCycle(context.Background(), cfg, mset, c,
+	runCycle(context.Background(), cfg, mset, c, nil, // nil dynamic client: Collect lists no operator CRs
 		policy.NewClient(cfg.ServerURL, cfg.APIKey, cfg.ClusterName, cfg.CloudAccountID),
 		pusher.New(cfg.ServerURL, cfg.APIKey, cfg.ClusterName, cfg.CloudAccountID, cfg.MaxRetries, cfg.RetryDelay),
 		controller.NewEvictor(c, cfg.DryRun),

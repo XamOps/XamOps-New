@@ -194,6 +194,25 @@ func HPAManager(cfg *config.Config, b policy.PolicyBundle) Decision {
 	return Decision{Mode: Analyse, Reason: "analysis only (the HPA manager never mutates)"}
 }
 
+// ConsolidationActions: ENABLE_CONSOLIDATION ∧ consolidationPolicy.enabled ∧
+// mode=full; DRY_RUN → Simulate. This is the acting gate for the consolidation
+// controller (EMPTY/DRAIN + the controller-owned ASG terminate), mirroring
+// gate.Evictor. It fails closed on anything other than full mode. The look-only
+// ConsolidationAnalysis gate below is unchanged and keeps computing the plan.
+func ConsolidationActions(cfg *config.Config, b policy.PolicyBundle) Decision {
+	switch {
+	case modeDisabled(b):
+		return off("autoscalerMode=disabled")
+	case !cfg.EnableConsolidation:
+		return off("ENABLE_CONSOLIDATION=false")
+	case b.AutoscalerMode != "full":
+		return off("autoscalerMode=%q (consolidation actions need full)", b.AutoscalerMode)
+	case !b.ConsolidationEnabled():
+		return off("consolidationPolicy.enabled=false")
+	}
+	return actOrSimulate(cfg)
+}
+
 // ConsolidationAnalysis: mode∈{full,scoped}. Consolidation Phase 1 is look-only: it
 // is never Simulate or Live, and no env flag opens it (every ENABLE_* stays false
 // in the manifest, so gating on one would mean no plan is ever computed). The

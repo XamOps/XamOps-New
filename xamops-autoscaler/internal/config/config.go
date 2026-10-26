@@ -35,6 +35,7 @@ type Config struct {
 	EnableHPAManager    bool // create/update/delete HPAs based on XamOps recommendations
 	EnableVPAManager    bool // create/manage VPA objects (requires VPA CRD installed)
 	EnableNodeOptimizer bool // idle node detection, spot candidate analysis, spot interruption handling
+	EnableConsolidation bool // consolidation controller: EMPTY/DRAIN + controller-owned ASG terminate
 
 	// EnableRightsizerApply — the rightsizer patches requests only when this is true AND
 	// workloadRightsizerPolicy.applyMode=immediate AND DryRun is false (plan.md D9).
@@ -100,6 +101,7 @@ func Load() (*Config, error) {
 		EnableHPAManager:    getEnvBool("ENABLE_HPA_MANAGER", false),
 		EnableVPAManager:    getEnvBool("ENABLE_VPA_MANAGER", false),
 		EnableNodeOptimizer: getEnvBool("ENABLE_NODE_OPTIMIZER", false),
+		EnableConsolidation: getEnvBool("ENABLE_CONSOLIDATION", false),
 
 		EnableRightsizerApply: getEnvBool("ENABLE_RIGHTSIZER_APPLY", false),
 		PodNamespace:          getEnv("POD_NAMESPACE", "xamops-system"),

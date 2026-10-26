@@ -49,6 +49,24 @@ type Set struct {
 	leaderIdentity string
 	// OrphansRecoveredTotal counts orphaned drains recovered (RecoverOrphans results).
 	OrphansRecoveredTotal prometheus.Counter
+
+	// ConsolidationRunsTotal counts consolidation controller runs by terminal status
+	// (succeeded/simulated/refused/aborted/skipped/failed).
+	ConsolidationRunsTotal *prometheus.CounterVec
+	// ConsolidationNodesRemovedTotal counts nodes the controller removed by path
+	// (xamops-asg = controller-owned terminate, defer-to-actor = cordoned+drained,
+	// left to Karpenter/CA).
+	ConsolidationNodesRemovedTotal *prometheus.CounterVec
+	// ConsolidationPodsEvictedTotal counts pods the controller evicted across its
+	// drains.
+	ConsolidationPodsEvictedTotal prometheus.Counter
+	// ConsolidationDrainDurationSeconds observes each consolidation drain's duration.
+	ConsolidationDrainDurationSeconds prometheus.Histogram
+	// ConsolidationRunAbortsTotal counts consolidation run aborts by reason.
+	ConsolidationRunAbortsTotal *prometheus.CounterVec
+	// ConsolidationActionRate is the number of node removals the latest run acted on
+	// (a gauge the dashboard reads as the per-run action rate).
+	ConsolidationActionRate prometheus.Gauge
 }
 
 // New builds the metric set, registering all collectors on a fresh registry.
@@ -94,6 +112,31 @@ func New() *Set {
 			Name: "xamops_orphans_recovered_total",
 			Help: "Orphaned drains recovered (uncordoned/marked aborted) by the executor.",
 		}),
+		ConsolidationRunsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "xamops_consolidation_runs_total",
+			Help: "Consolidation controller runs by terminal status.",
+		}, []string{"status"}),
+		ConsolidationNodesRemovedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "xamops_consolidation_nodes_removed_total",
+			Help: "Nodes the consolidation controller removed, by path (xamops-asg/defer-to-actor).",
+		}, []string{"path"}),
+		ConsolidationPodsEvictedTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "xamops_consolidation_pods_evicted_total",
+			Help: "Pods the consolidation controller evicted across its drains.",
+		}),
+		ConsolidationDrainDurationSeconds: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "xamops_consolidation_drain_duration_seconds",
+			Help:    "Wall-clock duration of each consolidation drain.",
+			Buckets: prometheus.DefBuckets,
+		}),
+		ConsolidationRunAbortsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "xamops_consolidation_run_aborts_total",
+			Help: "Consolidation run aborts by reason.",
+		}, []string{"reason"}),
+		ConsolidationActionRate: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "xamops_consolidation_action_rate",
+			Help: "Node removals the latest consolidation run acted on.",
+		}),
 	}
 	reg.MustRegister(
 		s.DrainsTotal,
@@ -105,6 +148,12 @@ func New() *Set {
 		s.RightsizerApplyTotal,
 		s.Leader,
 		s.OrphansRecoveredTotal,
+		s.ConsolidationRunsTotal,
+		s.ConsolidationNodesRemovedTotal,
+		s.ConsolidationPodsEvictedTotal,
+		s.ConsolidationDrainDurationSeconds,
+		s.ConsolidationRunAbortsTotal,
+		s.ConsolidationActionRate,
 	)
 	return s
 }
@@ -201,4 +250,53 @@ func (s *Set) AddOrphansRecovered(n int) {
 		return
 	}
 	s.OrphansRecoveredTotal.Add(float64(n))
+}
+
+// IncConsolidationRun increments the consolidation-run counter for a terminal status.
+func (s *Set) IncConsolidationRun(status string) {
+	if s == nil {
+		return
+	}
+	s.ConsolidationRunsTotal.WithLabelValues(status).Inc()
+}
+
+// IncConsolidationNodeRemoved increments the removed-node counter for path
+// (xamops-asg / defer-to-actor).
+func (s *Set) IncConsolidationNodeRemoved(path string) {
+	if s == nil {
+		return
+	}
+	s.ConsolidationNodesRemovedTotal.WithLabelValues(path).Inc()
+}
+
+// AddConsolidationPodsEvicted adds n to the consolidation pods-evicted counter.
+func (s *Set) AddConsolidationPodsEvicted(n int) {
+	if s == nil || n <= 0 {
+		return
+	}
+	s.ConsolidationPodsEvictedTotal.Add(float64(n))
+}
+
+// ObserveConsolidationDrain records one consolidation drain's duration in seconds.
+func (s *Set) ObserveConsolidationDrain(seconds float64) {
+	if s == nil {
+		return
+	}
+	s.ConsolidationDrainDurationSeconds.Observe(seconds)
+}
+
+// IncConsolidationRunAbort increments the run-abort counter for reason.
+func (s *Set) IncConsolidationRunAbort(reason string) {
+	if s == nil {
+		return
+	}
+	s.ConsolidationRunAbortsTotal.WithLabelValues(reason).Inc()
+}
+
+// SetConsolidationActionRate records how many node removals the latest run acted on.
+func (s *Set) SetConsolidationActionRate(n int) {
+	if s == nil {
+		return
+	}
+	s.ConsolidationActionRate.Set(float64(n))
 }

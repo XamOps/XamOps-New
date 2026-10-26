@@ -251,6 +251,60 @@ func TestConsolidationAnalysisNeverActs(t *testing.T) {
 	}
 }
 
+// ConsolidationActions is the acting consolidation gate: it mirrors Evictor. Off
+// unless ENABLE_CONSOLIDATION ∧ consolidationPolicy.enabled ∧ mode=full; Simulate
+// under DRY_RUN, Live otherwise. ConsolidationAnalysis is unaffected (still Analyse
+// for full/scoped regardless of the env flag / policy flag).
+func TestConsolidationActionsCrossProduct(t *testing.T) {
+	for _, env := range []bool{false, true} {
+		for _, enabled := range []bool{false, true} {
+			for _, dry := range []bool{false, true} {
+				for _, mode := range []string{"full", "scoped", "disabled", "", "bogus"} {
+					cfg := &config.Config{EnableConsolidation: env, DryRun: dry}
+					b := bundle(mode)
+					b.ConsolidationPolicy.Enabled = enabled
+					name := fmt.Sprintf("env=%v/enabled=%v/dry=%v/mode=%s", env, enabled, dry, mode)
+
+					want := Off
+					if env && mode == "full" && enabled {
+						want = Live
+						if dry {
+							want = Simulate
+						}
+					}
+					got := ConsolidationActions(cfg, b)
+					if got.Mode != want {
+						t.Errorf("%s: got %s, want %s", name, got, want)
+					}
+					if got.Reason == "" {
+						t.Errorf("%s: empty reason", name)
+					}
+
+					// The look-only analysis gate is independent of the env flag and the
+					// policy flag: Analyse for full/scoped, Off otherwise.
+					wantA := Off
+					if mode == "full" || mode == "scoped" {
+						wantA = Analyse
+					}
+					if a := ConsolidationAnalysis(cfg, b); a.Mode != wantA {
+						t.Errorf("%s: analysis got %s, want %s", name, a, wantA)
+					}
+				}
+			}
+		}
+	}
+
+	// The env-off and policy-off reasons name their condition.
+	if got := ConsolidationActions(&config.Config{EnableConsolidation: false}, bundle("full")); got.Reason != "ENABLE_CONSOLIDATION=false" {
+		t.Errorf("env-off reason = %q", got.Reason)
+	}
+	full := bundle("full")
+	full.ConsolidationPolicy.Enabled = false
+	if got := ConsolidationActions(&config.Config{EnableConsolidation: true}, full); !strings.Contains(got.Reason, "consolidationPolicy.enabled=false") {
+		t.Errorf("policy-off reason = %q", got.Reason)
+	}
+}
+
 func TestUnknownModeFailsClosed(t *testing.T) {
 	cfg := &config.Config{EnableRebalancer: true, EnableEvictor: true, EnableNodeOptimizer: true,
 		EnableRightsizer: true, EnableHPAManager: true}

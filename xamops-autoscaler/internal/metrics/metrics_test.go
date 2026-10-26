@@ -99,6 +99,55 @@ func TestHandlerServesHAMetrics(t *testing.T) {
 	}
 }
 
+// TestHandlerServesConsolidationMetrics (FEAT-002) asserts the xamops_consolidation_*
+// metrics appear with their design-fixed names and labels after they are exercised.
+func TestHandlerServesConsolidationMetrics(t *testing.T) {
+	s := New()
+	s.IncConsolidationRun("succeeded")
+	s.IncConsolidationNodeRemoved("xamops-asg")
+	s.IncConsolidationNodeRemoved("defer-to-actor")
+	s.AddConsolidationPodsEvicted(4)
+	s.ObserveConsolidationDrain(2.5)
+	s.IncConsolidationRunAbort("drain-aborted")
+	s.SetConsolidationActionRate(2)
+
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET /metrics: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	out := string(body)
+
+	want := []string{
+		"xamops_consolidation_runs_total",
+		"xamops_consolidation_nodes_removed_total",
+		"xamops_consolidation_pods_evicted_total",
+		"xamops_consolidation_drain_duration_seconds",
+		"xamops_consolidation_run_aborts_total",
+		"xamops_consolidation_action_rate",
+	}
+	for _, m := range want {
+		if !strings.Contains(out, m) {
+			t.Errorf("metric %q missing from /metrics output", m)
+		}
+	}
+	if !strings.Contains(out, `xamops_consolidation_runs_total{status="succeeded"} 1`) {
+		t.Errorf("expected runs_total{status=succeeded} 1, got:\n%s", out)
+	}
+	if !strings.Contains(out, `xamops_consolidation_nodes_removed_total{path="xamops-asg"} 1`) {
+		t.Errorf("expected nodes_removed_total{path=xamops-asg} 1")
+	}
+	if !strings.Contains(out, "xamops_consolidation_pods_evicted_total 4") {
+		t.Errorf("expected pods_evicted_total 4")
+	}
+	if !strings.Contains(out, "xamops_consolidation_action_rate 2") {
+		t.Errorf("expected action_rate 2")
+	}
+}
+
 // TestNilSetIsSafe ensures the convenience methods are no-ops on a nil set.
 func TestNilSetIsSafe(t *testing.T) {
 	var s *Set
@@ -112,4 +161,10 @@ func TestNilSetIsSafe(t *testing.T) {
 	s.SetLeaderIdentity("x")
 	s.SetLeader(true)
 	s.AddOrphansRecovered(2)
+	s.IncConsolidationRun("x")
+	s.IncConsolidationNodeRemoved("x")
+	s.AddConsolidationPodsEvicted(2)
+	s.ObserveConsolidationDrain(1)
+	s.IncConsolidationRunAbort("x")
+	s.SetConsolidationActionRate(1)
 }

@@ -29,6 +29,7 @@ import (
 	"github.com/xamops/automation/internal/obslog"
 	"github.com/xamops/automation/internal/policy"
 	"github.com/xamops/automation/internal/pusher"
+	"github.com/xamops/automation/internal/removal"
 	"github.com/xamops/automation/internal/state"
 	"github.com/xamops/automation/internal/telemetry"
 )
@@ -385,23 +386,26 @@ type cycleDecisions struct {
 	Rightsizer, RightsizerApply, HPAManager gate.Decision
 	// Consolidation is look-only (Off or Analyse); it is not a node action.
 	Consolidation gate.Decision
+	// ConsolidationActions is the acting consolidation gate (Off / Simulate / Live).
+	ConsolidationActions gate.Decision
 }
 
 func decide(cfg *config.Config, b policy.PolicyBundle) cycleDecisions {
 	nop := b.NodeOptimizerPolicy
 	return cycleDecisions{
-		Rebalancer:      gate.Rebalancer(cfg, b),
-		Evictor:         gate.Evictor(cfg, b),
-		NodeOptimizer:   gate.NodeOptimizerAnalysis(cfg, b),
-		Cordon:          gate.NodeAction(cfg, b, nop.AutoCordonIdleNodes, "autoCordonIdleNodes"),
-		IdleDrain:       gate.NodeAction(cfg, b, nop.AutoDrainIdleNodes, "autoDrainIdleNodes"),
-		SpotRatio:       gate.NodeAction(cfg, b, nop.SpotRatioTargetPct > 0, "spotRatioTargetPct"),
-		Karpenter:       gate.NodeAction(cfg, b, nop.SpotRatioTargetPct > 0 && nop.KarpenterEnabled, "karpenterEnabled"),
-		Interruption:    gate.Interruption(cfg, b),
-		Rightsizer:      gate.RightsizerAnalysis(cfg, b),
-		RightsizerApply: gate.RightsizerApply(cfg, b),
-		HPAManager:      gate.HPAManager(cfg, b),
-		Consolidation:   gate.ConsolidationAnalysis(cfg, b),
+		Rebalancer:           gate.Rebalancer(cfg, b),
+		Evictor:              gate.Evictor(cfg, b),
+		NodeOptimizer:        gate.NodeOptimizerAnalysis(cfg, b),
+		Cordon:               gate.NodeAction(cfg, b, nop.AutoCordonIdleNodes, "autoCordonIdleNodes"),
+		IdleDrain:            gate.NodeAction(cfg, b, nop.AutoDrainIdleNodes, "autoDrainIdleNodes"),
+		SpotRatio:            gate.NodeAction(cfg, b, nop.SpotRatioTargetPct > 0, "spotRatioTargetPct"),
+		Karpenter:            gate.NodeAction(cfg, b, nop.SpotRatioTargetPct > 0 && nop.KarpenterEnabled, "karpenterEnabled"),
+		Interruption:         gate.Interruption(cfg, b),
+		Rightsizer:           gate.RightsizerAnalysis(cfg, b),
+		RightsizerApply:      gate.RightsizerApply(cfg, b),
+		HPAManager:           gate.HPAManager(cfg, b),
+		Consolidation:        gate.ConsolidationAnalysis(cfg, b),
+		ConsolidationActions: gate.ConsolidationActions(cfg, b),
 	}
 }
 
@@ -409,18 +413,19 @@ func decide(cfg *config.Config, b policy.PolicyBundle) cycleDecisions {
 // xamops_gate_decision gauge and emit per-controller structured gate lines.
 func (d cycleDecisions) byController() map[string]gate.Decision {
 	return map[string]gate.Decision{
-		"rebalancer":       d.Rebalancer,
-		"evictor":          d.Evictor,
-		"node-optimizer":   d.NodeOptimizer,
-		"cordon":           d.Cordon,
-		"idle-drain":       d.IdleDrain,
-		"spot-ratio":       d.SpotRatio,
-		"karpenter":        d.Karpenter,
-		"interruption":     d.Interruption,
-		"rightsizer":       d.Rightsizer,
-		"rightsizer-apply": d.RightsizerApply,
-		"hpa-manager":      d.HPAManager,
-		"consolidation":    d.Consolidation,
+		"rebalancer":            d.Rebalancer,
+		"evictor":               d.Evictor,
+		"node-optimizer":        d.NodeOptimizer,
+		"cordon":                d.Cordon,
+		"idle-drain":            d.IdleDrain,
+		"spot-ratio":            d.SpotRatio,
+		"karpenter":             d.Karpenter,
+		"interruption":          d.Interruption,
+		"rightsizer":            d.Rightsizer,
+		"rightsizer-apply":      d.RightsizerApply,
+		"hpa-manager":           d.HPAManager,
+		"consolidation":         d.Consolidation,
+		"consolidation-actions": d.ConsolidationActions,
 	}
 }
 
@@ -437,6 +442,23 @@ func (d cycleDecisions) nodeActionMode() gate.Mode {
 		}
 	}
 	return m
+}
+
+// consolidationProvider builds the cloud provider for the consolidation controller.
+// Under gate.Simulate the provider is never called, so it returns nil (no AWS
+// credentials are resolved). Under gate.Live it loads the AWS config and returns an
+// AWSProvider; a load failure logs and returns nil, which the controller treats as a
+// fail-closed refusal (node left cordoned+drained, never terminated).
+func consolidationProvider(ctx context.Context, cfg *config.Config, mode gate.Mode) removal.CloudProvider {
+	if mode != gate.Live {
+		return nil
+	}
+	awsCfg, err := removal.LoadAWSConfig(ctx, os.Getenv("AWS_REGION"))
+	if err != nil {
+		log.Printf("WARN: consolidation: load AWS config: %v — removals will refuse fail-closed", err)
+		return nil
+	}
+	return removal.NewAWSProvider(awsCfg, cfg.ClusterName)
 }
 
 func runCycle(
@@ -475,9 +497,9 @@ func runCycle(
 
 	// 2. Gate decisions, once per cycle
 	d := decide(cfg, bundle)
-	log.Printf("Gates — rebalancer=%s | evictor=%s | nodeopt=%s cordon=%s idleDrain=%s spotRatio=%s karpenter=%s interruption=%s | rightsizer=%s apply=%s | hpa=%s | consolidation=%s",
+	log.Printf("Gates — rebalancer=%s | evictor=%s | nodeopt=%s cordon=%s idleDrain=%s spotRatio=%s karpenter=%s interruption=%s | rightsizer=%s apply=%s | hpa=%s | consolidation=%s actions=%s",
 		d.Rebalancer, d.Evictor, d.NodeOptimizer, d.Cordon, d.IdleDrain, d.SpotRatio, d.Karpenter, d.Interruption,
-		d.Rightsizer, d.RightsizerApply, d.HPAManager, d.Consolidation)
+		d.Rightsizer, d.RightsizerApply, d.HPAManager, d.Consolidation, d.ConsolidationActions)
 	// Structured companions of the human 'policy-fetched'/'Gates —' lines above.
 	obslog.Cycle("policy-fetched", slog.String("mode", bundle.AutoscalerMode))
 	for controllerName, dec := range d.byController() {
@@ -693,14 +715,21 @@ func runCycle(
 		}
 	}
 
-	// ── 7. Consolidation (look-only plan: EMPTY + DRAIN, never acts) ─────────
+	// ── 7. Consolidation ──────────────────────────────────────────────────────
+	// The plan is collected + analyzed exactly ONCE. The look-only plan is always
+	// pushed (DT_CONSOLIDATION_PLAN) while the analysis gate is on; when the acting
+	// gate (ConsolidationActions) is Simulate/Live the SAME Input + Plan are handed to
+	// the controller, which never re-collects or re-analyzes.
 	if d.Consolidation.Mode != gate.Off {
 		cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		plan, err := consolidation.Run(cctx, k8s, dc, fitsim.Options{Guards: bundle.SafetyGuards, SelfNamespace: cfg.PodNamespace}, time.Now())
-		cancel()
+		copts := fitsim.Options{Guards: bundle.SafetyGuards, SelfNamespace: cfg.PodNamespace}
+		now := time.Now()
+		in, err := consolidation.Collect(cctx, k8s, dc)
 		if err != nil {
-			log.Printf("WARN: consolidation analysis: %v", err)
+			log.Printf("WARN: consolidation collect: %v", err)
+			cancel()
 		} else {
+			plan := consolidation.Analyze(in, copts, now)
 			batches = append(batches, pusher.Batch{
 				Collector:   "autoscaling-consolidation-plan",
 				Items:       []interface{}{plan},
@@ -710,6 +739,28 @@ func runCycle(
 			log.Printf("Consolidation (look-only): %d empty, %d drain, %d blocked, %d kept of %d node(s) — actor=%s",
 				plan.Summary.Empty, plan.Summary.Drain, plan.Summary.Blocked, plan.Summary.Kept,
 				plan.Summary.NodesEvaluated, plan.Actor.Kind)
+
+			// Acting gate: hand the same in+plan to the controller (leader-only — this
+			// whole cycle runs under leader election).
+			if ca := d.ConsolidationActions; ca.Mode == gate.Simulate || ca.Mode == gate.Live {
+				provider := consolidationProvider(cctx, cfg, ca.Mode)
+				consolidator := controller.NewConsolidator(provider, exec, mset)
+				cres, cerr := consolidator.Execute(cctx, in, plan, ca.Mode, copts,
+					bundle.ConsolidationPolicy, budget, now)
+				if cerr != nil {
+					log.Printf("ERROR: consolidation controller: %v", cerr)
+				}
+				acts.add("node-replace", 1, cres.Actions...)
+				if cres.Run != nil {
+					batches = append(batches, pusher.Batch{
+						Collector:   "autoscaling-consolidation-run",
+						Items:       []interface{}{cres.Run},
+						Count:       1,
+						CollectedAt: time.Now(),
+					})
+				}
+			}
+			cancel()
 		}
 	}
 
