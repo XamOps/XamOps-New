@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({
   getConsolidationPlan: vi.fn(),
+  getConsolidationRuns: vi.fn(),
   setAutomationEnabled: vi.fn(),
   setAutomationScope: vi.fn(),
   saveEvictorPolicy: vi.fn(),
@@ -21,7 +22,12 @@ vi.mock('../../../../../../api/k8sAutomationApi', async (importOriginal) => {
 });
 
 import { K8sApiError } from '../../../../../../api/k8sAutomationApi';
-import type { ConsolidationPlanResponse, ConsolidationSavings } from '../../../../../../types/k8sAutomation';
+import type {
+  ConsolidationPlanResponse,
+  ConsolidationRun,
+  ConsolidationRunResponse,
+  ConsolidationSavings,
+} from '../../../../../../types/k8sAutomation';
 import ConsolidationPage from '../ConsolidationPage';
 
 const DASH = '—';
@@ -42,6 +48,39 @@ const SAVINGS: ConsolidationSavings = {
   projectedMonthlySavings: 60.74, pricedMonthlySubtotal: 60.74, pricedNodes: 2, unpricedNodes: 0,
   nodes: [priced('ip-172-31-9-125', 30.37), priced('ip-172-31-43-198', 30.37)],
 };
+
+const NONE_ACTOR = { kind: 'NONE' as const, evidence: [] as string[], note: NONE_NOTE };
+/** A live run that removed one node (DRAIN) and deferred an empty one. */
+const liveRun = (over: Partial<ConsolidationRun> = {}): ConsolidationRun => ({
+  schemaVersion: 1,
+  runId: 'consolidation-1793000000',
+  generatedAt: '2026-10-25T00:05:00Z',
+  mode: 'live',
+  dryRun: false,
+  actor: NONE_ACTOR,
+  summary: { considered: 2, removed: 1, deferred: 1, simulated: 0, skipped: 0, refused: 0, aborted: 0, podsEvicted: 7 },
+  nodes: [
+    {
+      node: node('ip-172-31-9-125', 26, 16.5),
+      moveType: 'DRAIN', status: 'removed', decision: 'xamops-asg',
+      reason: 'drained and terminated via XamOps ASG', podsEvicted: 7,
+    },
+    {
+      node: node('ip-172-31-43-198', 0, 0),
+      moveType: 'EMPTY', status: 'deferred', decision: 'defer-to-actor',
+      reason: 'cordoned and drained; left for the cluster actor', podsEvicted: 0,
+    },
+  ],
+  ...over,
+});
+const REALIZED: ConsolidationRunResponse['realizedSavings'] = {
+  realizedMonthlySavings: 30.37, pricedMonthlySubtotal: 30.37, pricedNodes: 1, unpricedNodes: 0,
+  nodes: [priced('ip-172-31-9-125', 30.37)],
+};
+function runs(over: Partial<ConsolidationRunResponse> = {}): ConsolidationRunResponse {
+  return { status: 'OK', runs: [liveRun()], realizedSavings: REALIZED, ...over };
+}
+const NO_RUNS: ConsolidationRunResponse = { status: 'NO_RUNS', runs: [], realizedSavings: null };
 
 function current(over: Partial<ConsolidationPlanResponse> = {}): ConsolidationPlanResponse {
   return {
@@ -99,7 +138,9 @@ const row = (attr: string, name: string) => document.querySelector<HTMLElement>(
 
 const realFetch = global.fetch;
 beforeEach(() => {
-  // Nothing but the mocked plan read may go out.
+  // The run history is mocked too; a test overrides it when it exercises the runs section.
+  api.getConsolidationRuns.mockResolvedValue(NO_RUNS);
+  // Nothing but the mocked plan and runs reads may go out.
   global.fetch = vi.fn(async (input: RequestInfo | URL) => {
     throw new Error(`unexpected request ${String(input)}`);
   }) as typeof fetch;
@@ -244,7 +285,10 @@ describe('Automation › Consolidation (look-only plan)', () => {
     const { container } = await page();
     expect(api.getConsolidationPlan).toHaveBeenCalledTimes(1);
     expect(api.getConsolidationPlan.mock.calls[0][0]).toEqual({ cluster: CLUSTER, accountId: '102227938259', region: 'ap-south-1' });
-    for (const [name, fn] of Object.entries(api)) if (name !== 'getConsolidationPlan') expect(fn, name).not.toHaveBeenCalled();
+    expect(api.getConsolidationRuns).toHaveBeenCalledTimes(1);
+    expect(api.getConsolidationRuns.mock.calls[0][0]).toEqual({ cluster: CLUSTER, accountId: '102227938259', region: 'ap-south-1' });
+    const reads = new Set(['getConsolidationPlan', 'getConsolidationRuns']);
+    for (const [name, fn] of Object.entries(api)) if (!reads.has(name)) expect(fn, name).not.toHaveBeenCalled();
     expect(global.fetch).not.toHaveBeenCalled();
     expect(container.querySelectorAll('button, input, select, textarea, [role="switch"], [role="checkbox"]')).toHaveLength(0);
   });
@@ -261,5 +305,80 @@ describe('Automation › Consolidation (look-only plan)', () => {
     for (const s of statuses) expect(s).toHaveAttribute('data-tone');
     // De-boxed: no section sits inside another bordered card.
     expect(container.querySelectorAll('[data-consolidation-section] [data-consolidation-section]')).toHaveLength(0);
+  });
+
+  it('shows recent runs with a dot+word status, realized savings, and the newest run detail', async () => {
+    api.getConsolidationPlan.mockResolvedValue(current());
+    api.getConsolidationRuns.mockResolvedValue(runs());
+    await page();
+    const section = document.querySelector('[data-consolidation-section="runs"]')!;
+    expect(within(section as HTMLElement).getByText('Recent runs')).toBeInTheDocument();
+    const run = document.querySelector('[data-run="consolidation-1793000000"]')!;
+    expect(run).toHaveTextContent('Live');
+    expect(run.querySelector('[data-run-nodes-removed]')).toHaveTextContent('1');
+    expect(run.querySelector('[data-run-savings]')).toHaveTextContent('$30.37');
+    // A live run that removed a node reads green (good), with the word beside the dot.
+    const status = run.querySelector('td:last-child [data-tone]')!;
+    expect(status).toHaveAttribute('data-tone', 'good');
+    expect(status).toHaveTextContent('Removed');
+    // The newest run's per-node detail: the removed node's path and the deferred empty node.
+    const removed = document.querySelector('[data-run-node="ip-172-31-9-125.ap-south-1.compute.internal"]')!;
+    expect(removed).toHaveAttribute('data-run-node-status', 'removed');
+    expect(removed).toHaveTextContent('XamOps ASG terminate');
+    expect(removed.querySelector('[data-run-node-cost]')).toHaveTextContent('$30.37');
+    expect(removed.querySelector('[data-tone="good"]')).toHaveTextContent('Removed');
+    const deferred = document.querySelector('[data-run-node="ip-172-31-43-198.ap-south-1.compute.internal"]')!;
+    expect(deferred).toHaveAttribute('data-run-node-status', 'deferred');
+    expect(deferred).toHaveTextContent('Left to the cluster actor');
+    expect(deferred.querySelector('[data-tone="info"]')).not.toBeNull();
+  });
+
+  it('renders an em-dash empty state for the runs section on a look-only cluster', async () => {
+    api.getConsolidationPlan.mockResolvedValue(current());
+    api.getConsolidationRuns.mockResolvedValue(NO_RUNS);
+    await page();
+    const empty = document.querySelector('[data-consolidation-runs-empty]')!;
+    expect(empty).toHaveTextContent('No executed runs — consolidation is look-only on this cluster');
+    // No run row, and the empty state carries no action button.
+    expect(document.querySelector('[data-run]')).toBeNull();
+    expect(within(empty as HTMLElement).queryByRole('button')).toBeNull();
+  });
+
+  it('dashes a run whose realized savings is unpriceable, naming why', async () => {
+    api.getConsolidationPlan.mockResolvedValue(current());
+    api.getConsolidationRuns.mockResolvedValue(runs({
+      realizedSavings: {
+        realizedMonthlySavings: null, pricedMonthlySubtotal: null, pricedNodes: 0, unpricedNodes: 1,
+        nodes: [priced('ip-172-31-9-125', null, 'NO_LIVE_PRICE')],
+      },
+    }));
+    await page();
+    const run = document.querySelector('[data-run="consolidation-1793000000"]')!;
+    expect(run.querySelector('[data-run-savings]')).toHaveTextContent(DASH);
+    expect(run.querySelector('[data-run-savings]')).not.toHaveTextContent('$30.37');
+    const cost = document.querySelector('[data-run-node="ip-172-31-9-125.ap-south-1.compute.internal"] [data-run-node-cost]')!;
+    expect(cost).toHaveTextContent(DASH);
+    expect(cost).toHaveTextContent('No live AWS price for this instance type in this region.');
+  });
+
+  it('marks an aborted run amber', async () => {
+    api.getConsolidationPlan.mockResolvedValue(current());
+    api.getConsolidationRuns.mockResolvedValue(runs({
+      runs: [liveRun({
+        summary: { considered: 1, removed: 0, deferred: 0, simulated: 0, skipped: 0, refused: 0, aborted: 1, podsEvicted: 2 },
+        nodes: [{
+          node: node('ip-172-31-9-125', 26, 16.5), moveType: 'DRAIN', status: 'aborted', decision: 'xamops-asg',
+          reason: 'drain aborted: a pod would not evict within the budget', podsEvicted: 2,
+        }],
+      })],
+      realizedSavings: null,
+    }));
+    await page();
+    const run = document.querySelector('[data-run="consolidation-1793000000"]')!;
+    expect(run.querySelector('td:last-child [data-tone]')).toHaveAttribute('data-tone', 'warn');
+    expect(run.querySelector('td:last-child [data-tone]')).toHaveTextContent('Aborted');
+    const aborted = document.querySelector('[data-run-node="ip-172-31-9-125.ap-south-1.compute.internal"]')!;
+    expect(aborted).toHaveAttribute('data-run-node-status', 'aborted');
+    expect(aborted).toHaveTextContent('drain aborted: a pod would not evict within the budget');
   });
 });

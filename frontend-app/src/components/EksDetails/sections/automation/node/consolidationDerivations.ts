@@ -11,8 +11,14 @@ import type {
   ConsolidationBlocker,
   ConsolidationNodeRef,
   ConsolidationPlanResponse,
+  ConsolidationRealizedSavings,
+  ConsolidationRun,
+  ConsolidationRunNode,
+  ConsolidationRunNodeStatus,
+  ConsolidationRunResponse,
   ConsolidationSavings,
 } from '../../../../../types/k8sAutomation';
+import type { Tone } from '../../../../CloudK8s/shared/status/statusTones';
 
 /** "ip-10-0-1-106" from "ip-10-0-1-106.ap-south-1.compute.internal". */
 export const shortNode = (name: string): string => name.split('.')[0];
@@ -165,4 +171,130 @@ export function freshnessText(response: ConsolidationPlanResponse): string | nul
       : `This plan is ${ageText(response.ageSeconds)} old: the automation agent hasn't reported a newer one, so it isn't priced.`;
   }
   return response.ageSeconds === null ? null : `This plan is ${ageText(response.ageSeconds)} old.`;
+}
+
+// ── Executed runs (consolidation controller's run history) ───────────────────────────────────────
+
+/** The em-dash empty-state copy shown when a cluster is look-only (no executed runs, analysis mode). */
+export const NO_RUNS_ANALYSIS_NOTE = 'No executed runs — consolidation is look-only on this cluster';
+
+/**
+ * A run node's outcome as a dot colour and a visible word: green when a node was realized (removed),
+ * blue while the controller handed it off or only simulated it, amber when it was skipped or its
+ * drain aborted, red when it was refused fail-closed. Colour never stands alone — the word carries
+ * the meaning (ConsolidationPage pairs the tone with StatusDot).
+ */
+const RUN_STATUS: Record<ConsolidationRunNodeStatus, { tone: Tone; label: string }> = {
+  removed: { tone: 'good', label: 'Removed' },
+  deferred: { tone: 'info', label: 'Deferred' },
+  simulated: { tone: 'info', label: 'Simulated' },
+  skipped: { tone: 'warn', label: 'Skipped' },
+  aborted: { tone: 'warn', label: 'Aborted' },
+  refused: { tone: 'bad', label: 'Refused' },
+};
+
+export function runStatusTone(status: ConsolidationRunNodeStatus): { tone: Tone; label: string } {
+  return RUN_STATUS[status] ?? { tone: 'off', label: orDash(status) };
+}
+
+/** The whole run's headline status: green live run, blue simulation, amber when any node aborted/skipped. */
+export function runTone(run: ConsolidationRun): { tone: Tone; label: string } {
+  if (run.summary.aborted > 0) return { tone: 'warn', label: 'Aborted' };
+  if (run.mode === 'simulate' || run.dryRun) return { tone: 'info', label: 'Simulated' };
+  if (run.summary.removed > 0 || run.summary.deferred > 0) return { tone: 'good', label: 'Removed' };
+  if (run.summary.refused > 0) return { tone: 'bad', label: 'Refused' };
+  return { tone: 'off', label: 'No change' };
+}
+
+/** "live" → "Live", "simulate" → "Simulate (dry run)"; a dry-run live mode is still a simulation. */
+export function modeText(run: Pick<ConsolidationRun, 'mode' | 'dryRun'>): string {
+  if (run.mode === 'live' && !run.dryRun) return 'Live';
+  return 'Simulate (dry run)';
+}
+
+/** The removal path a node took: its decision in words, an em-dash when it never reached the step. */
+const DECISION_TEXT: Record<ConsolidationRunNode['decision'], string> = {
+  '': DASH,
+  'xamops-asg': 'XamOps ASG terminate',
+  'defer-to-actor': 'Left to the cluster actor',
+  refuse: 'Refused',
+};
+
+export function removalPathText(node: ConsolidationRunNode): string {
+  return DECISION_TEXT[node.decision] ?? orDash(node.decision);
+}
+
+export interface RealizedSavingsText {
+  /** "$48.60", "$0.00", or an em-dash. */
+  value: string;
+  /** "2 of 2 nodes priced"; null when there is nothing to price. */
+  priced: string | null;
+  /** The one unpriced reason, in words, when every unpriced node shares it. */
+  reason: string | null;
+  /** "Priced subtotal $24.30", when some but not all removed nodes are priced. */
+  subtotal: string | null;
+}
+
+/**
+ * The realized monthly savings of the newest run: the cost engine's sum when every removed node is
+ * priced, else an em-dash with how many are priced and, when there is one, the reason the rest
+ * aren't. Mirrors {@link savingsText} but reads the run response's realizedSavings.
+ */
+export function realizedSavingsText(savings: ConsolidationRealizedSavings | null): RealizedSavingsText {
+  if (!savings) return { value: DASH, priced: null, reason: null, subtotal: null };
+  const total = savings.pricedNodes + savings.unpricedNodes;
+  const priced = total > 0 ? `${savings.pricedNodes} of ${total} ${total === 1 ? 'node' : 'nodes'} priced` : null;
+  if (savings.realizedMonthlySavings !== null) {
+    return { value: formatUsd(savings.realizedMonthlySavings), priced, reason: null, subtotal: null };
+  }
+  const reasons = [...new Set(savings.nodes.filter((n) => n.monthlyCost === null).map((n) => n.reason ?? ''))];
+  return {
+    value: DASH,
+    priced,
+    reason: reasons.length === 1 && reasons[0] ? costReasonCopy(reasons[0]) : null,
+    subtotal: savings.pricedMonthlySubtotal !== null ? `Priced subtotal ${formatUsd(savings.pricedMonthlySubtotal)}` : null,
+  };
+}
+
+/** One removed node's realized monthly cost and, when unpriced, why; an em-dash for a node not priced. */
+export function realizedNodeCostText(
+  savings: ConsolidationRealizedSavings | null,
+  nodeName: string,
+): { value: string; reason: string | null } {
+  const cost = savings?.nodes.find((n) => n.nodeName === nodeName);
+  if (!cost) return { value: DASH, reason: null };
+  if (cost.monthlyCost === null) return { value: DASH, reason: costReasonCopy(cost.reason) };
+  return { value: formatUsd(cost.monthlyCost), reason: null };
+}
+
+export interface RunLine {
+  run: ConsolidationRun;
+  tone: Tone;
+  /** The headline status word beside the dot. */
+  statusLabel: string;
+  /** "Live" / "Simulate (dry run)". */
+  mode: string;
+  /** Nodes the run removed this cycle. */
+  nodesRemoved: number;
+  /** Pods the run evicted across its live drains. */
+  podsEvicted: number;
+}
+
+/**
+ * The 'Recent runs' rows: each run as its headline tone, mode, nodes removed and pods evicted. The
+ * response serves them newest-first already, so the order is preserved.
+ */
+export function runLines(response: ConsolidationRunResponse | null): RunLine[] {
+  if (!response || response.status !== 'OK') return [];
+  return response.runs.map((run) => {
+    const { tone, label } = runTone(run);
+    return {
+      run,
+      tone,
+      statusLabel: label,
+      mode: modeText(run),
+      nodesRemoved: run.summary.removed,
+      podsEvicted: run.summary.podsEvicted,
+    };
+  });
 }

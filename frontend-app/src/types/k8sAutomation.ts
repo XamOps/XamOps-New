@@ -561,6 +561,89 @@ export interface ConsolidationPlanResponse {
   savings: ConsolidationSavings | null;
 }
 
+// ── Consolidation runs (GET /api/eks/autoscaling/{cluster}/consolidation-runs) ───────────────────
+// The consolidation controller's run history (xamops-autoscaler internal/consolidation run.go,
+// schemaVersion 1) as the backend serves it (ConsolidationRunResponse / ConsolidationRunDto). The
+// ACTING counterpart of the look-only plan: a run says what the controller actually did this cycle.
+// Mirrors the Go JSON exactly — no field is omitted, empty lists are [].
+
+/** OK: the history read; NO_RUNS: none stored; UNREADABLE: stored history couldn't be parsed. */
+export type ConsolidationRunStatus = 'OK' | 'NO_RUNS' | 'UNREADABLE';
+/** The gate mode the controller ran in: a simulation never acts. */
+export type ConsolidationRunMode = 'simulate' | 'live';
+/** One node's outcome in a run (mirror of the Go RunStatus* constants). */
+export type ConsolidationRunNodeStatus =
+  | 'removed'
+  | 'deferred'
+  | 'simulated'
+  | 'skipped'
+  | 'refused'
+  | 'aborted';
+/** The removal decision; empty when the node never reached the removal step (skipped before drain). */
+export type ConsolidationRunDecision = '' | 'xamops-asg' | 'defer-to-actor' | 'refuse';
+
+/** Counts of a run's node verdicts; `considered` equals `nodes.length`. */
+export interface ConsolidationRunSummary {
+  considered: number;
+  removed: number;
+  deferred: number;
+  simulated: number;
+  skipped: number;
+  refused: number;
+  aborted: number;
+  podsEvicted: number;
+}
+
+/** One node's outcome in a run. `reason` is the sentence explaining `status` (an abort's reason too). */
+export interface ConsolidationRunNode {
+  /** The same node shape the plan carries, including `providerId`. */
+  node: ConsolidationNodeRef;
+  moveType: ConsolidationMoveType;
+  status: ConsolidationRunNodeStatus;
+  decision: ConsolidationRunDecision;
+  reason: string;
+  podsEvicted: number;
+}
+
+/** One consolidation run as the controller recorded it. */
+export interface ConsolidationRun {
+  schemaVersion: number;
+  /** `consolidation-<unixSeconds>`, shared by the paired actions / events records. */
+  runId: string;
+  /** RFC 3339 UTC time the controller built this record. */
+  generatedAt: string;
+  mode: ConsolidationRunMode;
+  /** True when `mode !== 'live'` (a simulation took no cloud or cluster action). */
+  dryRun: boolean;
+  actor: ConsolidationActor;
+  summary: ConsolidationRunSummary;
+  nodes: ConsolidationRunNode[];
+}
+
+/**
+ * The priced nodes the NEWEST run actually removed (its `removed` nodes). Null unless that run
+ * removed at least one node; an unpriceable removed node nulls `realizedMonthlySavings` rather than
+ * reporting a partial sum, like the plan's projected savings.
+ */
+export interface ConsolidationRealizedSavings {
+  /** The sum over every removed node, only when all are priced; null otherwise. */
+  realizedMonthlySavings: number | null;
+  /** The sum over the priced removed nodes; null when none is priced. */
+  pricedMonthlySubtotal: number | null;
+  pricedNodes: number;
+  unpricedNodes: number;
+  /** One entry per removed node, in run order (NodeCostDto). */
+  nodes: ConsolidationNodeCost[];
+}
+
+export interface ConsolidationRunResponse {
+  status: ConsolidationRunStatus;
+  /** Newest-first; `[]` when none. */
+  runs: ConsolidationRun[];
+  /** Null unless the newest run removed at least one node. */
+  realizedSavings: ConsolidationRealizedSavings | null;
+}
+
 /** `{ success: true, message }` on every 2xx mutation; the UI refetches instead of trusting it. */
 export interface AutomationSaveResult {
   success: boolean;

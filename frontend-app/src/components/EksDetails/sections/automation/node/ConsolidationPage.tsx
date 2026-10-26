@@ -10,6 +10,7 @@
  */
 import { useId, type ReactNode } from 'react';
 import useConsolidationPlan from '../../../../../hooks/useConsolidationPlan';
+import useConsolidationRuns from '../../../../../hooks/useConsolidationRuns';
 import type {
   ConsolidationBlockedNode,
   ConsolidationKeptNode,
@@ -17,22 +18,36 @@ import type {
   ConsolidationNodeRef,
   ConsolidationPlan,
   ConsolidationPlanResponse,
+  ConsolidationRealizedSavings,
+  ConsolidationRun,
+  ConsolidationRunNode,
+  ConsolidationRunResponse,
 } from '../../../../../types/k8sAutomation';
+import type { ReadState } from '../../../../../hooks/useNodeAutomationRead';
 import { DASH } from '../../../../../api/verticalRightsizerAdapter';
 import { FeatureMark } from '../../../../CloudK8s/shared/status/FeatureMark';
 import { StatusChip } from '../../../../CloudK8s/shared/status/StatusChip';
+import { StatusDot } from '../../../../CloudK8s/shared/status/StatusDot';
 import { PageTemplate } from '../../../../CloudK8s/shared/PageTemplate';
 import { MetricStrip, type MetricCell } from '../../../../CloudK8s/shared/MetricStrip';
 import { EmptyState } from '../../../../CloudK8s/shared/EmptyState';
 import { BUTTON, DIVIDE, FAINT, INK, MUTED, Notice, RULE } from '../automationUi';
 import {
+  NO_RUNS_ANALYSIS_NOTE,
   actorText,
   blockerSummary,
   freshnessText,
   metricCells,
+  modeText,
   nodeCostText,
   orDash,
+  realizedNodeCostText,
+  realizedSavingsText,
+  removalPathText,
   requestedText,
+  runLines,
+  runStatusTone,
+  runTone,
   shortNode,
 } from './consolidationDerivations';
 
@@ -146,7 +161,114 @@ function KeptRow({ kept }: { kept: ConsolidationKeptNode }) {
   );
 }
 
-function PlanBody({ response, plan }: { response: ConsolidationPlanResponse; plan: ConsolidationPlan }) {
+/** One recent run as a row: time, mode, nodes removed, pods evicted, realized savings, status dot+word. */
+function RunRow({ run, savings }: { run: ConsolidationRun; savings: ConsolidationRealizedSavings | null }) {
+  const head = runTone(run);
+  const s = realizedSavingsText(savings);
+  // Realized savings belongs to the newest run only (the response prices that one); older runs dash.
+  const realized = savings ? s.value : DASH;
+  return (
+    <tr className="align-top" data-run={run.runId} data-run-mode={run.mode}>
+      <th scope="row" className={`${TD} font-semibold ${INK}`} title={run.runId}>
+        {run.generatedAt || DASH}
+        <span className={`block text-[11px] font-normal ${FAINT}`}>{run.runId}</span>
+      </th>
+      <td className={`${TD} ${INK}`}>{modeText(run)}</td>
+      <td className={`${TD} ${INK}`} data-run-nodes-removed="">{run.summary.removed}</td>
+      <td className={`${TD} ${INK}`}>{run.summary.podsEvicted}</td>
+      <td className={`${TD} ${INK}`} data-run-savings="">
+        {realized}
+        {savings && s.priced && <span className={`block text-[11px] ${FAINT}`}>{s.priced}</span>}
+      </td>
+      <td className={TD}>
+        <StatusDot tone={head.tone} label={head.label} />
+      </td>
+    </tr>
+  );
+}
+
+/** A run's per-node detail: each node's move, outcome (dot+word), removal path, realized cost and reason. */
+function RunNodeRow({ node, savings }: { node: ConsolidationRunNode; savings: ConsolidationRealizedSavings | null }) {
+  const outcome = runStatusTone(node.status);
+  const cost = realizedNodeCostText(savings, node.node.name);
+  return (
+    <tr className="align-top" data-run-node={node.node.name} data-run-node-status={node.status}>
+      <NodeHeader node={node.node} />
+      <td className={TD}>
+        <StatusDot tone="info" label={node.moveType === 'EMPTY' ? 'Empty' : 'Drain'} />
+      </td>
+      <td className={TD}>
+        <StatusDot tone={outcome.tone} label={outcome.label} />
+        {node.reason && <span className={`mt-0.5 block text-[11px] ${FAINT}`}>{node.reason}</span>}
+      </td>
+      <td className={`${TD} ${INK}`}>{removalPathText(node)}</td>
+      <td className={`${TD} ${INK}`} data-run-node-cost="">
+        {cost.value}
+        {cost.reason && <span className={`block text-[11px] ${FAINT}`}>{cost.reason}</span>}
+      </td>
+    </tr>
+  );
+}
+
+/** The newest run's per-node detail, with its moves, removal paths and any abort reason. */
+function RunDetail({ run, savings }: { run: ConsolidationRun; savings: ConsolidationRealizedSavings | null }) {
+  return (
+    <div className="mt-4" data-run-detail={run.runId}>
+      <p className={`text-[11px] ${MUTED}`}>
+        {`Latest run · ${modeText(run)} · ${run.summary.considered} ${run.summary.considered === 1 ? 'node' : 'nodes'} considered`}
+      </p>
+      {run.nodes.length === 0 ? (
+        <p className={`mt-1 text-[12px] ${MUTED}`} data-run-detail-empty="">No node was considered this run.</p>
+      ) : (
+        <Table caption="Latest run: what the controller did to each node" headers={['Node', 'Move', 'Outcome', 'Removal path', 'Realized cost']}>
+          {run.nodes.map((n) => <RunNodeRow key={n.node.name} node={n} savings={savings} />)}
+        </Table>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The 'Recent runs' section: every executed run newest-first with its status dot+word, then the
+ * newest run's per-node detail. A look-only (ANALYSIS) cluster has no executed runs, so it renders
+ * an em-dash EmptyState instead.
+ */
+function RunsSection({ read }: { read: ReadState<ConsolidationRunResponse> }) {
+  if (read.kind === 'loading') {
+    return (
+      <Section title="Recent runs" id="runs">
+        <p className={`mt-1 text-[12px] ${MUTED}`} aria-busy="true">Reading the run history…</p>
+      </Section>
+    );
+  }
+  const lines = read.kind === 'ok' ? runLines(read.data) : [];
+  if (lines.length === 0) {
+    // Unreadable and error are both honest: no executed runs to show. A look-only cluster is the
+    // common case, so the em-dash empty-state copy names it.
+    return (
+      <Section title="Recent runs" id="runs">
+        <div data-consolidation-runs-empty="">
+          <EmptyState icon="mdi:minus" message={NO_RUNS_ANALYSIS_NOTE} />
+        </div>
+      </Section>
+    );
+  }
+  const savings = read.kind === 'ok' ? read.data.realizedSavings : null;
+  const newest = lines[0].run;
+  return (
+    <Section title="Recent runs" id="runs">
+      <Table
+        caption="Recent consolidation runs the controller executed"
+        headers={['Run', 'Mode', 'Nodes removed', 'Pods evicted', 'Realized savings', 'Status']}
+      >
+        {lines.map((l) => <RunRow key={l.run.runId} run={l.run} savings={l.run.runId === newest.runId ? savings : null} />)}
+      </Table>
+      <RunDetail run={newest} savings={savings} />
+    </Section>
+  );
+}
+
+function PlanBody({ response, plan, runs }: { response: ConsolidationPlanResponse; plan: ConsolidationPlan; runs: ReadState<ConsolidationRunResponse> }) {
   const actor = actorText(plan.actor);
   const age = freshnessText(response);
   return (
@@ -199,6 +321,7 @@ function PlanBody({ response, plan }: { response: ConsolidationPlanResponse; pla
           </Table>
         </Section>
       )}
+      <RunsSection read={runs} />
       <p className={`border-t ${RULE} pt-3 text-[11px] ${FAINT}`} data-consolidation-settings="">
         {`Underutilized below ${plan.settings.underutilizedThresholdPct}% of allocatable requests · keeps ${plan.settings.headroomPct}% headroom on receiving nodes · node-group minimum, scale-up delay and disruption budget are checked by engine v1, not here`}
       </p>
@@ -217,6 +340,7 @@ function ReadFailure({ message, onRetry }: { message: string; onRetry: () => voi
 
 export function ConsolidationPage({ clusterName, accountId, region }: ConsolidationPageProps) {
   const { plan: read, retry } = useConsolidationPlan(clusterName, accountId, region);
+  const { runs } = useConsolidationRuns(clusterName, accountId, region);
   const response = read.kind === 'ok' ? read.data : null;
   const cells: MetricCell[] = metricCells(response);
 
@@ -246,7 +370,7 @@ export function ConsolidationPage({ clusterName, accountId, region }: Consolidat
       </div>
     );
   } else {
-    body = <PlanBody response={read.data} plan={read.data.plan} />;
+    body = <PlanBody response={read.data} plan={read.data.plan} runs={runs} />;
   }
 
   return (

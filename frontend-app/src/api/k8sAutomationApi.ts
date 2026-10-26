@@ -22,6 +22,7 @@ import {
   type AutomationScope,
   type CapabilitiesDto,
   type ConsolidationPlanResponse,
+  type ConsolidationRunResponse,
   type SpotInterruptionsDto,
   CODE_PREFIX,
   stripCodePrefix,
@@ -159,6 +160,11 @@ export function getRebalanceStatus(t: AutomationTarget, init?: RequestInit): Pro
 /** The automation agent's look-only consolidation plan, priced by the cost engine. A read: never acts. */
 export function getConsolidationPlan(t: AutomationTarget, init?: RequestInit): Promise<ConsolidationPlanResponse> {
   return k8sRequest(`${base(t.cluster)}/consolidation-plan?${query(t.accountId)}`, init);
+}
+
+/** The consolidation controller's run history (newest first), realized savings priced. A read: never acts. */
+export function getConsolidationRuns(t: AutomationTarget, init?: RequestInit): Promise<ConsolidationRunResponse> {
+  return k8sRequest(`${base(t.cluster)}/consolidation-runs?${query(t.accountId)}`, init);
 }
 
 /** The recorded Spot interruption history for the last `days` days (newest first, at most `limit`). A read: never acts. */
