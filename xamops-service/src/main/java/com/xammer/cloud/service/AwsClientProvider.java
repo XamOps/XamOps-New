@@ -35,6 +35,7 @@ import software.amazon.awssdk.services.codecommit.CodeCommitClient;
 import software.amazon.awssdk.services.codepipeline.CodePipelineClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.computeoptimizer.ComputeOptimizerClient;
+import software.amazon.awssdk.services.costoptimizationhub.CostOptimizationHubClient;
 import software.amazon.awssdk.services.config.ConfigClient;
 import software.amazon.awssdk.services.controltower.ControlTowerClient;
 import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
@@ -461,6 +462,25 @@ public class AwsClientProvider {
 
     public ComputeOptimizerClient getComputeOptimizerClient(CloudAccount account, String region) {
         return getClient(ComputeOptimizerClient.class, ComputeOptimizerClient.builder(), account, region);
+    }
+
+    /**
+     * Cost Optimization Hub client. The Hub is a global Billing &amp; Cost Management service,
+     * so it is pinned to us-east-1 and built with the same short-timeout FinOps override
+     * config as Cost Explorer / Budgets (global services reached over NAT that must fail fast
+     * so pages degrade to empty data rather than hang).
+     */
+    public CostOptimizationHubClient getCostOptimizationHubClient(CloudAccount account) {
+        String cacheKey = account.getAwsAccountId() + ":CostOptimizationHubClient:us-east-1";
+        return (CostOptimizationHubClient) clientCache.computeIfAbsent(cacheKey, k -> {
+            logger.info("🚀 [AwsClientProvider] Creating NEW CostOptimizationHubClient for account {} (short-timeout config)",
+                    account.getAwsAccountId());
+            return CostOptimizationHubClient.builder()
+                    .credentialsProvider(getCredentialsProvider(account))
+                    .region(Region.of("us-east-1"))
+                    .overrideConfiguration(getFinOpsClientOverrideConfig(account, "CostOptimizationHubClient"))
+                    .build();
+        });
     }
 
     /**
