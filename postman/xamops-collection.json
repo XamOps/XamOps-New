@@ -125,6 +125,181 @@
       ]
     },
     {
+      "name": "Google Auth",
+      "item": [
+        {
+          "name": "Google Login (redirect to Google or error)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{XAMOPS_URL}}/api/auth/google/login",
+              "host": ["{{XAMOPS_URL}}"],
+              "path": ["api", "auth", "google", "login"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// The login entry point must never 500 (it catches Redis/config failures and",
+                  "// falls back to the login page). It always answers with a redirect: either to",
+                  "// Google's consent screen when configured, or back to /login?error=... when not.",
+                  "pm.test('No server error (not 5xx)', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Returns a redirect (3xx)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([301, 302, 303, 307, 308]);",
+                  "});",
+                  "const location = pm.response.headers && pm.response.headers.location;",
+                  "if (location) {",
+                  "    pm.test('Redirects to Google or back to the login page', function () {",
+                  "        const ok = /accounts\\.google\\.com/.test(location) || /\\/login\\?error=/.test(location);",
+                  "        pm.expect(ok).to.eql(true);",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Google Callback (no code/state -> login error redirect)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{XAMOPS_URL}}/api/auth/google/callback",
+              "host": ["{{XAMOPS_URL}}"],
+              "path": ["api", "auth", "google", "callback"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// With no code/state the callback cannot resolve a stored redirect-uri, so it",
+                  "// redirects back to the login page with error=google_state. It must never 5xx.",
+                  "pm.test('No server error (not 5xx)', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Returns a redirect (3xx)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([301, 302, 303, 307, 308]);",
+                  "});",
+                  "const location = pm.response.headers && pm.response.headers.location;",
+                  "if (location) {",
+                  "    pm.test('Redirects to the login page with an error', function () {",
+                  "        pm.expect(/\\/login\\?error=/.test(location)).to.eql(true);",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Complete Signup (missing token -> 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyName\": \"Acme Inc\"\n}"
+            },
+            "url": {
+              "raw": "{{XAMOPS_URL}}/api/auth/google/complete-signup",
+              "host": ["{{XAMOPS_URL}}"],
+              "path": ["api", "auth", "google", "complete-signup"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('No server error (not 5xx)', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "// A request without a signup token is rejected up front with 400 (the endpoint",
+                  "// is public). 401/403 is tolerated if a security filter intercepts first.",
+                  "pm.test('Missing signup token is rejected (400/401/403)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([400, 401, 403]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Trial Status (unauthenticated -> 401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{XAMOPS_URL}}/api/auth/trial/status",
+              "host": ["{{XAMOPS_URL}}"],
+              "path": ["api", "auth", "trial", "status"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('No server error (not 5xx)', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "// No session -> the controller answers 401 itself; a security filter may also",
+                  "// return 401/403 before the handler runs.",
+                  "pm.test('Unauthenticated is rejected (401/403)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Contact Sales (unauthenticated -> 401)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{XAMOPS_URL}}/api/auth/contact-sales",
+              "host": ["{{XAMOPS_URL}}"],
+              "path": ["api", "auth", "contact-sales"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('No server error (not 5xx)', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Unauthenticated is rejected (401/403)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "CUR Insights",
       "item": [
         {
