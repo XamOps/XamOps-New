@@ -178,56 +178,10 @@ export const demoUnifiedSummary = {
   selectedAccount: { awsAccountCount: 2, gcpAccountCount: 1, azureAccountCount: 1 },
 };
 
-// ─── /api/xamops/dashboard/unified/aws ───────────────────────────────────────
-export const demoAwsData = {
-  lastUpdated: new Date().toISOString(),
-  selectedAccount: {
-    monthToDateSpend: 18420.75,
-    forecastedSpend: 24800.00,
-    securityScore: 82,
-    resourceInventory: { totalCount: 312, ec2Count: 94, s3Count: 48, rdsCount: 22 },
-    optimizationSummary: { criticalAlerts: 3, totalPotentialSavings: 3150.50 },
-    costHistory: {
-      labels: ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'],
-      costs:  [14200, 16800, 15400, 17900, 116101, 18420],
-    },
-    subAccounts: [
-      { id: 'demo-aws-001', name: 'Xammer Production', provider: 'AWS', monthToDateSpend: 12340.50, forecastedSpend: 16500.00, resourceCount: 210, resourceInventory: { totalCount: 210 }, optimizationSummary: { criticalAlerts: 2, totalPotentialSavings: 2100.00 }, securityScore: 80 },
-      { id: 'demo-aws-002', name: 'Xammer Staging',    provider: 'AWS', monthToDateSpend: 6080.25,  forecastedSpend: 8300.00,  resourceCount: 102, resourceInventory: { totalCount: 102 }, optimizationSummary: { criticalAlerts: 1, totalPotentialSavings: 1050.50 }, securityScore: 86 },
-    ],
-  },
-};
-
-// ─── /api/xamops/dashboard/unified/gcp ───────────────────────────────────────
-export const demoGcpData = {
-  lastUpdated: new Date().toISOString(),
-  selectedAccount: {
-    monthToDateSpend: 7340.00, forecastedSpend: 9800.00, securityScore: 78,
-    resourceInventory: { totalCount: 148 },
-    optimizationSummary: { criticalAlerts: 1, totalPotentialSavings: 1240.00 },
-    costHistory: { labels: ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'], costs: [5800, 6400, 6100, 7000, 7200, 7340] },
-    subAccounts: [
-      { id: 'demo-gcp-001', name: 'GCP Analytics', provider: 'GCP', monthToDateSpend: 7340.00, forecastedSpend: 9800.00, resourceCount: 148, resourceInventory: { totalCount: 148 }, optimizationSummary: { criticalAlerts: 1, totalPotentialSavings: 1240.00 }, securityScore: 78 },
-    ],
-  },
-};
-
-// ─── /api/xamops/dashboard/unified/azure ─────────────────────────────────────
-export const demoAzureData = {
-  lastUpdated: new Date().toISOString(),
-  selectedAccount: {
-    monthToDateSpend: 5210.30, forecastedSpend: 6900.00, securityScore: 75,
-    resourceInventory: { totalCount: 96 },
-    optimizationSummary: { criticalAlerts: 2, totalPotentialSavings: 880.00 },
-    costHistory: { labels: ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'], costs: [4200, 4900, 4600, 5100, 5000, 5210] },
-    subAccounts: [
-      { id: 'demo-azure-001', name: 'Azure Enterprise', provider: 'Azure', monthToDateSpend: 5210.30, forecastedSpend: 6900.00, resourceCount: 96, resourceInventory: { totalCount: 96 }, optimizationSummary: { criticalAlerts: 2, totalPotentialSavings: 880.00 }, securityScore: 75 },
-    ],
-  },
-};
+// /api/xamops/dashboard/unified/{aws,gcp,azure} and the Technical ticket count are derived from
+// the per-page fixtures — see "Unified Command Center" at the end of this file.
 
 export const demoHealth = { status: 'healthy' };
-export const demoTicketCount = { count: 4 };
 
 // ─── /api/xamops/costs/breakdown ─────────────────────────────────────────────
 export const demoCostBreakdown = [
@@ -4302,4 +4256,140 @@ export const demoDataTransferCosts = {
     { category: 'Inter-region', resourceId: 'arn:aws:s3:::xammer-prod-assets', name: '', service: 'Amazon Simple Storage Service', region: 'ap-south-1', availabilityZone: '', fromLocation: 'Asia Pacific (Mumbai)', toLocation: 'US East (N. Virginia)', routeDerived: false, usageType: 'APS3-USE1-AWS-Out-Bytes', gigabytes: 800, hours: 0, cost: 16.00, categoryCost: 20.00, categoryFlows: 2 },
     { category: 'Inter-region', resourceId: 'arn:aws:rds:ap-south-1:123456789012:db:prod-postgres', name: 'prod-postgres', service: 'Amazon Relational Database Service', region: 'ap-south-1', availabilityZone: 'ap-south-1b', fromLocation: 'Asia Pacific (Mumbai)', toLocation: 'Europe (Ireland)', routeDerived: true, usageType: 'APS3-EUW1-AWS-Out-Bytes', gigabytes: 200, hours: 0, cost: 4.00, categoryCost: 20.00, categoryFlows: 2 },
   ],
+};
+
+// ─── Unified Command Center (/api/xamops/dashboard/unified/*) ────────────────
+// The unified page never reads other pages. It calls its own /dashboard/unified/{provider}
+// endpoints, and in production the backend (DashboardDataService) fills each subAccount from
+// the same per-account caches the other pages read: wastedResourceCount = size of the waste
+// list, activeAlertCount = size of the alerts snapshot, costHistory = monthly cost trend.
+//
+// In demo mode there is no backend, so these payloads are built here the same way — from the
+// fixtures the Waste Management, Alerts, Support and provider dashboards render — instead of
+// carrying their own copies that drift. They live at the end of the module so every source
+// fixture is already initialised.
+
+// Spend Velocity (CostChart) only plots labels that carry a year ("Nov 2025"); bare month names
+// are discarded, which is what left the chart empty. The GCP dashboard is the one fixture with
+// dated months, and every provider's trend covers the same six-month window.
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const DEMO_COST_MONTHS = demoGcpDashboard.costHistory.monthlyCosts.map((m) => {
+  const [year, month] = m.date.split('-').map(Number);
+  return `${MONTH_ABBR[month - 1]} ${year}`;
+});
+
+// Azure Alerts counts "Active" as New or Acknowledged (AzureAlertsKPICards), so a resolved
+// alert is not a current one.
+const azureActiveAlerts = demoAzureAlertsData.alerts.filter(
+  (a) => a.alertState === 'New' || a.alertState === 'Acknowledged',
+).length;
+
+// AWS Waste (/api/xamops/waste) and Alerts (/api/xamops/cloudguard/alerts) answer the same rows
+// for either AWS account, so both accounts report what their own pages show.
+const awsAccount = (accountId: string, securityScore: number) => {
+  const acc = demoMultiAccountDashboard.accounts.find((a) => a.accountId === accountId)!;
+  const resourceCount = Object.values(acc.resourceInventory).reduce((s, n) => s + n, 0);
+  return {
+    id: acc.accountId,
+    name: acc.accountName,
+    provider: 'AWS',
+    monthToDateSpend: acc.kpi.mtdSpend,
+    forecastedSpend: acc.kpi.forecastedSpend,
+    resourceCount,
+    resourceInventory: { totalCount: resourceCount },
+    optimizationSummary: {
+      criticalAlerts: acc.optimization.summary.criticalAlerts,
+      totalPotentialSavings: acc.kpi.potentialSavings,
+    },
+    securityScore,
+    wastedResourceCount: demoWasteData.length,
+    activeAlertCount: demoAlertsData.alerts.length,
+  };
+};
+
+const awsSubAccounts = [awsAccount('demo-aws-001', 80), awsAccount('demo-aws-002', 86)];
+const awsAgg = demoMultiAccountDashboard.aggregated;
+
+export const demoAwsData = {
+  lastUpdated: new Date().toISOString(),
+  selectedAccount: {
+    monthToDateSpend: awsAgg.kpi.mtdSpend,
+    forecastedSpend: awsAgg.kpi.forecastedSpend,
+    securityScore: 82,
+    resourceInventory: {
+      totalCount: awsSubAccounts.reduce((s, a) => s + a.resourceCount, 0),
+      ec2Count: awsAgg.resourceInventory.ec2Count,
+      s3Count: awsAgg.resourceInventory.s3Count,
+      rdsCount: awsAgg.resourceInventory.rdsCount,
+    },
+    optimizationSummary: {
+      criticalAlerts: awsAgg.optimization.summary.criticalAlerts,
+      totalPotentialSavings: awsAgg.kpi.potentialSavings,
+    },
+    costHistory: { labels: DEMO_COST_MONTHS, costs: awsAgg.costHistory.costs },
+    subAccounts: awsSubAccounts,
+  },
+};
+
+const gcpSubAccount = {
+  id: demoGcpDashboard.accountId,
+  name: demoGcpDashboard.accountName,
+  provider: 'GCP',
+  monthToDateSpend: demoGcpDashboard.kpi.mtdSpend,
+  forecastedSpend: demoGcpDashboard.kpi.forecastedSpend,
+  resourceCount: 148,
+  resourceInventory: { totalCount: 148 },
+  optimizationSummary: { criticalAlerts: 1, totalPotentialSavings: demoGcpDashboard.kpi.potentialSavings },
+  securityScore: 78,
+  wastedResourceCount: demoGcpWasteData.length,
+  activeAlertCount: demoGcpAlerts.alerts.length,
+};
+
+export const demoGcpData = {
+  lastUpdated: new Date().toISOString(),
+  selectedAccount: {
+    monthToDateSpend: gcpSubAccount.monthToDateSpend,
+    forecastedSpend: gcpSubAccount.forecastedSpend,
+    securityScore: gcpSubAccount.securityScore,
+    resourceInventory: gcpSubAccount.resourceInventory,
+    optimizationSummary: gcpSubAccount.optimizationSummary,
+    costHistory: {
+      labels: DEMO_COST_MONTHS,
+      costs: demoGcpDashboard.costHistory.monthlyCosts.map((m) => m.cost),
+    },
+    subAccounts: [gcpSubAccount],
+  },
+};
+
+const azureSubAccount = {
+  id: demoAzureDashboard.accountId,
+  name: demoAzureDashboard.accountName,
+  provider: 'Azure',
+  monthToDateSpend: demoAzureDashboard.kpi.mtdSpend,
+  forecastedSpend: demoAzureDashboard.kpi.forecastedSpend,
+  resourceCount: 96,
+  resourceInventory: { totalCount: 96 },
+  optimizationSummary: { criticalAlerts: 2, totalPotentialSavings: demoAzureDashboard.kpi.potentialSavings },
+  securityScore: 75,
+  wastedResourceCount: demoAzureWasteData.length,
+  activeAlertCount: azureActiveAlerts,
+};
+
+export const demoAzureData = {
+  lastUpdated: new Date().toISOString(),
+  selectedAccount: {
+    monthToDateSpend: azureSubAccount.monthToDateSpend,
+    forecastedSpend: azureSubAccount.forecastedSpend,
+    securityScore: azureSubAccount.securityScore,
+    resourceInventory: azureSubAccount.resourceInventory,
+    optimizationSummary: azureSubAccount.optimizationSummary,
+    costHistory: { labels: DEMO_COST_MONTHS, costs: demoAzureDashboard.costHistory.costs },
+    subAccounts: [azureSubAccount],
+  },
+};
+
+// /api/xamops/tickets/category/Technical/count — the backend counts Technical tickets that are
+// not CLOSED (TicketRepository.countActiveByCategoryName); same rule over the Support page list.
+export const demoTicketCount = {
+  count: demoTickets.filter((t) => t.category === 'Technical' && t.status.toLowerCase() !== 'closed').length,
 };
