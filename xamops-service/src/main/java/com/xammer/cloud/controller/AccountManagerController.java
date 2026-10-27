@@ -97,11 +97,19 @@ public class AccountManagerController {
             Map<String, Object> result = awsAccountService.generateCloudFormationUrl(request.getAccountName(),
                     request.getAwsAccountId(), request.getAccessType(), clientId, request.getCurS3Bucket(),
                     request.getAwsBillingSource());
-            Map<String, String> stackDetails = Map.of(
-                    "url", result.get("url").toString(),
-                    "externalId", result.get("externalId").toString(),
-                    "eventBridgeEnabled", result.get("eventBridgeEnabled").toString(),
-                    "roleName", result.get("roleName").toString());
+            Map<String, String> stackDetails = new HashMap<>();
+            stackDetails.put("url", result.get("url").toString());
+            stackDetails.put("externalId", result.get("externalId").toString());
+            stackDetails.put("eventBridgeEnabled", result.get("eventBridgeEnabled").toString());
+            stackDetails.put("roleName", result.get("roleName").toString());
+            // The CUR stack is a second, separate launch in us-east-1, surfaced only for
+            // accounts that own their report. Added additively so clients that ignore these
+            // keys keep working unchanged.
+            if (result.get("curUrl") != null) {
+                stackDetails.put("curUrl", String.valueOf(result.get("curUrl")));
+                stackDetails.put("curStackName", String.valueOf(result.get("curStackName")));
+                stackDetails.put("curRegion", String.valueOf(result.get("curRegion")));
+            }
             return ResponseEntity.ok(stackDetails);
         } catch (Exception e) {
             return ResponseEntity.badRequest()

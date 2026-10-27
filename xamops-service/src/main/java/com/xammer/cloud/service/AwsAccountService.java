@@ -1,5 +1,6 @@
 package com.xammer.cloud.service;
 
+import com.xammer.cloud.domain.AwsBillingSource;
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.VerifyAccountRequest;
@@ -56,6 +57,13 @@ public class AwsAccountService {
     private static final String CUR_REPORT_REGION = "us-east-1";
 
     /**
+     * Where the connection stack itself is created. The CUR report is now its own separate
+     * stack in {@link #CUR_REPORT_REGION}, so the connection stack is no longer bound to
+     * us-east-1 and is created in ap-south-1 — the region this deployment operates from.
+     */
+    private static final String ONBOARDING_STACK_REGION = "ap-south-1";
+
+    /**
      * The queue every role template names by default. An environment configured with this
      * is the one that owns it, and has nothing to override.
      */
@@ -77,6 +85,12 @@ public class AwsAccountService {
 
     @Value("${cloudformation.template.s3.readwrite.url}")
     private String cloudFormationReadWriteTemplateUrl;
+
+    // The standalone CUR report stack, launched separately in us-east-1 for accounts that own
+    // their report. Optional default so profiles that do not configure it still start; when
+    // blank, the CUR URL is simply omitted rather than failing onboarding.
+    @Value("${cloudformation.template.s3.cur.url:}")
+    private String curTemplateUrl;
 
     // The name the stack gives the role it creates. Each environment's template suffixes it
     // differently (-local, -uat) so a customer can hold connections to several environments in
@@ -189,17 +203,17 @@ public class AwsAccountService {
                 : "";
 
         /*
-         * Whether the connection stack creates the report, decided by the option the
-         * operator picked rather than left at the template's default.
+         * Whether this account owns its Cost and Usage Report, decided by the option the
+         * operator picked. The report is now its own standalone stack rather than nested in
+         * the connection stack, so this no longer feeds an EnableCurReport parameter — it
+         * decides only whether a second CUR launch URL is produced at all.
          *
          * Only "create a report in this account" should. An account under a XamOps payer
          * is already inside that payer's report; an account that already has one would be
          * paying to store a second copy; and an account whose payer never enabled billing
-         * access cannot create one at all — for that last case the stack would fail rather
-         * than quietly skip, which is the worst of the four outcomes.
+         * access cannot create one at all.
          */
         boolean createReport = "OWN_CUR".equals(awsBillingSource);
-        String curReportParam = "&param_EnableCurReport=" + (createReport ? "true" : "false");
 
         // Region comes from the queue URL rather than a second setting, so the two cannot
         // disagree: sqs.<region>.amazonaws.com is the only shape SQS publishes.
@@ -214,29 +228,53 @@ public class AwsAccountService {
             }
         }
 
-        // Pinned to us-east-1 rather than left to whichever region the customer's console
-        // happens to be showing.
-        //
-        // The connection stack now nests the CUR 1.0 report, and
-        // AWS::CUR::ReportDefinition exists in us-east-1 alone — a nested stack is created
-        // in its parent's region, so a parent anywhere else silently produces an account
-        // with no report. Nothing else in this stack is region-bound: the IAM role is
-        // global and the inventory nested stack fans out to every region by itself.
-        //
-        // The template also guards this with its own IsCurReportRegion condition, so a
-        // customer who overrides the region still connects successfully — they just get no
-        // report, which the stack diagnosis then reports as missing.
+        // Created in ap-south-1, where this deployment operates. The CUR report is no longer
+        // nested here — it is its own stack in us-east-1 below — so the connection stack is
+        // no longer region-bound by AWS::CUR. The IAM role is global and the inventory nested
+        // stack fans out to every region by itself.
         String urlString = String.format(
                 "https://console.aws.amazon.com/cloudformation/home?region=%s#/stacks/create/review"
                         + "?templateURL=%s&stackName=%s&param_XamOpsAccountId=%s&param_ExternalId=%s%s%s",
-                CUR_REPORT_REGION, templateUrl, stackName, xamopsAccountId, externalId,
-                callbackParam, curBucketParam + curReportParam + inventoryParams);
+                ONBOARDING_STACK_REGION, templateUrl, stackName, xamopsAccountId, externalId,
+                callbackParam, curBucketParam + inventoryParams);
 
-        return Map.of(
-                "url", new URL(urlString),
-                "externalId", externalId,
-                "eventBridgeEnabled", eventBridgeEnabled,
-                "roleName", roleName);
+        Map<String, Object> response = new java.util.LinkedHashMap<>();
+        response.put("url", new URL(urlString));
+        response.put("externalId", externalId);
+        response.put("eventBridgeEnabled", eventBridgeEnabled);
+        response.put("roleName", roleName);
+
+        /*
+         * The CUR report stack: a second, standalone launch pinned to us-east-1, produced only
+         * for accounts that own their report. It carries no XamOps parameters — the report is
+         * self-contained — so the URL names just the template and a deterministic stack name.
+         *
+         * If no CUR template is configured for this environment the URL is simply omitted; a
+         * missing optional stack must not break onboarding, so this warns rather than throws.
+         */
+        if (createReport) {
+            String curStackName = "XamOps-CUR-" + accountName.replaceAll("[^a-zA-Z0-9-]", "");
+            if (curTemplateUrl != null && !curTemplateUrl.isBlank()) {
+                String curUrlString = String.format(
+                        "https://console.aws.amazon.com/cloudformation/home?region=%s#/stacks/create/review"
+                                + "?templateURL=%s&stackName=%s",
+                        CUR_REPORT_REGION, curTemplateUrl, curStackName);
+                response.put("curUrl", new URL(curUrlString));
+                response.put("curStackName", curStackName);
+                response.put("curRegion", CUR_REPORT_REGION);
+
+                // Resolution #5: the CUR stack has no callback, so its identity is recorded now,
+                // at URL-generation time, on the account persisted above.
+                newAccount.setCurStackName(curStackName);
+                newAccount.setCurStackRegion(CUR_REPORT_REGION);
+                cloudAccountRepository.save(newAccount);
+            } else {
+                logger.warn("CUR template URL is not configured (cloudformation.template.s3.cur.url);"
+                        + " omitting CUR stack URL for account {}.", accountName);
+            }
+        }
+
+        return response;
     }
 
     /**
@@ -253,7 +291,7 @@ public class AwsAccountService {
      * <p>Nothing here is written and no ExternalId is re-issued. CloudFormation's update
      * wizard carries existing parameter values forward, so the ExternalId in the role's
      * trust policy survives untouched as long as nobody edits it — which is why the
-     * returned parameters list names only the two that must change.
+     * returned parameters list names only the ones that must change.
      */
     public Map<String, Object> generateStackUpdateGuide(CloudAccount account) {
         boolean readWrite = "read-write".equals(account.getAccessType());
@@ -276,18 +314,13 @@ public class AwsAccountService {
                 + String.valueOf(account.getAccountName()).replaceAll("[^a-zA-Z0-9-]", "");
 
         /*
-         * The parameters worth naming, and why.
+         * The connection-stack parameters worth naming, and why.
          *
-         * CurS3Bucket used to be the one that silently broke things — left at its default
-         * the template attached no report permissions while still creating the report, so
-         * the account ended up with a CUR that XamOps could not read and nothing failed to
-         * say so. The template's HasCurBucket condition now derives that from whether a
-         * report is being created, so the default is finally correct. It stays listed
-         * because plenty of stacks were updated while the old advice stood and carry AUTO
-         * already, and seeing it named avoids someone "tidying" it back to blank.
-         *
-         * EnableCurExport is CUR 2.0, now off by default: it and CUR 1.0 write the same
-         * bucket name and only one can own it.
+         * CurS3Bucket stays listed because the CUR permissions on the connection role key off
+         * it: plenty of stacks were updated while older advice stood and carry AUTO already,
+         * and seeing it named avoids someone "tidying" it back to blank. The CUR report itself
+         * is no longer a parameter here — it is a separate stack, surfaced in the 'cur' section
+         * below.
          */
         // Built rather than a constant list, because the inventory queue differs per
         // environment and the whole point is that nobody has to remember which one.
@@ -304,15 +337,6 @@ public class AwsAccountService {
                                 + " this was switched on still carry false and must be set"
                                 + " here by hand — a new default does not reach an existing"
                                 + " stack."),
-                Map.of("name", "EnableCurReport",
-                        "value", "true",
-                        "why", "Creates the Cost and Usage Report XamOps reads. Leave at its"
-                                + " default unless this account sits under a XamOps payer"
-                                + " account, which is already covered by that payer's report."),
-                Map.of("name", "EnableCurExport",
-                        "value", "false",
-                        "why", "CUR 2.0, for BillOps invoice reconciliation. Off by default"
-                                + " because it claims the same bucket name as the report above."),
                 Map.of("name", "CurS3Bucket",
                         "value", "AUTO",
                         "why", "Which bucket to grant read on. Blank now behaves the same when"
@@ -356,24 +380,34 @@ public class AwsAccountService {
         logger.info("Prepared stack update guide for account {} ({}): template {}, role {}",
                 account.getAccountName(), account.getAwsAccountId(), templateUrl, roleName);
 
-        return Map.of(
-                "templateUrl", templateUrl,
-                "consoleUrl", consoleUrl,
-                "likelyStackName", likelyStackName,
-                // An account that already has the CUR 2.0 export cannot make this change in
-                // one update. CloudFormation creates added resources before deleting removed
-                // ones, so the new report's bucket collides with the export's — which still
-                // exists at that moment — and the whole update rolls back. Two passes are
-                // the only way through, and the warning has to reach the person following
-                // the steps rather than sit in a comment here.
-                "twoPassWarning", "If this account already has a CUR 2.0 export"
-                        + " (aws bcm-data-exports list-exports --region us-east-1 lists one),"
-                        + " run the update twice: first with EnableCurReport=false and"
-                        + " EnableCurExport=false to release the shared bucket, then again with"
-                        + " EnableCurReport=true. A single pass fails on the bucket name and"
-                        + " rolls back.",
-                "roleName", roleName,
-                "parameters", parameters);
+        // The CUR report is now a separate stack from the connection stack, so its update is a
+        // separate section rather than parameters on the connection stack. It applies only to
+        // accounts that own their report. AwsBillingSource has no ownsCur(), so OWN_CUR is
+        // matched directly.
+        boolean curApplicable = account.resolveAwsBillingSource() == AwsBillingSource.OWN_CUR;
+        String curLikelyStackName = "XamOps-CUR-"
+                + String.valueOf(account.getAccountName()).replaceAll("[^a-zA-Z0-9-]", "");
+
+        Map<String, Object> cur = new java.util.LinkedHashMap<>();
+        cur.put("templateUrl", curTemplateUrl);
+        cur.put("consoleUrl", "https://console.aws.amazon.com/cloudformation/home?region=us-east-1"
+                + "#/stacks?filteringText=XamOps-CUR&filteringStatus=active");
+        cur.put("likelyStackName", curLikelyStackName);
+        cur.put("region", CUR_REPORT_REGION);
+        cur.put("applicable", String.valueOf(curApplicable));
+        cur.put("parameters", List.of());
+        cur.put("note", "The CUR report is a separate stack in us-east-1. An update here is only"
+                + " needed when the CUR template itself changes; the report carries no XamOps"
+                + " parameters of its own.");
+
+        Map<String, Object> guide = new java.util.LinkedHashMap<>();
+        guide.put("templateUrl", templateUrl);
+        guide.put("consoleUrl", consoleUrl);
+        guide.put("likelyStackName", likelyStackName);
+        guide.put("roleName", roleName);
+        guide.put("parameters", parameters);
+        guide.put("cur", cur);
+        return guide;
     }
 
     public CloudAccount verifyAccount(VerifyAccountRequest request) {
