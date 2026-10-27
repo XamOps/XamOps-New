@@ -25,6 +25,19 @@ interface StackUpdateGuide {
    * it is rendered above them.
    */
   twoPassWarning?: string;
+  /**
+   * The CUR stack (us-east-1) that sits alongside the connection stack. Additive: only
+   * acted on when `applicable === 'true'` (OWN_CUR accounts). The CUR stack has no
+   * one-click update either, so this surfaces a console link, not a button.
+   */
+  cur?: {
+    templateUrl: string;
+    consoleUrl: string;
+    likelyStackName: string;
+    region: string;
+    applicable: string;
+    parameters: { name: string; value: string; why: string }[];
+  };
 }
 
 /** The numbered marker beside one step of the update guide. */
@@ -710,6 +723,37 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
                   </div>
                 </li>
               </ol>
+
+              {/* Update CUR stack (us-east-1).
+                  Only for OWN_CUR accounts (applicable === 'true'). This is a second,
+                  separate stack from the connection one above, so it gets its own console
+                  link in its own region. A CUR update is rarely needed — only when the CUR
+                  template itself changes — so this is a short subsection, not another
+                  numbered walkthrough. */}
+              {updateGuide.cur && updateGuide.cur.applicable === 'true' && (
+                <div className="mt-6 pt-5 border-t border-[rgba(0,0,0,0.08)]">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <Icon icon="mdi:file-chart-outline" width={16} className="text-blue-600" />
+                    <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.8)]">
+                      Update CUR stack (us-east-1)
+                    </p>
+                  </div>
+                  <p className="text-[11.5px] text-[rgba(0,0,0,0.5)] mb-3">
+                    A CUR update is only needed when the CUR template itself changes. If it
+                    has, open CloudFormation in us-east-1 and update the stack usually named{' '}
+                    <span className="font-mono">{updateGuide.cur.likelyStackName}</span>.
+                  </p>
+                  <a
+                    href={updateGuide.cur.consoleUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium border border-[rgba(0,0,0,0.15)] rounded-lg hover:border-[rgba(0,0,0,0.35)]"
+                  >
+                    <Icon icon="mdi:open-in-new" width={13} />
+                    Open CloudFormation in us-east-1
+                  </a>
+                </div>
+              )}
             </div>
 
             <div className="px-6 py-4 border-t border-[rgba(0,0,0,0.06)] flex justify-end">

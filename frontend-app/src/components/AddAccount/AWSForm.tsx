@@ -21,6 +21,10 @@ interface AWSFormProps {
   onOpenPolicyModal: () => void;
   curSource: CurSourceSelection;
   onCurSourceChange: (selection: CurSourceSelection) => void;
+  /** Quick-create URL for the CUR stack (us-east-1); null when there is none to launch. */
+  curStackUrl?: string | null;
+  /** Opens the CUR stack quick-create link in a new tab. */
+  onLaunchCurStack: () => void;
 }
 
 const inputCls = 'w-full px-3.5 py-2.5 text-[13px] border border-[rgba(0,0,0,0.12)] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-[rgba(0,0,0,0.25)] transition-colors placeholder:text-[rgba(0,0,0,0.3)]';
@@ -33,6 +37,7 @@ const AWSForm: React.FC<AWSFormProps> = ({
   onAccountNameChange, onAccessTypeChange, onVerificationDetailsChange,
   onLaunchStack, onVerifyAccount, onOpenPolicyModal,
   curSource, onCurSourceChange,
+  curStackUrl, onLaunchCurStack,
 }) => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,6 +112,29 @@ const AWSForm: React.FC<AWSFormProps> = ({
                 from its Outputs tab below.
               </p>
             </div>
+          </div>
+        )}
+
+        {/* The CUR stack is a second, separate stack in us-east-1 — it creates the Cost and
+            Usage Report XamOps reads. It is only shown when the backend handed one back
+            (OWN_CUR accounts). Verification only needs the connection stack, so this stays a
+            side action rather than a gate. */}
+        {curStackUrl && (
+          <div className="mb-6 p-4 rounded-lg border border-[#FF9900]/20 bg-[#FF9900]/[0.03]">
+            <p className="text-[12px] font-medium text-[rgba(0,0,0,0.7)] mb-1">
+              One more stack for cost data
+            </p>
+            <p className="text-[11px] text-[rgba(0,0,0,0.5)] mb-3">
+              A separate stack in us-east-1 creates the Cost and Usage Report XamOps reads.
+              Verification only needs the connection stack, so you can launch this now or later.
+            </p>
+            <button
+              type="button"
+              onClick={onLaunchCurStack}
+              className="w-full py-2.5 bg-[#FF9900] text-white text-[13px] font-semibold rounded-lg hover:bg-[#E88B00] transition-colors flex items-center justify-center gap-2 shadow-sm shadow-[#FF9900]/20"
+            >
+              Launch CUR stack (us-east-1) <Icon icon="mdi:open-in-new" width={14} />
+            </button>
           </div>
         )}
 

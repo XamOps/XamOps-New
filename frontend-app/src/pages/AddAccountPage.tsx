@@ -68,6 +68,7 @@ const AddAccountPage: React.FC = () => {
     verificationDetails,
     curSource,
     setCurSource,
+    curStackUrl,
     azureDetails,
     jenkinsDetails,
 
@@ -82,6 +83,7 @@ const AddAccountPage: React.FC = () => {
 
     // Actions
     launchStack,
+    launchCurStack,
     verifyAccount,
     addAzureAccount,
     addJenkinsAccount,
@@ -232,6 +234,8 @@ const AddAccountPage: React.FC = () => {
             onOpenPolicyModal={() => setIsPolicyModalOpen(true)}
             curSource={curSource}
             onCurSourceChange={setCurSource}
+            curStackUrl={curStackUrl}
+            onLaunchCurStack={launchCurStack}
           />
         );
       case 'gcp':

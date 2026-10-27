@@ -79,6 +79,15 @@ export interface StackUrlResponse {
   eventBridgeEnabled: string; // "true" or "false" from backend
   /** RoleName of the template this environment hands out. Absent on older backends. */
   roleName?: string;
+  /**
+   * Quick-create link for the CUR stack (us-east-1). Present only for OWN_CUR accounts
+   * when a CUR template is configured on this environment; absent otherwise.
+   */
+  curUrl?: string;
+  /** Name the CUR stack will be created under. Present only for OWN_CUR accounts. */
+  curStackName?: string;
+  /** Region the CUR stack is pinned to (us-east-1). Present only for OWN_CUR accounts. */
+  curRegion?: string;
 }
 
 export interface AddAccountState {
