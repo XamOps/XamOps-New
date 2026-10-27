@@ -185,7 +185,7 @@ Parameters:
 
   XamOpsCurExportTemplateUrl:
     Type: String
-    Description: S3 URL of the nested CUR export template.
+    Description: (Deprecated, unused) Former S3 URL of the nested CUR export template.
     Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-cur-export-nested.yaml'
 
   # ---------------------------------------------------------------------------------
@@ -209,7 +209,7 @@ Parameters:
 
   XamOpsCurReportTemplateUrl:
     Type: String
-    Description: S3 URL of the nested CUR 1.0 report template.
+    Description: (Deprecated, unused) Former S3 URL of the nested CUR 1.0 report template.
     Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-cur-report.yml'
 
 Conditions:
@@ -223,15 +223,11 @@ Conditions:
   # reconciling this account's invoices from Cost Explorer.
   DeployCurExport: !Equals [!Ref EnableCurExport, 'true']
 
-  # AWS::CUR::ReportDefinition exists only in us-east-1, and a nested stack is created in
-  # its parent's region. The onboarding link pins us-east-1, but a customer who changes it
-  # in the console would otherwise fail the whole connection on a report they can live
-  # without — so the report is skipped instead, and the platform reports it as missing.
-  IsCurReportRegion: !Equals [!Ref 'AWS::Region', 'us-east-1']
-
-  DeployCurReport: !And
-    - !Equals [!Ref EnableCurReport, 'true']
-    - !Condition IsCurReportRegion
+  # CUR is created by the XamOpsCurManagerFunction custom resource, which pins all
+  # CUR / Data Exports / S3 calls to us-east-1 regardless of this stack's region.
+  # No longer region-gated — only the EnableCurReport toggle decides it; a us-east-1
+  # parent is handled by the same idempotent Lambda (create-if-absent).
+  DeployCurReport: !Equals [!Ref EnableCurReport, 'true']
 
   # Whether the role is granted CUR read permissions at all.
   #
@@ -1675,38 +1671,318 @@ Resources:
         ResourceSuffix: !Ref XamOpsInventoryResourceSuffix
 
   # =================================================================
-  # CUR 2.0 DATA EXPORT (nested)
+  # CUR in us-east-1 from a parent stack in ANY region
   #
-  # Nested for the same reason as inventory events: keeps the S3 bucket,
-  # bucket policy, and BCMDataExports::Export resources out of the base
-  # role definition so they can be reused/updated independently and skipped
-  # entirely when disabled. Identical to the one deployed from the
-  # read-only template — CUR export doesn't depend on which role a customer
-  # chose.
+  # Replaces the region-locked CUR nested stacks. AWS::CUR::ReportDefinition and
+  # AWS::BCMDataExports::Export only exist in us-east-1, and a native nested stack is
+  # always created in its parent's region. This custom-resource Lambda runs in the
+  # parent's region but pins every CUR / Data Exports / S3 call to us-east-1, so the
+  # shared bucket (xamops-cur-<id>), the CUR 1.0 report and the CUR 2.0 export all land
+  # in us-east-1 regardless of where this stack lives. Rides along on a normal
+  # "Update stack", so connected accounts get CUR without re-onboarding or moving region.
+  # Bucket/report/prefix names below are byte-for-byte what the backend already expects.
   # =================================================================
-  XamOpsCurExport:
-    Type: AWS::CloudFormation::Stack
-    Condition: DeployCurExport
+  XamOpsCurManagerRole:
+    Type: AWS::IAM::Role
+    Condition: CreatesOwnCurBucket
     Properties:
-      TemplateURL: !Ref XamOpsCurExportTemplateUrl
-      TimeoutInMinutes: 15
-      Parameters:
-        XamOpsAccountId: !Ref XamOpsAccountId
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: XamOpsCurManagerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CurBucket
+                Effect: Allow
+                Action:
+                  - 's3:CreateBucket'
+                  - 's3:PutBucketPolicy'
+                  - 's3:GetBucketPolicy'
+                  - 's3:PutBucketPublicAccessBlock'
+                  - 's3:PutEncryptionConfiguration'
+                  - 's3:PutBucketLifecycleConfiguration'
+                  - 's3:PutBucketOwnershipControls'
+                  - 's3:PutBucketTagging'
+                  - 's3:GetBucketLocation'
+                  - 's3:ListBucket'
+                Resource:
+                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}'
+                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/*'
+              - Sid: CurReportDefinition
+                Effect: Allow
+                Action:
+                  - 'cur:PutReportDefinition'
+                  - 'cur:DescribeReportDefinitions'
+                  - 'cur:DeleteReportDefinition'
+                Resource: '*'
+              - Sid: CurDataExport
+                Effect: Allow
+                Action:
+                  - 'bcm-data-exports:CreateExport'
+                  - 'bcm-data-exports:GetExport'
+                  - 'bcm-data-exports:ListExports'
+                  - 'bcm-data-exports:UpdateExport'
+                  - 'bcm-data-exports:DeleteExport'
+                Resource: '*'
 
-  # =================================================================
-  # CUR 1.0 REPORT (nested)
-  #
-  # Defaults in that template — report name xamops-cur, prefix cur, HOURLY, resource ids
-  # on — are what CurAutoRegistrationService looks for when it registers the source
-  # automatically. Changing them here without changing that service leaves the report
-  # created and unregistered.
-  # =================================================================
+  XamOpsCurManagerFunction:
+    Type: AWS::Lambda::Function
+    Condition: CreatesOwnCurBucket
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt XamOpsCurManagerRole.Arn
+      Runtime: python3.12
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import boto3
+          import cfnresponse
+          from botocore.exceptions import ClientError
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          CUR_REGION = 'us-east-1'
+
+          CUR2_QUERY = (
+              "SELECT bill_bill_type, bill_payer_account_id, bill_billing_entity, "
+              "line_item_usage_account_id, line_item_line_item_type, "
+              "line_item_usage_start_date, line_item_usage_end_date, "
+              "line_item_product_code, product_servicecode, product_region_code, "
+              "line_item_usage_type, line_item_operation, line_item_resource_id, "
+              "line_item_usage_amount, line_item_unblended_rate, "
+              "line_item_unblended_cost, line_item_blended_cost, pricing_unit, "
+              "pricing_public_on_demand_cost, "
+              "reservation_amortized_upfront_cost_for_usage, "
+              "savings_plan_savings_plan_effective_cost "
+              "FROM COST_AND_USAGE_REPORT"
+          )
+
+          def _bucket_exists(s3, bucket):
+              try:
+                  s3.head_bucket(Bucket=bucket)
+                  return True
+              except ClientError as e:
+                  code = e.response.get('Error', {}).get('Code', '')
+                  if code in ('404', 'NoSuchBucket'):
+                      return False
+                  if code == '403':
+                      return True
+                  raise
+
+          def ensure_bucket(account_id):
+              bucket = 'xamops-cur-' + account_id
+              s3 = boto3.client('s3', region_name=CUR_REGION)
+              if not _bucket_exists(s3, bucket):
+                  try:
+                      s3.create_bucket(Bucket=bucket)
+                      logger.info("Created bucket %s", bucket)
+                  except ClientError as e:
+                      code = e.response.get('Error', {}).get('Code', '')
+                      if code not in ('BucketAlreadyOwnedByYou', 'BucketAlreadyExists'):
+                          raise
+                      logger.info("Bucket %s already present (%s)", bucket, code)
+
+              s3.put_public_access_block(
+                  Bucket=bucket,
+                  PublicAccessBlockConfiguration={
+                      'BlockPublicAcls': True, 'BlockPublicPolicy': True,
+                      'IgnorePublicAcls': True, 'RestrictPublicBuckets': True,
+                  },
+              )
+              s3.put_bucket_encryption(
+                  Bucket=bucket,
+                  ServerSideEncryptionConfiguration={
+                      'Rules': [{'ApplyServerSideEncryptionByDefault': {'SSEAlgorithm': 'AES256'}}]
+                  },
+              )
+              try:
+                  s3.put_bucket_ownership_controls(
+                      Bucket=bucket,
+                      OwnershipControls={'Rules': [{'ObjectOwnership': 'BucketOwnerEnforced'}]},
+                  )
+              except ClientError as e:
+                  logger.warning("put_bucket_ownership_controls failed (non-fatal): %s", e)
+              s3.put_bucket_lifecycle_configuration(
+                  Bucket=bucket,
+                  LifecycleConfiguration={'Rules': [
+                      {
+                          'ID': 'ExpireAthenaResults', 'Status': 'Enabled',
+                          'Filter': {'Prefix': 'xamops-athena-results/'},
+                          'Expiration': {'Days': 7},
+                          'AbortIncompleteMultipartUpload': {'DaysAfterInitiation': 1},
+                      },
+                      {
+                          'ID': 'ExpireOldExports', 'Status': 'Enabled',
+                          'Filter': {'Prefix': 'cur2/'},
+                          'Expiration': {'Days': 90},
+                      },
+                  ]},
+              )
+              arn = 'arn:aws:s3:::' + bucket
+              policy = {
+                  'Version': '2012-10-17',
+                  'Statement': [
+                      {
+                          'Sid': 'AllowBillingReportsGetBucketAcl',
+                          'Effect': 'Allow',
+                          'Principal': {'Service': 'billingreports.amazonaws.com'},
+                          'Action': ['s3:GetBucketAcl', 's3:GetBucketPolicy'],
+                          'Resource': arn,
+                          'Condition': {'StringEquals': {
+                              'aws:SourceAccount': account_id,
+                              'aws:SourceArn': 'arn:aws:cur:us-east-1:' + account_id + ':definition/*',
+                          }},
+                      },
+                      {
+                          'Sid': 'AllowBillingReportsPutObject',
+                          'Effect': 'Allow',
+                          'Principal': {'Service': 'billingreports.amazonaws.com'},
+                          'Action': 's3:PutObject',
+                          'Resource': arn + '/*',
+                          'Condition': {'StringEquals': {
+                              'aws:SourceAccount': account_id,
+                              'aws:SourceArn': 'arn:aws:cur:us-east-1:' + account_id + ':definition/*',
+                          }},
+                      },
+                      {
+                          'Sid': 'EnableAWSDataExportsToWriteToS3',
+                          'Effect': 'Allow',
+                          'Principal': {'Service': 'bcm-data-exports.amazonaws.com'},
+                          'Action': 's3:PutObject',
+                          'Resource': arn + '/*',
+                          'Condition': {
+                              'ArnLike': {'aws:SourceArn': 'arn:aws:bcm-data-exports:us-east-1:' + account_id + ':export/*'},
+                              'StringEquals': {'aws:SourceAccount': account_id},
+                          },
+                      },
+                  ],
+              }
+              s3.put_bucket_policy(Bucket=bucket, Policy=json.dumps(policy))
+              logger.info("Bucket %s configured", bucket)
+              return bucket
+
+          def ensure_cur1_report(bucket):
+              cur = boto3.client('cur', region_name=CUR_REGION)
+              definition = {
+                  'ReportName': 'xamops-cur',
+                  'TimeUnit': 'HOURLY',
+                  'Format': 'Parquet',
+                  'Compression': 'Parquet',
+                  'AdditionalSchemaElements': ['RESOURCES'],
+                  'S3Bucket': bucket,
+                  'S3Prefix': 'cur',
+                  'S3Region': CUR_REGION,
+                  'AdditionalArtifacts': [],
+                  'RefreshClosedReports': True,
+                  'ReportVersioning': 'OVERWRITE_REPORT',
+              }
+              try:
+                  cur.put_report_definition(ReportDefinition=definition)
+                  logger.info("Created CUR 1.0 report xamops-cur")
+              except ClientError as e:
+                  code = e.response.get('Error', {}).get('Code', '')
+                  if code in ('DuplicateReportNameException', 'ValidationException'):
+                      logger.info("CUR 1.0 report already present (%s)", code)
+                  else:
+                      raise
+
+          def ensure_cur2_export(account_id, bucket):
+              de = boto3.client('bcm-data-exports', region_name=CUR_REGION)
+              for page in de.get_paginator('list_exports').paginate():
+                  for ref in page.get('Exports', []):
+                      if ref.get('ExportName') == 'xamops-cur2':
+                          logger.info("CUR 2.0 export already present")
+                          return
+              export = {
+                  'Name': 'xamops-cur2',
+                  'Description': 'XamOps BillOps invoice reconciliation export',
+                  'DataQuery': {
+                      'QueryStatement': CUR2_QUERY,
+                      'TableConfigurations': {
+                          'COST_AND_USAGE_REPORT': {
+                              'TIME_GRANULARITY': 'DAILY',
+                              'INCLUDE_RESOURCES': 'TRUE',
+                          }
+                      },
+                  },
+                  'DestinationConfigurations': {
+                      'S3Destination': {
+                          'S3Bucket': bucket,
+                          'S3Prefix': 'cur2',
+                          'S3Region': CUR_REGION,
+                          'S3OutputConfigurations': {
+                              'OutputType': 'CUSTOM',
+                              'Format': 'TEXT_OR_CSV',
+                              'Compression': 'GZIP',
+                              'Overwrite': 'OVERWRITE_REPORT',
+                          },
+                      }
+                  },
+                  'RefreshCadence': {'Frequency': 'SYNCHRONOUS'},
+              }
+              de.create_export(Export=export)
+              logger.info("Created CUR 2.0 export xamops-cur2")
+
+          def handler(event, context):
+              request_type = event['RequestType']
+              props = event.get('ResourceProperties', {})
+              account_id = props['AwsAccountId']
+              enable_report = str(props.get('EnableCurReport', 'false')).lower() == 'true'
+              enable_export = str(props.get('EnableCurExport', 'false')).lower() == 'true'
+              physical_id = 'xamops-cur-manager-' + account_id
+
+              try:
+                  if request_type == 'Delete':
+                      logger.info("Delete: leaving CUR bucket/report/export intact")
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_id)
+                      return
+
+                  bucket = ensure_bucket(account_id)
+                  if enable_report:
+                      ensure_cur1_report(bucket)
+                  if enable_export:
+                      ensure_cur2_export(account_id, bucket)
+
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                      'BucketName': bucket,
+                      'Cur1Prefix': 'cur',
+                      'Cur2Prefix': 'cur2',
+                  }, physical_id)
+              except Exception as e:
+                  logger.error("CUR manager failed: %s", e, exc_info=True)
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)}, physical_id)
+
+  # CUR 1.0 report + shared bucket. Attaches only when EnableCurReport is true.
   XamOpsCurReport:
-    Type: AWS::CloudFormation::Stack
+    Type: AWS::CloudFormation::CustomResource
     Condition: DeployCurReport
     Properties:
-      TemplateURL: !Ref XamOpsCurReportTemplateUrl
-      TimeoutInMinutes: 15
+      ServiceToken: !GetAtt XamOpsCurManagerFunction.Arn
+      AwsAccountId: !Ref AWS::AccountId
+      EnableCurReport: 'true'
+      EnableCurExport: 'false'
+      Revision: 'v1-cur1'
+
+  # CUR 2.0 export + shared bucket. Attaches only when EnableCurExport is true.
+  XamOpsCurExport:
+    Type: AWS::CloudFormation::CustomResource
+    Condition: DeployCurExport
+    Properties:
+      ServiceToken: !GetAtt XamOpsCurManagerFunction.Arn
+      AwsAccountId: !Ref AWS::AccountId
+      EnableCurReport: 'false'
+      EnableCurExport: 'true'
+      Revision: 'v1-cur2'
 
   # ===================================================================================
   # Stack updates from the XamOps console
@@ -1898,9 +2174,9 @@ Outputs:
       S3 bucket receiving CUR 2.0 exports. Feed this into CloudAccount.curS3Bucket
       during account verification so BillOps can locate the export.
     Value: !If
-      - DeployCurExport
-      - !GetAtt XamOpsCurExport.Outputs.CurBucketName
-      - 'disabled — BillOps will use Cost Explorer instead'
+      - CreatesOwnCurBucket
+      - !Sub 'xamops-cur-${AWS::AccountId}'
+      - 'disabled — no CUR configured; XamOps/BillOps will use Cost Explorer instead'
 
   CurReportPrefix:
     Description: >
@@ -1908,7 +2184,7 @@ Outputs:
       CloudAccount.curReportPath during account verification.
     Value: !If
       - DeployCurExport
-      - !GetAtt XamOpsCurExport.Outputs.CurReportPrefix
+      - 'cur2'
       - 'disabled'
 
   AutoSpottingForwarderFunctionArn:
