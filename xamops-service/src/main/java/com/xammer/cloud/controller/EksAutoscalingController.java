@@ -4,6 +4,7 @@ import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.*;
 import com.xammer.cloud.dto.autoscaling.ConsolidationPlanResponse;
+import com.xammer.cloud.dto.autoscaling.ConsolidationPolicyDto;
 import com.xammer.cloud.dto.autoscaling.ConsolidationRunResponse;
 import com.xammer.cloud.dto.autoscaling.NodeOptimizerPolicyDto;
 import com.xammer.cloud.dto.autoscaling.WorkloadRightsizingDto;
@@ -259,6 +260,16 @@ public class EksAutoscalingController {
         normalizer.validate(Section.REBALANCER, rebalancer);
         autoscalingService.saveRebalancerConfig(config(ctx), rebalancer, actor(ctx));
         return ResponseEntity.ok(ok("Rebalancer config saved"));
+    }
+
+    /** PUT …/consolidation: {@code enabled: true} is refused while {@code consolidation-actions} isn't ready. */
+    @PutMapping("/{clusterName}/consolidation")
+    public ResponseEntity<Map<String, Object>> saveConsolidationPolicy(
+            @RequestAttribute(K8sAutomationRequestContext.ATTRIBUTE) K8sAutomationRequestContext ctx,
+            @RequestBody ConsolidationPolicyDto policy) {
+        normalizer.validate(Section.CONSOLIDATION, policy);
+        autoscalingService.saveConsolidationPolicy(config(ctx), policy, actor(ctx));
+        return ResponseEntity.ok(ok("Consolidation policy saved"));
     }
 
     /** PUT …/node-templates/{templateId}: refused while {@code node-templates} isn't ready. */

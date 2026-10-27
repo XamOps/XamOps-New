@@ -12,6 +12,7 @@ import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.autoscaling.AutomationPolicyBundle;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.*;
+import com.xammer.cloud.dto.autoscaling.ConsolidationPolicyDto;
 import com.xammer.cloud.dto.autoscaling.NodeOptimizerPolicyDto;
 import com.xammer.cloud.dto.autoscaling.WorkloadRightsizingDto;
 import com.xammer.cloud.dto.autoscaling.WorkloadRightsizingDto.WorkloadRecommendation;
@@ -96,6 +97,7 @@ public class EksAutoscalingService {
             Section.SAFETY_GUARDS, "Safety guards",
             Section.NODE_OPTIMIZER, "Node optimizer policy",
             Section.REBALANCER, "Rebalancer config",
+            Section.CONSOLIDATION, "Consolidation policy",
             Section.MODE, "Node automation scope");
 
     /**
@@ -253,6 +255,13 @@ public class EksAutoscalingService {
     @Transactional
     public void saveRebalancerConfig(KubernetesClusterConfig config, RebalancerConfigDto rebalancer, String username) {
         saveSection(config, Section.REBALANCER, rebalancer, username);
+    }
+
+    @Transactional
+    public void saveConsolidationPolicy(KubernetesClusterConfig config, ConsolidationPolicyDto policy, String username) {
+        // enabled=true is refused by validateConsolidation unless the consolidation-actions readiness
+        // key is ready; the coercion table still serves enabled=false to the agent until then.
+        saveSection(config, Section.CONSOLIDATION, policy, username);
     }
 
     @Transactional
