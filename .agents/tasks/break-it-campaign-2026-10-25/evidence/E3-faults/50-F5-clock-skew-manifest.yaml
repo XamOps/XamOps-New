@@ -1,0 +1,14 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: TimeChaos
+metadata:
+  name: e3-clock-skew
+  namespace: chaos-testing
+spec:
+  mode: all
+  selector:
+    namespaces:
+      - xamops-system
+    labelSelectors:
+      app: xamops-automation
+  timeOffset: "-10m"
+  duration: "120s"

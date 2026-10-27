@@ -1,0 +1,2 @@
+podchaos.chaos-mesh.org/e3-kill-both created
+podchaos.chaos-mesh.org "e3-kill-both" deleted from chaos-testing namespace

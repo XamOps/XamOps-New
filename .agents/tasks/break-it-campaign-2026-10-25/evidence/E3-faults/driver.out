@@ -1,0 +1,42 @@
+[13:42:51] ########## E3 START ##########
+[13:42:53] ctx_guard OK (account 102227938259, cluster xamops-test-1 reachable)
+[13:42:53] lock held by break-it-campaign-destructive
+[13:43:08] starting soakwatch recording -> /Users/apple/Desktop/XamOps-New/.agents/tasks/break-it-campaign-2026-10-25/evidence/E3-streams
+[13:43:16] soakwatch pid=45872
+[13:43:18] FAULT 10-F1a-kill-30s: apply Schedule (hold 120s)
+[13:45:53] FAULT 10-F1a-kill-30s: delete Schedule
+recovered: ready=2 holder=xamops-automation-7fd5b5749d-tfgtr
+[13:46:17] FAULT 11-F1b-kill-10s: apply Schedule (hold 90s)
+[13:48:15] FAULT 11-F1b-kill-10s: delete Schedule
+recovered: ready=2 holder=xamops-automation-7fd5b5749d-rnmgj
+[13:48:37] FAULT 20-F2: kill both replicas (mode:all)
+recovered: ready=2 holder=xamops-automation-7fd5b5749d-f2fkk
+[13:49:17] FAULT 30-F3a-cpu-stress: apply (hold 90s)
+[13:51:06] FAULT 30-F3a-cpu-stress: release (delete chaos CRD)
+recovered: ready=2 holder=xamops-automation-7fd5b5749d-f2fkk
+[13:51:22] FAULT 31-F3b-mem-stress-oom: apply (hold 120s)
+[13:53:39] FAULT 31-F3b-mem-stress-oom: release (delete chaos CRD)
+recovered: ready=2 holder=xamops-automation-7fd5b5749d-f2fkk
+[13:53:57] FAULT 40-F4a-net-delay: apply (hold 90s)
+[13:56:21] FAULT 40-F4a-net-delay: release (delete chaos CRD)
+recovered: ready=2 holder=xamops-automation-7fd5b5749d-f2fkk
+[13:56:33] FAULT 41-F4b-net-loss: apply (hold 90s)
+[15:57:49] FAULT 41-F4b-net-loss: release (delete chaos CRD)
+recovered: ready=2 holder=xamops-automation-7fd5b5749d-f2fkk
+[16:35:38] FAULT 42-F4e-partition-apiserver: apply (hold 90s)
+[18:51:29] FAULT 42-F4e-partition-apiserver: release (delete chaos CRD)
+recovered: ready=2 holder=xamops-automation-7fd5b5749d-f2fkk
+[19:23:23] FAULT 43-F4c: backend-unreachable 5min (fail-closed)
+recovered: ready=2 holder=xamops-automation-7fd5b5749d-f2fkk
+[23:05:09] FAULT 44-F4d: backend-unreachable 30min (long fail-closed)
+recovered: ready=2 holder=xamops-automation-7fd5b5749d-f2fkk
+[05:45:59] FAULT 50-F5-clock-skew: apply (hold 120s)
+[05:48:20] FAULT 50-F5-clock-skew: release (delete chaos CRD)
+recovered: ready=2 holder=xamops-automation-7fd5b5749d-f2fkk
+[05:48:38] ########## ALL FAULTS COMPLETE — stopping soakwatch ##########
+[05:48:41] running soak checker on /Users/apple/Desktop/XamOps-New/.agents/tasks/break-it-campaign-2026-10-25/evidence/E3-streams
+[05:48:59] ########## E3 EXECUTION DONE (teardown runs on exit) ##########
+[05:48:59] === TEARDOWN: deleting all Chaos Mesh experiment CRDs in chaos-testing ===
+[05:49:14] === TEARDOWN: confirm agent 2/2 + single leader ===
+recovered: ready=2 holder=xamops-automation-7fd5b5749d-f2fkk
+[05:49:22] === TEARDOWN complete ===

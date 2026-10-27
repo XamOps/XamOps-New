@@ -1,0 +1,17 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: e3-net-partition-apiserver
+  namespace: chaos-testing
+spec:
+  action: partition
+  mode: all
+  selector:
+    namespaces:
+      - xamops-system
+    labelSelectors:
+      app: xamops-automation
+  direction: to
+  externalTargets:
+    - "10.100.0.1"
+  duration: "90s"

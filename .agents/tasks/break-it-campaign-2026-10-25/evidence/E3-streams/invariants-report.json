@@ -1,0 +1,229 @@
+{
+  "options": {
+    "MaxParallelDrains": 1,
+    "LeaderTolerance": 5000000000,
+    "LeaseName": "xamops-automation-leader"
+  },
+  "invariants": [
+    {
+      "id": "I1",
+      "name": "no PDB violated",
+      "verdict": "FAIL",
+      "detail": "a FAIL needs attribution: the checker cannot tell an eviction bypass from a controller delete (see each breach)",
+      "breaches": [
+        {
+          "start": "2026-10-26T13:45:27.105194Z",
+          "end": "2026-10-26T13:45:27.105194Z",
+          "durationMs": 0,
+          "object": "pod xamops-system/xamops-automation-7fd5b5749d-qbmgl",
+          "detail": "Ready pod started terminating (modified) while pdb xamops-system/xamops-automation-pdb allowed 0 disruptions and did not list it in disruptedPods; node ip-172-31-38-131.ap-south-1.compute.internal was not draining under XamOps: may be a controller delete (scale-down, rollout, node termination); attribute against events.jsonl"
+        },
+        {
+          "start": "2026-10-26T13:46:46.143865Z",
+          "end": "2026-10-26T13:46:46.143865Z",
+          "durationMs": 0,
+          "object": "pod xamops-system/xamops-automation-7fd5b5749d-tfgtr",
+          "detail": "Ready pod started terminating (modified) while pdb xamops-system/xamops-automation-pdb allowed 0 disruptions and did not list it in disruptedPods; node ip-172-31-26-143.ap-south-1.compute.internal was not draining under XamOps: may be a controller delete (scale-down, rollout, node termination); attribute against events.jsonl"
+        },
+        {
+          "start": "2026-10-26T13:46:56.06197Z",
+          "end": "2026-10-26T13:46:56.06197Z",
+          "durationMs": 0,
+          "object": "pod xamops-system/xamops-automation-7fd5b5749d-t77v5",
+          "detail": "Ready pod started terminating (modified) while pdb xamops-system/xamops-automation-pdb allowed 0 disruptions and did not list it in disruptedPods; node ip-172-31-38-131.ap-south-1.compute.internal was not draining under XamOps: may be a controller delete (scale-down, rollout, node termination); attribute against events.jsonl"
+        },
+        {
+          "start": "2026-10-26T13:47:06.104759Z",
+          "end": "2026-10-26T13:47:06.104759Z",
+          "durationMs": 0,
+          "object": "pod xamops-system/xamops-automation-7fd5b5749d-67ffc",
+          "detail": "Ready pod started terminating (modified) while pdb xamops-system/xamops-automation-pdb allowed 0 disruptions and did not list it in disruptedPods; node ip-172-31-26-143.ap-south-1.compute.internal was not draining under XamOps: may be a controller delete (scale-down, rollout, node termination); attribute against events.jsonl"
+        },
+        {
+          "start": "2026-10-26T13:47:26.069056Z",
+          "end": "2026-10-26T13:47:26.069056Z",
+          "durationMs": 0,
+          "object": "pod xamops-system/xamops-automation-7fd5b5749d-7dzjd",
+          "detail": "Ready pod started terminating (modified) while pdb xamops-system/xamops-automation-pdb allowed 0 disruptions and did not list it in disruptedPods; node ip-172-31-38-131.ap-south-1.compute.internal was not draining under XamOps: may be a controller delete (scale-down, rollout, node termination); attribute against events.jsonl"
+        },
+        {
+          "start": "2026-10-26T13:47:56.068599Z",
+          "end": "2026-10-26T13:47:56.068599Z",
+          "durationMs": 0,
+          "object": "pod xamops-system/xamops-automation-7fd5b5749d-zrt2b",
+          "detail": "Ready pod started terminating (modified) while pdb xamops-system/xamops-automation-pdb allowed 0 disruptions and did not list it in disruptedPods; node ip-172-31-26-143.ap-south-1.compute.internal was not draining under XamOps: may be a controller delete (scale-down, rollout, node termination); attribute against events.jsonl"
+        },
+        {
+          "start": "2026-10-26T13:48:06.128037Z",
+          "end": "2026-10-26T13:48:06.128037Z",
+          "durationMs": 0,
+          "object": "pod xamops-system/xamops-automation-7fd5b5749d-69wl4",
+          "detail": "Ready pod started terminating (modified) while pdb xamops-system/xamops-automation-pdb allowed 0 disruptions and did not list it in disruptedPods; node ip-172-31-38-131.ap-south-1.compute.internal was not draining under XamOps: may be a controller delete (scale-down, rollout, node termination); attribute against events.jsonl"
+        },
+        {
+          "start": "2026-10-26T13:48:46.541675Z",
+          "end": "2026-10-26T13:48:46.541675Z",
+          "durationMs": 0,
+          "object": "pod xamops-system/xamops-automation-7fd5b5749d-rnmgj",
+          "detail": "Ready pod started terminating (modified) while pdb xamops-system/xamops-automation-pdb allowed 0 disruptions and did not list it in disruptedPods; node ip-172-31-26-143.ap-south-1.compute.internal was not draining under XamOps: may be a controller delete (scale-down, rollout, node termination); attribute against events.jsonl"
+        }
+      ]
+    },
+    {
+      "id": "I2",
+      "name": "HA floor (PDB minAvailable/maxUnavailable, else replicas-1, min 1)",
+      "verdict": "FAIL",
+      "breaches": [
+        {
+          "start": "2026-10-26T13:46:46.139596Z",
+          "end": "2026-10-26T13:46:52.760555Z",
+          "durationMs": 6620,
+          "object": "Deployment/xamops-system/xamops-automation",
+          "detail": "readyReplicas=0 \u003c floor=1 of replicas=2 (pdb xamops-system/xamops-automation-pdb minAvailable=1)"
+        },
+        {
+          "start": "2026-10-26T13:46:56.086103Z",
+          "end": "2026-10-26T13:47:02.186157Z",
+          "durationMs": 6100,
+          "object": "Deployment/xamops-system/xamops-automation",
+          "detail": "readyReplicas=0 \u003c floor=1 of replicas=2 (pdb xamops-system/xamops-automation-pdb minAvailable=1)"
+        },
+        {
+          "start": "2026-10-26T13:47:06.132618Z",
+          "end": "2026-10-26T13:47:11.827418Z",
+          "durationMs": 5694,
+          "object": "Deployment/xamops-system/xamops-automation",
+          "detail": "readyReplicas=0 \u003c floor=1 of replicas=2 (pdb xamops-system/xamops-automation-pdb minAvailable=1)"
+        },
+        {
+          "start": "2026-10-26T13:47:26.109688Z",
+          "end": "2026-10-26T13:47:32.330986Z",
+          "durationMs": 6221,
+          "object": "Deployment/xamops-system/xamops-automation",
+          "detail": "readyReplicas=0 \u003c floor=1 of replicas=2 (pdb xamops-system/xamops-automation-pdb minAvailable=1)"
+        },
+        {
+          "start": "2026-10-26T13:47:56.09672Z",
+          "end": "2026-10-26T13:48:02.024225Z",
+          "durationMs": 5927,
+          "object": "Deployment/xamops-system/xamops-automation",
+          "detail": "readyReplicas=0 \u003c floor=1 of replicas=2 (pdb xamops-system/xamops-automation-pdb minAvailable=1)"
+        },
+        {
+          "start": "2026-10-26T13:48:06.147409Z",
+          "end": "2026-10-26T13:48:12.45604Z",
+          "durationMs": 6308,
+          "object": "Deployment/xamops-system/xamops-automation",
+          "detail": "readyReplicas=0 \u003c floor=1 of replicas=2 (pdb xamops-system/xamops-automation-pdb minAvailable=1)"
+        },
+        {
+          "start": "2026-10-26T13:48:46.570581Z",
+          "end": "2026-10-26T13:49:02.245443Z",
+          "durationMs": 15674,
+          "object": "Deployment/xamops-system/xamops-automation",
+          "detail": "readyReplicas=0 \u003c floor=1 of replicas=2 (pdb xamops-system/xamops-automation-pdb minAvailable=1)"
+        },
+        {
+          "start": "2026-10-26T13:51:33.277996Z",
+          "end": "2026-10-26T13:51:48.908606Z",
+          "durationMs": 15630,
+          "object": "Deployment/xamops-system/xamops-automation",
+          "detail": "readyReplicas=0 \u003c floor=1 of replicas=2 (pdb xamops-system/xamops-automation-pdb minAvailable=1)"
+        }
+      ],
+      "excluded": [
+        {
+          "object": "Deployment/team-a/unschedulable-giant",
+          "reason": "never healthy in window"
+        }
+      ]
+    },
+    {
+      "id": "I6",
+      "name": "concurrent drains \u003c= 1",
+      "verdict": "PASS",
+      "breaches": []
+    },
+    {
+      "id": "I14",
+      "name": "only the xamops-automation-leader holder acts (tolerance 5s)",
+      "verdict": "NOT-EVALUATED",
+      "detail": "no agent action line could be judged in the window",
+      "breaches": []
+    }
+  ],
+  "coverage": [
+    {
+      "stream": "nodes",
+      "present": true,
+      "records": 278,
+      "first": "2026-10-26T13:43:11.632803Z",
+      "last": "2026-10-27T05:48:23.98276Z",
+      "restarts": 35
+    },
+    {
+      "stream": "pdbs",
+      "present": true,
+      "records": 231,
+      "first": "2026-10-26T13:43:11.552748Z",
+      "last": "2026-10-27T05:26:32.050378Z",
+      "restarts": 43
+    },
+    {
+      "stream": "deployments",
+      "present": true,
+      "records": 677,
+      "first": "2026-10-26T13:43:11.592803Z",
+      "last": "2026-10-27T05:21:09.416798Z",
+      "restarts": 37
+    },
+    {
+      "stream": "statefulsets",
+      "present": true,
+      "records": 92,
+      "first": "2026-10-26T13:43:11.532788Z",
+      "last": "2026-10-27T05:26:32.053137Z",
+      "restarts": 40
+    },
+    {
+      "stream": "replicasets",
+      "present": true,
+      "records": 936,
+      "first": "2026-10-26T13:43:11.501694Z",
+      "last": "2026-10-27T05:21:10.981327Z",
+      "restarts": 39
+    },
+    {
+      "stream": "pods",
+      "present": true,
+      "records": 3072,
+      "first": "2026-10-26T13:43:11.732425Z",
+      "last": "2026-10-27T05:35:23.575461Z",
+      "restarts": 36
+    },
+    {
+      "stream": "events",
+      "present": true,
+      "records": 1289,
+      "first": "2026-10-26T13:43:11.509459Z",
+      "last": "2026-10-27T05:48:20.982672Z",
+      "restarts": 50
+    },
+    {
+      "stream": "leases",
+      "present": true,
+      "records": 1359,
+      "first": "2026-10-26T13:43:11.52592Z",
+      "last": "2026-10-27T05:48:37.123057Z",
+      "restarts": 39
+    },
+    {
+      "stream": "agent-logs",
+      "present": true,
+      "records": 29375,
+      "first": "2026-10-26T05:25:25.265394426Z",
+      "last": "2026-10-27T05:47:45.457566078Z",
+      "restarts": 87
+    }
+  ]
+}

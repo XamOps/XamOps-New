@@ -1,0 +1,19 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: e3-kill-leader-30s
+  namespace: chaos-testing
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces:
+      - xamops-system
+    labelSelectors:
+      app: xamops-automation
+    # kill only the current lease holder (leader)
+    expressionSelectors:
+      - { key: app, operator: In, values: [xamops-automation] }
+  duration: "30s"
+  scheduler:
+    cron: "@every 30s"

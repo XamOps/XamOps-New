@@ -1,0 +1,17 @@
+=== post-teardown @ 2026-10-27T05:49:15Z ===
+NAME                                 READY   STATUS    RESTARTS      AGE   IP              NODE                                           NOMINATED NODE   READINESS GATES
+xamops-automation-7fd5b5749d-f2fkk   1/1     Running   3 (13h ago)   16h   172.31.41.245   ip-172-31-38-131.ap-south-1.compute.internal   <none>           <none>
+xamops-automation-7fd5b5749d-sl5gw   1/1     Running   2 (15h ago)   16h   172.31.26.119   ip-172-31-26-143.ap-south-1.compute.internal   <none>           <none>
+--- lease holder ---
+xamops-automation-7fd5b5749d-f2fkk
+--- remaining chaos experiments (want: none) ---
+[podchaos]
+No resources found in chaos-testing namespace.
+[stresschaos]
+No resources found in chaos-testing namespace.
+[networkchaos]
+No resources found in chaos-testing namespace.
+[timechaos]
+No resources found in chaos-testing namespace.
+[dnschaos]
+No resources found in chaos-testing namespace.
