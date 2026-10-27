@@ -1177,6 +1177,7 @@ Resources:
         ZipFile: |
           import json
           import logging
+          import time
           import boto3
           import cfnresponse
           from botocore.exceptions import ClientError
@@ -1321,9 +1322,10 @@ Resources:
               return bucket
 
           def ensure_cur1_report(bucket):
-              # CUR 1.0 ReportDefinition. Idempotent: PutReportDefinition errors with
-              # DuplicateReportNameException if it already exists, which we treat as success
-              # (a legacy CUR's immutable settings cannot be changed in place anyway).
+              # CUR 1.0 ReportDefinition. Idempotent: a DuplicateReportName means it already
+              # exists, which we treat as success (a legacy CUR's immutable settings cannot
+              # be changed in place anyway). Note: AdditionalArtifacts is intentionally
+              # omitted — the API rejects an empty list, and we want none.
               cur = boto3.client('cur', region_name=CUR_REGION)
               definition = {
                   'ReportName': 'xamops-cur',
@@ -1334,20 +1336,30 @@ Resources:
                   'S3Bucket': bucket,
                   'S3Prefix': 'cur',
                   'S3Region': CUR_REGION,
-                  'AdditionalArtifacts': [],
                   'RefreshClosedReports': True,
                   'ReportVersioning': 'OVERWRITE_REPORT',
               }
-              try:
-                  cur.put_report_definition(ReportDefinition=definition)
-                  logger.info("Created CUR 1.0 report xamops-cur")
-              except ClientError as e:
-                  code = e.response.get('Error', {}).get('Code', '')
-                  if code in ('DuplicateReportNameException', 'ValidationException'):
-                      # Already exists (or an immutable field cannot be re-set) — fine.
-                      logger.info("CUR 1.0 report already present (%s)", code)
-                  else:
-                      raise
+              # The bucket policy granting billingreports.amazonaws.com was just written and
+              # may not have propagated; PutReportDefinition validates it and can reject with
+              # ValidationException until it has. Retry a few times with backoff.
+              last_err = None
+              for attempt in range(6):
+                  try:
+                      cur.put_report_definition(ReportDefinition=definition)
+                      logger.info("Created CUR 1.0 report xamops-cur")
+                      return
+                  except ClientError as e:
+                      code = e.response.get('Error', {}).get('Code', '')
+                      if code == 'DuplicateReportNameException':
+                          logger.info("CUR 1.0 report already present")
+                          return
+                      last_err = e
+                      logger.warning("put_report_definition attempt %d failed (%s): %s",
+                                     attempt + 1, code, e)
+                      time.sleep(10)
+              # Exhausted retries — surface so the caller can decide (handler treats a
+              # CUR-step failure as non-fatal so the stack still converges).
+              raise last_err
 
           def ensure_cur2_export(account_id, bucket):
               # CUR 2.0 Data Export. Idempotent: if an export named xamops-cur2 already
@@ -1386,8 +1398,16 @@ Resources:
                   },
                   'RefreshCadence': {'Frequency': 'SYNCHRONOUS'},
               }
-              de.create_export(Export=export)
-              logger.info("Created CUR 2.0 export xamops-cur2")
+              try:
+                  de.create_export(Export=export)
+                  logger.info("Created CUR 2.0 export xamops-cur2")
+              except ClientError as e:
+                  code = e.response.get('Error', {}).get('Code', '')
+                  # Treat an already-exists race as success.
+                  if 'already' in str(e).lower() or code in ('ConflictException', 'ValidationException'):
+                      logger.info("CUR 2.0 export create returned %s; treating as present", code)
+                  else:
+                      raise
 
           def handler(event, context):
               request_type = event['RequestType']
@@ -1407,17 +1427,34 @@ Resources:
                       cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_id)
                       return
 
-                  # Create and Update are identical: converge to desired state idempotently.
+                  # The bucket is the one hard requirement — a failure here is fatal, since
+                  # the role's CUR read grants and BillOps both depend on it existing.
                   bucket = ensure_bucket(account_id)
+
+                  # The report/export are best-effort and self-healing. AWS CUR / Data
+                  # Exports validation can lag behind the bucket-policy write by a minute,
+                  # and the report is re-asserted on every stack update, so a transient
+                  # failure here must NOT roll the whole connection stack back. Log it and
+                  # still succeed; the next update (or a manual re-run) converges it.
+                  cur_warning = None
                   if enable_report:
-                      ensure_cur1_report(bucket)
+                      try:
+                          ensure_cur1_report(bucket)
+                      except Exception as e:
+                          cur_warning = 'CUR 1.0 report deferred: ' + str(e)
+                          logger.error(cur_warning, exc_info=True)
                   if enable_export:
-                      ensure_cur2_export(account_id, bucket)
+                      try:
+                          ensure_cur2_export(account_id, bucket)
+                      except Exception as e:
+                          cur_warning = 'CUR 2.0 export deferred: ' + str(e)
+                          logger.error(cur_warning, exc_info=True)
 
                   cfnresponse.send(event, context, cfnresponse.SUCCESS, {
                       'BucketName': bucket,
                       'Cur1Prefix': 'cur',
                       'Cur2Prefix': 'cur2',
+                      'CurWarning': cur_warning or 'none',
                   }, physical_id)
               except Exception as e:
                   logger.error("CUR manager failed: %s", e, exc_info=True)
