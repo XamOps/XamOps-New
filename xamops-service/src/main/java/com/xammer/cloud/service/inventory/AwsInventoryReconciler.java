@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.AwsCloudResource;
 import com.xammer.cloud.domain.AwsInventorySyncState;
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.permissions.AwsDenialClassifier;
+import com.xammer.cloud.permissions.PermissionGap;
 import com.xammer.cloud.repository.AwsCloudResourceRepository;
 import com.xammer.cloud.repository.AwsInventorySyncStateRepository;
 import com.xammer.cloud.service.AwsClientProvider;
@@ -27,6 +29,7 @@ import software.amazon.awssdk.services.resourceexplorer2.model.UpdateIndexTypeRe
 import software.amazon.awssdk.services.resourceexplorer2.model.Resource;
 import software.amazon.awssdk.services.resourceexplorer2.model.ResourceProperty;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -36,6 +39,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -152,6 +156,23 @@ public class AwsInventoryReconciler {
      */
     @Value("${xamops.inventory.auto-create-indexes:true}")
     private boolean autoCreateIndexes;
+
+    /**
+     * How long to leave an account alone after a Resource Explorer write is denied.
+     *
+     * <p>
+     * Every denied call is a CloudTrail {@code AccessDenied} event in the customer's
+     * account, which counts toward their CIS 4.1 "unauthorized API calls" alarm. Retrying
+     * on every 5-minute pass for an account whose onboarding stack lacks the permission
+     * produced a steady stream of them, so a denial is remembered and the write is not
+     * attempted again until this has elapsed. Long enough to stop the alarm, short enough
+     * that a customer who updates their stack is picked up the next day without a restart.
+     */
+    @Value("${xamops.inventory.write-denied-backoff-minutes:1440}")
+    private long writeDeniedBackoffMinutes;
+
+    /** {@code accountId:action} to the instant before which that write is not retried. */
+    private final Map<String, Instant> writeDeniedUntil = new ConcurrentHashMap<>();
 
     public AwsInventoryReconciler(AwsClientProvider awsClientProvider,
             AwsCloudResourceRepository resourceRepository,
@@ -511,7 +532,7 @@ public class AwsInventoryReconciler {
      * once AWS reports the new type.
      */
     private void promoteAggregator(CloudAccount account, List<Index> indexes, String preferredRegion) {
-        if (!autoCreateIndexes || indexes.isEmpty()) {
+        if (!autoCreateIndexes || indexes.isEmpty() || writeBackedOff(account, "UpdateIndexType")) {
             return;
         }
 
@@ -541,12 +562,41 @@ public class AwsInventoryReconciler {
             // Usually AccessDenied on accounts whose onboarding stack predates the
             // permission. Same handling as CreateIndex: report it and carry on, rather than
             // failing a sync that can still return this region's resources.
+            rememberIfDenied(account, "UpdateIndexType", e);
             log.warn("[Inventory] Could not promote an aggregator index in {} for account {}: {}. "
                     + "The account stays limited to one region, so resources elsewhere remain "
                     + "invisible to Resource Explorer. If this is AccessDenied, the customer's "
                     + "onboarding stack needs resource-explorer-2:UpdateIndexType.",
                     region, account.getAwsAccountId(), e.getMessage());
         }
+    }
+
+    private boolean writeBackedOff(CloudAccount account, String action) {
+        String key = account.getAwsAccountId() + ":" + action;
+        Instant until = writeDeniedUntil.get(key);
+        if (until == null) {
+            return false;
+        }
+        if (Instant.now().isBefore(until)) {
+            return true;
+        }
+        writeDeniedUntil.remove(key, until);
+        return false;
+    }
+
+    /**
+     * Records a denial so the write is not retried, and reports whether {@code e} was one.
+     * Only genuine authorisation failures start a back-off; a throttle or timeout is still
+     * retried on the next pass.
+     */
+    private boolean rememberIfDenied(CloudAccount account, String action, Exception e) {
+        AwsDenialClassifier.Result denial = AwsDenialClassifier.classify(e);
+        if (denial == null || denial.getKind() != PermissionGap.Kind.PERMISSION) {
+            return false;
+        }
+        writeDeniedUntil.put(account.getAwsAccountId() + ":" + action,
+                Instant.now().plus(Duration.ofMinutes(writeDeniedBackoffMinutes)));
+        return true;
     }
 
     private Set<String> createMissingIndexes(CloudAccount account, Set<String> missing) {
@@ -556,6 +606,13 @@ public class AwsInventoryReconciler {
 
         Set<String> stillMissing = new LinkedHashSet<>();
         for (String region : missing) {
+            if (writeBackedOff(account, "CreateIndex")) {
+                // Denied earlier (possibly a moment ago, for another region): the permission
+                // is account-wide, so the rest would be denied too. Skip rather than add
+                // one more AccessDenied to the customer's CloudTrail per region.
+                stillMissing.add(region);
+                continue;
+            }
             try {
                 ResourceExplorer2Client client =
                         awsClientProvider.getResourceExplorerClient(account, region);
@@ -579,6 +636,7 @@ public class AwsInventoryReconciler {
                 // Most often AccessDenied on accounts whose onboarding stack predates the
                 // CreateIndex permission. Not fatal: the region simply stays uncovered and
                 // the describe fallback keeps serving it.
+                rememberIfDenied(account, "CreateIndex", e);
                 log.warn("[Inventory] Could not create index in {} for account {}: {}. "
                         + "That region stays on the describe fallback. If this is AccessDenied, "
                         + "the customer's onboarding stack needs updating to grant "
