@@ -1,0 +1,19 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: e5-f1-cnpg-replica-delay
+  namespace: xamops-db-fixtures
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces:
+      - xamops-db-fixtures
+    labelSelectors:
+      cnpg.io/instanceRole: replica
+  delay:
+    latency: "800ms"
+    jitter: "200ms"
+    correlation: "50"
+  direction: both
+  duration: "180s"

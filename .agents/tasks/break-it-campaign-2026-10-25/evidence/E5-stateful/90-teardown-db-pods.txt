@@ -1,0 +1,12 @@
+NAME                           READY   STATUS      RESTARTS        AGE     IP              NODE                                           NOMINATED NODE   READINESS GATES
+load-mongo-6d5bdd7ddf-psjzs    1/1     Running     0               43h     172.31.20.121   ip-172-31-26-143.ap-south-1.compute.internal   <none>           <none>
+load-mysql-8d7d848d5-sw25c     1/1     Running     0               43h     172.31.45.214   ip-172-31-43-198.ap-south-1.compute.internal   <none>           <none>
+load-pgbench-bf746dc54-6s2q7   1/1     Running     0               43h     172.31.39.25    ip-172-31-43-198.ap-south-1.compute.internal   <none>           <none>
+mongo-0                        1/1     Running     0               43h     172.31.33.202   ip-172-31-46-10.ap-south-1.compute.internal    <none>           <none>
+mongo-1                        0/1     Init:0/5    0               3m49s   <none>          ip-172-31-4-95.ap-south-1.compute.internal     <none>           <none>
+mongo-2                        1/1     Running     0               43h     172.31.16.27    ip-172-31-23-193.ap-south-1.compute.internal   <none>           <none>
+mongo-rs-init-np42g            0/1     Completed   4 (43h ago)     43h     172.31.38.165   ip-172-31-43-198.ap-south-1.compute.internal   <none>           <none>
+mysql-0                        1/1     Running     0               43h     172.31.15.248   ip-172-31-4-95.ap-south-1.compute.internal     <none>           <none>
+pg-cnpg-1                      1/1     Running     1 (8m31s ago)   43h     172.31.16.202   ip-172-31-23-193.ap-south-1.compute.internal   <none>           <none>
+pg-cnpg-2                      0/1     Init:0/1    0               4m54s   <none>          ip-172-31-4-95.ap-south-1.compute.internal     <none>           <none>
+pg-unsafe-0                    1/1     Running     0               43h     172.31.34.254   ip-172-31-46-10.ap-south-1.compute.internal    <none>           <none>

@@ -1,0 +1,9 @@
+=== DB pod memory requests/limits (rightsizer G8 inputs) ===
+-- mongo-0 --
+mongo  req.mem=256Mi  lim.mem=512Mi  req.cpu=100m
+-- mysql-0 --
+mysql  req.mem=256Mi  lim.mem=512Mi  req.cpu=100m
+-- pg-cnpg-1 --
+postgres  req.mem=256Mi  lim.mem=512Mi  req.cpu=100m
+-- pg-unsafe-0 --
+postgres  req.mem=256Mi  lim.mem=512Mi  req.cpu=100m

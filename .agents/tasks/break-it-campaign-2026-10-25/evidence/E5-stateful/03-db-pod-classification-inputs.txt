@@ -1,0 +1,37 @@
+=== POD OWNER KIND + VOLUMES (PVC vs emptyDir vs ephemeral) ===
+POD=pg-cnpg-1  OWNER=Cluster/pg-cnpg
+    volumes: pgdata=pg-cnpg-1 scratch-data={} shm={"medium":"Memory"} kube-api-access-xpsg8= 
+POD=pg-cnpg-2  OWNER=Cluster/pg-cnpg
+    volumes: pgdata=pg-cnpg-2 scratch-data={} shm={"medium":"Memory"} kube-api-access-zt6bw= 
+POD=pg-unsafe-0  OWNER=StatefulSet/pg-unsafe
+    volumes: data={"sizeLimit":"1Gi"} kube-api-access-nbqfs= opentelemetry-auto-instrumentation-java={"sizeLimit":"200Mi"} opentelemetry-auto-instrumentation-nodejs={"sizeLimit":"200Mi"} opentelemetry-auto-instrumentation-python={"sizeLimit":"200Mi"} opentelemetry-auto-instrumentation-dotnet={"sizeLimit":"200Mi"} 
+POD=mysql-0  OWNER=StatefulSet/mysql
+    volumes: data=data-mysql-0 kube-api-access-4zzrr= opentelemetry-auto-instrumentation-java={"sizeLimit":"200Mi"} opentelemetry-auto-instrumentation-nodejs={"sizeLimit":"200Mi"} opentelemetry-auto-instrumentation-python={"sizeLimit":"200Mi"} opentelemetry-auto-instrumentation-dotnet={"sizeLimit":"200Mi"} 
+POD=mongo-0  OWNER=StatefulSet/mongo
+    volumes: data=data-mongo-0 keysrc= keys={"medium":"Memory","sizeLimit":"1Mi"} kube-api-access-7npck= opentelemetry-auto-instrumentation-java={"sizeLimit":"200Mi"} opentelemetry-auto-instrumentation-nodejs={"sizeLimit":"200Mi"} opentelemetry-auto-instrumentation-python={"sizeLimit":"200Mi"} opentelemetry-auto-instrumentation-dotnet={"sizeLimit":"200Mi"} 
+POD=mongo-1  OWNER=StatefulSet/mongo
+    volumes: data=data-mongo-1 keysrc= keys={"medium":"Memory","sizeLimit":"1Mi"} kube-api-access-5px2m= opentelemetry-auto-instrumentation-java={"sizeLimit":"200Mi"} opentelemetry-auto-instrumentation-nodejs={"sizeLimit":"200Mi"} opentelemetry-auto-instrumentation-python={"sizeLimit":"200Mi"} opentelemetry-auto-instrumentation-dotnet={"sizeLimit":"200Mi"} 
+POD=mongo-2  OWNER=StatefulSet/mongo
+    volumes: data=data-mongo-2 keysrc= keys={"medium":"Memory","sizeLimit":"1Mi"} kube-api-access-b9s8r= opentelemetry-auto-instrumentation-java={"sizeLimit":"200Mi"} opentelemetry-auto-instrumentation-nodejs={"sizeLimit":"200Mi"} opentelemetry-auto-instrumentation-python={"sizeLimit":"200Mi"} opentelemetry-auto-instrumentation-dotnet={"sizeLimit":"200Mi"} 
+POD=load-mongo-6d5bdd7ddf-psjzs  OWNER=ReplicaSet/load-mongo-6d5bdd7ddf
+    volumes: kube-api-access-5955w= 
+POD=load-mysql-8d7d848d5-sw25c  OWNER=ReplicaSet/load-mysql-8d7d848d5
+    volumes: kube-api-access-8v7wd= 
+POD=load-pgbench-bf746dc54-6s2q7  OWNER=ReplicaSet/load-pgbench-bf746dc54
+    volumes: kube-api-access-tzq7x= 
+
+=== PDBs in xamops-db-fixtures ===
+NAME              MIN AVAILABLE   MAX UNAVAILABLE   ALLOWED DISRUPTIONS   AGE
+mongo             2               N/A               1                     43h
+pg-cnpg-primary   1               N/A               0                     43h
+
+=== STATEFULSETS / DEPLOYMENTS replica counts ===
+NAME                         READY   AGE   CONTAINERS   IMAGES
+statefulset.apps/mongo       3/3     43h   mongo        mongo:7.0.24
+statefulset.apps/mysql       1/1     43h   mysql        mysql:8.4.6
+statefulset.apps/pg-unsafe   1/1     43h   postgres     postgres:16.10
+
+NAME                           READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS     IMAGES           SELECTOR
+deployment.apps/load-mongo     1/1     1            1           43h   mongo-insert   mongo:7.0.24     app=load-mongo
+deployment.apps/load-mysql     1/1     1            1           43h   mysql-insert   mysql:8.4.6      app=load-mysql
+deployment.apps/load-pgbench   1/1     1            1           43h   pgbench        postgres:16.10   app=load-pgbench

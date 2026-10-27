@@ -1,0 +1,3 @@
+NAME                READY   UP-TO-DATE   AVAILABLE   AGE     CONTAINERS     IMAGES                                                                          SELECTOR
+xamops-agent        1/1     1            1           15d     xamops-agent   docker.io/xamops/agent:v2.1.0                                                   app=xamops-agent
+xamops-automation   2/2     2            2           5d22h   automation     ghcr.io/xamops/xamops-autoscaler:sha-e02d6292113c4632fbbac3e51e12e502d6c4c147   app=xamops-automation
