@@ -1,0 +1,11 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "label": "Read-only role still carries index-write grants",
+      "severity": "non-blocking",
+      "detail": "cloudformation/xamops-readonly-role.yml keeps resource-explorer-2:CreateIndex/UpdateIndexType in the policy (pre-existing, unchanged by this diff). They are now inert because the application flag xamops.inventory.auto-create-indexes defaults to false, but the role is not literally read-only. Acceptable as documented (eases promotion to the read-write integration without a policy edit). If strict least-privilege on the read-only role is desired, remove the two grants in a follow-up."
+    }
+  ],
+  "reviewDoc": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/cis41-unauthorized-fix/review.md"
+}
