@@ -580,7 +580,8 @@ Resources:
         # grant is bounded to XamOps-CUR-* stacks in us-east-1, the bucket grant to
         # xamops-cur-* buckets. cur:* and s3:ListAllMyBuckets have no resource-level
         # ARNs, so Resource '*' there is intentional, not a wildcard oversight.
-        # No cur:DeleteReportDefinition — this role never deletes a report.
+        # cur:DeleteReportDefinition is included so CloudFormation can roll back a failed
+        # report create; cur:ListTagsForResource is required by CFN during create.
         # -----------------------------------------------------------------
         - PolicyName: XamOpsCurStackManage
           PolicyDocument:
@@ -616,6 +617,8 @@ Resources:
                   - 'cur:PutReportDefinition'
                   - 'cur:DescribeReportDefinitions'
                   - 'cur:ModifyReportDefinition'
+                  - 'cur:DeleteReportDefinition'
+                  - 'cur:ListTagsForResource'
                   # CUR has no resource-level ARNs, so '*' here is intentional.
                   - 's3:ListAllMyBuckets'
                 Resource: '*'
