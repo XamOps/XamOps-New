@@ -94,9 +94,24 @@ class CurStackServiceTest {
     // ---------------- detect ----------------
 
     @Test
-    void detect_notApplicable_whenNotOwnCur() {
+    void detect_applicable_regardlessOfBillingSource() {
+        // The CUR row is offered for every account now, so a non-OWN_CUR billing source must NOT
+        // short-circuit to NOT_APPLICABLE — detect goes on to describe the stack like any other.
+        when(cfn.describeStacks(any(DescribeStacksRequest.class))).thenReturn(stackWith("CREATE_COMPLETE"));
         CloudAccount account = ownCurAccount();
         account.setAwsBillingSource(AwsBillingSource.XAMMER_MPA_CUR);
+
+        CurStackService.DetectResult result = service.detect(account);
+
+        assertThat(result.state()).isEqualTo(CurStackService.State.PRESENT);
+        verify(awsClientProvider).getCloudFormationClient(any(CloudAccount.class), any());
+    }
+
+    @Test
+    void detect_notApplicable_whenNoCurTemplate() {
+        // The only thing that suppresses the CUR row now is a missing environment CUR template.
+        ReflectionTestUtils.setField(service, "curTemplateUrl", "");
+        CloudAccount account = ownCurAccount();
 
         CurStackService.DetectResult result = service.detect(account);
 
@@ -138,7 +153,9 @@ class CurStackServiceTest {
     // ---------------- applyAsync ----------------
 
     @Test
-    void applyAsync_skipped_whenNotApplicable() {
+    void applyAsync_skipped_whenNoCurTemplate() {
+        // Billing source no longer gates the apply; only a missing CUR template skips it.
+        ReflectionTestUtils.setField(service, "curTemplateUrl", "");
         CloudAccount account = ownCurAccount();
         account.setAwsBillingSource(AwsBillingSource.COST_EXPLORER_ONLY);
 

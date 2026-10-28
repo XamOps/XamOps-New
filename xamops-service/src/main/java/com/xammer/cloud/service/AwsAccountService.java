@@ -1,6 +1,5 @@
 package com.xammer.cloud.service;
 
-import com.xammer.cloud.domain.AwsBillingSource;
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.VerifyAccountRequest;
@@ -380,11 +379,13 @@ public class AwsAccountService {
         logger.info("Prepared stack update guide for account {} ({}): template {}, role {}",
                 account.getAccountName(), account.getAwsAccountId(), templateUrl, roleName);
 
-        // The CUR report is now a separate stack from the connection stack, so its update is a
-        // separate section rather than parameters on the connection stack. It applies only to
-        // accounts that own their report. AwsBillingSource has no ownsCur(), so OWN_CUR is
-        // matched directly.
-        boolean curApplicable = account.resolveAwsBillingSource() == AwsBillingSource.OWN_CUR;
+        // The CUR report is a separate stack from the connection stack, so its update is a
+        // separate section. The CUR section is shown for EVERY account regardless of billing
+        // source (matching CurStackService.applicable): an account only becomes OWN_CUR after a
+        // CUR exists, which is what this flow creates, so gating on OWN_CUR hid the row from the
+        // very accounts that needed it (every pre-existing account has a null billing source).
+        // The one requirement is an environment-level CUR template to create the stack from.
+        boolean curApplicable = curTemplateUrl != null && !curTemplateUrl.isBlank();
         String curLikelyStackName = "XamOps-CUR-"
                 + String.valueOf(account.getAccountName()).replaceAll("[^a-zA-Z0-9-]", "");
 

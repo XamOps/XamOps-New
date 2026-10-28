@@ -146,7 +146,10 @@ class AwsAccountServiceCurUrlTest {
     }
 
     @Test
-    void updateGuide_curSectionNotApplicable_forNonOwnCur() {
+    void updateGuide_curSectionApplicable_regardlessOfBillingSource() {
+        // The CUR section is now shown for every account, including ones not flagged OWN_CUR
+        // (e.g. an MPA member, or a pre-existing account whose billing source is still null).
+        // The operator decides whether to apply it; the backend no longer hides the row.
         CloudAccount account = new CloudAccount("Acme Member", "ext-2", "read-only", mock(Client.class));
         account.setAwsBillingSource(AwsBillingSource.XAMMER_MPA_CUR);
 
@@ -154,6 +157,18 @@ class AwsAccountServiceCurUrlTest {
 
         @SuppressWarnings("unchecked")
         Map<String, Object> cur = (Map<String, Object>) guide.get("cur");
-        assertThat(cur.get("applicable")).isEqualTo("false");
+        assertThat(cur.get("applicable")).isEqualTo("true");
+    }
+
+    @Test
+    void updateGuide_curSectionApplicable_forNullBillingSource() {
+        // A pre-existing account with no billing source set still gets the CUR row.
+        CloudAccount account = new CloudAccount("Legacy Acct", "ext-3", "read-only", mock(Client.class));
+
+        Map<String, Object> guide = service.generateStackUpdateGuide(account);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> cur = (Map<String, Object>) guide.get("cur");
+        assertThat(cur.get("applicable")).isEqualTo("true");
     }
 }

@@ -1,6 +1,5 @@
 package com.xammer.cloud.service.stack;
 
-import com.xammer.cloud.domain.AwsBillingSource;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.AwsClientProvider;
@@ -75,7 +74,7 @@ public class CurStackService {
 
     /** Where the CUR stack stands relative to what an apply would do. */
     public enum State {
-        /** Not an OWN_CUR account, or no CUR template configured — nothing to create or update. */
+        /** No CUR template configured in this environment — nothing to create or update. */
         NOT_APPLICABLE,
         /** No stack by this name — an apply would create it. */
         ABSENT,
@@ -138,15 +137,27 @@ public class CurStackService {
     }
 
     private boolean applicable(CloudAccount account) {
-        return account.resolveAwsBillingSource() == AwsBillingSource.OWN_CUR
-                && curTemplateUrl != null && !curTemplateUrl.isBlank();
+        // The CUR stack row is offered for EVERY account regardless of billing source, so the
+        // Update stack modal always shows "Create" (no CUR stack yet) or "Update" (one exists).
+        // This is deliberate: an account's billing source is only flipped to OWN_CUR AFTER a CUR
+        // physically exists, which is the very thing this button creates — gating on OWN_CUR
+        // produced a chicken-and-egg where the row never appeared for accounts that needed it
+        // (including every pre-existing account, whose billing source is still null). The one
+        // hard requirement is an environment-level CUR template to create the stack from; with
+        // none configured there is nothing to create, so the row is still suppressed then.
+        //
+        // Trade-off accepted by the operator: accounts under a XamOps MPA (XAMMER_MPA_CUR) are
+        // also offered the row even though their costs are already covered by the payer's CUR;
+        // creating a per-member CUR there is redundant, so the operator simply does not click it
+        // on those accounts.
+        return curTemplateUrl != null && !curTemplateUrl.isBlank();
     }
 
     /**
      * Where the CUR stack stands for this account, without changing anything.
      *
-     * <p>Returns NOT_APPLICABLE for an account that does not own its report or an environment
-     * with no CUR template. Otherwise describes the stack in us-east-1 and classifies it.
+     * <p>Returns NOT_APPLICABLE only when the environment has no CUR template. Otherwise, for
+     * every account regardless of billing source, describes the stack in us-east-1 and classifies it.
      */
     public DetectResult detect(CloudAccount account) {
         String stackName = resolveStackName(account);
@@ -190,7 +201,7 @@ public class CurStackService {
             DetectResult detected = detect(account);
             if (detected.state() == State.NOT_APPLICABLE) {
                 return new CurApplyResult(CurStatus.SKIPPED, detected.stackName(),
-                        "This account does not own its CUR report, so there is no CUR stack to apply.");
+                        "No CUR report template is configured for this environment, so there is no CUR stack to apply.");
             }
             stackName = detected.stackName();
             if (detected.state() == State.BUSY) {
