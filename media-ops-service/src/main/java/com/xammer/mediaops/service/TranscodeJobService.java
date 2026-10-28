@@ -7,14 +7,17 @@ import com.xammer.mediaops.repository.MediaStorageFileRepository;
 import com.xammer.mediaops.repository.TranscodeJobRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.file.*;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -35,6 +38,13 @@ public class TranscodeJobService {
     private final SourceUrlResolver sourceUrlResolver;
     private final SimpMessagingTemplate messaging;
     private final NotificationService notificationService;
+
+    // Delete a job's local output dir immediately after a successful customer/account
+    // bucket upload (inline post-upload cleanup). Disabled in local dev so files stay
+    // on disk for the local file server. Never deletes the only copy — see
+    // deleteLocalOutputDir and the success-path gating in processJobAsync.
+    @Value("${mediaops.cleanup.local-output.enabled:true}")
+    private boolean deleteLocalAfterUpload;
 
     public TranscodeJobService(TranscodeJobRepository jobRepo,
                                MediaStorageFileRepository fileRepo,
@@ -255,6 +265,12 @@ public class TranscodeJobService {
                 }
             }
 
+            // True only when a customer/account bucket upload returned WITHOUT throwing.
+            // This gates the inline local-output cleanup to the success path only — an
+            // upload that threw (catch blocks below set errorMessage) leaves this false
+            // so the local files are kept and the job stays downloadable/retryable.
+            boolean localUploadedToCustomerOrAccount = false;
+
             if (job.getOutputS3ConfigId() != null && job.getOutputPath() != null) {
                 // Customer chose a key-based connected bucket. Upload there
                 // (bucket stays private; playback/download go through the backend proxy).
@@ -265,6 +281,7 @@ public class TranscodeJobService {
                     job.setOutputBucketPrefix(prefix);
                     log.info("[MediaOps] Job {} output stored in customer bucket (config {}) under {}",
                             job.getId(), job.getOutputS3ConfigId(), prefix);
+                    localUploadedToCustomerOrAccount = true;
                 } catch (Exception e) {
                     log.error("[MediaOps] Customer-bucket upload failed for job {}: {}", job.getId(), e.getMessage());
                     job.setErrorMessage("Output upload to your S3 bucket failed: " + e.getMessage());
@@ -280,6 +297,7 @@ public class TranscodeJobService {
                     job.setOutputRegion(region);
                     log.info("[MediaOps] Job {} output stored in account {} bucket {} under {}",
                             job.getId(), job.getOutputAccountId(), job.getOutputBucket(), prefix);
+                    localUploadedToCustomerOrAccount = true;
                 } catch (Exception e) {
                     log.error("[MediaOps] Account-bucket upload failed for job {}: {}", job.getId(), e.getMessage());
                     job.setErrorMessage("Output upload to your account bucket failed: " + e.getMessage());
@@ -301,6 +319,17 @@ public class TranscodeJobService {
 
             jobRepo.save(job);
             registerOutputFile(job);
+
+            // Inline post-upload cleanup. Ordering matters: this runs AFTER
+            // registerOutputFile(job), which reads the local output dir to create the
+            // Storage-page MediaStorageFile row (name + sizeBytes). We keep that DB row
+            // and only then delete the local bytes. Gated on the per-branch success flag,
+            // so a failed upload (errorMessage set) keeps its files. Branch (c) — the
+            // XamOps backup bucket — is intentionally excluded here: S3StorageService
+            // already deletes locally when delete-local-after-upload=true.
+            if (localUploadedToCustomerOrAccount) {
+                deleteLocalOutputDir(job);
+            }
         } else if (ffmpegService.consumeStopRequested(job.getId())) {
             // Killed by an explicit user stop — cancelled, not failed.
             job.setStatus(TranscodeJob.JobStatus.CANCELLED);
@@ -579,6 +608,31 @@ public class TranscodeJobService {
         } catch (Exception e) {
             log.debug("[MediaOps] directorySizeBytes failed for {}: {}", outputPath, e.getMessage());
             return 0L;
+        }
+    }
+
+    /**
+     * Delete a job's local output directory after its output has been successfully
+     * uploaded to the customer/account bucket. Null-safe, existence-checked and
+     * flag-gated; a cleanup failure logs a WARNING but never fails the job. Mirrors the
+     * recursive-delete pattern in {@link S3StorageService}. Callers must only invoke this
+     * on the upload success path so a failed upload keeps its local files.
+     */
+    private void deleteLocalOutputDir(TranscodeJob job) {
+        if (!deleteLocalAfterUpload) return;
+        String outputPath = job.getOutputPath();
+        if (outputPath == null || outputPath.isBlank()) return;
+        Path dir = Paths.get(outputPath);
+        if (!Files.exists(dir)) return;
+        try {
+            Files.walk(dir)
+                 .sorted(Comparator.reverseOrder())
+                 .forEach(p -> { try { Files.delete(p); } catch (IOException ignored) {} });
+            log.info("[MediaOps] Deleted local output for job {} at {} after successful upload",
+                    job.getId(), outputPath);
+        } catch (Exception e) {
+            log.warn("[MediaOps] Local-output cleanup failed for job {} at {}: {}",
+                    job.getId(), outputPath, e.getMessage());
         }
     }
 }
