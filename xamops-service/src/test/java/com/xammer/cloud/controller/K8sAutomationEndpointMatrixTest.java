@@ -93,13 +93,15 @@ class K8sAutomationEndpointMatrixTest {
             new Endpoint("PUT", "/safety-guards", "{\"respectPodDisruptionBudgets\":true,\"protectCriticalNamespaces\":true}"),
             new Endpoint("PUT", "/node-optimizer", "{\"idleCpuThresholdPct\":15,\"handleSpotInterruptions\":false}"),
             new Endpoint("PUT", "/rebalancer", "{\"scheduleEnabled\":false,\"gracefulDraining\":true}"),
+            new Endpoint("PUT", "/consolidation", "{\"enabled\":false}"),
             new Endpoint("POST", "/rebalance", null),
             new Endpoint("PUT", "/node-templates/tpl-1", "{\"name\":\"pool\"}"),
             new Endpoint("DELETE", "/node-templates/tpl-1", null));
 
     /** Mutations readiness allows today; the rest must be refused with K8S_CONTROLLER_NOT_READY. */
     static final Set<String> READINESS_ALLOWED = Set.of(
-            "/enabled", "/mode", "/evictor-policy", "/safety-guards", "/node-optimizer", "/rebalancer");
+            "/enabled", "/mode", "/evictor-policy", "/safety-guards", "/node-optimizer", "/rebalancer",
+            "/consolidation");
 
     static Stream<Endpoint> all() {
         return ENDPOINTS.stream();
@@ -189,8 +191,8 @@ class K8sAutomationEndpointMatrixTest {
     @ParameterizedTest(name = "{0}")
     @MethodSource("all")
     void coversEveryEndpoint(Endpoint e) {
-        assertThat(ENDPOINTS).hasSize(19);
-        assertThat(ENDPOINTS.stream().filter(Endpoint::mutation)).hasSize(11);
+        assertThat(ENDPOINTS).hasSize(20);
+        assertThat(ENDPOINTS.stream().filter(Endpoint::mutation)).hasSize(12);
     }
 
     // ── Read-only connection ──────────────────────────────────────────────

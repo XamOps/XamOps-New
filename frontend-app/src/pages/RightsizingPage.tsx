@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
@@ -9,7 +9,13 @@ import apiClient from '../utils/apiClient';
 import RightsizingHeader from '../components/Rightsizing/RightsizingHeader';
 import AWSRecommendationsTable from '../components/Rightsizing/AWSRecommendationsTable';
 import XamOpsRecommendationsTable from '../components/Rightsizing/XamOpsRecommendationsTable';
+import CohRecommendationsTable from '../components/Rightsizing/CohRecommendationsTable';
 import { useTabState } from '../hooks/useTabState';
+import {
+  fetchCohRecommendations,
+  fetchCohStatus,
+  type CohRecommendation,
+} from '../api/cohApi';
 
 interface ApplyTarget {
   instanceId: string;
@@ -35,9 +41,48 @@ export const RightsizingPage: React.FC = () => {
     refreshAll,
   } = useRightsizingData({ selectedAccountId });
 
-  const [activeTab, setActiveTab] = useTabState<'aws' | 'xamops'>('aws');
+  const [activeTab, setActiveTab] = useTabState<'aws' | 'xamops' | 'coh'>('aws');
   const [applyTarget, setApplyTarget] = useState<ApplyTarget | null>(null);
   const [isApplying, setIsApplying] = useState(false);
+
+  // Cost Optimization Hub: cross-service recommendation feed, loaded independently of the
+  // EC2/XamAi hook so the existing tabs are untouched. Enablement is probed separately because a
+  // disabled Hub needs enable-guidance rather than a bare "no recommendations" empty-state.
+  const [cohRecs, setCohRecs] = useState<CohRecommendation[]>([]);
+  const [cohEnabled, setCohEnabled] = useState<boolean | null>(null);
+  const [cohLoading, setCohLoading] = useState(false);
+
+  const loadCoh = useCallback(async (accountId: string, forceRefresh: boolean) => {
+    setCohLoading(true);
+    try {
+      const [status, recs] = await Promise.all([
+        fetchCohStatus(accountId),
+        fetchCohRecommendations(accountId, forceRefresh),
+      ]);
+      setCohEnabled(status.enabled);
+      setCohRecs(recs);
+    } catch (err) {
+      console.error('Failed to load Cost Optimization Hub data:', err);
+      setCohEnabled(false);
+      setCohRecs([]);
+    } finally {
+      setCohLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!selectedAccountId) {
+      setCohRecs([]);
+      setCohEnabled(null);
+      return;
+    }
+    loadCoh(selectedAccountId, false);
+  }, [selectedAccountId, loadCoh]);
+
+  const handleRefreshAll = useCallback(() => {
+    refreshAll();
+    if (selectedAccountId) loadCoh(selectedAccountId, true);
+  }, [refreshAll, selectedAccountId, loadCoh]);
 
   const filteredAWSRecommendations = awsRecommendations.filter(rec => {
     // Drop "no-change" rows: AWS sometimes returns the current type as the best
@@ -82,7 +127,7 @@ export const RightsizingPage: React.FC = () => {
   if (error) {
     return (
       <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
-        <RightsizingHeader isRefreshing={false} onRefresh={refreshAll} />
+        <RightsizingHeader isRefreshing={false} onRefresh={handleRefreshAll} />
         <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
           <div className="w-12 h-12 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-3">
             <Icon icon="mdi:alert-circle-outline" width={22} color="#DC2626" />
@@ -102,7 +147,7 @@ export const RightsizingPage: React.FC = () => {
 
   return (
     <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
-      <RightsizingHeader isRefreshing={isRefreshing} onRefresh={refreshAll} />
+      <RightsizingHeader isRefreshing={isRefreshing || cohLoading} onRefresh={handleRefreshAll} />
 
       {/* No account */}
       {!selectedAccountId && !isLoadingAWS && !isLoadingXamOps && (
@@ -123,6 +168,7 @@ export const RightsizingPage: React.FC = () => {
             {([
               { id: 'aws', label: 'AWS Recommendations', icon: 'mdi:aws' },
               { id: 'xamops', label: 'XamAi Recommendations', icon: 'mdi:lightning-bolt' },
+              { id: 'coh', label: 'Cost Optimization Hub', icon: 'mdi:aws' },
             ] as const).map(tab => (
               <button
                 key={tab.id}
@@ -195,6 +241,54 @@ export const RightsizingPage: React.FC = () => {
                     isLoading={isLoadingXamOps}
                     canApply={canApply}
                     onApply={handleApplyRequest}
+                  />
+                )}
+              </motion.div>
+            )}
+
+            {activeTab === 'coh' && (
+              <motion.div
+                key="coh"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+              >
+                {!cohLoading && cohEnabled === false ? (
+                  /* Hub not enabled — distinct from "enabled but zero recommendations". */
+                  <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
+                    <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ backgroundColor: '#FF990014' }}>
+                      <Icon icon="mdi:toggle-switch-off-outline" width={24} color="#FF9900" />
+                    </div>
+                    <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">Cost Optimization Hub Not Enabled</p>
+                    <p className="text-[13px] text-[rgba(0,0,0,0.45)] mb-4">
+                      Enable the Hub in this account to see cross-service savings recommendations here.
+                    </p>
+                    <div className="inline-flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-left max-w-md mx-auto">
+                      <Icon icon="mdi:information-outline" width={15} color="#D97706" className="flex-shrink-0 mt-0.5" />
+                      <p className="text-[12px] text-amber-700">
+                        In the AWS console go to <strong>Billing and Cost Management</strong> &rarr;{' '}
+                        <strong>Cost Optimization Hub</strong> and enable it. Recommendations appear after AWS
+                        completes its first analysis.
+                      </p>
+                    </div>
+                  </div>
+                ) : !cohLoading && cohRecs.length === 0 ? (
+                  /* Enabled (or still unknown) but no recommendations. */
+                  <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
+                    <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ backgroundColor: '#16A34A14' }}>
+                      <Icon icon="mdi:check-circle-outline" width={24} color="#16A34A" />
+                    </div>
+                    <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Recommendations</p>
+                    <p className="text-[13px] text-[rgba(0,0,0,0.45)]">
+                      Cost Optimization Hub has no savings recommendations for this account right now.
+                    </p>
+                  </div>
+                ) : (
+                  <CohRecommendationsTable
+                    recommendations={cohRecs}
+                    isLoading={cohLoading}
+                    accountId={selectedAccountId}
                   />
                 )}
               </motion.div>

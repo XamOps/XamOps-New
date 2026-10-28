@@ -7,6 +7,7 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.EvictorPolicyDto;
 import com.xammer.cloud.dto.autoscaling.ConsolidationPlanResponse;
+import com.xammer.cloud.dto.autoscaling.ConsolidationPolicyDto;
 import com.xammer.cloud.dto.k8s.K8sRefusalBody;
 import com.xammer.cloud.dto.spot.SpotInterruptionsDto;
 import com.xammer.cloud.exception.K8sAutomationReason;
@@ -176,6 +177,8 @@ class EksAutoscalingControllerTest {
                 "K8S_CONTROLLER_NOT_READY", "autoDrainIdleNodes");
         assertRefusal(call(HttpMethod.PUT, "/rebalancer", "{\"scheduleEnabled\":true}"), 403,
                 "K8S_CONTROLLER_NOT_READY", "scheduleEnabled");
+        assertRefusal(call(HttpMethod.PUT, "/consolidation", "{\"enabled\":true}"), 403,
+                "K8S_CONTROLLER_NOT_READY", "enabled");
         assertRefusal(call(HttpMethod.PUT, "/safety-guards", "{\"respectPodDisruptionBudgets\":false}"), 403,
                 "K8S_GUARDRAIL_LOCKED", "respectPodDisruptionBudgets");
         assertRefusal(call(HttpMethod.PUT, "/node-optimizer", "{\"maxParallelDrains\":3}"), 403,
@@ -202,6 +205,34 @@ class EksAutoscalingControllerTest {
         verify(service).setAutoscalingEnabled(config, true, "jane.doe");
         assertThat(call(HttpMethod.PUT, "/mode", "{\"mode\":\"scoped\"}").getStatus()).isEqualTo(200);
         verify(service).setMode(config, "scoped", "jane.doe");
+    }
+
+    @Test
+    void consolidationEnableReachesTheServiceOnlyOnceConsolidationActionsIsReady() throws Exception {
+        // Not ready (default props): the enable write is refused and the service is never called.
+        assertRefusal(call(HttpMethod.PUT, "/consolidation", "{\"enabled\":true}"), 403,
+                "K8S_CONTROLLER_NOT_READY", "enabled");
+        verifyNoInteractions(service);
+
+        // Ready: re-wire the controller with a normalizer whose consolidation-actions key is ready,
+        // then the same enable write is accepted and reaches the service with the resolved config/actor.
+        K8sAutomationReadinessProperties ready = new K8sAutomationReadinessProperties();
+        ready.setConsolidationActions(true);
+        EksAutoscalingController readyController = new EksAutoscalingController(service,
+                new K8sAutomationPolicyNormalizer(ready),
+                consolidationPlanService, consolidationRunService, spotReadService);
+        MockMvc readyMvc = MockMvcBuilders.standaloneSetup(readyController).build();
+
+        MockHttpServletResponse r = readyMvc.perform(MockMvcRequestBuilders
+                        .request(HttpMethod.PUT, BASE + "/consolidation")
+                        .param("accountId", "111111111111")
+                        .requestAttr(K8sAutomationRequestContext.ATTRIBUTE, ctx)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":true}"))
+                .andReturn().getResponse();
+        assertThat(r.getStatus()).isEqualTo(200);
+        assertThat(body(r).get("success").asBoolean()).isTrue();
+        verify(service).saveConsolidationPolicy(eq(config), any(ConsolidationPolicyDto.class), eq("jane.doe"));
     }
 
     // ── Consolidation plan (look-only) ────────────────────────────────────

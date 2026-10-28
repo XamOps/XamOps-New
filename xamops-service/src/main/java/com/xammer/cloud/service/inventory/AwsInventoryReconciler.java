@@ -142,15 +142,33 @@ public class AwsInventoryReconciler {
     private String defaultRegion;
 
     /**
-     * Whether to create Resource Explorer indexes in regions that lack one.
+     * Whether to create or promote Resource Explorer indexes in the customer's account.
      *
      * <p>
-     * On by default: without it, every customer using an AWS opt-in region is permanently
-     * stuck on the describe fallback with no automatic remedy. Switchable off for operators
-     * who would rather the platform never write to a customer account, at the cost of
-     * handling those regions manually.
+     * OFF by default. {@code createMissingIndexes} (CreateIndex) and
+     * {@code promoteAggregator} (UpdateIndexType) are the only two writes the inventory
+     * plane makes into a customer account, and the default XamOps integration assumes a
+     * read-only role ({@code XamOpsReadOnlyRole}) that does not grant them. With the default
+     * on, every sync pass attempted those writes, each was denied, and because the
+     * scheduler runs continuously the stream of AccessDenied events repeatedly tripped the
+     * customer's CIS 4.1 "unauthorized API calls" alarm (DTPL-UnauthorizedAPICalls-Alarm).
+     *
+     * <p>
+     * With it off, inventory still works: {@link #resolveIndex} treats a region with no
+     * index exactly as it treats one it is not allowed to create — the region stays
+     * uncovered, the search runs against whatever indexes already exist (INDEX_AGGREGATOR /
+     * INDEX_LOCAL / INDEX_PARTIAL), and anything Resource Explorer cannot see falls through
+     * to the describe path. No write is attempted on any path, including the bootstrap
+     * branch in {@link #resolveIndex} — {@link #createMissingIndexes} and
+     * {@link #promoteAggregator} both return immediately when this is false.
+     *
+     * <p>
+     * Enable it ONLY in an environment that assumes the read-write role
+     * ({@code XamOpsReadWriteRole}), which grants resource-explorer-2:CreateIndex and
+     * resource-explorer-2:UpdateIndexType. Turning it on under the read-only role brings
+     * back the CIS 4.1 alarm.
      */
-    @Value("${xamops.inventory.auto-create-indexes:true}")
+    @Value("${xamops.inventory.auto-create-indexes:false}")
     private boolean autoCreateIndexes;
 
     public AwsInventoryReconciler(AwsClientProvider awsClientProvider,

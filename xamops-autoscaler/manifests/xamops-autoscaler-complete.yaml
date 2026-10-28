@@ -331,8 +331,12 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
+      # maxUnavailable:0 keeps 2/2 available throughout a rollout so the leader never
+      # drops; maxSurge:2 lets both replacement pods come up in parallel on a pod-packed
+      # cluster (the required hostname anti-affinity still pins one automation pod per
+      # node) instead of serialising behind a single surge slot.
       maxUnavailable: 0
-      maxSurge: 1
+      maxSurge: 2
   template:
     metadata:
       labels:
@@ -427,13 +431,17 @@ spec:
                   fieldPath: spec.nodeName
 
           # ── Resource limits ───────────────────────────────────────────────
+          # BUG-001 / F-E6-3: the agent OOMKills at scale (~250 nodes / 5k pods) with the
+          # old 256Mi limit — the informer caches for nodes/pods/deployments plus the
+          # scheduler-fit plan grow with cluster size. Raised to request 512Mi / limit 1Gi
+          # so the leader survives a full-cluster scale/soak without being OOMKilled.
           resources:
             requests:
               cpu: 50m
-              memory: 64Mi
+              memory: 512Mi
             limits:
               cpu: 500m
-              memory: 256Mi
+              memory: 1Gi
 
           # ── Security ──────────────────────────────────────────────────────
           securityContext:

@@ -405,6 +405,16 @@ Resources:
                   # A Resource Explorer index holds no customer data of its own and is free
                   # of charge - it only lets AWS answer "what exists in this region".
                   # Creation is one-time per region and idempotent.
+                  #
+                  # NOTE (CIS 4.1): automatic index creation/promotion is intentionally
+                  # UNSUPPORTED under the read-only integration. The backend ships with
+                  # xamops.inventory.auto-create-indexes=false, so the reconciler never
+                  # calls CreateIndex or UpdateIndexType when running against this role.
+                  # Older deployed copies of this role do not carry these two grants at all,
+                  # and with auto-create on the reconciler's denied write attempts drove the
+                  # customer's CIS 4.1 "unauthorized API calls" alarm. These grants are left
+                  # here only so an account can be promoted to the read-write integration
+                  # without editing the policy; they stay inert while auto-create is off.
                   # ------------------------------------------------------------------
                   - 'resource-explorer-2:CreateIndex'
                   # Promote the first index to AGGREGATOR when the account has none.
@@ -425,6 +435,10 @@ Resources:
                   - 'tag:GetResources'
                   - 'tag:GetTagKeys'
                   - 'route53:ListHostedZones'
+                  # S3 region resolution (HeadBucket + GetBucketLocation) is already
+                  # covered: HeadBucket has no distinct IAM action and is authorized by
+                  # s3:ListBucket below, and GetBucketLocation is granted explicitly. No
+                  # s3:HeadBucket grant is needed or valid, so none is added.
                   - 's3:GetBucketAcl'
                   - 's3:GetBucketLocation'
                   - 's3:GetBucketPublicAccessBlock'

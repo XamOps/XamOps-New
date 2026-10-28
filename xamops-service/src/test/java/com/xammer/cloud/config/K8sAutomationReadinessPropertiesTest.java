@@ -83,8 +83,14 @@ class K8sAutomationReadinessPropertiesTest {
         }
     }
     @Test
-    void noProfileOverridesSpotInterruptionActions() throws Exception {
+    void onlyUatMayOverrideSpotInterruptionActions() throws Exception {
+        // UAT is the ONLY profile allowed to turn spot-interruption-actions on, mirroring how
+        // vertical-rightsizing/hpa are uat-only (WorkloadAutoscalingPropertiesTest). The base
+        // application.properties default stays false; every OTHER profile must not declare the key at
+        // all, so this test still FAILS if the key appears true anywhere but uat. The runtime gate is
+        // unchanged: handleSpotInterruptions still needs node-optimizer-actions + the policy + this key.
         String key = PREFIX + ".spot-interruption-actions";
+        String uat = "application-uat.properties";
         java.nio.file.Path dir = java.nio.file.Path.of("src/main/resources");
         List<java.nio.file.Path> files;
         try (java.util.stream.Stream<java.nio.file.Path> s = java.nio.file.Files.list(dir)) {
@@ -96,8 +102,14 @@ class K8sAutomationReadinessPropertiesTest {
             try (InputStream in = java.nio.file.Files.newInputStream(f)) {
                 props.load(in);
             }
-            if (f.getFileName().toString().equals("application.properties")) {
+            String name = f.getFileName().toString();
+            if (name.equals("application.properties")) {
                 assertThat(props.getProperty(key)).as(f.toString()).isEqualTo("false");
+            } else if (name.equals(uat)) {
+                // uat may declare it; if present it must be exactly "true" (never a stray value).
+                if (props.containsKey(key)) {
+                    assertThat(props.getProperty(key)).as(f.toString()).isEqualTo("true");
+                }
             } else {
                 assertThat(props.containsKey(key)).as(f + " must not override " + key).isFalse();
             }
