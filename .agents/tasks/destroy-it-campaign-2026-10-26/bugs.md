@@ -100,3 +100,18 @@ ready, no live agent path on this build.
 **+ 3 readiness keys READY-but-no-live-agent-path** (rightsizer-apply, hpa-apply, vpa-apply, per
 BUG-GATE-002/003/004). NOT "8/8 agent-live". All 8 readiness keys ARE ready at the backend and
 DRY_RUN=false; the three gaps are design/missing-writer issues recorded above.
+
+---
+## OBS-DB-001 — DB-safety refusal reason-code is a blanket `db-emptydir` (not role-aware) — **LOW / observation**
+HEADLINE DB-safety test (I15) during the attack phase **PASSED**: when rebalancer/node-optimizer tried to
+disrupt the ng-stateful-1 nodes hosting the fixtures, **every** DB pod was **refused with a recorded reason**
+and **none was evicted** (zero `Evicted`/preempt events; DB pod ages unchanged). Evidence:
+`setup/attack/I15-I16-headline.md` + `setup/attack/drain-refusals-raw.log`.
+
+Observation (does NOT change the PASS): the recorded reason is a blanket **`db-emptydir`** even for the
+PVC-backed CNPG **primary** (pg-cnpg-2), CNPG replica (pg-cnpg-1), MySQL (mysql-0) and Mongo RS — which are
+NOT emptyDir — and DB *clients* get `db-role-unknown` (correct: unknown ⇒ refuse). Protection is correct;
+the reason is not role-aware (no `db-primary` / `db-sync-standby` / `db-pvc` code). Matches the known gaps
+**G2/G6** in `.agents/tasks/stateful-db-fixtures-2026-10-24/report.md` ("refusal reasons are generic";
+"primary and sync standby protected only by the blanket PVC refusal"). Recommend a role-aware reason code
+so operators can see *why* a DB pod was protected. **Finding/observation only — not a headline-breaker.**
