@@ -85,6 +85,16 @@ export interface StackUpdatePreview {
   parameterChanges: ParameterChange[];
   resourceChanges: ResourceChange[];
   detail: string | null;
+  /**
+   * The CUR report stack change the Update button will also apply, or null when the account
+   * does not own a CUR (not applicable). Create/Update drives the tone of the extra row.
+   */
+  curChange: {
+    action: 'Create' | 'Update';
+    stackName: string;
+    region: string;
+    status: string;
+  } | null;
 }
 
 export interface StackEventLine {
@@ -99,6 +109,28 @@ export interface StackUpdateProgress {
   inProgress: boolean;
   failed: boolean;
   events: StackEventLine[];
+  /**
+   * The CUR stack's own progress, running alongside the connection stack. Null for accounts
+   * without a CUR or when the CUR stack could not be read.
+   */
+  cur: {
+    status: string;
+    inProgress: boolean;
+    failed: boolean;
+  } | null;
+}
+
+/** The CUR side of an apply, returned by executeStackUpdate so the submit outcome shows at once. */
+export interface CurApplyResult {
+  curStatus: string;
+  curStackName: string | null;
+  message: string | null;
+}
+
+/** The combined outcome of an apply: the connection change set plus the CUR stack. */
+export interface ApplyResult {
+  connectionStarted: boolean;
+  cur: CurApplyResult;
 }
 
 /** A refusal that carries its own remedy, rather than a bare error string. */
@@ -150,8 +182,8 @@ export const previewStackUpdate = async (accountId: string): Promise<StackUpdate
  */
 export const executeStackUpdate = async (
   accountId: string,
-  changeSetId: string,
-): Promise<void> => {
+  changeSetId: string | null,
+): Promise<ApplyResult> => {
   const res = await apiFetch(
     `/api/xamops/account-manager/stack-update/${encodeURIComponent(accountId)}/execute`,
     {
@@ -160,7 +192,8 @@ export const executeStackUpdate = async (
       body: JSON.stringify({ changeSetId }),
     },
   );
-  if (!res.ok) await parse(res);
+  if (!res.ok) return parse(res);
+  return (await res.json()) as ApplyResult;
 };
 
 /** Stack status and recent events, for following an update as it runs. */
