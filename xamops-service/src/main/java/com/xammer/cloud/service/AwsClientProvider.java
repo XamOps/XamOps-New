@@ -5,8 +5,12 @@ import com.xammer.cloud.permissions.AwsPermissionCatalog;
 import com.xammer.cloud.permissions.AwsPermissionInterceptor;
 import com.xammer.cloud.permissions.XamOpsExecutionAttributes;
 import com.xammer.cloud.service.autospotting.AutoSpottingBlockedException;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
@@ -15,8 +19,9 @@ import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.regions.Region;
 
 import java.time.Duration;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
 import software.amazon.awssdk.services.acm.AcmClient;
 import software.amazon.awssdk.services.amplify.AmplifyClient;
 import software.amazon.awssdk.services.apigateway.ApiGatewayClient;
@@ -100,17 +105,73 @@ public class AwsClientProvider {
 
     private final StsClient stsClient;
     private final AwsPermissionInterceptor permissionInterceptor;
-    private final Map<String, Object> clientCache = new ConcurrentHashMap<>();
 
-    public AwsClientProvider(StsClient stsClient, AwsPermissionInterceptor permissionInterceptor) {
+    /**
+     * Idle-eviction cache for AWS SDK v2 clients (and ROLE_CREDS credentials providers).
+     * expireAfterAccess reclaims a client only after it has sat unused for the configured
+     * window, so a client in active use keeps resetting its timer and is never evicted
+     * mid-use. The removal listener closes every evicted {@link AutoCloseable} value so idle
+     * clients stop leaking connections and background refresh threads.
+     */
+    private final Cache<String, Object> clientCache;
+
+    public AwsClientProvider(StsClient stsClient, AwsPermissionInterceptor permissionInterceptor,
+            @Value("${xamops.aws.client-cache.expire-after-access-minutes:240}") long expireAfterAccessMinutes) {
         this.stsClient = stsClient;
         this.permissionInterceptor = permissionInterceptor;
+        this.clientCache = Caffeine.newBuilder()
+                .expireAfterAccess(expireAfterAccessMinutes, TimeUnit.MINUTES)
+                .removalListener((key, value, cause) -> {
+                    if (value instanceof AutoCloseable c) {
+                        try {
+                            c.close();
+                        } catch (Exception e) {
+                            logger.warn("Failed to close cached AWS client for key {}: {}", key, e.getMessage());
+                        }
+                    }
+                })
+                .build();
         logger.info("AwsClientProvider initialized with Client Caching and permission tracking enabled");
     }
 
+    /**
+     * Two-arg constructor preserved for direct construction (e.g. unit tests). Delegates to
+     * the {@code @Value}-injected constructor with the 4-hour (240-minute) default.
+     */
+    public AwsClientProvider(StsClient stsClient, AwsPermissionInterceptor permissionInterceptor) {
+        this(stsClient, permissionInterceptor, 240L);
+    }
+
     public void evictAccount(String awsAccountId) {
-        clientCache.keySet().removeIf(key -> key.startsWith(awsAccountId + ":"));
+        String prefix = awsAccountId + ":";
+        List<String> keysToEvict = new ArrayList<>();
+        for (String key : clientCache.asMap().keySet()) {
+            if (key.startsWith(prefix)) {
+                keysToEvict.add(key);
+            }
+        }
+        clientCache.invalidateAll(keysToEvict);
+        clientCache.cleanUp();
         logger.info("Evicted cached clients for account {}", awsAccountId);
+    }
+
+    /**
+     * Test-only seam: inserts a value directly into the cache so eviction/close behavior can be
+     * asserted without relying on wall-clock expiry. Not used by production code paths.
+     */
+    void putForTest(String key, Object value) {
+        clientCache.put(key, value);
+    }
+
+    /**
+     * Closes every cached AWS client on shutdown by invalidating the whole cache (which fires the
+     * removal listener) and forcing pending removals to run.
+     */
+    @PreDestroy
+    public void closeAllClients() {
+        clientCache.invalidateAll();
+        clientCache.cleanUp();
+        logger.info("Closed all cached AWS clients on shutdown");
     }
 
     public AwsCredentialsProvider getCredentialsProvider(CloudAccount account) {
@@ -184,7 +245,7 @@ public class AwsClientProvider {
 
         String cacheKey = String.format("%s:%s:%s", account.getAwsAccountId(), clientClass.getSimpleName(), region);
         logCacheStatus(cacheKey, clientClass);
-        return (ClientT) clientCache.computeIfAbsent(cacheKey, k -> {
+        return (ClientT) clientCache.get(cacheKey, k -> {
             logger.info("🚀 [AwsClientProvider] Creating NEW {} for account {} in region {} (Caching instance)",
                     clientClass.getSimpleName(), account.getAwsAccountId(), region);
             return builder
@@ -196,7 +257,7 @@ public class AwsClientProvider {
     }
 
     private <ClientT> void logCacheStatus(String cacheKey, Class<ClientT> clientClass) {
-        if (clientCache.containsKey(cacheKey)) {
+        if (clientCache.asMap().containsKey(cacheKey)) {
             logger.info("♻️ [AwsClientProvider] Reusing CACHED {} for cache key: {}", clientClass.getSimpleName(),
                     cacheKey);
         }
@@ -251,7 +312,7 @@ public class AwsClientProvider {
             // assume-role creds would leave them to expire, so the provider refreshes them lazily
             // instead of doing a stsClient.assumeRole round-trip on every call.
             String cacheKey = "HOST:" + DynamoDbClient.class.getSimpleName() + ":ap-south-1";
-            return (DynamoDbClient) clientCache.computeIfAbsent(cacheKey, k -> {
+            return (DynamoDbClient) clientCache.get(cacheKey, k -> {
                 DynamoDbClient client = DynamoDbClient.builder()
                         .region(Region.AP_SOUTH_1)
                         .credentialsProvider(StsAssumeRoleCredentialsProvider.builder()
@@ -281,7 +342,7 @@ public class AwsClientProvider {
         try {
             // HOST: key is region-only (not per customer account), so evictAccount does not evict it.
             String cacheKey = "HOST:" + CloudWatchClient.class.getSimpleName() + ":" + region;
-            return (CloudWatchClient) clientCache.computeIfAbsent(cacheKey, k -> {
+            return (CloudWatchClient) clientCache.get(cacheKey, k -> {
                 String hostAccount = getHostAccount();
                 logger.info("Host account ID: {} for CloudWatch in region {}", hostAccount, region);
 
@@ -312,7 +373,7 @@ public class AwsClientProvider {
      */
     public AthenaClient getHostAthenaClient(String region) {
         String cacheKey = String.format("HOST:%s:%s", AthenaClient.class.getSimpleName(), region);
-        return (AthenaClient) clientCache.computeIfAbsent(cacheKey, k -> {
+        return (AthenaClient) clientCache.get(cacheKey, k -> {
             logger.info("🚀 [AwsClientProvider] Creating NEW HOST AthenaClient in region {}", region);
             return AthenaClient.builder()
                     .region(Region.of(region))
@@ -327,7 +388,7 @@ public class AwsClientProvider {
      */
     public S3Client getHostS3Client(String region) {
         String cacheKey = String.format("HOST:%s:%s", S3Client.class.getSimpleName(), region);
-        return (S3Client) clientCache.computeIfAbsent(cacheKey, k -> {
+        return (S3Client) clientCache.get(cacheKey, k -> {
             logger.info("🚀 [AwsClientProvider] Creating NEW HOST S3Client in region {}", region);
             return S3Client.builder()
                     .region(Region.of(region))
@@ -349,7 +410,7 @@ public class AwsClientProvider {
     public AthenaClient getRoleAthenaClient(String roleArn, String externalId, String region) {
         // ROLE: key is per role ARN, not per customer account, so evictAccount does not evict it.
         String cacheKey = "ROLE:" + AthenaClient.class.getSimpleName() + ":" + roleArn + ":" + region;
-        return (AthenaClient) clientCache.computeIfAbsent(cacheKey, k -> {
+        return (AthenaClient) clientCache.get(cacheKey, k -> {
             logger.info("🚀 [AwsClientProvider] Creating NEW ROLE AthenaClient for role {} in region {}", roleArn,
                     region);
             return AthenaClient.builder()
@@ -363,7 +424,7 @@ public class AwsClientProvider {
     public S3Client getRoleS3Client(String roleArn, String externalId, String region) {
         // ROLE: key is per role ARN, not per customer account, so evictAccount does not evict it.
         String cacheKey = "ROLE:" + S3Client.class.getSimpleName() + ":" + roleArn + ":" + region;
-        return (S3Client) clientCache.computeIfAbsent(cacheKey, k -> {
+        return (S3Client) clientCache.get(cacheKey, k -> {
             logger.info("🚀 [AwsClientProvider] Creating NEW ROLE S3Client for role {} in region {}", roleArn, region);
             return S3Client.builder()
                     .region(Region.of(region))
@@ -381,7 +442,7 @@ public class AwsClientProvider {
      */
     private AwsCredentialsProvider getRoleCredentialsProvider(String roleArn, String externalId) {
         String cacheKey = "ROLE_CREDS:" + roleArn + ":" + (externalId == null ? "" : externalId);
-        return (AwsCredentialsProvider) clientCache.computeIfAbsent(cacheKey, k -> {
+        return (AwsCredentialsProvider) clientCache.get(cacheKey, k -> {
             logger.info("🚀 [AwsClientProvider] Creating credentials provider for role {}", roleArn);
             return StsAssumeRoleCredentialsProvider.builder()
                     .stsClient(stsClient)
@@ -415,7 +476,7 @@ public class AwsClientProvider {
         String region = System.getenv().getOrDefault("AWS_REGION", "us-east-1");
         // HOST_TOKEN: key is region-only (not per customer account), so evictAccount does not evict it.
         String cacheKey = "HOST_TOKEN:" + EksClient.class.getSimpleName() + ":" + region;
-        return (EksClient) clientCache.computeIfAbsent(cacheKey, k -> {
+        return (EksClient) clientCache.get(cacheKey, k -> {
             logger.info("🚀 [AwsClientProvider] Creating NEW EksClient for token generation in region {}", region);
             return EksClient.builder()
                     .credentialsProvider(getCredentialsProvider(account))
@@ -449,7 +510,7 @@ public class AwsClientProvider {
             throw new CostExplorerNotPermittedException(account.getAwsAccountId());
         }
         String cacheKey = account.getAwsAccountId() + ":CostExplorerClient:us-east-1";
-        return (CostExplorerClient) clientCache.computeIfAbsent(cacheKey, k -> {
+        return (CostExplorerClient) clientCache.get(cacheKey, k -> {
             logger.info("🚀 [AwsClientProvider] Creating NEW CostExplorerClient for account {} (short-timeout config)",
                     account.getAwsAccountId());
             return CostExplorerClient.builder()
@@ -472,7 +533,7 @@ public class AwsClientProvider {
      */
     public CostOptimizationHubClient getCostOptimizationHubClient(CloudAccount account) {
         String cacheKey = account.getAwsAccountId() + ":CostOptimizationHubClient:us-east-1";
-        return (CostOptimizationHubClient) clientCache.computeIfAbsent(cacheKey, k -> {
+        return (CostOptimizationHubClient) clientCache.get(cacheKey, k -> {
             logger.info("🚀 [AwsClientProvider] Creating NEW CostOptimizationHubClient for account {} (short-timeout config)",
                     account.getAwsAccountId());
             return CostOptimizationHubClient.builder()
@@ -508,7 +569,7 @@ public class AwsClientProvider {
 
     public BudgetsClient getBudgetsClient(CloudAccount account) {
         String cacheKey = account.getAwsAccountId() + ":BudgetsClient:us-east-1";
-        return (BudgetsClient) clientCache.computeIfAbsent(cacheKey, k -> {
+        return (BudgetsClient) clientCache.get(cacheKey, k -> {
             logger.info("🚀 [AwsClientProvider] Creating NEW BudgetsClient for account {} (short-timeout config)",
                     account.getAwsAccountId());
             return BudgetsClient.builder()
@@ -587,7 +648,7 @@ public class AwsClientProvider {
         // HOST: key — not per customer account, so evictAccount (which removes
         // awsAccountId-prefixed keys) does not evict it. Acceptable: this is a shared HOST client.
         String cacheKey = "HOST:" + PricingClient.class.getSimpleName() + ":us-east-1";
-        return (PricingClient) clientCache.computeIfAbsent(cacheKey, k -> {
+        return (PricingClient) clientCache.get(cacheKey, k -> {
             logger.info("🚀 [AwsClientProvider] Creating NEW HOST PricingClient in region us-east-1");
             return PricingClient.builder()
                     .region(Region.US_EAST_1)
