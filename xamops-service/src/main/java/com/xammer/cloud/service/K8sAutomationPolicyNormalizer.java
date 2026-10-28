@@ -312,6 +312,8 @@ public class K8sAutomationPolicyNormalizer {
                 incoming.setLastRebalanceDuration(stored.getLastRebalanceDuration());
                 next.setRebalancer(incoming);
             }
+            case CONSOLIDATION -> next.setConsolidationPolicy(
+                    copy(cast(body, ConsolidationPolicyDto.class), ConsolidationPolicyDto.class));
             case MODE -> next.setAutoscalerMode(cast(body, String.class));
         }
         return next;

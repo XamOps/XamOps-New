@@ -766,4 +766,25 @@ class K8sAutomationPolicyNormalizerTest {
         ready(K8sReadinessKey.CONSOLIDATION_ACTIONS);
         assertThatCode(() -> normalizer.validate(Section.CONSOLIDATION, on)).doesNotThrowAnyException();
     }
+
+    @Test
+    void replaceSectionConsolidationPersistsEnabledAndIsServedToTheAgentOnceReady() throws Exception {
+        // Regression: replaceSection had no CONSOLIDATION case, so a save silently dropped the section
+        // and the agent kept seeing consolidationPolicy.enabled=false even with the key ready.
+        ready(K8sReadinessKey.CONSOLIDATION_ACTIONS);
+        AutomationPolicyBundle current = normalizer.forUi("{\"autoscalerMode\":\"full\"}", CONFIG, null).bundle();
+
+        ConsolidationPolicyDto on = new ConsolidationPolicyDto();
+        on.setEnabled(true);
+        AutomationPolicyBundle next = normalizer.replaceSection(current, Section.CONSOLIDATION, on);
+        assertThat(next.getConsolidationPolicy()).isNotNull();
+        assertThat(next.getConsolidationPolicy().isEnabled())
+                .as("replaceSection must persist the consolidation section").isTrue();
+
+        // And it survives the JSON round-trip the agent actually fetches.
+        String storedJson = normalizer.toJson(next);
+        assertThat(normalizer.forAgent(storedJson, CONFIG, true).getConsolidationPolicy().isEnabled())
+                .as("the agent is served consolidationPolicy.enabled=true once consolidation-actions is ready")
+                .isTrue();
+    }
 }
