@@ -1,0 +1,20 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "severity": "NIT",
+      "file": "xamops-service/src/main/java/com/xammer/cloud/service/AwsAccountService.java",
+      "detail": "Resolution #5's second save is nested inside the `curTemplateUrl != null && !isBlank` branch, so for an OWN_CUR account where cloudformation.template.s3.cur.url is unset, cur_stack_name/cur_stack_region are NOT persisted. Plan item 8(f) phrases the persist as gated only on createReport. Behaviour is defensible (no CUR stack is launchable without a template, so recording its intended identity would be misleading) and the backend test only covers the configured path. Non-blocking; consider a one-line comment making the intentional coupling explicit."
+    },
+    {
+      "severity": "NIT",
+      "file": "frontend-app/src/components/AccountManager/CloudAccountsTable.tsx",
+      "detail": "The `twoPassWarning` field (interface line 27, rendered at lines 612/624) is now dead: the backend no longer emits it, so the `&& ` guard means the block never renders. Harmless leftover (the plan explicitly relied on the `&&` guard for backward compatibility), but it could be removed in a later cleanup to avoid confusion."
+    },
+    {
+      "severity": "NIT",
+      "file": "cloudformation/xamops-cur-export-nested.yaml",
+      "detail": "A standalone CUR 2.0 / AWS::BCMDataExports template still exists in the cloudformation/ directory. It is NOT referenced by any of the eight connection templates nor by the backend (verified via grep), so it does not violate the 'CUR 2.0 absent from the flow' requirement and is pre-existing/out-of-scope for this diff. Noting only so a future cleanup can decide whether to delete the orphan file."
+    }
+  ]
+}
