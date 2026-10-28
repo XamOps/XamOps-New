@@ -88,6 +88,13 @@ public class CurStackService {
 
     /** The outcome of {@link #applyAsync}, mapped to a status the frontend renders. */
     public enum CurStatus {
+        /**
+         * The sequenced job has registered the CUR phase but has not started it yet — it is
+         * waiting for the connection phase to reach a terminal state first. Additive; used only
+         * as the seed status returned by {@code StackSequenceService.start}, never produced by
+         * {@link #applyAsync}.
+         */
+        WAITING_FOR_CONNECTION,
         SKIPPED,
         CREATE_IN_PROGRESS,
         UPDATE_IN_PROGRESS,

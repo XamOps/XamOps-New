@@ -104,11 +104,36 @@ export interface StackEventLine {
   reason: string;
 }
 
+/** The connection phase's own state in the sequenced view. */
+export type ConnectionPhase = 'NO_CHANGES' | 'UPDATING' | 'COMPLETED' | 'FAILED' | 'TIMED_OUT';
+
+/** The CUR phase's own state in the sequenced view. */
+export type CurPhase =
+  | 'WAITING_FOR_CONNECTION'
+  | 'CREATING'
+  | 'UPDATING'
+  | 'RETRYING_PERMISSION'
+  | 'COMPLETED'
+  | 'NO_CHANGES'
+  | 'SKIPPED'
+  | 'NO_PERMISSION_TERMINAL'
+  | 'FAILED'
+  | 'BUSY';
+
 export interface StackUpdateProgress {
   status: string;
   inProgress: boolean;
   failed: boolean;
   events: StackEventLine[];
+  /**
+   * The connection phase label (sequenced view). Absent in the legacy/fallback response, where
+   * the flat status/inProgress/failed fields drive the connection row instead.
+   */
+  connectionPhase?: ConnectionPhase;
+  /** A connection-failure message (notably a worker-side execute AccessDenied). Additive. */
+  connectionMessage?: string | null;
+  /** A grant/remedy hint for a worker-side execute AccessDenied, shown as text. Additive. */
+  connectionRemedy?: string | null;
   /**
    * The CUR stack's own progress, running alongside the connection stack. Null for accounts
    * without a CUR or when the CUR stack could not be read.
@@ -117,7 +142,13 @@ export interface StackUpdateProgress {
     status: string;
     inProgress: boolean;
     failed: boolean;
+    /** A human message for the CUR line. Additive. */
+    message?: string;
+    /** 0-based retry counter; present only in the sequenced branch during RETRYING_PERMISSION. */
+    attempt?: number;
   } | null;
+  /** True only when BOTH phases are terminal — gates the modal's Done button. Additive. */
+  done?: boolean;
 }
 
 /** The CUR side of an apply, returned by executeStackUpdate so the submit outcome shows at once. */

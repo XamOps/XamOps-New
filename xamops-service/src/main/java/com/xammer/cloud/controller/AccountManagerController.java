@@ -12,6 +12,7 @@ import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.stack.CurStackService;
 import com.xammer.cloud.service.stack.StackDiagnosisService;
+import com.xammer.cloud.service.stack.StackSequenceService;
 import com.xammer.cloud.service.stack.StackUpdateService;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.repository.UserRepository;
@@ -59,6 +60,9 @@ public class AccountManagerController {
 
     @Autowired
     private StackUpdateService stackUpdateService;
+
+    @Autowired
+    private StackSequenceService stackSequenceService;
 
     @Autowired
     private CurStackService curStackService;
@@ -194,38 +198,40 @@ public class AccountManagerController {
     }
 
     /**
-     * Runs a change set produced by the preview.
+     * Starts the sequenced connection→CUR stack update produced by the preview.
      *
      * <p>Takes the change set id rather than recomputing, so what executes is exactly what
-     * was shown. A stale id fails at AWS rather than silently applying something else.
+     * was shown. Returns 202 immediately; the work runs on a background worker and the modal
+     * follows it via {@link #stackUpdateProgress}. A stale id fails later on the worker rather
+     * than silently applying something else. The CFN-permission grant flow is now driven by the
+     * {@code diagnose} pre-flight inside {@link StackSequenceService#start} (which throws
+     * NO_CFN_PERMISSION on the request thread), so {@link #withAwsAccount} still routes it through
+     * {@link #addGrant}. The new SEQUENCE_IN_PROGRESS / SEQUENCE_CAPACITY verdicts map to 409.
      */
     @PostMapping("/stack-update/{accountId}/execute")
     public ResponseEntity<?> executeStackUpdate(@PathVariable String accountId,
                                                 @RequestBody Map<String, String> body) {
         return withAwsAccount(accountId, account ->
-                ResponseEntity.accepted().body(stackUpdateService.applyAll(account, body.get("changeSetId"))));
+                ResponseEntity.accepted().body(stackSequenceService.start(account, body.get("changeSetId"))));
     }
 
     /**
-     * Stack status and recent events, for following an update as it runs.
+     * The sequenced two-phase progress of an update as it runs.
      *
-     * <p>Keeps the connection stack's flat Progress fields (status, inProgress, failed, events)
-     * at the top level and adds a {@code cur} sub-object for the CUR report stack — null, and so
-     * omitted, for accounts that do not own their report.
+     * <p>Keeps the connection stack's flat fields (status, inProgress, failed, events) at the top
+     * level and the {@code cur} sub-object, and adds the sequenced view: {@code connectionPhase},
+     * {@code connectionMessage}/{@code connectionRemedy}, the CUR phase enum in {@code cur.status}
+     * with {@code cur.attempt}, and an overall {@code done} flag that gates the modal's Done
+     * button. When no job is in flight (modal opened cold, or server restarted mid-run) the
+     * service falls back to a legacy live read.
      */
     @GetMapping("/stack-update/{accountId}/progress")
     public ResponseEntity<?> stackUpdateProgress(@PathVariable String accountId,
                                                  @RequestParam(defaultValue = "25") int limit) {
         return withAwsAccount(accountId, account -> {
-            StackUpdateService.Progress progress = stackUpdateService.progress(account, Math.min(limit, 100));
-            CurStackService.CurProgress cur = curStackService.progress(account);
-            Map<String, Object> combined = new HashMap<>();
-            combined.put("status", progress.status());
-            combined.put("inProgress", progress.inProgress());
-            combined.put("failed", progress.failed());
-            combined.put("events", progress.events());
-            combined.put("cur", cur);
-            return ResponseEntity.ok(combined);
+            StackSequenceService.SequenceProgress progress =
+                    stackSequenceService.progress(account, Math.min(limit, 100));
+            return ResponseEntity.ok(progress.toResponseMap());
         });
     }
 

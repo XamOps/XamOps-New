@@ -61,6 +61,50 @@ public class AsyncConfig implements AsyncConfigurer {
         };
     }
 
+    /**
+     * Fleet-wide ceiling of concurrent sequenced stack-update jobs per service instance.
+     *
+     * <p>Each {@code StackSequenceService.runSequence} is a long-blocking task: the connection
+     * poll alone is bounded at ~18 min, then the CUR retries (~72 s) plus the CUR settle-watch
+     * (~15 min) mean one job can hold its worker thread for ~33 min. This is an operator action
+     * run a handful at a time, not a bulk workflow, so 8 simultaneous long-running sequences per
+     * instance comfortably covers expected peak while bounding thread/connection use. The
+     * single-job-per-account guard already caps each account at one in-flight sequence, so hitting
+     * this ceiling requires 8 distinct accounts updating at once; the 9th gets a deterministic
+     * SEQUENCE_CAPACITY 409 rather than a degraded/blocked request. This is the one number to tune.
+     */
+    private static final int MAX_CONCURRENT_SEQUENCES = 8;
+
+    /**
+     * Executor for the sequenced connection→CUR stack-update job.
+     *
+     * <p>Core == max == {@link #MAX_CONCURRENT_SEQUENCES} with a SynchronousQueue (queue
+     * capacity 0): a submission either gets a free thread immediately or is rejected — a job is
+     * never silently queued behind a running ~33-minute job. The rejection handler is
+     * {@link java.util.concurrent.ThreadPoolExecutor.AbortPolicy} — <strong>never</strong>
+     * CallerRunsPolicy — because a long-blocking task run on the HTTP request thread would block
+     * the 202 for the whole sequence. On rejection {@code start} catches the
+     * {@link java.util.concurrent.RejectedExecutionException} and returns a 409 SEQUENCE_CAPACITY.
+     *
+     * <p>{@code tenantTaskDecorator} is required, not optional: the worker calls
+     * {@code CurStackService.applyAsync → persistIdentity → cloudAccountRepository.save}, a
+     * tenant-routed DB write that would otherwise route to the fallback system DB.
+     */
+    @Bean(name = "stackSequenceExecutor")
+    public Executor stackSequenceExecutor(TaskDecorator tenantTaskDecorator) {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(MAX_CONCURRENT_SEQUENCES);
+        executor.setMaxPoolSize(MAX_CONCURRENT_SEQUENCES);
+        executor.setQueueCapacity(0); // SynchronousQueue — never hold a job waiting behind a long-blocking job
+        executor.setThreadNamePrefix("StackSeq-");
+        executor.setTaskDecorator(tenantTaskDecorator);
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+        executor.initialize();
+        log.info("stackSequenceExecutor created: core={} max={} queue={}",
+                MAX_CONCURRENT_SEQUENCES, MAX_CONCURRENT_SEQUENCES, 0);
+        return executor;
+    }
+
     @Bean(name = "prowlerTaskExecutor")
     public Executor prowlerTaskExecutor(TaskDecorator tenantTaskDecorator) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
