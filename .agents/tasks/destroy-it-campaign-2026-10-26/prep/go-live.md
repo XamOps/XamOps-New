@@ -163,15 +163,54 @@ interruption/spot, evictor, rebalancer, node-optimizer cordon+idle-drain); **rig
 design, never Live); **vpa** = off (no acting gate / writer on this build). Each recorded in bugs.md
 (BUG-GATE-002/003/004).
 
-## Dashboard URLs for the NEXT step to fill
+## Dashboard URLs — FILLED by the setup-finish step (Option B, wf_11056589d901fb99)
 
-- Grafana: currently `kube-prometheus-stack-grafana` in ns `break-observability` is **ClusterIP only**
-  (no public LoadBalancer address yet). When the observability/chaos setup step exposes it via a public
-  LoadBalancer, record here: **Grafana URL + admin-password secret location** (secret
-  `kube-prometheus-stack-grafana` key `admin-password` in ns `break-observability`, verify at fill time).
-- Chaos Mesh: **not yet installed** (no `chaos-*` namespace present). The setup step installs it and
-  records the **Chaos Mesh dashboard URL** here.
-- Baseline Grafana dashboard JSON captured at `prep/baseline-dashboard.json`.
+- **Grafana (PUBLIC LoadBalancer):**
+  `http://a9e0a9a7b25c54ddb8627736899e760d-072c2f2422090f4c.elb.ap-south-1.amazonaws.com`
+  (svc `kube-prometheus-stack-grafana`, ns `break-observability`, type LoadBalancer / AWS NLB, port 80;
+  answering HTTP 200). Focused campaign dashboard:
+  `http://a9e0a9a7b25c54ddb8627736899e760d-072c2f2422090f4c.elb.ap-south-1.amazonaws.com/d/destroy-it-campaign`
+  (uid `destroy-it-campaign`). Grafana: memory **limit 1Gi** + emptyDir (no PVC). Prometheus 15d on gp3.
+- **Admin-password secret location** (value NEVER printed):
+  namespace `break-observability`, secret **`grafana-admin`**, keys `admin-user` / **`admin-password`**.
+  (NOTE: the earlier guess `kube-prometheus-stack-grafana` was WRONG — that secret does not exist.)
+- **Chaos Mesh dashboard URL:** svc `chaos-dashboard` in ns `chaos-mesh` is **ClusterIP** (port `http`=2333,
+  internal only — not publicly exposed by owner's design for the control plane UI). Access by port-forward:
+  `kubectl --context arn:aws:eks:ap-south-1:102227938259:cluster/xamops-test-1 -n chaos-mesh port-forward svc/chaos-dashboard 2333:2333`
+  then open `http://localhost:2333`. (Probed in-cluster → HTTP 200; dashboard pod 1/1 Running, securityMode on.)
+- Baseline Grafana dashboard JSON captured at `prep/baseline-dashboard.json`; the focused campaign
+  dashboard JSON at `prep/destroy-it-dashboard.json` (ConfigMap `break-observability/destroy-it-dashboard`,
+  label `grafana_dashboard=1`).
+
+### Setup-finish reconciliation summary (Option B — finished ONLY the gaps, no double-build)
+- **Chaos Mesh** installed ONCE via idempotent `helm upgrade --install chaos-mesh chaos-mesh/chaos-mesh
+  --version 2.8.7 -n chaos-mesh` (values at `prep/chaos-mesh-values.yaml`): controller-manager 1 replica,
+  chaos-daemon DaemonSet with **containerd** runtime (nodes run containerd, not docker),
+  `enableFilterNamespace=true`. Injection gated by the **ANNOTATION** `chaos-mesh.org/inject=enabled`
+  (NOT a label — prior bug) on **stress / stress-db / xamops-system ONLY**; kube-system has NO annotation.
+- **ServiceMonitor** `chaos-mesh/chaos-mesh-controller-manager` scrapes the controller-manager svc port
+  named **`http`** (10080) `/metrics` → Prometheus active target **health=up**
+  (`chaos_controller_manager_*` + `controller_runtime_*` series flowing).
+- **k6** Job `stress/k6-fleet-load` (image grafana/k6) runs ramping-vus against svc `fleet-http` and
+  **remote-writes** to kube-prometheus-stack (`k6_http_req_duration_p95/p99/avg`, `k6_http_reqs_total`
+  present). Script reused from ConfigMap `stress/k6-fleet-script`; job manifest `prep/k6-fleet-job.yaml`.
+- **Focused dashboard** `destroy-it-campaign` (default **now-10m** window, 15s refresh): "chaos active now?"
+  stat (chaos reconcile rate) + per-controller chaos state-timeline, xamops gate live/analyse/off, xamops
+  drains/consolidation-evicted/cycle-p95, pod restarts, OOMKills, **REAL CFS throttling**
+  (`container_cpu_cfs_throttled_periods_total` / cfs_periods), k6 latency + req/err rate, and agent
+  leader/HA count. All panel queries validated against Prometheus (CFS=10 series, OOM/restarts live,
+  gate=6 live series). The orphan `destroy-it-ctl` dashboard from the prior run (no backing ConfigMap)
+  was deleted so exactly ONE focused dashboard remains.
+- **Fleet reconciled (did NOT chase 200):** the ~200-replica fleet was INFEASIBLE on t3.medium within the
+  VPC-CNI **17-pod/node IP ceiling** (88 pending). Scaled the fleet DOWN to **145 schedulable workloads**
+  (1 replica each; profiles over/over-heavy/under/mid/burst/right ≈24-25 each; 17 PDBs) behind svc
+  `fleet-http`; pending → **0**. **Redis** added to `stress-db` (redis-0 Running) alongside reused CNPG
+  Postgres / MySQL / Mongo. FINDING: 200 pods not achievable on t3.medium within IP+cost ceiling →
+  capped realistic fleet at 145.
+- **Nodes:** 31 total (30 t3.medium + 1 t3.large). `ng-ondemand-1` had drifted up (18→26) on its own; I
+  **capped its max at 26** (min4/desired26/max26) to halt further growth without eviction. NOT scaled
+  further toward 200. Restore step returns ng-ondemand-1 to baseline **1/4/4**. Cost trajectory ≈ $89
+  (48h) / ≈ $125 (full 3-day cap) — under the $200 cap (see `cost.md`).
 
 ## Cookie
 
@@ -184,3 +223,39 @@ design, never Live); **vpa** = off (no acting gate / writer on this build). Each
 
 - `/Users/apple/Desktop/XamOps-New/.agents/tasks/xamops-test-1.lock` TAKEN OVER by this run
   (wf_11056589d901fb99). Released only by the final restore step.
+
+## SETUP STEP — CONCURRENT-RUN COLLISION DETECTED (wf_11056589d901fb99 setup step) — PAUSED
+
+Setup step (observability/chaos/load/fleet) started read-only context checks and found **another process
+is actively executing this SAME setup step on xamops-test-1 right now.** No cluster writes were performed
+by this step — it paused instead to avoid a double-build race. Live state observed (context+account
+asserted = 102227938259 / ap-south-1, context ARN pinned; current-context had drifted to k8opt-chaos,
+NOT used):
+
+- **Grafana PUBLIC LoadBalancer ALREADY live.** `kube-prometheus-stack-grafana` (ns `break-observability`)
+  is now `type=LoadBalancer` (NLB) via helm revision **4** (applied ~12:00 during this step's startup).
+  Hostname: `a9e0a9a7b25c54ddb8627736899e760d-072c2f2422090f4c.elb.ap-south-1.amazonaws.com` (port 80).
+  LB not yet answering externally (`http_code=000`) — still provisioning/registering targets.
+  Grafana resources: memory **limit 1Gi** + request 256Mi, persistence **emptyDir** (not PVC) — matches spec.
+- **Admin-password secret**: `grafana-admin` (ns `break-observability`), keys `admin-user` / `admin-password`.
+  admin-password is 30 chars, non-default (not `prom-operator`/`admin`). Value NOT printed. NOTE: the earlier
+  guess of secret name `kube-prometheus-stack-grafana` is WRONG — that secret does not exist; the real one is
+  `grafana-admin`.
+- **Prometheus**: 15d retention on gp3 (`gp3-fixtures`) — matches spec. `serviceMonitorSelector={}` /
+  `serviceMonitorNamespaceSelector={}` → it auto-selects ALL ServiceMonitors cluster-wide.
+- **Chaos Mesh**: CRDs installed (`*.chaos-mesh.org`, dated 2026-10-26) but ns `chaos-mesh` NOT yet present
+  and no `chaos` helm release yet — install appears mid-flight by the other run.
+- **Fleet**: ns `stress` + `stress-db` created, labels `xamops.io/campaign=destroy-it`. Fleet grew from
+  ~84 → **145** `fleet-*` Deployments during observation (mixed over/under/mid/burst/right-sized), behind an
+  HTTP Service `fleet-http` (ClusterIP :80). At sample time: **112 running / 88 pending** — the t3.medium
+  VPC-CNI 17-pod/node IP ceiling is now biting (415 total cluster pods vs ~358 allocatable slots on 20
+  schedulable nodes).
+- **Redis**: `redis` StatefulSet + headless svc added to `stress-db` (pod `redis-0` Pending, PVC
+  `redis-data` waiting to schedule).
+- **Nodegroup**: `ng-ondemand-1` already scaled to desiredSize **18** (max 20); ~13 fresh t3.medium nodes
+  (<90s old) — the other run already scaled.
+
+**Why paused (not a failure):** proceeding would double-build — a second Chaos Mesh install, a second
+~200-pod fleet (→ ~400 pods, hard against the IP ceiling), and competing nodegroup scale-ups that could
+threaten the $200 cost cap and fight the same helm release/secrets. Per STANDING AUTHORITY, pausing on a
+genuinely novel/unsafe (concurrent-writer) situation rather than racing.

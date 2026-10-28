@@ -106,3 +106,55 @@ NOT used). All writes `--context`-pinned.
   ≈ $65–71.** Well under the **$200** cap (remaining headroom ≈ $130+).
 
 _Last updated: pre-scale, setup step. Actual added node count recorded below after scaling._
+
+## Setup FINISH — Option B take-over (wf_11056589d901fb99, setup step)
+
+Prior run (wf_d2ab28b44080e183) stood down; this run owns the cluster+lock and reconciled to the
+half-built state (did NOT double-build). Context re-asserted before every write: account **102227938259**,
+region **ap-south-1**, context pinned to the xamops-test-1 ARN (current-context drift to k8opt-chaos NOT used).
+
+### Actual live node count (the governing cost driver)
+- `kubectl get nodes` = **31 nodes**: **30 × t3.medium** + **1 × t3.large** (ng-observability-1).
+- `ng-ondemand-1` had drifted UP on its own (18 → 26 desired; max had been bumped to 28) while pods
+  scheduled. **Capped it: minSize=4, maxSize=26, desiredSize=26** (EKS update id `07520bdd-5a1c-…`,
+  applied — live scalingConfig now max=26) so the group cannot keep climbing. No eviction (desired
+  left at current count). Other nodegroups unchanged: ng-observability-1 1/1, ng-spot-1 1 (max2),
+  ng-stateful-1 3 (max6).
+
+### Actual hourly burn (on-demand list, ap-south-1)
+| Item | Rate | Subtotal |
+|---|---|---|
+| 30 × t3.medium on-demand | $0.0416/hr ea | $1.248/hr |
+| 1 × t3.large (observability) | $0.0832/hr | $0.083/hr |
+| ~1 × t3.medium spot (ng-spot-1) | ~$0.015/hr | ~$0.015/hr |
+| EKS control plane | $0.10/hr | $0.10/hr |
+| Grafana public NLB | ~$0.025/hr + LCU | ~$0.025/hr |
+| Redis gp3 PVC + misc EBS | ~$0.01/hr | ~$0.01/hr |
+| **Total** | | **≈ $1.48/hr ≈ $35.5/day** |
+
+### Projection vs the $200 cap
+- Already spent to date (baseline window): ≈ **$12–18**.
+- 48h attack window at $1.48/hr ≈ **$71**; full 3-day-cap worst case ≈ 72h × $1.48 ≈ **$107**.
+- **Projected total: ≈ $18 + $71 ≈ $89 (48h) ; ≈ $18 + $107 ≈ $125 (full 3-day cap).**
+  **Both well under the $200 cap** (headroom ≈ $75–110). Trajectory does NOT exceed $200 → no STOP/warn.
+
+### What was created/finished this step (for teardown)
+- **Grafana public LB**: REUSED (already live from helm rev4) — `kube-prometheus-stack-grafana`
+  LoadBalancer (NLB) in ns `break-observability`. Not reinstalled.
+- **Chaos Mesh** (ns `chaos-mesh`, helm rev2, v2.8.7): controller-manager (1 replica), chaos-daemon
+  DaemonSet (containerd runtime), dashboard, dns-server. Pods only — no LB/EBS. `enableFilterNamespace=true`;
+  injection gated by ANNOTATION `chaos-mesh.org/inject=enabled` on stress/stress-db/xamops-system ONLY
+  (never kube-system). ServiceMonitor scrapes the `http` (10080) port → Prometheus target health=up.
+- **k6 Job** `stress/k6-fleet-load` (grafana/k6, remote-writes to kube-prometheus-stack). Ephemeral, ~$0.
+- **Dashboard** ConfigMap `break-observability/destroy-it-dashboard` (sidecar-provisioned). $0.
+- **Fleet reconciled**: scaled the 200-replica fleet DOWN to **145 schedulable workloads** (1 replica each,
+  all 6 profiles over/over-heavy/under/mid/burst/right ~24-25 each, 17 PDBs) — **~200 was INFEASIBLE on
+  t3.medium within the VPC-CNI 17-pod/node IP ceiling without further node cost**. Redis-0 now Running in
+  stress-db. DB fixtures (CNPG Postgres, MySQL, Mongo) reused. Total cluster pods ≈ 448.
+
+### STOP/warn check
+- Trajectory ≤ ~$125 through the 3-day cap < $200 → **no stop required.** Will keep updating as attack
+  churn accrues. Restore step must return ng-ondemand-1 to baseline **1/4/4** (min/desired/max per
+  baseline table: desired 4) and chaos/stress/k6/LB removed.
+
+_Last updated: setup finish (Option B), after capping ng-ondemand-1 max=26._

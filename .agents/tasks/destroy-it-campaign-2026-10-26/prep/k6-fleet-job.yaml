@@ -1,0 +1,58 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-fleet-load
+  namespace: stress
+  labels:
+    xamops.io/campaign: destroy-it
+    xamops.io/role: k6-load
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: k6-fleet-load
+        xamops.io/campaign: destroy-it
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: k6
+          image: grafana/k6:latest
+          # Push k6 metrics to the existing kube-prometheus-stack via remote-write so the
+          # dashboard's k6-latency panels have data (receiver is enabled on that Prometheus).
+          args:
+            - run
+            - --out
+            - experimental-prometheus-rw
+            - /scripts/fleet.js
+          env:
+            - name: K6_PROMETHEUS_RW_SERVER_URL
+              value: http://kube-prometheus-stack-prometheus.break-observability.svc:9090/api/v1/write
+            - name: K6_PROMETHEUS_RW_TREND_STATS
+              value: "p(95),p(99),avg,max"
+            - name: TARGET
+              value: http://fleet-http.stress.svc.cluster.local/
+            - name: VUS
+              value: "60"
+            - name: RAMP_UP
+              value: "1m"
+            - name: HOLD
+              value: "5m"
+            - name: RAMP_DOWN
+              value: "30s"
+            - name: SLEEP
+              value: "0.2"
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+      volumes:
+        - name: script
+          configMap:
+            name: k6-fleet-script
