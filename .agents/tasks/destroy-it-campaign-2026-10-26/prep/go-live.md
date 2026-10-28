@@ -142,10 +142,35 @@ Postgres"). So the run is PAUSED for an owner decision (send_message 'warning').
 
 ---
 
+## RBAC prerequisite for the acting phases — DONE (owner Option A)
+
+BUG-RBAC-001 (HIGH) landed. The shipped agent ClusterRole was missing TWO reads the running code
+lists cluster-scoped:
+- `persistentvolumes` (evictor fit-snapshot + consolidation collect), and
+- `clusters.postgresql.cnpg.io` (CNPG Postgres primary/replica/standby DB-awareness).
+
+Fixed in repo `xamops-autoscaler/manifests/xamops-autoscaler-complete.yaml` (added both read rules,
+get/list/watch only) AND applied live to xamops-test-1 (RBAC-only apply, context+account asserted).
+Commit `cb3c7dbbd`. Verified after fix: 0 `forbidden` lines in a full poll cycle; consolidation
+collect completes (`look-only: 0 empty, 0 drain, 5 blocked, 4 kept of 9 node(s)`); all 5 acting gates
+still live. `auth can-i list persistentvolumes`=yes, `auth can-i list clusters.postgresql.cnpg.io`=yes.
+Full repro / file:lines in `../bugs.md`. Follow-up noted there: the upgrade path should re-apply the
+ClusterRole with every image roll so an image-only upgrade can't leave RBAC behind.
+
+Honest headline for the feature table (NOT 8/8): **5 acting controllers LIVE** (consolidation-actions,
+interruption/spot, evictor, rebalancer, node-optimizer cordon+idle-drain); **rightsizer + rightsizer-apply**
+= off (agent rightsizer RETIRED; real apply is the Java vertical engine); **hpa** = off (analysis-only by
+design, never Live); **vpa** = off (no acting gate / writer on this build). Each recorded in bugs.md
+(BUG-GATE-002/003/004).
+
 ## Dashboard URLs for the NEXT step to fill
 
-- Grafana dashboard URL: _TODO (next step / load-balancer step fills the LB-fronted Grafana URL)._
-- Chaos Mesh dashboard URL: _TODO (next step fills the Chaos Mesh dashboard URL)._
+- Grafana: currently `kube-prometheus-stack-grafana` in ns `break-observability` is **ClusterIP only**
+  (no public LoadBalancer address yet). When the observability/chaos setup step exposes it via a public
+  LoadBalancer, record here: **Grafana URL + admin-password secret location** (secret
+  `kube-prometheus-stack-grafana` key `admin-password` in ns `break-observability`, verify at fill time).
+- Chaos Mesh: **not yet installed** (no `chaos-*` namespace present). The setup step installs it and
+  records the **Chaos Mesh dashboard URL** here.
 - Baseline Grafana dashboard JSON captured at `prep/baseline-dashboard.json`.
 
 ## Cookie

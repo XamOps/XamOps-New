@@ -61,3 +61,48 @@ _Last updated: 2026-10-28, immediately after FULL LIVE flip (pre-attack-phase)._
   agent image) = rightsizer, rightsizer-apply (retired), hpa (analysis-only), vpa (no gate). PAUSED for owner.
 - No chaos/load applied in this step → **campaign-attributable increment still ≈ $0**; baseline only.
   Budget remaining ≈ $182–188 against the $200 cap.
+
+## Resume update #2 — owner Option A + RBAC prerequisite landed (wf_11056589d901fb99)
+
+- Owner chose Option A (proceed with the 5 acting controllers; do NOT un-retire rightsizer / add
+  HPA-VPA writers / hand-edit Postgres).
+- Landed BUG-RBAC-001 (HIGH) before the acting phases: the shipped agent ClusterRole was missing
+  `persistentvolumes` AND `clusters.postgresql.cnpg.io` reads. Fixed in repo manifest (commit cb3c7dbbd)
+  and applied live (RBAC-only `kubectl apply`, context+account asserted — no workload/node change).
+  Verified 0 forbidden errors, collect completes, 5 gates still live.
+- Cost impact of the RBAC fix = **$0** (RBAC object only; no node churn, no API billing). No chaos/load
+  run in this step. Baseline still ~$0.50/hr; campaign-attributable increment ≈ $0. Budget remaining
+  ≈ $182–188 against the $200 cap. The attack phases (observability/chaos/load/fleet) run in the
+  subsequent step and will update this file as churn accrues.
+
+## Setup-stage update — observability + chaos + fleet + dashboard step (wf_d2ab28b44080e183)
+
+Context re-asserted before any write: account **102227938259**, region **ap-south-1**, context pinned
+`arn:aws:eks:ap-south-1:102227938259:cluster/xamops-test-1` (current-context had drifted to k8opt-chaos —
+NOT used). All writes `--context`-pinned.
+
+### Reused (no new cost)
+- **Observability**: reused the existing `kube-prometheus-stack` in ns `break-observability`
+  (Grafana emptyDir, Prometheus 15d on gp3 `gp3-fixtures`) + the `ng-observability-1` t3.large node.
+  No second stack installed.
+- **DB fixtures**: reused `xamops-db-fixtures` (Postgres CNPG, MySQL, Mongo) — already running.
+
+### New cloud resources created this step (for teardown)
+| Resource | Type | Est. cost | Notes |
+|---|---|---|---|
+| Grafana public LB | AWS NLB/CLB (1) | ~$0.025/hr (~$0.60/day) + LCU | from switching `kube-prometheus-stack-grafana` svc to `LoadBalancer` |
+| ng-ondemand-1 scale-up | EC2 t3.medium ×N added | $0.0416/hr each | to clear the t3.medium 17-pod VPC-CNI ceiling for the ~200-pod fleet |
+| Chaos Mesh | pods only (no LB/EBS) | ~$0 | ns chaos-mesh, namespace-filtered to stress*/xamops-system |
+| k6 Jobs | pods only (ephemeral) | ~$0 | grafana/k6 in-cluster |
+| Redis (stress-db) | pod + 1 small gp3 PVC | ~$0.01/hr | DB-case fixture addition |
+| Secrets (grafana admin reused) | n/a | $0 | strong random admin password rotated into existing `grafana-admin` secret |
+
+### Projection (attack window assumed ~48h; hard stop at 3-day cap)
+- Nodegroup scale-up (worst case 14 added t3.medium to seat 200 pods): 14 × $0.0416 = **$0.582/hr**
+  → ~$14 over 24h, ~$28 over 48h.
+- Grafana LB: ~$0.60/day → ~$1.2 over 48h.
+- Baseline (existing nodes + control plane): ≈ $0.50/hr → ~$24 over 48h.
+- **Projected total through a 48h attack window ≈ $12–18 (spent) + ~$28 (scale) + ~$1 (LB) + ~$24 (baseline)
+  ≈ $65–71.** Well under the **$200** cap (remaining headroom ≈ $130+).
+
+_Last updated: pre-scale, setup step. Actual added node count recorded below after scaling._
