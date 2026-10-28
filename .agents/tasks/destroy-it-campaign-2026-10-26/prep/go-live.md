@@ -259,3 +259,36 @@ NOT used):
 ~200-pod fleet (→ ~400 pods, hard against the IP ceiling), and competing nodegroup scale-ups that could
 threaten the $200 cost cap and fight the same helm release/secrets. Per STANDING AUTHORITY, pausing on a
 genuinely novel/unsafe (concurrent-writer) situation rather than racing.
+
+---
+
+## DETAILED campaign dashboard (added mid-run, wf_11056589d901fb99)
+
+A second, more detailed Grafana dashboard was added ALONGSIDE the existing `destroy-it-campaign`
+(the original is untouched — both return HTTP 200 from the Grafana API).
+
+- **UID:** `destroy-it-detailed`
+- **Path:** `/d/destroy-it-detailed/`
+- **Public URL:** http://a9e0a9a7b25c54ddb8627736899e760d-072c2f2422090f4c.elb.ap-south-1.amazonaws.com/d/destroy-it-detailed/
+  (existing dashboard still at http://a9e0a9a7b25c54ddb8627736899e760d-072c2f2422090f4c.elb.ap-south-1.amazonaws.com/d/destroy-it-campaign/ )
+- **Provisioned by:** ConfigMap `break-observability/destroy-it-detailed`
+  (labels `grafana_dashboard=1`, `grafana_folder=Destroy-It`, `xamops.io/campaign=destroy-it`).
+  JSON committed at `.agents/tasks/destroy-it-campaign-2026-10-26/prep/destroy-it-detailed-dashboard.json`.
+- **Grafana admin creds:** secret `break-observability/grafana-admin` (keys admin-user / admin-password)
+  — NOT the kube-prometheus-stack-grafana secret (that one 401s; password was rotated into grafana-admin).
+
+### Rows (7), all wired to REAL verified metric series
+1. CAMPAIGN STATE — chaos-active stat, node count (no-growth guardrail), single-leader invariant, DB-evicted=0 headline stat.
+2. THE 5 ACTING CONTROLLERS — `xamops_gate_decision` state-timeline (live/analyse/off), consolidation runs-by-status rate + pods-evicted, cycle p95 / action-rate / drain-inflight.
+3. SAFETY INVARIANTS — PDB disruptionsAllowed per PDB, leader count over time, ready-vs-desired replicas.
+4. DB PROTECTION (money panel) — table of ng-stateful-1 DB pods (restarts/age) + `xamops_consolidation_pods_evicted_total` big stat (stays 0).
+5. CLUSTER DAMAGE vs CHAOS — OOMKills, pod restarts (10m), REAL CFS throttle ratio, Pending pods, each separable from the chaos-active indicator.
+6. SERVING SLO (k6) — text note (k6_* NOT retained in this Prometheus; authoritative values in report.md) + a fleet-Running serving-fan-out proxy.
+7. RESILIENCE — agent memory working-set (256Mi→1Gi leak-hunt), agent restarts + policy-fetch-errors (fail-closed) + orphans-recovered.
+
+### Panels intentionally DROPPED (series confirmed EMPTY via /api/v1/query — would render blank)
+- `xamops_drains_total` — not exposed on the ServiceMonitor scrape (only visible on a direct pod scrape); replaced by consolidation runs-by-status + drain-budget-inflight.
+- `xamops_consolidation_nodes_removed_total` — metric not present in this agent image.
+- `k6_*` (http_reqs / req_duration / req_failed) — k6 remote-write not landing in this Prometheus; SLO sourced from k6 Job logs → report.md instead.
+
+_Grafana annotations are added as tags (`destroy-it`,`phase`,`fault`) marking each phase/fault so graphs stay readable after the fact._

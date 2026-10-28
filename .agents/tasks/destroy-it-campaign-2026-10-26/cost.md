@@ -105,7 +105,30 @@ NOT used). All writes `--context`-pinned.
 - **Projected total through a 48h attack window ≈ $12–18 (spent) + ~$28 (scale) + ~$1 (LB) + ~$24 (baseline)
   ≈ $65–71.** Well under the **$200** cap (remaining headroom ≈ $130+).
 
-_Last updated: pre-scale, setup step. Actual added node count recorded below after scaling._
+### ACTUALS (post-scale)
+
+- **ng-ondemand-1 scaled 4 → 26** (22 added t3.medium on-demand) to clear the t3.medium 17-pod
+  VPC-CNI ceiling (prefix-delegation is OFF, confirmed). Added compute = 22 × $0.0416 = **$0.915/hr**.
+  Needed because the fleet is pod-count-bound (17/node) AND CPU-bound (over-provisioned profiles),
+  not because of raw resource need.
+- Grafana public NLB: ~$0.025/hr + LCU ≈ **$0.60–0.80/day**.
+- Redis EBS (2Gi gp3) ≈ negligible (~$0.0003/hr).
+- Baseline (control plane + pre-existing nodes) still ≈ $0.50/hr.
+
+**New running compute rate ≈ $0.50 (baseline) + $0.915 (scale) ≈ $1.42/hr + ~$0.03/hr LB.**
+
+Projection over a 48h attack window from here:
+- Scale-up: $0.915/hr × 48h ≈ **$44**
+- Baseline: $0.50/hr × 48h ≈ **$24**
+- Grafana LB: ≈ **$1.5**
+- Already spent to date: ≈ **$12–18**
+- **Projected campaign total ≈ $82–88 through a 48h window.** Under the **$200** cap;
+  remaining headroom ≈ **$110+**. NO cap breach → no warning raised.
+
+> Cost control lever for teardown / if budget tightens: scale ng-ondemand-1 back to 4
+> (`eksctl scale nodegroup ... --nodes 4`) drops ~$0.915/hr immediately.
+
+_Last updated: setup step complete (actual 22 nodes added), 2026-10-28._
 
 ## Setup FINISH — Option B take-over (wf_11056589d901fb99, setup step)
 
@@ -158,3 +181,40 @@ region **ap-south-1**, context pinned to the xamops-test-1 ARN (current-context 
   baseline table: desired 4) and chaos/stress/k6/LB removed.
 
 _Last updated: setup finish (Option B), after capping ng-ondemand-1 max=26._
+
+## Attack-phase update #1 (wf_11056589d901fb99) — Phases 1-4 complete
+
+Context re-asserted before every action (acct 102227938259, region ap-south-1, pinned xamops-test-1
+ARN; ambient drift to k8opt-chaos ignored, never used). Faults confined to ns stress/stress-db.
+
+- **Node count UNCHANGED** through phases 1-4: 31 nodes (30× t3.medium + 1× t3.large). ng-ondemand-1
+  stayed at/under its cap (26) — Phase 2 deliberately hit the scheduling ceiling (23 Pending) rather
+  than growing nodes. **No node churn, no new EC2, no FIS fired yet.**
+- Loads were ephemeral in-cluster k6 Jobs (grafana/k6) — pod-only, ~$0 AWS charge.
+- Chaos was pods-only StressChaos (mem/cpu) via existing chaos-mesh — ~$0.
+- Cleaned up 3 orphaned chaos objects from a prior run (incl. an ACTIVE pod-kill) — no cost effect.
+
+**Burn rate unchanged ≈ $1.48/hr (baseline+scale-holdover+LB).** Campaign-attributable increment for
+phases 1-4 ≈ **$0** (no churn). Spent-to-date estimate ≈ **$20-26** (baseline cluster wall-clock).
+Projected total through the 3-day cap still ≈ **$125** < $200 cap. **No cap breach → no warn.**
+Phases 5-8 (self-heal storm, leader-failover, FIS spot churn, flapping) may add node churn — tracked next.
+
+_Last updated: after Phase 4 (CPU/CFS), wf_11056589d901fb99._
+
+## Attack-phase update #2 (wf_11056589d901fb99) — Phases 5-8 + FIS complete
+
+- **Phase 7 fired REAL AWS FIS** `send-spot-instance-interruptions` on EXACTLY `i-0025a665eb405673e`
+  (xamops-test-1 ng-spot-1, resolved by BOTH tags; test-2 never touched). That spot instance was
+  terminated and the ASG launched 1 replacement spot node. Spot ≈ $0.015/hr → partial-hour churn
+  ≈ **<$0.05 total**. A scoped FIS IAM role was created and **deleted** in teardown ($0).
+- Phases 5/6/8 = pod-only chaos (StressChaos/PodChaos/Schedule) + ephemeral k6 Jobs → **~$0 AWS**.
+- **Node count unchanged** (31) apart from the single spot terminate+replace; ng-ondemand-1 held at 26.
+- Added a second Grafana dashboard (ConfigMap only) → $0.
+
+**Campaign-attributable increment across all 8 phases ≈ <$0.10 (spot churn only).**
+Dominant cost remains the baseline+scale-holdover burn ≈ $1.48/hr. Spent-to-date estimate (wall-clock)
+≈ **$24-32**; projected through the 3-day cap ≈ **$125** < **$200 cap**. **No cap breach → no warn.**
+
+> Teardown lever unchanged: scale ng-ondemand-1 back to 4 (−$0.915/hr) + remove Grafana LB/chaos/k6/redis.
+
+_Last updated: after Phase 8 (flapping) + FIS teardown, wf_11056589d901fb99._

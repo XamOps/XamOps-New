@@ -115,3 +115,53 @@ the reason is not role-aware (no `db-primary` / `db-sync-standby` / `db-pvc` cod
 **G2/G6** in `.agents/tasks/stateful-db-fixtures-2026-10-24/report.md` ("refusal reasons are generic";
 "primary and sync standby protected only by the blanket PVC refusal"). Recommend a role-aware reason code
 so operators can see *why* a DB pod was protected. **Finding/observation only — not a headline-breaker.**
+
+---
+
+## BUG-SCALE-002 — fleet cannot reach ~200 pods; hard ceiling ~178 (VPC-CNI 17-pod/node + CPU-request exhaustion) — **LOW** (capacity/observability)
+
+**Repro (Phase 2):** context-pinned xamops-test-1; scale 55 `fleet-*` deploys 1→2 replicas under k6 load.
+Fleet rises 145 → **178 Running, 23 Pending** and stalls. Scheduler:
+```
+0/31 nodes are available: 22 Insufficient cpu, 8-11 Too many pods,
+4 node(s) had untolerated taint(s), 1 node(s) were unschedulable;
+preemption: 26 No preemption victims found, 5 Preemption is not helpful.
+```
+**Impact:** Target of ~200 schedulable workloads is INFEASIBLE under the campaign guardrail
+(ng-ondemand-1 capped at 26, no node growth). Dual bind: t3.medium VPC-CNI 17-pod IP ceiling
+(prefix-delegation OFF) AND over-provisioned CPU requests on the `over`/`over-heavy` profiles.
+NOT a control-plane or serving failure — the 145-pod serving fleet held 0.00% req-failed, p95 7.84ms
+through the churn, and the agent correctly did NOT grow the capped nodegroup.
+**File/where:** cluster capacity + fleet profile requests (fixtures), not agent code. VPC-CNI
+`ENABLE_PREFIX_DELEGATION` off; fleet deploy CPU requests on profiles 001/002/007/008/014-style (`over`).
+**Priority:** LOW — expected capacity limit given the guardrail; fix is right-sizing requests or
+enabling prefix-delegation, not an agent bug.
+
+---
+
+## OPS-CHAOS-003 — orphaned chaos objects from a prior run (one ACTIVELY injecting) — **LOW** (hygiene)
+
+**Repro (pre-Phase-4):** `kubectl get stresschaos,networkchaos,podchaos -A` on xamops-test-1 showed 3
+leftovers in ns stress: `StressChaos/fleet-cpu-stress` (Stop/AllRecovered), `NetworkChaos/fleet-net-latency`
+(Stop), and **`PodChaos/fleet-pod-kill` ACTIVE** (`pod-kill`, fixed-percent 15, dur 8m, selector
+app=fleet-http; AllInjected=True/AllRecovered=False) — continuously killing ~15% of fleet pods.
+**Impact:** stray pod restarts that could be misattributed to the tool; an active experiment left running
+across runs. **Fix/where:** campaign teardown must delete-and-verify-gone every chaos object + Schedule
+(a lingering Schedule also crashes downstream tooling). All 3 deleted; inventory now ALL CLEAR.
+**Priority:** LOW (operational hygiene, not a product bug), but verify-gone is now mandatory per phase.
+
+## GATE-002 / GATE-003 / GATE-004 — rightsizer / hpa / vpa not live BY DESIGN (confirmed, not bugs)
+
+**GATE-002 rightsizer + rightsizer-apply:** gate reads `off`; Go rightsizer retired; PUT workload-rightsizer
+→ 403 K8S_CONTROLLER_NOT_READY. **No live OOM/throttle auto-revert path exists** (verified in Phase 5 —
+nothing to exercise, recorded honestly rather than simulated). **GATE-003 hpa-manager:** analysis-only,
+no live PUT route. **GATE-004 vpa:** no acting gate series in this agent image. All three are design
+verdicts, not breaking points — forcing live would require hand-editing Postgres / bypassing the API
+(forbidden). Priority: N/A (documented design).
+
+## FIS-OK — real spot interruption + node replacement + DB protection all held (Phase 7, NOT a bug)
+
+Recorded for completeness: FIS `send-spot-instance-interruptions` on the single ng-spot-1 instance caused a
+genuine terminate→replace with 0 request failures (k6 0/76126) and 0 DB evictions; `interruption` gate live.
+No defect found. The only operational note: no reusable least-priv FIS execution role shipped in prep — one
+was created scoped to the exact instance ARN and deleted in teardown.
