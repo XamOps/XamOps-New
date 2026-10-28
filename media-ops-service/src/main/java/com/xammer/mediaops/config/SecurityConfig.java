@@ -83,6 +83,8 @@ public class SecurityConfig {
                         + "img-src 'self' data: blob: https:; "
                         + "font-src 'self' data: https:; "
                         + "connect-src 'self' https: wss:; "
+                        // Video/audio: own origin (playback proxy) plus blob: (hls.js/dash.js MSE).
+                        + "media-src 'self' blob:; "
                         + "object-src 'none'; "
                         + "base-uri 'self'; "
                         + "frame-ancestors 'self'"))

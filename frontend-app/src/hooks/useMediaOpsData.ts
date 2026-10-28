@@ -25,6 +25,8 @@ export interface ApiTranscodeJob {
   enableAdaptive: boolean;
   status: string;
   progress: number;
+  inputSizeBytes: number | null;
+  outputSizeBytes: number | null;
   durationSeconds: number | null;
   outputPath: string | null;
   hlsUrl: string | null;
@@ -641,8 +643,8 @@ export function useMediaOpsData() {
     status: (j.status ?? 'queued').toLowerCase() as 'queued' | 'processing' | 'paused' | 'completed' | 'failed' | 'cancelled',
     progress: j.progress ?? 0,
     duration: formatSeconds(j.durationSeconds),
-    fileSize: '—',
-    outputSize: '—',
+    fileSize: j.inputSizeBytes ? formatBytes(j.inputSizeBytes) : '—',
+    outputSize: j.outputSizeBytes ? formatBytes(j.outputSizeBytes) : '—',
     savings: (() => {
       if (!j.awsEquivalentCost) return '—';
       const v = Number(j.awsEquivalentCost);

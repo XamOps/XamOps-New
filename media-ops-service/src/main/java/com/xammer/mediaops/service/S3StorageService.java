@@ -148,6 +148,51 @@ public class S3StorageService {
     }
 
     /**
+     * Stream one output file of a job stored in the XamOps bucket to the HTTP response,
+     * with Range support so players can seek. Backs the {@code GET /jobs/{id}/play/**}
+     * playback proxy for XamOps-bucket jobs: the browser talks only to our backend and
+     * the object is read with the service's own credentials, so the bucket can stay
+     * private. {@code relativePath} is relative to the job's prefix (e.g.
+     * {@code master.m3u8}, {@code stream_0_000.ts}); the controller has already
+     * rejected traversal and absolute paths.
+     */
+    public void streamJobObject(long jobId, String relativePath, String rangeHeader,
+                                jakarta.servlet.http.HttpServletResponse response) throws IOException {
+        if (!isEnabled()) {
+            response.setStatus(jakarta.servlet.http.HttpServletResponse.SC_NOT_FOUND);
+            return;
+        }
+        GetObjectRequest.Builder reqBuilder = GetObjectRequest.builder()
+                .bucket(bucket)
+                .key(jobKeyPrefix(jobId) + relativePath);
+        if (rangeHeader != null && !rangeHeader.isBlank()) {
+            reqBuilder.range(rangeHeader);
+        }
+        try (ResponseInputStream<GetObjectResponse> in = s3.getObject(reqBuilder.build())) {
+            GetObjectResponse meta = in.response();
+            response.setContentType(contentTypeFor(relativePath));
+            response.setHeader("Accept-Ranges", "bytes");
+            if (meta.contentLength() != null) {
+                response.setHeader("Content-Length", String.valueOf(meta.contentLength()));
+            }
+            if (rangeHeader != null && !rangeHeader.isBlank() && meta.contentRange() != null) {
+                response.setStatus(jakarta.servlet.http.HttpServletResponse.SC_PARTIAL_CONTENT); // 206
+                response.setHeader("Content-Range", meta.contentRange());
+            } else {
+                response.setStatus(jakarta.servlet.http.HttpServletResponse.SC_OK);
+            }
+            in.transferTo(response.getOutputStream());
+        } catch (software.amazon.awssdk.services.s3.model.NoSuchKeyException e) {
+            response.setStatus(jakarta.servlet.http.HttpServletResponse.SC_NOT_FOUND);
+        } catch (software.amazon.awssdk.services.s3.model.S3Exception e) {
+            // e.g. 416 for an unsatisfiable Range, 403 if the role lacks s3:GetObject.
+            log.warn("[S3Storage] Playback read failed for job {} file {}: {} {}",
+                    jobId, relativePath, e.statusCode(), e.getMessage());
+            if (!response.isCommitted()) response.setStatus(e.statusCode() > 0 ? e.statusCode() : 502);
+        }
+    }
+
+    /**
      * Upload every file in {@code localDir} to S3 under
      * {@code <keyPrefix>/jobs/<jobId>/} and return the public base URL
      * for that job (without trailing slash).

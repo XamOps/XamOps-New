@@ -88,16 +88,15 @@ public class TranscodeJobDto {
         dto.durationSeconds = j.getDurationSeconds();
         dto.outputPath = j.getOutputPath();
         if (j.getOutputPath() != null || j.getOutputUrl() != null || j.getOutputBucketPrefix() != null) {
-            // Output stored in the customer's own (private) bucket → serve every file
-            // through the backend playback proxy. Otherwise: our public S3 URL if set,
-            // else the local /media/ file server.
+            // Output in an S3 bucket — the customer's own or the XamOps bucket — is served
+            // through the backend playback proxy, which reads it with the right credentials.
+            // The browser never fetches S3 directly: the buckets are private, and a direct
+            // fetch also falls foul of the page CSP. Otherwise: the local /media/ file server.
             String base;
             boolean customerBucket = j.getOutputBucketPrefix() != null
                     && (j.getOutputS3ConfigId() != null || j.getOutputAccountId() != null);
-            if (customerBucket) {
+            if (customerBucket || j.getOutputUrl() != null) {
                 base = "/api/media-ops/jobs/" + j.getId() + "/play";
-            } else if (j.getOutputUrl() != null) {
-                base = j.getOutputUrl();
             } else {
                 base = "/media/jobs/" + j.getId();
             }

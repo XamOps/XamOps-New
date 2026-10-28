@@ -118,7 +118,8 @@ export const XAMOPS_MODULES: XamOpsModule[] = [
       { key: 'mediaops-transcode', label: 'Transcoding Jobs', icon: 'mdi:swap-horizontal' },
       { key: 'mediaops-streams', label: 'Live Streams', icon: 'mdi:broadcast' },
       { key: 'mediaops-storage', label: 'Media Storage', icon: 'mdi:database' },
-      { key: 'mediaops-cost-savings', label: 'Cost Savings', icon: 'mdi:piggy-bank-outline' },
+      // Cost Savings hidden for now
+      // { key: 'mediaops-cost-savings', label: 'Cost Savings', icon: 'mdi:piggy-bank-outline' },
     ],
   },
   {

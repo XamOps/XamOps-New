@@ -591,7 +591,8 @@ const AppContent: React.FC = () => {
                             <Route path="/media-ops/transcode" element={<MediaOpsPage />} />
                             <Route path="/media-ops/streams" element={<MediaOpsPage />} />
                             <Route path="/media-ops/storage" element={<MediaOpsPage />} />
-                            <Route path="/media-ops/cost-savings" element={<MediaOpsPage />} />
+                            {/* Cost Savings hidden for now — redirect old links to Overview */}
+                            <Route path="/media-ops/cost-savings" element={<Navigate to="/media-ops" replace />} />
 
                             {/* BillOps Routes */}
                             <Route path="/billops-dashboard" element={<BillOpsUserDashboardPage />} />

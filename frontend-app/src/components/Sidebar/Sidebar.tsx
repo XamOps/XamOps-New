@@ -539,7 +539,9 @@ const Sidebar: React.FC = () => {
                 {isXamTabAllowed('mediaops-transcode') && <NavItem href="/media-ops/transcode" icon="fas fa-exchange-alt" label="Transcoding Jobs" isActive={isActive('/media-ops/transcode')} />}
                 {isXamTabAllowed('mediaops-streams') && <NavItem href="/media-ops/streams" icon="fas fa-broadcast-tower" label="Live Streams" isActive={isActive('/media-ops/streams')} />}
                 {isXamTabAllowed('mediaops-storage') && <NavItem href="/media-ops/storage" icon="fas fa-database" label="Media Storage" isActive={isActive('/media-ops/storage')} />}
+                {/* Cost Savings hidden for now — re-enable by uncommenting.
                 {isXamTabAllowed('mediaops-cost-savings') && <NavItem href="/media-ops/cost-savings" icon="fas fa-piggy-bank" label="Cost Savings" isActive={isActive('/media-ops/cost-savings')} />}
+                */}
               </NavSection>
               )}
 

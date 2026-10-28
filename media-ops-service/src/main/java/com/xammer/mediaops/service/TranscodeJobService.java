@@ -202,6 +202,19 @@ public class TranscodeJobService {
         int duration = ffmpegService.probeDurationSeconds(job.getSourceUrl());
         if (duration > 0) job.setDurationSeconds(duration);
 
+        // Capture the source file size up front so the UI can show input size and,
+        // once the output is measured below, the storage saved by transcoding.
+        // ffprobe reports format.size for regular files/objects; it can be absent for
+        // some live/HTTP streams, in which case we simply leave it null.
+        try {
+            com.xammer.mediaops.dto.FileProbeResult probe = ffmpegService.probeFile(job.getSourceUrl());
+            if (probe != null && probe.getFileSizeBytes() > 0) {
+                job.setInputSizeBytes(probe.getFileSizeBytes());
+            }
+        } catch (Exception e) {
+            log.debug("[MediaOps] Could not probe input size for job {}: {}", jobId, e.getMessage());
+        }
+
         job.setStatus(TranscodeJob.JobStatus.PROCESSING);
         job.setStartedAt(Instant.now());
         jobRepo.save(job);
@@ -219,6 +232,12 @@ public class TranscodeJobService {
             job.setCompletedAt(Instant.now());
             if (duration > 0)
                 job.setAwsEquivalentCost(AWS_COST_PER_MINUTE.multiply(BigDecimal.valueOf(duration / 60.0)));
+
+            // Measure the produced output (sum of every file in the output directory —
+            // for HLS/DASH that's the manifest plus all segments). This is what the UI
+            // shows as "Output Size" and uses to compute storage saved vs the source.
+            long outBytes = directorySizeBytes(job.getOutputPath());
+            if (outBytes > 0) job.setOutputSizeBytes(outBytes);
 
             // Persist and broadcast COMPLETED immediately once FFmpeg succeeds — the
             // transcode itself is done. Thumbnail generation and the S3 backup below
@@ -336,6 +355,19 @@ public class TranscodeJobService {
      */
     public void streamOutputObject(TranscodeJob job, String relativePath, String rangeHeader,
                                    jakarta.servlet.http.HttpServletResponse response) throws java.io.IOException {
+        boolean customerBucket = job.getOutputBucketPrefix() != null
+                && (job.getOutputS3ConfigId() != null || job.getOutputAccountId() != null);
+        if (!customerBucket) {
+            // Output lives in the XamOps bucket (outputUrl is set once it's uploaded there).
+            // Read it with the service's credentials instead of letting the browser hit S3
+            // directly — the bucket prefix is private, so a direct fetch gets 403.
+            if (job.getOutputUrl() != null) {
+                s3Storage.streamJobObject(job.getId(), relativePath, rangeHeader, response);
+            } else {
+                response.setStatus(jakarta.servlet.http.HttpServletResponse.SC_NOT_FOUND);
+            }
+            return;
+        }
         if (job.getOutputBucketPrefix() == null) {
             response.setStatus(jakarta.servlet.http.HttpServletResponse.SC_NOT_FOUND);
             return;
@@ -528,6 +560,25 @@ public class TranscodeJobService {
                 });
         } catch (Exception e) {
             log.warn("[MediaOps] registerOutputFile failed: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Total size, in bytes, of every regular file under the given output directory.
+     * For single-file outputs (MP4/WebM) that's just the one file; for HLS/DASH it's
+     * the manifest plus all segments. Returns 0 when the path is missing or unreadable.
+     */
+    private long directorySizeBytes(String outputPath) {
+        if (outputPath == null) return 0L;
+        Path dir = Paths.get(outputPath);
+        if (!Files.exists(dir)) return 0L;
+        try (java.util.stream.Stream<Path> walk = Files.walk(dir)) {
+            return walk.filter(Files::isRegularFile)
+                       .mapToLong(p -> { try { return Files.size(p); } catch (java.io.IOException e) { return 0L; } })
+                       .sum();
+        } catch (Exception e) {
+            log.debug("[MediaOps] directorySizeBytes failed for {}: {}", outputPath, e.getMessage());
+            return 0L;
         }
     }
 }

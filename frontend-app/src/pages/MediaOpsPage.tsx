@@ -111,14 +111,6 @@ function useActiveTab(): Tab {
   return 'overview';
 }
 
-const TAB_DEFS: { id: Tab; label: string; icon: string; path: string }[] = [
-  { id: 'overview', label: 'Overview', icon: 'mdi:view-dashboard-outline', path: '/media-ops' },
-  { id: 'transcode', label: 'Transcode', icon: 'mdi:movie-open-outline', path: '/media-ops/transcode' },
-  { id: 'streams', label: 'Live Streams', icon: 'mdi:broadcast', path: '/media-ops/streams' },
-  { id: 'storage', label: 'Storage', icon: 'mdi:folder-play-outline', path: '/media-ops/storage' },
-  { id: 'cost-savings', label: 'Cost Savings', icon: 'mdi:piggy-bank-outline', path: '/media-ops/cost-savings' },
-];
-
 // Signature condensed numeral treatment (matches FinOps/Account KPI cards)
 const JOB_NUM_STYLE: React.CSSProperties = {
   fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif",
@@ -215,7 +207,6 @@ interface OverviewTabProps {
 }
 
 function OverviewTab({ overview, jobs, streams, loadingOverview, loadingJobs, loadingStreams }: OverviewTabProps) {
-  const saved = overview ? formatSavings(overview.totalSavedVsAws) : '—';
   const storageStr = overview ? formatBytes(overview.storageUsedBytes) : '—';
 
   const stats = [
@@ -224,12 +215,12 @@ function OverviewTab({ overview, jobs, streams, loadingOverview, loadingJobs, lo
     { label: 'Jobs Completed', value: overview?.completedJobs ?? '—', icon: 'mdi:check-circle-outline', sub: 'Total completed', tooltip: 'Jobs that finished successfully.' },
     { label: 'Total Viewers', value: overview?.totalViewers ?? '—', icon: 'mdi:account-group-outline', sub: 'Across all streams', tooltip: 'Total concurrent viewers across all live streams.' },
     { label: 'Storage Used', value: storageStr, icon: 'mdi:database-outline', sub: 'Media storage', tooltip: 'Total media storage consumed.' },
-    { label: 'Saved vs AWS', value: saved, icon: 'mdi:piggy-bank-outline', sub: 'Total tracked', tooltip: 'Money saved vs AWS Media Services.' },
   ];
 
   return (
     <div className="space-y-6">
-      {/* Hero Banner */}
+      {/* Hero Banner — hidden per request */}
+      {false && (
       <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-2">
@@ -255,14 +246,15 @@ function OverviewTab({ overview, jobs, streams, loadingOverview, loadingJobs, lo
           </div>
         </div>
       </div>
+      )}
 
       {/* Stat Cards */}
       {loadingOverview ? (
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-          {Array.from({ length: 6 }).map((_, i) => <SkeletonBlock key={i} className="h-28" />)}
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
+          {Array.from({ length: 5 }).map((_, i) => <SkeletonBlock key={i} className="h-28" />)}
         </div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
           {stats.map((s, i) => <StatCard key={i} {...s} />)}
         </div>
       )}
@@ -303,7 +295,6 @@ function OverviewTab({ overview, jobs, streams, loadingOverview, loadingJobs, lo
                   <div className="text-right flex-shrink-0">
                     <StatusBadge status={job.status} />
                     {job.status === 'processing' && <p className="text-[10px] text-[rgba(0,0,0,0.35)] mt-0.5">{job.progress}%</p>}
-                    {job.status === 'completed' && <p className="text-[10px] text-emerald-600 font-semibold mt-0.5">{job.savings}</p>}
                   </div>
                 </div>
               ))}
@@ -355,7 +346,8 @@ function OverviewTab({ overview, jobs, streams, loadingOverview, loadingJobs, lo
         </div>
       </div>
 
-      {/* Quick Start */}
+      {/* Quick Start — hidden per request */}
+      {false && (
       <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl shadow-sm p-5">
         <p className="text-[12px] font-bold uppercase tracking-wider text-[rgba(0,0,0,0.5)] mb-4">Quick Commands</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -376,7 +368,206 @@ function OverviewTab({ overview, jobs, streams, loadingOverview, loadingJobs, lo
           ))}
         </div>
       </div>
+      )}
     </div>
+  );
+}
+
+// ─── Job Detail Drawer ──────────────────────────────────────────────────────
+// Right-anchored slide-in panel (mirrors the EBS rightsizing monitoring drawer)
+// that surfaces every detail we know about a transcoding job.
+
+function statusMeta(status: JobStatus): { label: string; icon: string; color: string; bg: string } {
+  switch (status) {
+    case 'completed':  return { label: 'Completed',  icon: 'mdi:check-circle',        color: 'text-emerald-600', bg: 'bg-emerald-50' };
+    case 'processing': return { label: 'Processing', icon: 'mdi:progress-clock',      color: 'text-blue-600',    bg: 'bg-blue-50' };
+    case 'paused':     return { label: 'Paused',     icon: 'mdi:pause-circle',        color: 'text-amber-600',   bg: 'bg-amber-50' };
+    case 'queued':     return { label: 'Queued',     icon: 'mdi:tray-full',           color: 'text-[rgba(0,0,0,0.5)]', bg: 'bg-[rgba(0,0,0,0.05)]' };
+    case 'failed':     return { label: 'Failed',     icon: 'mdi:alert-circle',        color: 'text-red-600',     bg: 'bg-red-50' };
+    case 'cancelled':  return { label: 'Cancelled',  icon: 'mdi:cancel',              color: 'text-[rgba(0,0,0,0.45)]', bg: 'bg-[rgba(0,0,0,0.05)]' };
+    default:           return { label: status,       icon: 'mdi:help-circle-outline', color: 'text-[rgba(0,0,0,0.5)]', bg: 'bg-[rgba(0,0,0,0.05)]' };
+  }
+}
+
+function DetailRow({ label, value, mono, copyable }: { label: string; value?: string | number | null; mono?: boolean; copyable?: boolean }) {
+  const [copied, setCopied] = useState(false);
+  const str = (value === undefined || value === null || value === '') ? '—' : String(value);
+  const empty = str === '—';
+  return (
+    <div className="flex items-start justify-between gap-3 py-2.5 border-b border-[rgba(0,0,0,0.05)] last:border-b-0">
+      <span className="text-[11px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.4)] flex-shrink-0 pt-0.5">{label}</span>
+      <div className="flex items-start gap-1.5 min-w-0">
+        <span className={`text-[12px] text-right ${empty ? 'text-[rgba(0,0,0,0.3)]' : 'text-[rgba(0,0,0,0.82)] font-semibold'} ${mono ? 'font-mono break-all' : ''}`}>{str}</span>
+        {copyable && !empty && (
+          <button
+            onClick={() => { navigator.clipboard.writeText(str); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+            className="p-0.5 rounded hover:bg-[rgba(0,0,0,0.06)] text-[rgba(0,0,0,0.35)] hover:text-[rgba(0,0,0,0.65)] flex-shrink-0 mt-0.5"
+            title="Copy">
+            <Icon icon={copied ? 'mdi:check' : 'mdi:content-copy'} className={`text-[13px] ${copied ? 'text-emerald-500' : ''}`} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DetailSection({ title, icon, children }: { title: string; icon: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.015)]">
+        <Icon icon={icon} className="text-[rgba(0,0,0,0.4)] text-sm" />
+        <span className="text-[11px] font-bold uppercase tracking-wider text-[rgba(0,0,0,0.55)]">{title}</span>
+      </div>
+      <div className="px-4 py-1">{children}</div>
+    </div>
+  );
+}
+
+function JobDetailDrawer({ job, onClose }: { job: TranscodeJob | null; onClose: () => void }) {
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  // Lock scroll on the main content container while the drawer is open
+  useEffect(() => {
+    if (!job) return;
+    const el = document.getElementById('main-content');
+    if (!el) return;
+    const prev = el.style.overflowY;
+    el.style.overflowY = 'hidden';
+    return () => { el.style.overflowY = prev; };
+  }, [job]);
+
+  if (!job) return null;
+
+  const sm = statusMeta(job.status);
+  const outputUrl = job.hlsUrl || job.dashUrl || job.videoUrl || '';
+  const resolvedOutputUrl = outputUrl ? resolveMediaUrl(outputUrl) : '';
+  const compat = outputCompatNote(job.outputFormat);
+
+  return createPortal(
+    <>
+      {/* Backdrop */}
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40" onClick={onClose} />
+
+      {/* Drawer panel */}
+      <div className="fixed right-0 top-0 h-full w-full max-w-md bg-[rgba(0,0,0,0.02)] shadow-2xl z-50 flex flex-col animate-[slideInRight_0.25s_ease]">
+        <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-[rgba(0,0,0,0.08)] bg-white flex items-start justify-between flex-shrink-0">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 mb-1.5">
+              <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.04)] flex items-center justify-center flex-shrink-0">
+                <Icon icon="mdi:file-video-outline" className="text-[rgba(0,0,0,0.5)] text-base" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[14px] font-bold text-[rgba(0,0,0,0.88)] truncate" title={job.name}>{job.name}</p>
+                {job.sourceFolder && <p className="text-[11px] text-[rgba(0,0,0,0.4)] truncate">in {job.sourceFolder}/</p>}
+              </div>
+            </div>
+            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold ${sm.bg} ${sm.color}`}>
+              <Icon icon={sm.icon} className="text-[13px]" />
+              {sm.label}
+            </span>
+          </div>
+          <button onClick={onClose}
+            className="p-2 ml-3 flex-shrink-0 rounded-lg hover:bg-[rgba(0,0,0,0.06)] text-[rgba(0,0,0,0.45)] transition-colors"
+            title="Close (Esc)">
+            <Icon icon="mdi:close" className="text-base" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+
+          {/* Progress (only while not completed) */}
+          {job.status !== 'completed' && (
+            <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl shadow-sm px-4 py-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[rgba(0,0,0,0.5)]">Progress</span>
+                <span className="text-[12px] font-bold text-[rgba(0,0,0,0.7)] tabular-nums">{job.progress}%</span>
+              </div>
+              <ProgressBar value={job.progress} color={job.status === 'failed' ? 'bg-red-400' : job.status === 'paused' ? 'bg-amber-400' : undefined} />
+            </div>
+          )}
+
+          <DetailSection title="File" icon="mdi:file-outline">
+            <DetailRow label="Name" value={job.name} />
+            <DetailRow label="Source Path" value={job.sourcePath} mono copyable />
+            <DetailRow label="Folder" value={job.sourceFolder} />
+            <DetailRow label="Input Size" value={job.fileSize} />
+            <DetailRow label="Output Size" value={job.outputSize} />
+            <DetailRow label="Duration" value={job.duration} />
+          </DetailSection>
+
+          <DetailSection title="Encoding" icon="mdi:cog-outline">
+            <DetailRow label="Input Format" value={job.inputFormat} />
+            <DetailRow label="Output Format" value={job.outputFormat} />
+            <DetailRow label="Resolution" value={job.resolution} />
+            <DetailRow label="Frame Rate" value={job.fps ? `${job.fps} fps` : undefined} />
+            <DetailRow label="Bitrate" value={job.bitrate} />
+          </DetailSection>
+
+          <DetailSection title="Timeline" icon="mdi:clock-outline">
+            <DetailRow label="Created" value={job.createdAt} />
+            <DetailRow label="Completed" value={job.completedAt} />
+            <DetailRow label="Job ID" value={job.rawId} mono />
+          </DetailSection>
+
+          {resolvedOutputUrl && (
+            <DetailSection title="Output" icon="mdi:link-variant">
+              <div className="py-2.5">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-1.5">
+                  {job.hlsUrl ? 'HLS Output URL (.m3u8)' : job.dashUrl ? 'DASH Output URL (.mpd)' : `${job.outputFormat} Output URL`}
+                </p>
+                <input readOnly value={resolvedOutputUrl}
+                  onFocus={e => e.currentTarget.select()}
+                  className="w-full px-3 py-2 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.12)] rounded-lg text-[11px] font-mono text-[rgba(0,0,0,0.7)] outline-none focus:ring-2 focus:ring-sky-500/25 focus:border-sky-500" />
+                <p className={`text-[10px] mt-1.5 flex items-start gap-1 ${compat.good ? 'text-emerald-600' : 'text-[rgba(0,0,0,0.45)]'}`}>
+                  <Icon icon={compat.good ? 'mdi:check-circle-outline' : 'mdi:information-outline'} className="text-[11px] flex-shrink-0 mt-0.5" />
+                  {compat.text}
+                </p>
+                <div className="flex items-center gap-2 mt-2.5">
+                  <button onClick={() => navigator.clipboard.writeText(resolvedOutputUrl)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[rgba(0,0,0,0.88)] text-white text-[11px] font-bold hover:bg-[rgba(0,0,0,0.78)] active:scale-[0.97] transition-all">
+                    <Icon icon="mdi:content-copy" className="text-sm" /> Copy
+                  </button>
+                  <a href={resolvedOutputUrl} target="_blank" rel="noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.65)] text-[11px] font-semibold hover:bg-[rgba(0,0,0,0.03)] active:scale-[0.97] transition-all">
+                    <Icon icon="mdi:open-in-new" className="text-sm" /> Open
+                  </a>
+                </div>
+              </div>
+            </DetailSection>
+          )}
+
+          {/* Thumbnails */}
+          {job.thumbnailPaths && job.thumbnailPaths.length > 0 && (
+            <DetailSection title={`Thumbnails (${job.thumbnailPaths.length})`} icon="mdi:image-multiple-outline">
+              <div className="py-2.5">
+                <ThumbnailGrid thumbnailPaths={job.thumbnailPaths} jobId={job.rawId} />
+              </div>
+            </DetailSection>
+          )}
+
+          {/* Error details */}
+          {job.status === 'failed' && (
+            <DetailSection title="Error Details" icon="mdi:bug-outline">
+              <div className="py-2.5">
+                <pre className="text-[10px] font-mono text-red-600 whitespace-pre-wrap break-all leading-relaxed">
+                  {job.errorMessage ?? 'No error details recorded (job failed before error logging was enabled — retry to reprocess with full logging).'}
+                </pre>
+              </div>
+            </DetailSection>
+          )}
+        </div>
+      </div>
+    </>,
+    document.body,
   );
 }
 
@@ -434,8 +625,6 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
   const [jobFormatFilter, setJobFormatFilter] = useState<string>('all');
   const [jobPage, setJobPage] = useState(1);
   const [jobPageSize, setJobPageSize] = useState(25);
-  // Rows whose source path the user clicked to read in full.
-  const [expandedJobNames, setExpandedJobNames] = useState<Set<string>>(new Set());
   const [sourceMode, setSourceMode] = useState<'url' | 'upload'>('url');
   const [sourceUrl, setSourceUrl] = useState('');
   const [localFile, setLocalFile] = useState<File | null>(null);
@@ -477,6 +666,8 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
   const [expandedUrl, setExpandedUrl] = useState<string | null>(null);
   const [expandedThumbs, setExpandedThumbs] = useState<string | null>(null);
   const [embedJob, setEmbedJob] = useState<TranscodeJob | null>(null);
+  // Job whose full details are shown in the right-hand slide-in drawer.
+  const [detailJob, setDetailJob] = useState<TranscodeJob | null>(null);
 
   // Mode toggle: persisted to localStorage
   const [transcodeMode, setTranscodeMode] = useState<'simple' | 'advanced'>(() => {
@@ -1054,7 +1245,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
             <table className="w-full">
               <thead>
                 <tr className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
-                  {['File', 'Format', 'Resolution', 'Status', 'Progress', 'Duration', 'Savings', 'Created', ''].map(h => (
+                  {['File', 'Format', 'Resolution', 'Status', 'Progress', 'Duration', 'Created', ''].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">{h}</th>
                   ))}
                 </tr>
@@ -1062,33 +1253,25 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
               <tbody className="divide-y divide-[rgba(0,0,0,0.04)]">
                 {pagedJobs.map(job => (
                   <React.Fragment key={job.id}>
-                    <tr className={`group/row transition-colors ${job.status === 'failed' ? 'bg-red-50/40 hover:bg-red-50' : 'hover:bg-[rgba(0,0,0,0.018)]'}`}>
+                    <tr
+                      onClick={() => setDetailJob(job)}
+                      title="View job details"
+                      className={`group/row cursor-pointer transition-colors ${job.status === 'failed' ? 'bg-red-50/40 hover:bg-red-50' : 'hover:bg-[rgba(0,0,0,0.018)]'}`}>
                       <td className="px-4 py-3">
                         <div className="flex items-start gap-2">
                           <div className="w-7 h-7 rounded-lg bg-[rgba(0,0,0,0.04)] group-hover/row:bg-blue-50 flex items-center justify-center flex-shrink-0 transition-colors">
                             <Icon icon="mdi:file-video-outline" className="text-[rgba(0,0,0,0.4)] group-hover/row:text-blue-500 text-sm transition-colors" />
                           </div>
-                          {/* Click to read the whole path — source names regularly outrun the
-                              column, and a folder is often the only thing distinguishing two
-                              jobs both called "1.mp4". */}
-                          <button
-                            onClick={() => setExpandedJobNames(prev => {
-                              const next = new Set(prev);
-                              if (next.has(job.id)) next.delete(job.id); else next.add(job.id);
-                              return next;
-                            })}
-                            title={expandedJobNames.has(job.id) ? 'Click to collapse' : job.sourcePath}
-                            className={`text-left ${expandedJobNames.has(job.id) ? 'max-w-[260px]' : 'max-w-[180px]'}`}>
+                          <div className="text-left max-w-[180px]">
                             {job.sourceFolder && (
-                              <span className={`block text-[10px] text-[rgba(0,0,0,0.4)] ${expandedJobNames.has(job.id) ? 'break-all' : 'truncate'}`}>
+                              <span className="block text-[10px] text-[rgba(0,0,0,0.4)] truncate">
                                 {job.sourceFolder}/
                               </span>
                             )}
-                            <span className={`block text-[12px] font-semibold text-[rgba(0,0,0,0.88)] hover:text-blue-700 ${
-                              expandedJobNames.has(job.id) ? 'break-all' : 'truncate'}`}>
+                            <span className="block text-[12px] font-semibold text-[rgba(0,0,0,0.88)] group-hover/row:text-blue-700 transition-colors truncate">
                               {job.name}
                             </span>
-                          </button>
+                          </div>
                         </div>
                       </td>
                       <td className="px-4 py-3">
@@ -1103,11 +1286,8 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
                         </div>
                       </td>
                       <td className="px-4 py-3 text-[12px] text-[rgba(0,0,0,0.55)]">{job.duration}</td>
-                      <td className="px-4 py-3">
-                        <span className={`text-[12px] font-bold ${job.savings !== '—' ? 'text-emerald-600' : 'text-[rgba(0,0,0,0.3)]'}`}>{job.savings}</span>
-                      </td>
                       <td className="px-4 py-3 text-[11px] text-[rgba(0,0,0,0.4)] whitespace-nowrap">{job.createdAt}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-1">
                           {job.status === 'processing' && (
                             <button onClick={() => handlePause(job)} disabled={controllingId === job.rawId} title="Pause job"
@@ -1199,7 +1379,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
                     </tr>
                     {expandedError === job.id && (
                       <tr className="bg-red-50">
-                        <td colSpan={9} className="px-4 py-3">
+                        <td colSpan={8} className="px-4 py-3">
                           <div className="flex items-start gap-2">
                             <Icon icon="mdi:bug-outline" className="text-red-500 mt-0.5 flex-shrink-0" />
                             <div className="flex-1">
@@ -1217,7 +1397,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
                     )}
                     {expandedUrl === job.id && jobOutputUrl(job) && (
                       <tr className="bg-sky-50/60">
-                        <td colSpan={9} className="px-4 py-3">
+                        <td colSpan={8} className="px-4 py-3">
                           <div className="flex items-center gap-3">
                             <div className="w-7 h-7 rounded-lg bg-sky-100 flex items-center justify-center flex-shrink-0">
                               <Icon icon="mdi:link-variant" className="text-sky-600 text-sm" />
@@ -1258,7 +1438,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
                     )}
                     {expandedThumbs === job.id && job.thumbnailPaths && job.thumbnailPaths.length > 0 && (
                       <tr className="bg-violet-50/40">
-                        <td colSpan={9} className="px-4 py-3">
+                        <td colSpan={8} className="px-4 py-3">
                           <div className="flex items-start gap-2">
                             <div className="flex-1 min-w-0">
                               <ThumbnailGrid thumbnailPaths={job.thumbnailPaths} jobId={job.rawId} />
@@ -1318,6 +1498,9 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
       {playerUrl && <HlsPlayer src={playerUrl} title="HLS Playback" onClose={() => setPlayerUrl(null)} />}
       {dashPlayerUrl && <DashPlayer src={dashPlayerUrl} title="DASH Playback" onClose={() => setDashPlayerUrl(null)} />}
       {videoPlayerUrl && <NativeVideoPlayer src={videoPlayerUrl} onClose={() => setVideoPlayerUrl(null)} />}
+
+      {/* Job details slide-in drawer */}
+      <JobDetailDrawer job={detailJob} onClose={() => setDetailJob(null)} />
       {embedJob?.hlsUrl && (
         <EmbedModal
           hlsUrl={resolveMediaUrl(embedJob.hlsUrl!)}
@@ -2791,24 +2974,9 @@ const MediaOpsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Tab Bar with Notification Bell */}
+      {/* Notification Bell — tab navigation moved to the side navbar */}
       <div className={`flex items-center gap-1 mb-6 border-b ${dark ? 'border-[rgba(255,255,255,0.08)]' : 'border-[rgba(0,0,0,0.06)]'}`}>
-        {TAB_DEFS.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => navigate(tab.path)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-[13px] font-semibold whitespace-nowrap border-b-2 transition-all -mb-px ${
-              activeTab === tab.id
-                ? 'border-[rgba(0,0,0,0.88)] text-[rgba(0,0,0,0.88)]'
-                : `border-transparent ${dark ? 'text-[rgba(255,255,255,0.5)] hover:text-[rgba(255,255,255,0.75)] hover:border-[rgba(255,255,255,0.15)]' : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.75)] hover:border-[rgba(0,0,0,0.15)]'}`
-            }`}
-          >
-            <Icon icon={tab.icon} className="text-base" />
-            {tab.label}
-          </button>
-        ))}
-
-        {/* Notification Bell — positioned at the right end of the tab bar */}
+        {/* Notification Bell — positioned at the right end of the bar */}
         <div className="relative ml-auto flex-shrink-0" ref={notificationDropdownRef}>
           <NotificationBell unreadCount={unreadCount} onClick={toggleNotifications} />
           <AnimatePresence>
