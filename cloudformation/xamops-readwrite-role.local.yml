@@ -1014,6 +1014,56 @@ Resources:
                   - 'cloudformation:DetectStackSetDrift'
                   - 'cloudformation:DescribeStackSetOperation'
                 Resource: '*'
+
+        # -----------------------------------------------------------------
+        # One-click CUR stack management.
+        #
+        # Lets the XamOps backend create/update the XamOps-CUR-<account> stack and
+        # provision the xamops-cur-<account id> bucket out-of-band, so "Apply changes"
+        # can set up Cost and Usage Reporting in the same action that updates the
+        # connection role. Scoped as tightly as each API allows: the CloudFormation
+        # grant is bounded to XamOps-CUR-* stacks in us-east-1, the bucket grant to
+        # xamops-cur-* buckets. cur:* and s3:ListAllMyBuckets have no resource-level
+        # ARNs, so Resource '*' there is intentional, not a wildcard oversight.
+        # No cur:DeleteReportDefinition — this role never deletes a report.
+        # -----------------------------------------------------------------
+        - PolicyName: XamOpsCurStackManage
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CurStackManage
+                Effect: Allow
+                Action:
+                  - 'cloudformation:CreateStack'
+                  - 'cloudformation:UpdateStack'
+                  - 'cloudformation:DescribeStacks'
+                  - 'cloudformation:DescribeStackEvents'
+                  - 'cloudformation:DescribeStackResources'
+                  - 'cloudformation:GetTemplateSummary'
+                Resource: !Sub 'arn:aws:cloudformation:us-east-1:${AWS::AccountId}:stack/XamOps-CUR-*/*'
+              - Sid: CurBucketProvision
+                Effect: Allow
+                Action:
+                  - 's3:CreateBucket'
+                  - 's3:PutBucketPolicy'
+                  - 's3:GetBucketPolicy'
+                  - 's3:PutBucketPublicAccessBlock'
+                  - 's3:PutEncryptionConfiguration'
+                  - 's3:PutLifecycleConfiguration'
+                  - 's3:ListBucket'
+                  - 's3:GetBucketLocation'
+                Resource:
+                  - 'arn:aws:s3:::xamops-cur-*'
+                  - 'arn:aws:s3:::xamops-cur-*/*'
+              - Sid: CurReportDefinitionManage
+                Effect: Allow
+                Action:
+                  - 'cur:PutReportDefinition'
+                  - 'cur:DescribeReportDefinitions'
+                  - 'cur:ModifyReportDefinition'
+                  # CUR has no resource-level ARNs, so '*' here is intentional.
+                  - 's3:ListAllMyBuckets'
+                Resource: '*'
       Tags:
         - Key: ManagedBy
           Value: CloudFormation

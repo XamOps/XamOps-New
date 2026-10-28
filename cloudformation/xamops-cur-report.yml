@@ -1,8 +1,23 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  XamOps Cost Reporting Stack: creates an S3 bucket and a Cost and Usage Report in THIS
-  account, so XamOps can read detailed billing data instead of the Cost Explorer API.
-  Deploy this ONLY in us-east-1, and only if this account is not under a XamOps payer account.
+  XamOps Cost Reporting Stack: creates a Cost and Usage Report in THIS account, pointed at
+  an existing xamops-cur-<account id> S3 bucket, so XamOps can read detailed billing data
+  instead of the Cost Explorer API. Deploy this ONLY in us-east-1, and only if this account
+  is not under a XamOps payer account.
+
+# =====================================================================================
+# THE DESTINATION BUCKET IS NOT OWNED BY THIS STACK.
+#
+# The xamops-cur-<account id> bucket is created out-of-band by the XamOps backend
+# (with the s3:CreateBucket grant on the connection role) BEFORE this stack is applied,
+# and this stack only REFERENCES it by name. That is deliberate:
+#   - the backend applies the read-only/read-write role stack and the CUR stack in one
+#     "Apply changes" action, and the bucket must exist (and carry the billing-service
+#     policy) for AWS::CUR::ReportDefinition to validate at create time;
+#   - declaring the bucket here as well would collide with the already-created bucket.
+# The BucketName parameter override below exists only for manual console launches where
+# someone wants to point the report at a differently named, pre-existing bucket.
+# =====================================================================================
 
 # =====================================================================================
 # WHY THIS IS A SEPARATE STACK FROM xamops-readonly-role.yml
@@ -109,44 +124,6 @@ Conditions:
 Resources:
 
   # ---------------------------------------------------------------------------------
-  # Destination bucket.
-  #
-  # Reports are the only thing written here, and they are rewritten in place up to three
-  # times a day for the open month, so versioning is deliberately left off — it would
-  # retain every superseded copy of a large dataset at full storage cost.
-  # ---------------------------------------------------------------------------------
-  CurBucket:
-    Type: AWS::S3::Bucket
-    # Retained on stack delete: the bucket holds historical billing records that cannot be
-    # regenerated. A legacy CUR does not backfill, so deleting it discards history for good.
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      BucketName: !If
-        - UseDefaultBucketName
-        - !Sub 'xamops-cur-${AWS::AccountId}'
-        - !Ref BucketName
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
-      LifecycleConfiguration:
-        Rules:
-          # Athena query results are scratch: XamOps reads each result once and caches the
-          # aggregate. Without expiry they accumulate indefinitely.
-          - Id: ExpireAthenaResults
-            Status: Enabled
-            Prefix: 'xamops-athena-results/'
-            ExpirationInDays: 7
-            AbortIncompleteMultipartUpload:
-              DaysAfterInitiation: 1
-
-  # ---------------------------------------------------------------------------------
   # Bucket policy required by the billing service.
   #
   # These exact actions are what CUR delivery validates against at report-creation time;
@@ -155,7 +132,7 @@ Resources:
   CurBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
-      Bucket: !Ref CurBucket
+      Bucket: !If [UseDefaultBucketName, !Sub 'xamops-cur-${AWS::AccountId}', !Ref BucketName]
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -166,7 +143,7 @@ Resources:
             Action:
               - 's3:GetBucketAcl'
               - 's3:GetBucketPolicy'
-            Resource: !GetAtt CurBucket.Arn
+            Resource: !If [UseDefaultBucketName, !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}', !Sub 'arn:aws:s3:::${BucketName}']
             Condition:
               StringEquals:
                 'aws:SourceAccount': !Ref 'AWS::AccountId'
@@ -177,7 +154,7 @@ Resources:
             Principal:
               Service: billingreports.amazonaws.com
             Action: 's3:PutObject'
-            Resource: !Sub '${CurBucket.Arn}/*'
+            Resource: !If [UseDefaultBucketName, !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/*', !Sub 'arn:aws:s3:::${BucketName}/*']
             Condition:
               StringEquals:
                 'aws:SourceAccount': !Ref 'AWS::AccountId'
@@ -203,7 +180,7 @@ Resources:
       TimeUnit: !Ref TimeUnit
       Format: Parquet
       Compression: Parquet
-      S3Bucket: !Ref CurBucket
+      S3Bucket: !If [UseDefaultBucketName, !Sub 'xamops-cur-${AWS::AccountId}', !Ref BucketName]
       S3Prefix: 'cur'
       S3Region: us-east-1
       ReportVersioning: OVERWRITE_REPORT
@@ -222,7 +199,7 @@ Resources:
 Outputs:
   CurBucketName:
     Description: Enter this as the "CUR S3 Bucket Name" parameter on the XamOps read-only role stack.
-    Value: !Ref CurBucket
+    Value: !If [UseDefaultBucketName, !Sub 'xamops-cur-${AWS::AccountId}', !Ref BucketName]
 
   CurReportName:
     Description: Report name — give this to XamOps when connecting the account.
