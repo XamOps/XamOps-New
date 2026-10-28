@@ -10,6 +10,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
@@ -115,10 +116,15 @@ public class AwsClientProvider {
      */
     private final Cache<String, Object> clientCache;
 
+    /** Configured idle-eviction window in minutes — retained only so tests can assert the bound value. */
+    private final long expireAfterAccessMinutes;
+
+    @Autowired
     public AwsClientProvider(StsClient stsClient, AwsPermissionInterceptor permissionInterceptor,
             @Value("${xamops.aws.client-cache.expire-after-access-minutes:240}") long expireAfterAccessMinutes) {
         this.stsClient = stsClient;
         this.permissionInterceptor = permissionInterceptor;
+        this.expireAfterAccessMinutes = expireAfterAccessMinutes;
         this.clientCache = Caffeine.newBuilder()
                 .expireAfterAccess(expireAfterAccessMinutes, TimeUnit.MINUTES)
                 .removalListener((key, value, cause) -> {
@@ -126,7 +132,7 @@ public class AwsClientProvider {
                         try {
                             c.close();
                         } catch (Exception e) {
-                            logger.warn("Failed to close cached AWS client for key {}: {}", key, e.getMessage());
+                            logger.warn("Failed to close cached AWS client for key {}", key, e);
                         }
                     }
                 })
@@ -161,6 +167,11 @@ public class AwsClientProvider {
      */
     void putForTest(String key, Object value) {
         clientCache.put(key, value);
+    }
+
+    /** Test-only seam: the idle-eviction window (minutes) that was bound into this instance. */
+    long getExpireAfterAccessMinutesForTest() {
+        return expireAfterAccessMinutes;
     }
 
     /**
