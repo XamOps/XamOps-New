@@ -1,0 +1,8 @@
+run_id: destroy-it-resume-wf_11056589d901fb99
+owner: destroy-it-campaign resume (step 1 — finish go-live)
+workflow: wf_11056589d901fb99
+since: 2026-10-28T10:45:00Z
+purpose: destroy-it resume — finish go-live (take over from dead run destroy-it-1793102792-pid85183)
+step: go-live (campaign step 1; final restore step releases this lock)
+state: live
+cluster: arn:aws:eks:ap-south-1:102227938259:cluster/xamops-test-1
