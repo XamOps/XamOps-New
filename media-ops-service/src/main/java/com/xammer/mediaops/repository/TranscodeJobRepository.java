@@ -48,4 +48,9 @@ public interface TranscodeJobRepository extends JpaRepository<TranscodeJob, Long
      * Returns all SCHEDULED jobs whose scheduledAt time has passed (due for execution).
      */
     List<TranscodeJob> findByStatusAndScheduledAtBefore(TranscodeJob.JobStatus status, Instant time);
+
+    /**
+     * Returns COMPLETED jobs whose completedAt is older than the given cutoff.
+     */
+    List<TranscodeJob> findByStatusAndCompletedAtBefore(TranscodeJob.JobStatus status, Instant time);
 }
