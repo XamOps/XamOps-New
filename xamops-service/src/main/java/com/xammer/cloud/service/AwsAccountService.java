@@ -396,9 +396,9 @@ public class AwsAccountService {
         cur.put("region", CUR_REPORT_REGION);
         cur.put("applicable", String.valueOf(curApplicable));
         cur.put("parameters", List.of());
-        cur.put("note", "The CUR report is a separate stack in us-east-1. An update here is only"
-                + " needed when the CUR template itself changes; the report carries no XamOps"
-                + " parameters of its own.");
+        cur.put("note", "The CUR report stack in us-east-1 is now created and updated by the Update"
+                + " stack button itself, alongside the connection stack. No separate console launch"
+                + " is needed; the report carries no XamOps parameters of its own.");
 
         Map<String, Object> guide = new java.util.LinkedHashMap<>();
         guide.put("templateUrl", templateUrl);
