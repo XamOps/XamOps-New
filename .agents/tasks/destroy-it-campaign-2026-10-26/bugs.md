@@ -159,6 +159,62 @@ no live PUT route. **GATE-004 vpa:** no acting gate series in this agent image. 
 verdicts, not breaking points — forcing live would require hand-editing Postgres / bypassing the API
 (forbidden). Priority: N/A (documented design).
 
+## BUG-API-005 — `GET` on a PUT-only policy route returns 500 instead of 405 — **LOW** (API hygiene)
+
+**Repro (Phase 11):** `GET https://uat.xamops.com/api/eks/autoscaling/xamops-test-1/consolidation` →
+**HTTP 500** `{"message":"An unexpected error occurred: Request method 'GET' is not supported", ...}`.
+The route is PUT-only; an unsupported HTTP method should return **405 Method Not Allowed** (a 4xx client
+error), not a 500 (which signals a server fault and trips 5xx alerting/SLO budgets).
+
+**Impact:** cosmetic/contract only — no state change, no crash, no data exposure. But a 500 on a plain
+method mismatch pollutes error-rate metrics and can mask real server faults. Spring's default
+`HttpRequestMethodNotSupportedException` maps to 405; here it is being caught and re-wrapped as a generic
+500 "unexpected error".
+
+**Fix:** let `HttpRequestMethodNotSupportedException` surface as 405 (or add an explicit handler) on the
+`/api/eks/autoscaling/{clusterName}/*` policy controllers. **Finding only — not a breaking point.**
+
+**NOTE — fuzz tolerance itself PASSED:** 18 adversarial policy PUTs (SQLi/XSS/`__proto__`/huge/negative/
+wrong-type/array-as-object/path-traversal) were ALL rejected with HTTP 400 `K8S_INVALID_REQUEST` (gateway
+502 on the traversal path); zero 5xx on fuzz bodies; the live policy was unchanged (all 6 gates still live
+afterward). The adversarial K8s workload (16cpu/64Gi limits, grace 999999s, injection annotations) left the
+agent 2/2 with 0 restarts and no collect panic. Only the GET-method status class is wrong.
+
+---
+
+## BUG-OBS-006 — `xamops_orphans_recovered_total` is unwired (never increments) — **LOW** (observability)
+
+**Repro (Phase 17b):** induced a real half-drained orphan (node annotation `xamops.io/drain-state=draining`
+on a cordoned xamops-owned node), SIGKILLed the leader repeatedly. The new leader's `RecoverOrphans`
+correctly reconciled the node (`drain-state: draining → aborted`, uncordoned — verified on the node), yet
+the exposed metric `xamops_orphans_recovered_total` stayed **0** before and after.
+
+**Root cause:** the metric name appears at `/metrics` but is **not incremented anywhere** in the
+autoscaler source. `RecoverOrphans` (`internal/drain/executor.go:731-766`) records each recovery only
+through the generic action-record path `telemetry.Finish(ControllerExecutor, "recover-orphan", …)`; there
+is no `.Inc()` on a backing counter named `orphans_recovered_total`. `grep -rn orphans_recovered` across
+`xamops-autoscaler/` finds no definition/registration/increment.
+
+**Impact:** operators (and dashboards/alerts) watching `xamops_orphans_recovered_total` will see 0 even
+when the agent is actively recovering orphaned drains after crashes — a blind spot for a safety-relevant
+self-heal path. **No safety impact**: the recovery itself works and is observable via the node annotation
+flip and the action record.
+
+**Fix:** register a counter and `.Inc()` it on each successful `RecoverOrphans` action (and ideally a
+`…_failed_total` on the failure branch). **Finding only — the orphan-recovery behavior PASSED.**
+
+---
+
+## NOTE-PHASE15 — webhook-siege NOT EXERCISED (no admission webhook exists)
+
+Verified live on xamops-test-1: `kubectl get validatingwebhookconfigurations` and
+`mutatingwebhookconfigurations` show **no XamOps webhook** (only chaos-mesh/cnpg), and there is no XamOps
+webhook Service. The agent acts as a controller via the Eviction/drain API and the backend policy API —
+there is no admission webhook to siege. Phase 15 recorded as **not-exercised** with this reason, per the
+step instruction. Not a bug.
+
+---
+
 ## FIS-OK — real spot interruption + node replacement + DB protection all held (Phase 7, NOT a bug)
 
 Recorded for completeness: FIS `send-spot-instance-interruptions` on the single ng-spot-1 instance caused a

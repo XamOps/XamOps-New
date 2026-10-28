@@ -218,3 +218,67 @@ Dominant cost remains the baseline+scale-holdover burn ≈ $1.48/hr. Spent-to-da
 > Teardown lever unchanged: scale ng-ondemand-1 back to 4 (−$0.915/hr) + remove Grafana LB/chaos/k6/redis.
 
 _Last updated: after Phase 8 (flapping) + FIS teardown, wf_11056589d901fb99._
+
+## Attack-phase update #3 (wf_11056589d901fb99) — Phases 9-12 complete
+
+Context re-asserted before every mutation (acct 102227938259, region ap-south-1, pinned xamops-test-1 ARN;
+ambient drift to k8opt-chaos ignored). Faults confined to ns stress / stress-db / xamops-system.
+
+- **Phase 9 cost side-finding:** `ng-ondemand-1` scalingConfig had **drifted up to max=40 / desired=34**
+  (from the setup cap of 26) — but only **30 nodes actually run** (no cluster-autoscaler/Karpenter pod
+  exists; no runaway launch). **Re-capped** to `min4 / desired30 / max30` (EKS update `bf0c06eb-764c-…`,
+  context+acct asserted) to freeze at the real count and block any climb toward 40. This did NOT evict
+  (30=30). The +4 nodes over the 26 baseline = +4 × $0.0416 ≈ **+$0.17/hr** holdover (drift, not this
+  phase's doing). RESTORE step must still return ng-ondemand-1 to baseline 1/4/4.
+- **Phases 10-12:** pod-only / API-only faults — 8+12 ephemeral API-storm Jobs (phase 10), 18 backend
+  policy PUTs + 1 short-lived adversarial pod (phase 11), a 1.9GB fill-and-delete on an existing gp3
+  volume (phase 12). **No node churn, no new EC2, no FIS.** Campaign-attributable increment ≈ **$0**.
+
+- **Node count:** 35 total (30× t3.medium ng-ondemand + 1× t3.large + 1 spot + 3 stateful). Burn rate
+  now ≈ $1.48/hr baseline+holdover + ~$0.17/hr for the 4 drifted nodes ≈ **$1.65/hr**.
+- **Spent-to-date estimate (wall-clock)** ≈ **$30–40**; projected through the 3-day cap ≈ **$130** < **$200
+  cap**. **No cap breach → no warn.** Headroom ≈ $70+.
+
+_Last updated: after Phase 12 (PVC exhaustion), wf_11056589d901fb99._
+
+## Attack-phase update #4 (wf_11056589d901fb99) — Phases 13-18 complete (campaign 9-18 DONE)
+
+Context re-asserted before every mutation (acct 102227938259, region ap-south-1, pinned xamops-test-1 ARN).
+
+- **Phases 13-18 were all pod-only / API-only / node-label faults:** chaos-mesh NetworkChaos+Schedule+
+  PodChaos (phase 13, pods only), backend API reads+triggers (phases 14/16/18), repeated leader-pod
+  deletes (phases 16/17/18 — reschedules on existing nodes), and node annotation edits on already-cordoned
+  EMPTY nodes (phases 17/18). **No node churn, no new EC2, no FIS, no eviction.** Campaign-attributable
+  increment for phases 13-18 ≈ **$0**.
+- **Node count unchanged:** 35 total (30× t3.medium ng-ondemand + 1 t3.large + 1 spot + 3 stateful).
+  ng-ondemand-1 held at the Phase-9 re-cap (min4/desired30/max30). Burn ≈ **$1.65/hr** (baseline + the
+  4 drifted nodes + LB).
+- **Spent-to-date estimate (wall-clock)** ≈ **$36-46**; projected through the 3-day cap ≈ **$130-140** <
+  **$200 cap**. **No cap breach → no warn.** Headroom ≈ $60+.
+
+> Teardown lever unchanged: the RESTORE step returns ng-ondemand-1 to baseline 1/4/4 (−$1.08/hr vs 30
+> nodes) and removes chaos/stress/k6/Grafana-LB/redis.
+
+_Last updated: after Phase 18 (stale-state/time/identity) — phases 9-18 ALL COMPLETE, wf_11056589d901fb99._
+
+## Phase 2 RE-RUN — node growth AUTHORIZED (owner lifted no-growth, within $200 cap)
+
+**RESTORE BASELINE (MANDATORY final target, capture before any scale):**
+ng-ondemand-1 ORIGINAL baseline = **min 1 / desired 4 / max 4**. Final restore MUST return it to 1/4/4
+regardless of how high it goes during the run. (Current pre-rerun state was already min4/desired26/max26
+from setup.) Other nodegroups unchanged and NOT grown for this: ng-stateful-1 3/3/6 (DB pool — stays 3),
+ng-spot-1 0/1/2, ng-observability-1 1/1/1.
+
+**Why the ceiling (confirmed):** `ENABLE_PREFIX_DELEGATION=false` → t3.medium hard-capped at 17 pods/node
+(VPC-CNI). 6 nodes already sit at 17/17. Phase-2 breaking point was BOTH this IP ceiling AND CPU-request
+exhaustion ("22 Insufficient cpu"). A straight node-count bump clears both; prefix-delegation or a larger
+instance (e.g. t3.xlarge = 58 pods/node) would seat ~200 on far fewer nodes but is a bigger change — noted,
+not required.
+
+**Scale plan:** raise ng-ondemand-1 desired 26→34, max 26→40 (headroom). t3.medium on-demand $0.0416/hr.
+- At desired=34: ng-ondemand compute ≈ $1.41/hr; full-cluster burn ≈ **$1.63/hr**.
+- Scale/soak window kept SHORT (seat 200 + verify SLO, ~2-4h, not a 48h hold).
+- Spent-to-date ≈ $30. Even a 48h hold at $1.63/hr ≈ +$78 → **~$108 total < $200 cap.** A 4h window ≈ +$7.
+- **Projected total ≈ $37-108 depending on hold < $200 → NO cap breach → proceeding without warn.**
+
+_Recorded immediately BEFORE scaling ng-ondemand-1 for the Phase-2 re-run._
