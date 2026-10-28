@@ -64,6 +64,15 @@ rules:
       - replicationcontrollers
       - services
       - persistentvolumeclaims
+      - persistentvolumes
+    verbs: ["get", "list", "watch"]
+
+  # CloudNativePG Postgres cluster CRs: read-only so the evictor/consolidation
+  # DB-awareness collect can identify Postgres primaries/replicas/standbys and
+  # refuse to disrupt them. Required by the shipped agent (lists clusters cluster-scoped).
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources:
+      - clusters
     verbs: ["get", "list", "watch"]
 
   - apiGroups: ["apps"]
