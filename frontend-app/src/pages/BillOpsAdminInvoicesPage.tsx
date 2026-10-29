@@ -14,7 +14,7 @@
  * For: ROLE_BILLOPS_ADMIN
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useBillOpsAdminInvoices from '../hooks/useBillOpsAdminInvoices';
 import { useTopbar } from '../contexts/TopbarContext';
@@ -23,6 +23,10 @@ import type {
   CloudAccount,
   CurUnavailableNotice,
   GenerationParams,
+  ClientOption,
+  UploadDraftParams,
+  UploadDraftPreview,
+  UploadResult,
 } from '../types/billopsAdminInvoices';
 import { AlertDialog, DialogPanel, DialogRoot } from '../components/ui';
 import '../styles/billopsInvoiceUi.css';
@@ -89,8 +93,13 @@ const StatusPill: React.FC<{ status: AdminInvoiceItem['status'] }> = ({ status }
   );
 };
 
-const SourcePills: React.FC<{ invoice: Pick<AdminInvoiceItem, 'dataSource' | 'provisional'> }> = ({ invoice }) => (
+const SourcePills: React.FC<{ invoice: Pick<AdminInvoiceItem, 'dataSource' | 'provisional' | 'uploadedFileName'> }> = ({ invoice }) => (
   <span className="inline-flex flex-wrap gap-1">
+    {invoice.uploadedFileName && (
+      <span className="inv-pill inv-pill--upload" title={`Created from uploaded bill: ${invoice.uploadedFileName}`}>
+        Uploaded
+      </span>
+    )}
     {invoice.dataSource === 'CUR' && (
       <span className="inv-pill inv-pill--cur" title="Built from the Cost and Usage Report">CUR</span>
     )}
@@ -105,7 +114,7 @@ const SourcePills: React.FC<{ invoice: Pick<AdminInvoiceItem, 'dataSource' | 'pr
         Provisional
       </span>
     )}
-    {!invoice.dataSource && !invoice.provisional && <span className="inv-muted">—</span>}
+    {!invoice.dataSource && !invoice.provisional && !invoice.uploadedFileName && <span className="inv-muted">—</span>}
   </span>
 );
 
@@ -264,6 +273,401 @@ const CreateDraftDialog: React.FC<CreateDraftDialogProps> = ({
   );
 };
 
+// ─── Upload draft dialog ─────────────────────────────────────────────────────
+
+interface UploadDraftDialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+  accounts: CloudAccount[];
+  fetchClients: () => Promise<ClientOption[]>;
+  onPreview: (file: File) => Promise<UploadResult<UploadDraftPreview>>;
+  onCreate: (file: File, params: UploadDraftParams) => Promise<UploadResult<number>>;
+  onCreated: (id: number) => void;
+}
+
+/**
+ * Upload an AWS bill PDF, check what was read from it, then create a draft.
+ *
+ * The server reads the file twice -- once to preview, once to create -- so the draft
+ * never depends on anything the browser holds. Account and period default to what the
+ * PDF printed and can be changed before creating.
+ */
+const UploadDraftDialog: React.FC<UploadDraftDialogProps> = ({
+  isOpen, onClose, accounts, fetchClients, onPreview, onCreate, onCreated,
+}) => {
+  const [clients, setClients] = useState<ClientOption[]>([]);
+  // Details for an account the bill introduces. clientId null = a new client named clientName.
+  const [newAccount, setNewAccount] = useState({ accountName: '', clientId: null as number | null, clientName: '' });
+  const periods = useMemo(periodOptions, []);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<UploadDraftPreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<'reading' | 'creating' | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [params, setParams] = useState<UploadDraftParams>({
+    accountId: '', year: new Date().getFullYear(), month: new Date().getMonth() + 1, includeIrn: false,
+  });
+
+  useEffect(() => {
+    if (!isOpen) {
+      setFile(null);
+      setPreview(null);
+      setError(null);
+      setBusy(null);
+      setDragging(false);
+    }
+  }, [isOpen]);
+
+  const choose = async (picked: File | undefined) => {
+    if (!picked) return;
+    if (!picked.name.toLowerCase().endsWith('.pdf') && picked.type !== 'application/pdf') {
+      setError('Choose a PDF file.');
+      return;
+    }
+    setFile(picked);
+    setPreview(null);
+    setError(null);
+    setBusy('reading');
+    const result = await onPreview(picked);
+    setBusy(null);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    const p = result.value;
+    setPreview(p);
+    if (p.accountWillBeCreated) {
+      const suggested = p.suggestedAccountName ?? `AWS account ${p.accountId}`;
+      setNewAccount({ accountName: suggested, clientId: null, clientName: suggested });
+      if (clients.length === 0) void fetchClients().then(setClients);
+    }
+    // A bill for an account BillOps doesn't have yet defaults to adding it.
+    const matched = p.account?.identifier
+      ?? (p.accountWillBeCreated && p.accountId ? p.accountId : '');
+    setParams(prev => ({
+      ...prev,
+      accountId: matched,
+      year: p.year ?? prev.year,
+      month: p.month ?? prev.month,
+    }));
+  };
+
+  const create = async () => {
+    if (!file || !params.accountId) return;
+    setBusy('creating');
+    setError(null);
+    const result = await onCreate(file, addingAccount ? {
+      ...params,
+      newAccount: {
+        accountName: newAccount.accountName.trim(),
+        clientId: newAccount.clientId,
+        clientName: newAccount.clientName.trim(),
+      },
+    } : params);
+    setBusy(null);
+    if (result.ok) onCreated(result.value);
+    else setError(result.message);
+  };
+
+  const periodValue = `${params.year}-${String(params.month).padStart(2, '0')}`;
+  // The PDF's own month may be older than the 24 the picker lists.
+  const periodList = periods.some(p => p.value === periodValue)
+    ? periods
+    : [{ value: periodValue, label: formatPeriod(periodValue, true) }, ...periods];
+  const accountDiffers = !!preview?.accountId && !!params.accountId && params.accountId !== preview.accountId;
+  /** The admin kept the bill's own account, which BillOps doesn't have yet. */
+  const addingAccount = !!preview?.accountWillBeCreated && !!preview.accountId && params.accountId === preview.accountId;
+  const newAccountIncomplete = addingAccount
+    && (!newAccount.accountName.trim() || (newAccount.clientId == null && !newAccount.clientName.trim()));
+  const periodDiffers = !!preview?.billingPeriod && preview.billingPeriod !== periodValue;
+  const locked = busy !== null;
+
+  return (
+    <DialogRoot isOpen={isOpen} onClose={locked ? () => undefined : onClose} maxWidth="max-w-2xl">
+      <DialogPanel
+        title="Upload draft invoice"
+        onClose={locked ? () => undefined : onClose}
+        footer={
+          <>
+            <button type="button" className="inv-btn inv-btn--ghost" onClick={onClose} disabled={locked}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="inv-btn inv-btn--primary"
+              onClick={create}
+              disabled={!preview || !params.accountId || newAccountIncomplete || locked}
+            >
+              {busy === 'creating'
+                ? <><i className="fas fa-spinner fa-spin" aria-hidden="true" /> Creating draft…</>
+                : 'Create draft'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <input
+            ref={inputRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            className="sr-only"
+            tabIndex={-1}
+            aria-hidden="true"
+            onChange={e => { void choose(e.target.files?.[0]); e.target.value = ''; }}
+          />
+          <button
+            type="button"
+            className="inv-dropzone"
+            data-active={dragging}
+            disabled={locked}
+            onClick={() => inputRef.current?.click()}
+            onDragOver={e => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={e => { e.preventDefault(); setDragging(false); void choose(e.dataTransfer.files?.[0]); }}
+            aria-describedby="upload-draft-hint"
+          >
+            {busy === 'reading' ? (
+              <>
+                <i className="fas fa-spinner fa-spin" aria-hidden="true" />
+                <span>Reading {file?.name}…</span>
+              </>
+            ) : file ? (
+              <>
+                <i className="fas fa-file-pdf" aria-hidden="true" />
+                <span className="font-semibold" style={{ color: 'var(--inv-ink)' }}>{file.name}</span>
+                <span className="text-[12px] inv-muted">Choose a different file</span>
+              </>
+            ) : (
+              <>
+                <i className="fas fa-cloud-upload-alt" aria-hidden="true" />
+                <span className="font-semibold" style={{ color: 'var(--inv-ink)' }}>Choose the AWS bill PDF</span>
+                <span className="text-[12px] inv-muted">or drop it here</span>
+              </>
+            )}
+          </button>
+          <p id="upload-draft-hint" className="text-[12.5px] inv-muted leading-relaxed">
+            Print the bill from the AWS Billing console&rsquo;s Bills page with every service expanded.
+            The account, billing period and every charge under &ldquo;Charges by service&rdquo; are read from it.
+            The new draft can be edited like any other.
+          </p>
+
+          {error && (
+            <div className="inv-alert inv-alert--error" role="alert">
+              <i className="fas fa-exclamation-circle" aria-hidden="true" />
+              <p className="flex-1">{error}</p>
+            </div>
+          )}
+
+          {preview && (
+            <>
+              <dl className="inv-upload-facts">
+                <div>
+                  <dt>Account ID on the bill</dt>
+                  <dd className="inv-num">{preview.accountId ?? 'Not found'}</dd>
+                </div>
+                <div>
+                  <dt>Billing period</dt>
+                  <dd>{preview.billingPeriod ? formatPeriod(preview.billingPeriod, true) : 'Not found'}</dd>
+                </div>
+                <div>
+                  <dt>Bill total (pre-tax)</dt>
+                  <dd className="inv-num">
+                    {preview.preTaxTotal != null ? usd(preview.preTaxTotal) : preview.grandTotal != null ? usd(preview.grandTotal) : '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Read from the PDF</dt>
+                  <dd className="inv-num">
+                    {preview.lineItemCount} charges · {usd(preview.lineItemTotal)}
+                  </dd>
+                </div>
+                {preview.roundingLineCount > 0 && (
+                  <div>
+                    <dt>Rounding lines</dt>
+                    <dd className="inv-num" title="AWS rounds each line and each subtotal separately. These lines make every service, region and usage-group total on the draft match the bill exactly.">
+                      {preview.roundingLineCount} · {preview.roundingTotal < 0 ? '−' : ''}{usd(Math.abs(preview.roundingTotal))}
+                    </dd>
+                  </div>
+                )}
+                {preview.marketplaceTotal != null && preview.marketplaceTotal > 0 && (
+                  <div>
+                    <dt>Marketplace</dt>
+                    <dd className="inv-num">{usd(preview.marketplaceTotal)} (not discounted)</dd>
+                  </div>
+                )}
+              </dl>
+
+              {preview.warnings.length > 0 && (
+                <div className="inv-alert inv-alert--warning" role="status">
+                  <i className="fas fa-exclamation-triangle" aria-hidden="true" />
+                  <ul className="min-w-0 space-y-1">
+                    {preview.warnings.map(w => <li key={w}>{w}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {preview.services.length > 0 && (
+                <div>
+                  <p className="inv-field-label">Charges by service</p>
+                  <ul className="inv-upload-services">
+                    {preview.services.map(s => (
+                      <li key={s.serviceName}>
+                        <span className="min-w-0 truncate" style={{ color: 'var(--inv-ink)' }} title={s.serviceName}>
+                          {s.serviceName}
+                          <span className="inv-muted"> · {s.lineCount}</span>
+                        </span>
+                        <span className="inv-num font-semibold">{usd(s.total)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div>
+                <label className="inv-field-label" htmlFor="upload-account">Bill to account</label>
+                <select
+                  id="upload-account"
+                  className="inv-select"
+                  value={params.accountId}
+                  disabled={locked}
+                  onChange={e => setParams(prev => ({ ...prev, accountId: e.target.value }))}
+                >
+                  <option value="">Select an account…</option>
+                  {preview.accountWillBeCreated && preview.accountId && (
+                    <option value={preview.accountId}>
+                      {preview.accountId} · new account from this bill
+                    </option>
+                  )}
+                  {accounts.map(acc => (
+                    <option key={acc.id} value={acc.identifier}>
+                      {acc.name} · {acc.identifier} ({acc.provider})
+                    </option>
+                  ))}
+                </select>
+                {accountDiffers && (
+                  <p className="mt-1 text-[12px]" style={{ color: '#b45309' }}>
+                    This bill was printed for account {preview.accountId}.
+                  </p>
+                )}
+              </div>
+
+              {addingAccount && (
+                <div className="inv-alert inv-alert--info" role="note">
+                  <i className="fas fa-info-circle" aria-hidden="true" />
+                  <div className="min-w-0 flex-1 space-y-3">
+                    <p>
+                      Account {preview.accountId} isn&rsquo;t in BillOps yet. It&rsquo;ll be added as a billing-only
+                      AWS account when the draft is created. Nothing is read from AWS for it.
+                    </p>
+                    <div>
+                      <label className="inv-field-label" htmlFor="upload-new-account-name">Account name</label>
+                      <input
+                        id="upload-new-account-name"
+                        className="inv-input w-full"
+                        value={newAccount.accountName}
+                        disabled={locked}
+                        maxLength={255}
+                        onChange={e => setNewAccount(prev => ({ ...prev, accountName: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="inv-field-label" htmlFor="upload-new-account-client">Client</label>
+                      <select
+                        id="upload-new-account-client"
+                        className="inv-select"
+                        value={newAccount.clientId ?? ''}
+                        disabled={locked}
+                        onChange={e => {
+                          const v = e.target.value;
+                          setNewAccount(prev => ({ ...prev, clientId: v ? Number(v) : null }));
+                        }}
+                      >
+                        <option value="">New client…</option>
+                        {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                    {newAccount.clientId == null && (
+                      <div>
+                        <label className="inv-field-label" htmlFor="upload-new-client-name">New client name</label>
+                        <input
+                          id="upload-new-client-name"
+                          className="inv-input w-full"
+                          value={newAccount.clientName}
+                          disabled={locked}
+                          maxLength={255}
+                          onChange={e => setNewAccount(prev => ({ ...prev, clientName: e.target.value }))}
+                        />
+                        <p className="mt-1 text-[12px] opacity-80">
+                          The invoice PDF bills this client. Add its address and GSTIN on the Accounts page.
+                          An existing client with the same name is reused.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="inv-field-label" htmlFor="upload-period">Billing period</label>
+                <select
+                  id="upload-period"
+                  className="inv-select"
+                  value={periodValue}
+                  disabled={locked}
+                  onChange={e => {
+                    const [y, m] = e.target.value.split('-').map(Number);
+                    setParams(prev => ({ ...prev, year: y, month: m }));
+                  }}
+                >
+                  {periodList.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                </select>
+                {periodDiffers && (
+                  <p className="mt-1 text-[12px]" style={{ color: '#b45309' }}>
+                    The bill is for {formatPeriod(preview.billingPeriod, true)}.
+                  </p>
+                )}
+              </div>
+
+              <fieldset>
+                <legend className="inv-field-label">Invoice type</legend>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <label className="inv-choice" data-selected={!params.includeIrn}>
+                    <input
+                      type="radio"
+                      name="upload-type"
+                      checked={!params.includeIrn}
+                      disabled={locked}
+                      onChange={() => setParams(prev => ({ ...prev, includeIrn: false }))}
+                    />
+                    <span>
+                      <span className="block text-[13px] font-semibold" style={{ color: 'var(--inv-ink)' }}>Proforma invoice</span>
+                      <span className="block text-[12px] inv-muted">No IRN on the PDF</span>
+                    </span>
+                  </label>
+                  <label className="inv-choice" data-selected={params.includeIrn}>
+                    <input
+                      type="radio"
+                      name="upload-type"
+                      checked={params.includeIrn}
+                      disabled={locked}
+                      onChange={() => setParams(prev => ({ ...prev, includeIrn: true }))}
+                    />
+                    <span>
+                      <span className="block text-[13px] font-semibold" style={{ color: 'var(--inv-ink)' }}>Tax invoice</span>
+                      <span className="block text-[12px] inv-muted">IRN, Ack no., Ack date and QR code</span>
+                    </span>
+                  </label>
+                </div>
+              </fieldset>
+            </>
+          )}
+        </div>
+      </DialogPanel>
+    </DialogRoot>
+  );
+};
+
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 const BillOpsAdminInvoicesPage: React.FC = () => {
@@ -288,6 +692,9 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
     generateInvoice,
     generateFromCostExplorer,
     dismissCurUnavailable,
+    previewUploadedDraft,
+    createDraftFromUpload,
+    fetchClients,
     setSelectedIds,
     setFilterIds,
     setGeneration,
@@ -313,6 +720,7 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
   const [sort, setSort] = useState<SortState>({ key: 'newest', dir: 'desc' });
   const [page, setPage] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   // ── Topbar: freshness and refresh, as on the other BillOps pages ──────────
   useEffect(() => {
@@ -462,6 +870,15 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
         onCreate={async () => afterCreate(await generateInvoice())}
         onFallback={async () => afterCreate(await generateFromCostExplorer())}
       />
+      <UploadDraftDialog
+        isOpen={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        accounts={accounts}
+        fetchClients={fetchClients}
+        onPreview={previewUploadedDraft}
+        onCreate={createDraftFromUpload}
+        onCreated={id => { setUploadOpen(false); openDetail(id); }}
+      />
 
       <main className="inv-page">
         {/* Page header */}
@@ -472,10 +889,16 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
               Draft, review and finalize customer invoices. AWS drafts are built from each account&rsquo;s Cost and Usage Report.
             </p>
           </div>
-          <button type="button" className="inv-btn inv-btn--primary" onClick={openCreate}>
-            <i className="fas fa-plus" aria-hidden="true" />
-            Create draft
-          </button>
+          <div className="flex items-center gap-2">
+            <button type="button" className="inv-btn" onClick={() => setUploadOpen(true)}>
+              <i className="fas fa-file-upload" aria-hidden="true" />
+              Upload draft
+            </button>
+            <button type="button" className="inv-btn inv-btn--primary" onClick={openCreate}>
+              <i className="fas fa-plus" aria-hidden="true" />
+              Create draft
+            </button>
+          </div>
         </div>
 
         {/* Notices */}

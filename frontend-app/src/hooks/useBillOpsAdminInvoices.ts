@@ -22,11 +22,15 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { apiFetch } from '../utils/apiClient';
 import type {
   AdminInvoiceItem,
+  ClientOption,
   CloudAccount,
   CurUnavailableNotice,
   GenerationParams,
   InvoiceDataSource,
   MergeOrder,
+  UploadDraftParams,
+  UploadDraftPreview,
+  UploadResult,
   UseBillOpsAdminInvoicesReturn
 } from '../types/billopsAdminInvoices';
 
@@ -41,6 +45,9 @@ const CACHE_KEY = 'admin_invoices_list';
  * second one.
  */
 const GENERATE_TIMEOUT_MS = 150_000;
+
+/** Uploading and parsing a multi-page bill PDF takes longer than a JSON round trip. */
+const UPLOAD_TIMEOUT_MS = 120_000;
 
 export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
   // Core state
@@ -287,6 +294,100 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
   }, [curUnavailable, submitDraft]);
 
   const dismissCurUnavailable = useCallback(() => setCurUnavailable(null), []);
+
+  /** The server's own message for a refused upload, or a fallback. */
+  const uploadError = async (response: Response, fallback: string): Promise<string> => {
+    if (response.status === 403) return 'You don’t have permission to upload drafts.';
+    if (response.status === 404 || response.status === 405) {
+      return 'The BillOps server doesn’t have draft upload yet. Restart or redeploy billops and try again.';
+    }
+    if (response.status === 413) return 'That file is too large to upload.';
+    const body = await response.json().catch(() => null);
+    // Messages from the upload endpoints are written to be shown as-is. Anything else
+    // (Spring's default error body has an empty message) gets the status, so the
+    // admin isn't told the PDF is bad when the server is the problem.
+    return typeof body?.message === 'string' && body.message
+      ? body.message
+      : `${fallback} (server responded ${response.status})`;
+  };
+
+  /**
+   * Reads an AWS bill PDF on the server and returns what it found. Nothing is saved;
+   * the admin confirms the account and period before {@link createDraftFromUpload}.
+   */
+  const previewUploadedDraft = useCallback(async (file: File): Promise<UploadResult<UploadDraftPreview>> => {
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const response = await apiFetch('/api/admin/invoices/upload-draft/preview', {
+        method: 'POST',
+        body: form,
+        credentials: 'include',
+        timeoutMs: UPLOAD_TIMEOUT_MS,
+      });
+      if (!response.ok) {
+        return { ok: false, message: await uploadError(response, 'The PDF couldn’t be read.') };
+      }
+      return { ok: true, value: await response.json() };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : 'The PDF couldn’t be uploaded.' };
+    }
+  }, []);
+
+  /**
+   * Creates a draft from the same PDF with the account and period the admin confirmed.
+   * The server re-reads the file, so what is saved never depends on the preview.
+   */
+  const createDraftFromUpload = useCallback(async (
+    file: File,
+    params: UploadDraftParams,
+  ): Promise<UploadResult<number>> => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('accountId', params.accountId);
+    form.append('year', String(params.year));
+    form.append('month', String(params.month));
+    form.append('includeIrn', String(params.includeIrn));
+    if (params.newAccount) {
+      form.append('accountName', params.newAccount.accountName);
+      if (params.newAccount.clientId != null) form.append('clientId', String(params.newAccount.clientId));
+      else form.append('clientName', params.newAccount.clientName);
+    }
+    try {
+      const response = await apiFetch('/api/admin/invoices/upload-draft', {
+        method: 'POST',
+        body: form,
+        credentials: 'include',
+        timeoutMs: UPLOAD_TIMEOUT_MS,
+      });
+      if (!response.ok) {
+        return { ok: false, message: await uploadError(response, 'The draft couldn’t be created.') };
+      }
+      const created = await response.json().catch(() => null);
+      // An account the bill introduced is now in BillOps; refresh the pickers too.
+      await Promise.all([fetchData(true), params.newAccount ? fetchAccounts() : Promise.resolve()]);
+      return typeof created?.id === 'number'
+        ? { ok: true, value: created.id }
+        : { ok: false, message: 'The draft was created but its id wasn’t returned. Refresh the list.' };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : 'The draft couldn’t be created.' };
+    }
+  }, [fetchData, fetchAccounts]);
+
+  /** Clients a new account from an uploaded bill can be added under. */
+  const fetchClients = useCallback(async (): Promise<ClientOption[]> => {
+    try {
+      const response = await apiFetch('/api/billops/clients', { credentials: 'include' });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return Array.isArray(data)
+        ? data.map((c: { id: number; name: string }) => ({ id: c.id, name: c.name }))
+            .sort((a: ClientOption, b: ClientOption) => a.name.localeCompare(b.name))
+        : [];
+    } catch {
+      return [];
+    }
+  }, []);
 
   /**
    * Check if invoice is CloudFront type
@@ -622,6 +723,9 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
     generateInvoice,
     generateFromCostExplorer,
     dismissCurUnavailable,
+    previewUploadedDraft,
+    createDraftFromUpload,
+    fetchClients,
     setSelectedIds,
     setFilterIds,
     setGeneration,

@@ -13,8 +13,14 @@ import jakarta.persistence.*;
 @NoArgsConstructor
 public class CloudAccount {
 
+    /**
+     * Drawn from {@code cloud_account_id_seq}, exactly as xamops-service's mapping of this
+     * table does. The column has no default -- xamops-service created it for a sequence --
+     * so IDENTITY here made every insert from billops send a null id and fail.
+     */
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "cloud_account_seq_gen")
+    @SequenceGenerator(name = "cloud_account_seq_gen", sequenceName = "cloud_account_id_seq", allocationSize = 1)
     private Long id;
 
     @Column(name = "account_name", nullable = false)

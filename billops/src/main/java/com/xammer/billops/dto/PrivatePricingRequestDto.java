@@ -15,6 +15,12 @@ public class PrivatePricingRequestDto {
     private String serviceName;
     private String regionName;
     private String usageType;
+
+    /**
+     * One charge line to price on its own. When set, the scope is that line alone and
+     * {@code regionName} and {@code usageType} are ignored -- the line fixes both.
+     */
+    private Long lineItemId;
     private BigDecimal unitRate;
 
     /** How the rate is quoted, e.g. "GB" or "Per 10000 Requests". Optional. */
@@ -33,6 +39,8 @@ public class PrivatePricingRequestDto {
     public void setRegionName(String regionName) { this.regionName = regionName; }
     public String getUsageType() { return usageType; }
     public void setUsageType(String usageType) { this.usageType = usageType; }
+    public Long getLineItemId() { return lineItemId; }
+    public void setLineItemId(Long lineItemId) { this.lineItemId = lineItemId; }
     public BigDecimal getUnitRate() { return unitRate; }
     public void setUnitRate(BigDecimal unitRate) { this.unitRate = unitRate; }
     public String getRateUnit() { return rateUnit; }

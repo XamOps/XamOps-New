@@ -9,12 +9,16 @@ import com.xammer.billops.dto.PrivatePricingRequestDto;
 import com.xammer.billops.service.InvoiceManagementService;
 import com.xammer.billops.service.cur.CurUnavailable;
 import com.xammer.billops.service.cur.CurUnavailableException;
+import com.xammer.billops.service.upload.UploadedBillDraftService;
+import com.xammer.billops.service.upload.UploadedBillException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,9 +40,12 @@ public class AdminInvoiceController {
 
     private static final Logger logger = LoggerFactory.getLogger(AdminInvoiceController.class);
     private final InvoiceManagementService invoiceManagementService;
+    private final UploadedBillDraftService uploadedBillDraftService;
 
-    public AdminInvoiceController(InvoiceManagementService invoiceManagementService) {
+    public AdminInvoiceController(InvoiceManagementService invoiceManagementService,
+                                  UploadedBillDraftService uploadedBillDraftService) {
         this.invoiceManagementService = invoiceManagementService;
+        this.uploadedBillDraftService = uploadedBillDraftService;
     }
 
     /**
@@ -91,6 +98,53 @@ public class AdminInvoiceController {
             // Explorer would only produce an empty invoice.
             body.put("canUseCostExplorer", e.getReason() != CurUnavailable.PERIOD_IN_FUTURE);
             return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+        }
+    }
+
+    // ─── Upload draft (AWS bill PDF) ──────────────────────────────────────────
+    //
+    // Restricted like the private-pricing endpoints: the uploaded figures become what the
+    // customer is billed.
+
+    /**
+     * Reads an AWS console bill PDF and reports what a draft built from it would hold --
+     * account, billing period, charges by service, and anything doubtful. Creates nothing.
+     */
+    @PostMapping(value = "/upload-draft/preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_SUPER_ADMIN')")
+    public ResponseEntity<?> previewUploadedDraft(@RequestParam("file") MultipartFile file) {
+        try {
+            return ResponseEntity.ok(uploadedBillDraftService.preview(file));
+        } catch (UploadedBillException e) {
+            return ResponseEntity.status(e.getStatus()).body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    /**
+     * Creates a draft from an AWS console bill PDF. {@code accountId}, {@code year} and
+     * {@code month} are what the admin confirmed in the preview; any omitted fall back to
+     * what the PDF says. The draft is editable like any generated one.
+     *
+     * <p>An account ID BillOps doesn't know is added as a billing-only AWS account, named
+     * {@code accountName}, under {@code clientId} or a client called {@code clientName}
+     * (found or created). All three are optional and default to "AWS account &lt;id&gt;".
+     */
+    @PostMapping(value = "/upload-draft", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_SUPER_ADMIN')")
+    public ResponseEntity<?> createUploadedDraft(@RequestParam("file") MultipartFile file,
+                                                 @RequestParam(value = "accountId", required = false) String accountId,
+                                                 @RequestParam(value = "year", required = false) Integer year,
+                                                 @RequestParam(value = "month", required = false) Integer month,
+                                                 @RequestParam(value = "includeIrn", defaultValue = "false") boolean includeIrn,
+                                                 @RequestParam(value = "accountName", required = false) String accountName,
+                                                 @RequestParam(value = "clientId", required = false) Long clientId,
+                                                 @RequestParam(value = "clientName", required = false) String clientName) {
+        try {
+            Invoice draft = uploadedBillDraftService.createDraft(file, accountId, year, month, includeIrn,
+                    new UploadedBillDraftService.NewAccountDetails(accountName, clientId, clientName));
+            return ResponseEntity.ok(InvoiceDto.fromEntity(draft));
+        } catch (UploadedBillException e) {
+            return ResponseEntity.status(e.getStatus()).body(Map.of("message", e.getMessage()));
         }
     }
 

@@ -91,3 +91,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_invoice_private_pricing_scope
 -- Loaded per invoice on every read of the admin invoice detail page.
 CREATE INDEX IF NOT EXISTS idx_invoice_private_pricing_invoice_id
     ON invoice_private_pricing (invoice_id);
+
+-- ── Single-charge scope ─────────────────────────────────────────────────────────
+--
+-- A rate can also price one charge line on its own. line_item_id names the line; region_name
+-- and usage_type stay NULL on such a row because the line fixes both. PostgreSQL treats
+-- NULLs in a unique key as distinct, so two line rates under one usage type never collide
+-- with uk_invoice_private_pricing_scope. Overlaps are refused by the application.
+--
+-- No foreign key: a draft's lines are replaced wholesale when its lines are edited, and a
+-- rate whose line is gone should match nothing rather than block the edit.
+
+ALTER TABLE invoice_private_pricing
+    ADD COLUMN IF NOT EXISTS line_item_id BIGINT NULL;
+
+ALTER TABLE invoice_private_pricing
+    ADD COLUMN IF NOT EXISTS line_description VARCHAR(255) NULL;

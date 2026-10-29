@@ -302,6 +302,55 @@ html.dark {
 }
 .inv-choice input { margin-top: 3px; accent-color: var(--inv-accent); }
 
+/* Drop zone — PDF picker in the upload dialog */
+.inv-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 22px 16px;
+  border: 1.5px dashed var(--inv-border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--inv-ink-2);
+  font-size: 13px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.inv-dropzone:hover,
+.inv-dropzone[data-active='true'] { border-color: var(--inv-accent); background: var(--inv-row-selected); }
+.inv-dropzone:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--inv-focus); }
+.inv-dropzone i { font-size: 22px; color: var(--inv-ink-3); }
+
+/* Read-back of what the uploaded PDF said */
+.inv-upload-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+  font-size: 12.5px;
+}
+.inv-upload-facts dt { color: var(--inv-ink-3); font-weight: 600; }
+.inv-upload-facts dd { margin: 0; color: var(--inv-ink); }
+.inv-upload-services {
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--inv-divider);
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+.inv-upload-services li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--inv-divider);
+}
+.inv-upload-services li:first-child { border-top: 0; }
+
 /* ── Stat tiles ─────────────────────────────────────────────────────────── */
 
 .inv-kpis {
@@ -434,6 +483,7 @@ button.inv-kpi[aria-pressed='true'] { background: var(--inv-row-selected); }
 .inv-pill--cur         { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
 .inv-pill--ce          { background: #f4f5f7; color: #475569; border-color: #d8dde5; }
 .inv-pill--provisional { background: #fffbeb; color: #92400e; border-color: #fde68a; }
+.inv-pill--upload      { background: #ecfeff; color: #0e7490; border-color: #a5f3fc; }
 .inv-pill--type        { background: transparent; color: var(--inv-ink-3); border-color: var(--inv-border); }
 /* A charge billed at a rate an admin set, rather than at the provider's cost. Violet,
    because indigo already means "built from the Cost and Usage Report" two pills over. */
@@ -448,6 +498,7 @@ html.dark .inv-pill--void        { background: rgba(148, 163, 184, 0.1); color: 
 html.dark .inv-pill--cur         { background: rgba(129, 140, 248, 0.14); color: #a5b4fc; border-color: rgba(129, 140, 248, 0.3); }
 html.dark .inv-pill--ce          { background: rgba(148, 163, 184, 0.1); color: #cbd5e1; border-color: rgba(148, 163, 184, 0.25); }
 html.dark .inv-pill--provisional { background: rgba(245, 158, 11, 0.12); color: #fcd34d; border-color: rgba(245, 158, 11, 0.3); }
+html.dark .inv-pill--upload      { background: rgba(34, 211, 238, 0.12); color: #67e8f9; border-color: rgba(34, 211, 238, 0.3); }
 html.dark .inv-pill--priced      { background: rgba(139, 92, 246, 0.14); color: #c4b5fd; border-color: rgba(139, 92, 246, 0.3); }
 
 /* ── Alerts ─────────────────────────────────────────────────────────────── */
@@ -966,6 +1017,7 @@ html.dark .inv-pill--void:not(#inv-dark)        { color: #94a3b8 !important; }
 html.dark .inv-pill--cur:not(#inv-dark)         { color: #a5b4fc !important; }
 html.dark .inv-pill--ce:not(#inv-dark)          { color: #cbd5e1 !important; }
 html.dark .inv-pill--provisional:not(#inv-dark) { color: #fcd34d !important; }
+html.dark .inv-pill--upload:not(#inv-dark)      { color: #67e8f9 !important; }
 html.dark .inv-pill--type:not(#inv-dark)        { color: var(--inv-ink-3) !important; }
 html.dark .inv-pill--priced:not(#inv-dark)      { color: #c4b5fd !important; }
 html.dark .inv-pill--priced span:not(#inv-dark) { color: #c4b5fd !important; }
