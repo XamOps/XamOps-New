@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.context.request.WebRequest;
@@ -32,6 +33,31 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ClientAbortException.class)
     public void handleClientAbortException() {
         // Do nothing. The client has disconnected.
+    }
+
+    /**
+     * Handles an unsupported HTTP method on a mapped route (e.g. GET on a PUT-only endpoint).
+     *
+     * <p>
+     * Spring's DispatcherServlet raises this during handler mapping, before a controller method is
+     * chosen, so controller-local {@code @ExceptionHandler} methods never see it. Without this it
+     * fell through to {@link #globalExceptionHandler(Exception, HttpServletRequest)} and came back
+     * as a 500 with "An unexpected error occurred: ...". The correct answer is 405 Method Not
+     * Allowed, with a fixed message and no exception text or stack trace.
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<?> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex,
+            HttpServletRequest request) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("timestamp", new Date());
+        body.put("message", "Method not allowed");
+
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON);
+        if (ex.getSupportedHttpMethods() != null) {
+            response.allow(ex.getSupportedHttpMethods().toArray(new org.springframework.http.HttpMethod[0]));
+        }
+        return response.body(body);
     }
 
     /**
