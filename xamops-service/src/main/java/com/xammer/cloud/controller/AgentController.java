@@ -11,6 +11,7 @@ import com.xammer.cloud.dto.agent.AgentIngestResponse;
 import com.xammer.cloud.dto.agent.AgentPrincipal;
 import com.xammer.cloud.dto.autoscaling.AutomationPolicyBundle;
 import com.xammer.cloud.dto.sre.TriggerInvestigationRequest;
+import com.xammer.cloud.config.DbOpsFeatureFlags;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.K8sAutomationAccessService;
 import com.xammer.cloud.repository.AgentDataCacheRepository;
@@ -91,6 +92,7 @@ public class AgentController {
     private final AgentApiKeyService agentApiKeyService;
     private final K8sAutomationPolicyNormalizer policyNormalizer;
     private final K8sAutomationAccessService automationAccessService;
+    private final DbOpsFeatureFlags dbOpsFeatureFlags;
 
     public AgentController(
             AgentIngestService agentIngestService,
@@ -105,7 +107,8 @@ public class AgentController {
             ExplainRequestRepository explainRequestRepository,
             AgentApiKeyService agentApiKeyService,
             K8sAutomationPolicyNormalizer policyNormalizer,
-            K8sAutomationAccessService automationAccessService) {
+            K8sAutomationAccessService automationAccessService,
+            DbOpsFeatureFlags dbOpsFeatureFlags) {
         this.agentApiKeyService = agentApiKeyService;
         this.policyNormalizer = policyNormalizer;
         this.automationAccessService = automationAccessService;
@@ -119,6 +122,7 @@ public class AgentController {
         this.sreInvestigationService = sreInvestigationService;
         this.openObserveService = openObserveService;
         this.explainRequestRepository = explainRequestRepository;
+        this.dbOpsFeatureFlags = dbOpsFeatureFlags;
     }
 
     /**
@@ -257,56 +261,10 @@ public class AgentController {
         return ResponseEntity.ok(response);
     }
 
-    /**
-     * Register a DB agent before deployment (called by the DbOps wizard).
-     * Idempotent — safe to call multiple times.
-     *
-     * POST /api/v1/agent/db/register
-     * Authorization: Bearer <global_api_key>
-     * Body: { "agentName": "my-rds-agent", "cloudAccountId": "015764906357" }
-     */
-    @PostMapping("/db/register")
-    public ResponseEntity<Map<String, Object>> registerDbAgent(
-            @RequestBody Map<String, String> body) {
-
-        String agentName = body.get("agentName");
-        String cloudAccountId = body.get("cloudAccountId");
-
-        if (agentName == null || agentName.isEmpty() || cloudAccountId == null || cloudAccountId.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(Map.of("error", "agentName and cloudAccountId are required"));
-        }
-
-        DbAgentConfig cfg = dbAgentService.registerDbAgent(cloudAccountId, agentName);
-        if (cfg == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Cloud account not found. Add account to XamOps first."));
-        }
-
-        return ResponseEntity.ok(Map.of(
-                "success", true,
-                "agentId", cfg.getId(),
-                "agentName", cfg.getAgentName(),
-                "status", cfg.getStatus()
-        ));
-    }
-
-    /**
-     * DELETE /api/v1/agent/db/register?agentName=xxx&cloudAccountId=xxx
-     * Deregisters a DB agent and deletes all its cached data.
-     */
-    @DeleteMapping("/db/register")
-    public ResponseEntity<Map<String, Object>> deleteDbAgent(
-            @RequestParam String agentName,
-            @RequestParam String cloudAccountId) {
-
-        boolean deleted = dbAgentService.deleteDbAgent(cloudAccountId, agentName);
-        if (!deleted) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Agent not found"));
-        }
-        return ResponseEntity.ok(Map.of("success", true));
-    }
+    // SEC-4: the browser-facing DB-agent wizard handlers (POST/DELETE /db/register,
+    // POST/GET /db/config, GET /db/status) moved off this unauthenticated /api/v1/agent/**
+    // path to the session-authenticated, entitlement-guarded DbAgentSetupController under
+    // /api/xamops/db-agent/**. Only the key-authenticated machine endpoints remain here.
 
     /**
      * Heartbeat endpoint - agent check-in without data.
@@ -439,7 +397,7 @@ public class AgentController {
         status.put("dataSourceMode", config.getDataSourceMode());
 
         // Get data counts
-        List<AgentDataCache> cachedData = agentDataCacheRepository.findByClusterConfigId(clusterConfigId);
+        List<AgentDataCache> cachedData = agentDataCacheRepository.findByClusterConfigId(config.getId());
         Map<String, Object> dataCounts = new HashMap<>();
         for (AgentDataCache cache : cachedData) {
             dataCounts.put(cache.getDataType(), Map.of(
@@ -451,12 +409,12 @@ public class AgentController {
 
         // Get recent events
         List<AgentEvent> recentEvents = agentEventRepository.findRecentEvents(
-                clusterConfigId, LocalDateTime.now().minusHours(24));
+                config.getId(), LocalDateTime.now().minusHours(24));
         status.put("recentEventsCount", recentEvents.size());
 
         // Get last successful push
         List<AgentEvent> lastPush = agentEventRepository.findLastSuccessfulPush(
-                clusterConfigId, PageRequest.of(0, 1));
+                config.getId(), PageRequest.of(0, 1));
         if (!lastPush.isEmpty()) {
             status.put("lastSuccessfulPush", lastPush.get(0).getCreatedAt());
             status.put("lastPushItemCount", lastPush.get(0).getItemsReceived());
@@ -610,6 +568,13 @@ public class AgentController {
                     .body(Map.of("error", "Invalid or missing API key"));
         }
 
+        // SEC-2/3: Explain is disabled server-side (xamops.dbops.explain.enabled, default
+        // false). Skip the explain lookup entirely and return 204 so nothing transitions to
+        // IN_FLIGHT; agents keep polling harmlessly until the feature is re-enabled.
+        if (!dbOpsFeatureFlags.isExplainEnabled()) {
+            return ResponseEntity.noContent().build();
+        }
+
         // NOTE: commands are addressed by agentName, which is not an account or cluster, so
         // there is nothing here to bind a scoped key against. Tightening this needs agentName
         // resolved back to its owning account first — tracked separately rather than left as a
@@ -651,99 +616,10 @@ public class AgentController {
         return ResponseEntity.ok(List.of(cmd));
     }
 
-    /**
-     * POST /api/v1/agent/db/config
-     * Save connection configuration from the wizard (Step 2).
-     */
-    @PostMapping("/db/config")
-    public ResponseEntity<Map<String, Object>> saveDbAgentConfig(
-            @RequestBody Map<String, String> body) {
-
-        String agentName     = body.get("agentName");
-        String cloudAccountId = body.get("cloudAccountId");
-        if (agentName == null || cloudAccountId == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "agentName and cloudAccountId are required"));
-        }
-
-        DbAgentConfig cfg = dbAgentService.saveConnectionConfig(
-                cloudAccountId, agentName,
-                body.get("dbEngine"), body.get("dbHost"), body.get("dbPort"),
-                body.get("dbName"), body.get("dbUser"), body.get("dbPassword"),
-                body.get("serverUrl"));
-
-        if (cfg == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Cloud account not found"));
-        }
-
-        return ResponseEntity.ok(Map.of("success", true, "agentId", cfg.getId()));
-    }
-
-    /**
-     * GET /api/v1/agent/db/config?agentName=xxx&cloudAccountId=xxx
-     * Load saved connection configuration — pre-fills the wizard fields.
-     */
-    @GetMapping("/db/config")
-    public ResponseEntity<Map<String, Object>> loadDbAgentConfig(
-            @RequestParam String agentName,
-            @RequestParam String cloudAccountId) {
-
-        DbAgentConfig cfg = dbAgentService.loadConnectionConfig(cloudAccountId, agentName);
-        if (cfg == null) {
-            return ResponseEntity.ok(Map.of("found", false));
-        }
-
-        Map<String, Object> result = new HashMap<>();
-        result.put("found", true);
-        result.put("dbEngine",  cfg.getDbEngine()   != null ? cfg.getDbEngine()   : "");
-        result.put("dbHost",    cfg.getDbHost()     != null ? cfg.getDbHost()     : "");
-        result.put("dbPort",    cfg.getDbPort()     != null ? cfg.getDbPort()     : "");
-        result.put("dbName",    cfg.getDbName()     != null ? cfg.getDbName()     : "");
-        result.put("dbUser",    cfg.getDbUser()     != null ? cfg.getDbUser()     : "");
-        result.put("dbPassword",cfg.getDbPassword() != null ? cfg.getDbPassword() : "");
-        result.put("serverUrl", cfg.getServerUrl()  != null ? cfg.getServerUrl()  : "");
-        return ResponseEntity.ok(result);
-    }
-
-    /**
-     * GET /api/v1/agent/db/status?agentName=xxx&cloudAccountId=xxx
-     * Returns live status of a registered DB agent — used by the wizard polling.
-     */
-    @GetMapping("/db/status")
-    public ResponseEntity<Map<String, Object>> getDbAgentStatus(
-            @RequestParam String agentName,
-            @RequestParam String cloudAccountId) {
-
-        java.util.Optional<DbAgentConfig> cfgOpt = dbAgentService.findDbAgent(cloudAccountId, agentName);
-        if (cfgOpt.isEmpty()) {
-            return ResponseEntity.ok(Map.of(
-                    "registered", false,
-                    "status", "not_registered"
-            ));
-        }
-
-        DbAgentConfig cfg = cfgOpt.get();
-        Map<String, Object> result = new HashMap<>();
-        result.put("registered", true);
-        result.put("status", cfg.getStatus());
-        result.put("agentVersion", cfg.getAgentVersion() != null ? cfg.getAgentVersion() : "");
-        result.put("agentIp", cfg.getAgentIp() != null ? cfg.getAgentIp() : "");
-        result.put("lastCheckin", cfg.getLastCheckin() != null ? cfg.getLastCheckin().toString() : null);
-        result.put("isActive", cfg.isActive());
-
-        // Data counts from db_agent_data_cache
-        List<com.xammer.cloud.domain.DbAgentDataCache> data = dbAgentService.getCachedData(cfg.getId());
-        Map<String, Object> dataCounts = new HashMap<>();
-        for (com.xammer.cloud.domain.DbAgentDataCache cache : data) {
-            dataCounts.put(cache.getDataType(), Map.of(
-                    "itemCount", cache.getItemCount() != null ? cache.getItemCount() : 0,
-                    "collectedAt", cache.getCollectedAt().toString()
-            ));
-        }
-        result.put("dataCounts", dataCounts);
-
-        return ResponseEntity.ok(result);
-    }
+    // SEC-4: saveDbAgentConfig (POST /db/config), loadDbAgentConfig (GET /db/config) and
+    // getDbAgentStatus (GET /db/status) moved to DbAgentSetupController (/api/xamops/db-agent/**).
+    // The old GET /db/config returned the stored DB password in plaintext; the new GET /config
+    // returns only a hasPassword boolean (SEC-5).
 
     /**
      * Get agent events for a cluster.

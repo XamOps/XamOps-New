@@ -892,9 +892,9 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   // XamOps Agent — status/config endpoints used by DbOps Query Stats tab
   if (url.includes('/api/v1/agent/install-info'))
     return makeResponse({ apiKey: 'demo-api-key-xammer' });
-  if (url.includes('/api/v1/agent/db/config'))
-    return makeResponse({ found: true, dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', dbPort: '5432', dbName: 'analytics', dbUser: 'xamops_reader' });
-  if (url.includes('/api/v1/agent/db/status'))
+  if (url.includes('/api/xamops/db-agent/config'))
+    return makeResponse({ found: true, dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', dbPort: '5432', dbName: 'analytics', dbUser: 'xamops_reader', hasPassword: false });
+  if (url.includes('/api/xamops/db-agent/status'))
     return makeResponse({ registered: true, isActive: true, lastCheckin: new Date(Date.now() - 60_000).toISOString(), agentIp: '10.0.1.100', dataCounts: { 'db-query-stats': { itemCount: 127, collectedAt: new Date(Date.now() - 60_000).toISOString() } } });
   if (url.includes('/api/v1/agent/'))
     return makeResponse({ success: true });

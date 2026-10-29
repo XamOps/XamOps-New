@@ -75,7 +75,9 @@ XAMOPS_SERVER_URL="${XAMOPS_SERVER_URL:-__XAMOPS_SERVER_URL__}"
 XAMOPS_API_KEY="${XAMOPS_API_KEY:-__XAMOPS_API_KEY__}"
 
 DEFAULT_SERVER_URL="https://live.xamops.com"
-DEFAULT_API_KEY="xamops_SecureAgentKey2024XamOps"
+# SEC-6: no committed default key. The key comes from --api-key, the XAMOPS_API_KEY env var, or
+# the backend-substituted __XAMOPS_API_KEY__ placeholder; without one the install fails closed.
+DEFAULT_API_KEY=""
 
 # Which cloud. Baked in per endpoint when served by the backend, so the customer-facing command
 # does not need --provider; overridable for standalone use.
@@ -466,15 +468,14 @@ preflight() {
       XAMOPS_SERVER_URL="$DEFAULT_SERVER_URL"
       warn "No --server-url given; defaulting to $XAMOPS_SERVER_URL" ;;
   esac
-  # The shared default is published in this script and is identical for every customer, so it
-  # cannot prove which account a request came from. Pass --api-key with the account-scoped key
-  # from XamOps instead; the shared key is being retired.
+  # SEC-6: no shared default is baked into this script. Require an account- or cluster-scoped key
+  # from XamOps, passed with --api-key (or XAMOPS_API_KEY, or the served __XAMOPS_API_KEY__
+  # substitution). Fail closed when none is supplied.
   case "$XAMOPS_API_KEY" in
     __XAMOPS_API_KEY__|"")
-      XAMOPS_API_KEY="$DEFAULT_API_KEY"
-      warn "No --api-key given; using the shared default key, which is being retired."
-      warn "Get a cluster- or account-scoped key from XamOps and re-run with --api-key <key>." ;;
+      XAMOPS_API_KEY="$DEFAULT_API_KEY" ;;
   esac
+  [ -z "$XAMOPS_API_KEY" ] && die "No agent key. Paste the account- or cluster-scoped key from XamOps and re-run with --api-key <key> (or set XAMOPS_API_KEY). The shared default key has been removed."
   XAMOPS_SERVER_URL="${XAMOPS_SERVER_URL%/}"
 
   # A loopback or private server URL cannot be reached from inside a cluster. Worse, the agent
