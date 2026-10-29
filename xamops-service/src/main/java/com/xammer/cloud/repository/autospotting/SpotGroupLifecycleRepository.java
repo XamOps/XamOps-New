@@ -63,6 +63,12 @@ public class SpotGroupLifecycleRepository {
     static final String LOCK_ROW =
             "SELECT version FROM spot_group WHERE id = ? AND state = ? FOR UPDATE";
 
+    // Preemption row lock (§4.7): SELECT ... FOR UPDATE on the group row by id, so confirm and the
+    // reconciler set cancel_requested / compensate_requested and insert the new op under the lock,
+    // without needing the group lease. Returns the version (null when the group is absent).
+    static final String LOCK_ROW_BY_ID =
+            "SELECT version FROM spot_group WHERE id = ? FOR UPDATE";
+
     // Append-only transition insert (§2.4). effective_at is clamped by the caller to
     // GREATEST(requested, latest effective_at); trg_sgt_monotonic is the backstop (DR-01).
     static final String INSERT_TRANSITION =
@@ -133,6 +139,17 @@ public class SpotGroupLifecycleRepository {
     @Transactional(propagation = Propagation.MANDATORY)
     public Long lockRow(UUID groupId, GroupState expectedState) {
         return jdbc.query(LOCK_ROW, rs -> rs.next() ? rs.getLong(1) : null, groupId, expectedState.name());
+    }
+
+    /**
+     * Locks the group row by id with {@code SELECT ... FOR UPDATE} for the preemption mechanics of
+     * §4.7 (no state guard: the caller decides from the live op set under the lock). Returns the
+     * current {@code version}, or null when the group is absent. Must run inside the caller's
+     * transaction (MANDATORY); the lock is held to its commit.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Long lockRowById(UUID groupId) {
+        return jdbc.query(LOCK_ROW_BY_ID, rs -> rs.next() ? rs.getLong(1) : null, groupId);
     }
 
     /** The group's latest transition {@code effective_at} (by {@code id}), or null when none exists. */

@@ -63,4 +63,22 @@ public interface SpotOperationStepRepository extends JpaRepository<SpotOperation
                      @Param("cloudRequestIds") String cloudRequestIds,
                      @Param("output") String output,
                      @Param("completedAt") Instant completedAt);
+
+    /** The step row at {@code (operationId, seq)}, or empty when the step has not been recorded yet. */
+    java.util.Optional<SpotOperationStep> findByOperationIdAndSeq(UUID operationId, int seq);
+
+    /**
+     * Re-open a step for a fresh attempt without changing its {@code intent_at}: back to
+     * {@code INTENT_RECORDED}, incrementing {@code attempts}, clearing the previous terminal result
+     * (design-core.md §9.4 "up to 5 step attempts"; the retry re-issues the same deterministic token).
+     * Used by the runner when a TRANSIENT/THROTTLED retry re-runs the step at the next due poll.
+     */
+    @Modifying
+    @Query(value = "UPDATE spot_operation_step"
+            + "   SET status = 'INTENT_RECORDED', attempts = attempts + 1,"
+            + "       cloud_request_ids = NULL, output = NULL, completed_at = NULL, lease_generation = :leaseGeneration"
+            + " WHERE operation_id = :operationId AND seq = :seq",
+            nativeQuery = true)
+    int reopenForRetry(@Param("operationId") UUID operationId, @Param("seq") int seq,
+                       @Param("leaseGeneration") long leaseGeneration);
 }

@@ -136,6 +136,11 @@ public class FakeSpotProvider implements SpotProvider {
         }
 
         @Override
+        public boolean mutates() {
+            return mutating;
+        }
+
+        @Override
         public String name() {
             return name;
         }

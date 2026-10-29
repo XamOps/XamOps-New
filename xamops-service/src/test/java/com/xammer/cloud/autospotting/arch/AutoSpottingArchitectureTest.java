@@ -117,16 +117,36 @@ class AutoSpottingArchitectureTest {
     }
 
     @Test
-    void everyV2ScheduledMethodRunsThroughTheJobLeaseWrapper() {
+    void everyV2ScheduledJobMethodRunsThroughTheJobLeaseWrapper() {
+        // Every v2 @Scheduled JOB method takes its job lease via JobRunner.runLeased (design-core.md
+        // §3.5, design-ux-ops.md §9.1). The one deliberate exception is the operation dispatcher:
+        // §4.2 binds it with scheduler = "spotDispatchScheduler" on its own dedicated single-thread
+        // scheduler, NOT the shared trigger scheduler, and its poll body only claims and submits — it
+        // is not a job body and holds no job lease (it acquires per-group leases through LeaseService).
+        // So the rule exempts @Scheduled methods bound to spotDispatchScheduler.
         ArchRule rule = methods()
                 .that().areAnnotatedWith(org.springframework.scheduling.annotation.Scheduled.class)
                 .and().areDeclaredInClassesThat().resideInAPackage("..service.autospotting..")
+                .and(DescribedPredicate.not(ON_DISPATCH_SCHEDULER))
                 .should(callJobRunnerRunLeased())
-                .because("a v2 @Scheduled method must take its job lease via JobRunner.runLeased "
-                        + "(design-core.md §3.5, design-ux-ops.md §9.1)");
-        // allowEmptyShould: there are no v2 @Scheduled methods yet (the machinery ships dark).
+                .because("a v2 @Scheduled job method must take its job lease via JobRunner.runLeased "
+                        + "(design-core.md §3.5, design-ux-ops.md §9.1); the dispatcher poll on "
+                        + "spotDispatchScheduler is the §4.2 exception");
+        // allowEmptyShould: the dispatcher may be the only @Scheduled method until more jobs ship.
         rule.allowEmptyShould(true).check(classes);
     }
+
+    /** A {@code @Scheduled} bound to {@code spotDispatchScheduler}: the dispatcher poll (§4.2 exception). */
+    private static final DescribedPredicate<JavaMethod> ON_DISPATCH_SCHEDULER =
+            new DescribedPredicate<>("@Scheduled(scheduler = \"spotDispatchScheduler\")") {
+                @Override
+                public boolean test(JavaMethod method) {
+                    return method.tryGetAnnotationOfType(
+                                    org.springframework.scheduling.annotation.Scheduled.class)
+                            .map(s -> "spotDispatchScheduler".equals(s.scheduler()))
+                            .orElse(false);
+                }
+            };
 
     /**
      * A call to a cloud SDK exception's message/error-body accessor: the AWS SDK's

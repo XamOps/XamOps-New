@@ -12,6 +12,17 @@ public interface Step {
     /** The step name, written to {@code spot_operation_step.name} (e.g. {@code PERSIST_SNAPSHOT}). */
     String name();
 
+    /**
+     * Whether this step mutates the cloud. The runner stamps {@code first_mutation_seq} from the
+     * first step whose intent is recorded with {@code mutates()} true (§4.5), which decides whether a
+     * preempted or failed op compensates or simply returns to {@code prior_state} (§4.7, §9.4). A
+     * read-only step (verify, probe, snapshot capture) returns false (the default); a step that calls
+     * a mutating cloud API returns true and must {@code assertHeld} before the call (§3.4).
+     */
+    default boolean mutates() {
+        return false;
+    }
+
     /** Do the step's work. Before any mutating cloud call it asserts the lease is held (§3.4). */
     StepOutcome execute(StepContext ctx);
 
