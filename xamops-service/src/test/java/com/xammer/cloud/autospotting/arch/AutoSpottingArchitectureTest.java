@@ -77,6 +77,29 @@ class AutoSpottingArchitectureTest {
     }
 
     @Test
+    void noAutoSpottingClassLogsARawCloudSdkExceptionMessageWithoutTheRedactor() {
+        // plan-phase-05.md task 5.3, design-core.md §8, AC-SEC-07: a cloud SDK error body can carry
+        // credentials or tokens, so no class in ..service.autospotting.. may read a cloud SDK
+        // exception's message accessor unless it also depends on AuditRedactor (the one component
+        // that scrubs it). Vacuously satisfied now (no SDK exception accessors are called from the
+        // v2 core yet) and fails the first class that logs a raw provider error unscrubbed.
+        ArchRule rule = classes()
+                .that().resideInAPackage("..service.autospotting..")
+                .and(new DescribedPredicate<com.tngtech.archunit.core.domain.JavaClass>(
+                        "call a cloud SDK exception message accessor") {
+                    @Override
+                    public boolean test(com.tngtech.archunit.core.domain.JavaClass javaClass) {
+                        return javaClass.getMethodCallsFromSelf().stream().anyMatch(IS_CLOUD_SDK_EXCEPTION_MESSAGE);
+                    }
+                })
+                .should().dependOnClassesThat().haveFullyQualifiedName(
+                        "com.xammer.cloud.service.autospotting.core.audit.AuditRedactor")
+                .because("a raw cloud SDK error body must be scrubbed by AuditRedactor before it is "
+                        + "logged or stored (design-core.md §8, FR-SEC-06, AC-SEC-07)");
+        rule.allowEmptyShould(true).check(classes);
+    }
+
+    @Test
     void everyV2ScheduledMethodRunsThroughTheJobLeaseWrapper() {
         ArchRule rule = methods()
                 .that().areAnnotatedWith(org.springframework.scheduling.annotation.Scheduled.class)
@@ -87,6 +110,31 @@ class AutoSpottingArchitectureTest {
         // allowEmptyShould: there are no v2 @Scheduled methods yet (the machinery ships dark).
         rule.allowEmptyShould(true).check(classes);
     }
+
+    /**
+     * A call to a cloud SDK exception's message/error-body accessor: the AWS SDK's
+     * {@code SdkException#getMessage}/{@code AwsServiceException#awsErrorDetails}, or Google's
+     * {@code GoogleJsonResponseException#getDetails}/{@code getContent}. These carry the raw provider
+     * error body that must pass through {@link com.xammer.cloud.service.autospotting.core.audit.AuditRedactor}.
+     */
+    private static final DescribedPredicate<JavaCall<?>> IS_CLOUD_SDK_EXCEPTION_MESSAGE =
+            new DescribedPredicate<>("a cloud SDK exception message accessor") {
+                @Override
+                public boolean test(JavaCall<?> call) {
+                    String owner = call.getTargetOwner().getName();
+                    String name = call.getName();
+                    boolean awsException = owner.startsWith("software.amazon.awssdk")
+                            && owner.endsWith("Exception");
+                    boolean googleException = owner.equals("com.google.api.client.googleapis.json.GoogleJsonResponseException");
+                    if (awsException) {
+                        return name.equals("getMessage") || name.equals("awsErrorDetails");
+                    }
+                    if (googleException) {
+                        return name.equals("getDetails") || name.equals("getContent") || name.equals("getMessage");
+                    }
+                    return false;
+                }
+            };
 
     private static ArchCondition<JavaMethod> callJobRunnerRunLeased() {
         DescribedPredicate<JavaCall<?>> isRunLeased = new DescribedPredicate<>("a call to JobRunner.runLeased") {

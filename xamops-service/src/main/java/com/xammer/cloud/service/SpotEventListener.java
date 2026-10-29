@@ -6,6 +6,7 @@ import com.xammer.cloud.domain.AutoSpottingSettings;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.AutoSpottingSettingsRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,10 +36,14 @@ public class SpotEventListener {
     private final AutoSpottingSettingsRepository settingsRepository;
     private final ObjectMapper objectMapper;
 
-    @Value("${autospotting.sqs.queue-url}")
+    // No base or local default: a blank URL means the legacy listener never polls (XC-11,
+    // AC-SPN-11). Only application-prod.properties names the prod queue. plan-phase-05.md task 5.2.
+    @Value("${autospotting.sqs.queue-url:}")
     private String queueUrl;
 
-    @Value("${autospotting.enabled:true}")
+    // Code default false: autospotting.enabled is true only in application-prod.properties, so the
+    // legacy listener is off on laptops, UAT and preprod (AC-SPN-11). plan-phase-05.md task 5.2.
+    @Value("${autospotting.enabled:false}")
     private boolean globalEnabled;
 
     public SpotEventListener(SqsClient sqsClient,
@@ -53,9 +58,30 @@ public class SpotEventListener {
         this.objectMapper = objectMapper;
     }
 
+    /** Whether the legacy SQS listener will poll: AutoSpotting on and a non-blank queue URL. */
+    private boolean pollingEnabled() {
+        return globalEnabled && queueUrl != null && !queueUrl.isEmpty();
+    }
+
+    /**
+     * Log once at startup when the legacy listener will not poll, so a laptop, UAT or preprod node
+     * that no longer names the prod queue (XC-11) says so plainly. Prod keeps polling the same queue
+     * (AC-SPN-11).
+     */
+    @PostConstruct
+    void logListenerState() {
+        if (pollingEnabled()) {
+            logger.info("AutoSpotting legacy SQS listener active (autospotting.enabled=true, queue configured).");
+        } else {
+            logger.info("AutoSpotting legacy SQS listener idle: it will not poll (autospotting.enabled={}, "
+                    + "queue-url {}). This is expected outside prod.",
+                    globalEnabled, (queueUrl == null || queueUrl.isEmpty()) ? "blank" : "set");
+        }
+    }
+
     @Scheduled(fixedDelayString = "${autospotting.sqs.poll-interval:5000}")
     public void pollEvents() {
-        if (!globalEnabled || queueUrl == null || queueUrl.isEmpty()) {
+        if (!pollingEnabled()) {
             return;
         }
 
