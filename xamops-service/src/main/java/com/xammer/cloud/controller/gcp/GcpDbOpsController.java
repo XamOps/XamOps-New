@@ -1,11 +1,16 @@
 package com.xammer.cloud.controller.gcp;
 
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.dbops.*;
+import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.security.CloudAccountAccessService;
 import com.xammer.cloud.service.gcp.GcpDbOpsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -29,9 +34,28 @@ public class GcpDbOpsController {
     private static final Logger logger = LoggerFactory.getLogger(GcpDbOpsController.class);
 
     private final GcpDbOpsService gcpDbOpsService;
+    private final CloudAccountAccessService accountAccessService;
 
-    public GcpDbOpsController(GcpDbOpsService gcpDbOpsService) {
+    public GcpDbOpsController(GcpDbOpsService gcpDbOpsService,
+            CloudAccountAccessService accountAccessService) {
         this.gcpDbOpsService = gcpDbOpsService;
+        this.accountAccessService = accountAccessService;
+    }
+
+    // ── Authorization (SEC-1) ───────────────────────────────────────────────
+
+    /**
+     * Entitlement guard, run as the first synchronous statement of every handler so a denied
+     * request is a deterministic 403 (via GlobalExceptionHandler) and never a lambda-swallowed
+     * empty 200. {@code requireAccessByIdentifier} closes the cross-tenant IDOR; the explicit
+     * GCP provider assertion stops an identifier resolving to a non-GCP row. This controller is
+     * never reached cross-cloud (the AWS controller is the shared one), so the pin is safe.
+     */
+    private void requireGcpAccount(ClientUserDetails userDetails, String projectId) {
+        CloudAccount account = accountAccessService.requireAccessByIdentifier(userDetails, projectId);
+        if (!"GCP".equalsIgnoreCase(account.getProvider())) {
+            throw new AccessDeniedException("Account not found or access denied.");
+        }
     }
 
     // ── Inventory ─────────────────────────────────────────────────────────────
@@ -44,8 +68,10 @@ public class GcpDbOpsController {
     @GetMapping("/{projectId}/inventory")
     public CompletableFuture<ResponseEntity<List<DbInstanceDto>>> getInventory(
             @PathVariable String projectId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
         logger.info("📦 [GcpDbOps] Inventory request — project: {}", projectId);
         return gcpDbOpsService.getDbInventory(projectId, forceRefresh)
                 .thenApply(data -> {
@@ -67,8 +93,10 @@ public class GcpDbOpsController {
     @GetMapping("/{projectId}/idle")
     public CompletableFuture<ResponseEntity<List<DbIdleInstanceDto>>> getIdleInstances(
             @PathVariable String projectId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
         logger.info("💤 [GcpDbOps] Idle instances request — project: {}", projectId);
         return gcpDbOpsService.getIdleInstances(projectId, forceRefresh)
                 .thenApply(data -> {
@@ -90,8 +118,10 @@ public class GcpDbOpsController {
     @GetMapping("/{projectId}/rightsizing")
     public CompletableFuture<ResponseEntity<List<DbRightsizingDto>>> getRightsizing(
             @PathVariable String projectId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
         logger.info("📐 [GcpDbOps] Right-sizing request — project: {}", projectId);
         return gcpDbOpsService.getRightsizingRecommendations(projectId, forceRefresh)
                 .thenApply(data -> {
@@ -114,8 +144,10 @@ public class GcpDbOpsController {
     @GetMapping("/{projectId}/costs")
     public CompletableFuture<ResponseEntity<List<DbCostDto>>> getCosts(
             @PathVariable String projectId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
         logger.info("💰 [GcpDbOps] Costs request — project: {}", projectId);
         return gcpDbOpsService.getDbCosts(projectId, forceRefresh)
                 .thenApply(data -> {
@@ -138,8 +170,10 @@ public class GcpDbOpsController {
     @GetMapping("/{projectId}/snapshots")
     public CompletableFuture<ResponseEntity<List<DbSnapshotWasteDto>>> getSnapshots(
             @PathVariable String projectId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
         logger.info("📸 [GcpDbOps] Backups request — project: {}", projectId);
         return gcpDbOpsService.getDbSnapshots(projectId, forceRefresh)
                 .thenApply(data -> {
@@ -161,8 +195,10 @@ public class GcpDbOpsController {
     @GetMapping("/{projectId}/security")
     public CompletableFuture<ResponseEntity<List<DbSecurityCheckDto>>> getSecurityChecks(
             @PathVariable String projectId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
         logger.info("🔒 [GcpDbOps] Security checks request — project: {}", projectId);
         return gcpDbOpsService.getSecurityChecks(projectId, forceRefresh)
                 .thenApply(data -> {
@@ -184,8 +220,10 @@ public class GcpDbOpsController {
     @GetMapping("/{projectId}/summary")
     public CompletableFuture<ResponseEntity<DbSavingsSummaryDto>> getSavingsSummary(
             @PathVariable String projectId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
         logger.info("📊 [GcpDbOps] Summary request — project: {}", projectId);
         return gcpDbOpsService.getSavingsSummary(projectId, forceRefresh)
                 .thenApply(data -> {
@@ -208,8 +246,10 @@ public class GcpDbOpsController {
     @GetMapping("/{projectId}/slow-queries")
     public CompletableFuture<ResponseEntity<SlowQueriesResponseDto>> getSlowQueries(
             @PathVariable String projectId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
         logger.info("🐢 [GcpDbOps] Slow queries request — project: {}", projectId);
         return gcpDbOpsService.getSlowQueries(projectId, forceRefresh)
                 .thenApply(data -> {
@@ -233,8 +273,10 @@ public class GcpDbOpsController {
     @GetMapping("/{projectId}/metrics")
     public CompletableFuture<ResponseEntity<Map<String, DbMetricsDto>>> getMetrics(
             @PathVariable String projectId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
         logger.info("📈 [GcpDbOps] Metrics request — project: {}", projectId);
         return gcpDbOpsService.getDbMetrics(projectId, forceRefresh)
                 .thenApply(data -> {
@@ -251,7 +293,9 @@ public class GcpDbOpsController {
 
     @GetMapping("/{projectId}/agent-instance-metrics")
     public CompletableFuture<ResponseEntity<List<AgentInstanceMetricsDto>>> getAgentInstanceMetrics(
-            @PathVariable String projectId) {
+            @PathVariable String projectId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
         return gcpDbOpsService.getAgentInstanceMetrics(projectId)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
@@ -259,7 +303,9 @@ public class GcpDbOpsController {
 
     @GetMapping("/{projectId}/agent-query-stats")
     public CompletableFuture<ResponseEntity<List<AgentQueryStatDto>>> getAgentQueryStats(
-            @PathVariable String projectId) {
+            @PathVariable String projectId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
         logger.info("🔍 [GcpDbOps] Agent query stats request — project: {}", projectId);
         return gcpDbOpsService.getAgentQueryStats(projectId)
                 .thenApply(data -> {
@@ -274,7 +320,9 @@ public class GcpDbOpsController {
 
     @GetMapping("/{projectId}/agent-table-sizes")
     public CompletableFuture<ResponseEntity<List<AgentTableSizeDto>>> getAgentTableSizes(
-            @PathVariable String projectId) {
+            @PathVariable String projectId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
         return gcpDbOpsService.getAgentTableSizes(projectId)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
@@ -283,7 +331,9 @@ public class GcpDbOpsController {
     @GetMapping("/{projectId}/agent-timeseries")
     public CompletableFuture<ResponseEntity<List<AgentTimeseriesDto>>> getAgentTimeseries(
             @PathVariable String projectId,
-            @RequestParam(defaultValue = "24") int hours) {
+            @RequestParam(defaultValue = "24") int hours,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
         return gcpDbOpsService.getAgentTimeseries(projectId, hours)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
@@ -291,7 +341,9 @@ public class GcpDbOpsController {
 
     @GetMapping("/{projectId}/agent-index-usage")
     public CompletableFuture<ResponseEntity<List<AgentIndexUsageDto>>> getAgentIndexUsage(
-            @PathVariable String projectId) {
+            @PathVariable String projectId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
         return gcpDbOpsService.getAgentIndexUsage(projectId)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
@@ -299,7 +351,9 @@ public class GcpDbOpsController {
 
     @GetMapping("/{projectId}/agent-table-activity")
     public CompletableFuture<ResponseEntity<List<AgentTableActivityDto>>> getAgentTableActivity(
-            @PathVariable String projectId) {
+            @PathVariable String projectId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
         return gcpDbOpsService.getAgentTableActivity(projectId)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
@@ -307,7 +361,9 @@ public class GcpDbOpsController {
 
     @GetMapping("/{projectId}/agent-vacuum-stats")
     public CompletableFuture<ResponseEntity<List<AgentVacuumStatDto>>> getAgentVacuumStats(
-            @PathVariable String projectId) {
+            @PathVariable String projectId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
         return gcpDbOpsService.getAgentVacuumStats(projectId)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
@@ -315,7 +371,9 @@ public class GcpDbOpsController {
 
     @GetMapping("/{projectId}/agent-user-activity")
     public CompletableFuture<ResponseEntity<List<AgentUserActivityDto>>> getAgentUserActivity(
-            @PathVariable String projectId) {
+            @PathVariable String projectId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
         return gcpDbOpsService.getAgentUserActivity(projectId)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());

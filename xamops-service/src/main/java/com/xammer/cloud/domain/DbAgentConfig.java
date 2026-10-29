@@ -61,6 +61,10 @@ public class DbAgentConfig {
     @Column(name = "db_user", length = 100)
     private String dbUser;
 
+    // SEC-5: never serialised out. The server does not use this value (the agent reads its DSN
+    // from its own environment); it is no longer written and existing rows are nulled by
+    // migration V20261029_1. @JsonIgnore is defence-in-depth against a future serialization path.
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Column(name = "db_password", length = 255)
     private String dbPassword;
 
@@ -129,6 +133,7 @@ public class DbAgentConfig {
     public String getDbUser() { return dbUser; }
     public void setDbUser(String dbUser) { this.dbUser = dbUser; }
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
     public String getDbPassword() { return dbPassword; }
     public void setDbPassword(String dbPassword) { this.dbPassword = dbPassword; }
 

@@ -24,11 +24,15 @@ import com.xammer.cloud.repository.DbAgentDataCacheRepository;
 import com.xammer.cloud.repository.DbHealthAlertRepository;
 import com.xammer.cloud.repository.DbHealthSnapshotRepository;
 import com.xammer.cloud.repository.ExplainRequestRepository;
+import com.xammer.cloud.config.DbOpsFeatureFlags;
+import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.security.CloudAccountAccessService;
 import com.xammer.cloud.service.DbOpsCostService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -61,6 +65,8 @@ public class DbOpsController {
     private final ExplainRequestRepository explainRequestRepository;
     private final DbHealthSnapshotRepository dbHealthSnapshotRepository;
     private final DbHealthAlertRepository dbHealthAlertRepository;
+    private final CloudAccountAccessService cloudAccountAccessService;
+    private final DbOpsFeatureFlags dbOpsFeatureFlags;
     private final ObjectMapper objectMapper;
 
     public DbOpsController(
@@ -70,7 +76,9 @@ public class DbOpsController {
             DbAgentDataCacheRepository dbAgentDataCacheRepository,
             ExplainRequestRepository explainRequestRepository,
             DbHealthSnapshotRepository dbHealthSnapshotRepository,
-            DbHealthAlertRepository dbHealthAlertRepository) {
+            DbHealthAlertRepository dbHealthAlertRepository,
+            CloudAccountAccessService cloudAccountAccessService,
+            DbOpsFeatureFlags dbOpsFeatureFlags) {
         this.dbOpsCostService = dbOpsCostService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.dbAgentConfigRepository = dbAgentConfigRepository;
@@ -78,9 +86,25 @@ public class DbOpsController {
         this.explainRequestRepository = explainRequestRepository;
         this.dbHealthSnapshotRepository = dbHealthSnapshotRepository;
         this.dbHealthAlertRepository = dbHealthAlertRepository;
+        this.cloudAccountAccessService = cloudAccountAccessService;
+        this.dbOpsFeatureFlags = dbOpsFeatureFlags;
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule());
     }
+
+    // ── Authorization (SEC-1) ───────────────────────────────────────────────
+    //
+    // Every handler asserts entitlement as its FIRST synchronous statement — before any
+    // CompletableFuture is built and before any try/catch — so a denied request is a
+    // deterministic 403 (via GlobalExceptionHandler) and is never swallowed into an empty 200
+    // by an async lambda or a catch block. Do NOT move these calls into a .thenApply(...).
+    //
+    // The access method is split (design M-1): the 19 AWS-only endpoints use requireAwsAccess
+    // (provider-pinned, no PK fallback — the sibling AWS-controller idiom); the 12 deliberately
+    // provider-shared endpoints (wait-events, diagnostics, mongo/redis, health-history,
+    // instance timeseries, explain-*) use requireAccessByIdentifier, because the GCP/Azure
+    // DataOps drawer reaches those AWS endpoints cross-cloud and an AWS provider pin would 403
+    // those agent panels. Both still close the cross-tenant IDOR; only the provider pin differs.
 
     // ── Inventory ─────────────────────────────────────────────────────────────
 
@@ -92,8 +116,10 @@ public class DbOpsController {
     @GetMapping("/{accountId}/inventory")
     public CompletableFuture<ResponseEntity<List<DbInstanceDto>>> getInventory(
             @PathVariable String accountId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
         logger.info("📦 [DbOps] Inventory request — account: {}", accountId);
         return dbOpsCostService.getDbInventory(accountId, forceRefresh)
                 .thenApply(data -> {
@@ -116,8 +142,10 @@ public class DbOpsController {
     @GetMapping("/{accountId}/idle")
     public CompletableFuture<ResponseEntity<List<DbIdleInstanceDto>>> getIdleInstances(
             @PathVariable String accountId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
         logger.info("💤 [DbOps] Idle instances request — account: {}", accountId);
         return dbOpsCostService.getIdleInstances(accountId, forceRefresh)
                 .thenApply(data -> {
@@ -140,8 +168,10 @@ public class DbOpsController {
     @GetMapping("/{accountId}/rightsizing")
     public CompletableFuture<ResponseEntity<List<DbRightsizingDto>>> getRightsizing(
             @PathVariable String accountId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
         logger.info("📐 [DbOps] Right-sizing request — account: {}", accountId);
         return dbOpsCostService.getRightsizingRecommendations(accountId, forceRefresh)
                 .thenApply(data -> {
@@ -164,8 +194,10 @@ public class DbOpsController {
     @GetMapping("/{accountId}/costs")
     public CompletableFuture<ResponseEntity<List<DbCostDto>>> getCosts(
             @PathVariable String accountId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
         logger.info("💰 [DbOps] Costs request — account: {}", accountId);
         return dbOpsCostService.getDbCosts(accountId, forceRefresh)
                 .thenApply(data -> {
@@ -188,8 +220,10 @@ public class DbOpsController {
     @GetMapping("/{accountId}/snapshots")
     public CompletableFuture<ResponseEntity<List<DbSnapshotWasteDto>>> getSnapshots(
             @PathVariable String accountId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
         logger.info("📸 [DbOps] Snapshots request — account: {}", accountId);
         return dbOpsCostService.getDbSnapshots(accountId, forceRefresh)
                 .thenApply(data -> {
@@ -212,8 +246,10 @@ public class DbOpsController {
     @GetMapping("/{accountId}/security")
     public CompletableFuture<ResponseEntity<List<DbSecurityCheckDto>>> getSecurityChecks(
             @PathVariable String accountId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
         logger.info("🔒 [DbOps] Security checks request — account: {}", accountId);
         return dbOpsCostService.getSecurityChecks(accountId, forceRefresh)
                 .thenApply(data -> {
@@ -236,8 +272,10 @@ public class DbOpsController {
     @GetMapping("/{accountId}/summary")
     public CompletableFuture<ResponseEntity<DbSavingsSummaryDto>> getSavingsSummary(
             @PathVariable String accountId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
         logger.info("📊 [DbOps] Summary request — account: {}", accountId);
         return dbOpsCostService.getSavingsSummary(accountId, forceRefresh)
                 .thenApply(data -> {
@@ -262,8 +300,10 @@ public class DbOpsController {
     @GetMapping("/{accountId}/slow-queries")
     public CompletableFuture<ResponseEntity<SlowQueriesResponseDto>> getSlowQueries(
             @PathVariable String accountId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
         logger.info("🐢 [DbOps] Slow queries request — account: {}", accountId);
         return dbOpsCostService.getSlowQueries(accountId, forceRefresh)
                 .thenApply(data -> {
@@ -287,8 +327,10 @@ public class DbOpsController {
     @GetMapping("/{accountId}/metrics")
     public CompletableFuture<ResponseEntity<Map<String, DbMetricsDto>>> getMetrics(
             @PathVariable String accountId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
         logger.info("📈 [DbOps] Metrics request — account: {}", accountId);
         return dbOpsCostService.getDbMetrics(accountId, forceRefresh)
                 .thenApply(data -> {
@@ -309,7 +351,9 @@ public class DbOpsController {
      */
     @GetMapping("/{accountId}/agent-instance-metrics")
     public CompletableFuture<ResponseEntity<List<AgentInstanceMetricsDto>>> getAgentInstanceMetrics(
-            @PathVariable String accountId) {
+            @PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
         return dbOpsCostService.getAgentInstanceMetrics(accountId)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
@@ -324,8 +368,10 @@ public class DbOpsController {
      */
     @GetMapping("/{accountId}/agent-query-stats")
     public CompletableFuture<ResponseEntity<List<AgentQueryStatDto>>> getAgentQueryStats(
-            @PathVariable String accountId) {
+            @PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
         logger.info("🔍 [DbOps] Agent query stats request — account: {}", accountId);
         return dbOpsCostService.getAgentQueryStats(accountId)
                 .thenApply(data -> {
@@ -347,8 +393,10 @@ public class DbOpsController {
      */
     @GetMapping("/{accountId}/agent-table-sizes")
     public CompletableFuture<ResponseEntity<List<AgentTableSizeDto>>> getAgentTableSizes(
-            @PathVariable String accountId) {
+            @PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
         return dbOpsCostService.getAgentTableSizes(accountId)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
@@ -363,8 +411,10 @@ public class DbOpsController {
     @GetMapping("/{accountId}/agent-timeseries")
     public CompletableFuture<ResponseEntity<List<AgentTimeseriesDto>>> getAgentTimeseries(
             @PathVariable String accountId,
-            @RequestParam(defaultValue = "24") int hours) {
+            @RequestParam(defaultValue = "24") int hours,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
         return dbOpsCostService.getAgentTimeseries(accountId, hours)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
@@ -375,7 +425,9 @@ public class DbOpsController {
      */
     @GetMapping("/{accountId}/agent-index-usage")
     public CompletableFuture<ResponseEntity<List<AgentIndexUsageDto>>> getAgentIndexUsage(
-            @PathVariable String accountId) {
+            @PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
         return dbOpsCostService.getAgentIndexUsage(accountId)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
@@ -386,7 +438,9 @@ public class DbOpsController {
      */
     @GetMapping("/{accountId}/agent-table-activity")
     public CompletableFuture<ResponseEntity<List<AgentTableActivityDto>>> getAgentTableActivity(
-            @PathVariable String accountId) {
+            @PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
         return dbOpsCostService.getAgentTableActivity(accountId)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
@@ -400,8 +454,10 @@ public class DbOpsController {
      */
     @GetMapping("/{accountId}/agent-vacuum-stats")
     public CompletableFuture<ResponseEntity<List<AgentVacuumStatDto>>> getAgentVacuumStats(
-            @PathVariable String accountId) {
+            @PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
         return dbOpsCostService.getAgentVacuumStats(accountId)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
@@ -415,8 +471,10 @@ public class DbOpsController {
      */
     @GetMapping("/{accountId}/agent-user-activity")
     public CompletableFuture<ResponseEntity<List<AgentUserActivityDto>>> getAgentUserActivity(
-            @PathVariable String accountId) {
+            @PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
         return dbOpsCostService.getAgentUserActivity(accountId)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
@@ -433,8 +491,10 @@ public class DbOpsController {
     public CompletableFuture<ResponseEntity<DbInstanceTimeseriesDto>> getInstanceTimeseries(
             @PathVariable String accountId,
             @PathVariable String instanceId,
-            @RequestParam(defaultValue = "24") int hours) {
+            @RequestParam(defaultValue = "24") int hours,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1 (provider-shared)
         logger.info("🔍 [DbOps] Timeseries request — account: {}, instance: {}, hours: {}", accountId, instanceId, hours);
         return dbOpsCostService.getInstanceTimeseries(accountId, instanceId, hours)
                 .thenApply(data -> {
@@ -457,8 +517,12 @@ public class DbOpsController {
      */
     @GetMapping("/{accountId}/agent-wait-events")
     public ResponseEntity<List<AgentWaitEventDto>> getAgentWaitEvents(
-            @PathVariable String accountId) {
+            @PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        // SEC-1 (provider-shared): entitlement only, no AWS pin — the GCP/Azure drawer reaches
+        // this AWS endpoint cross-cloud, so pinning the provider would 403 those agent panels.
+        cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId);
         return cloudAccountRepository
                 .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId)
                 .map(account -> {
@@ -495,8 +559,10 @@ public class DbOpsController {
      */
     @GetMapping("/{accountId}/agent-diagnostics")
     public ResponseEntity<List<AgentDiagnosticDto>> getAgentDiagnostics(
-            @PathVariable String accountId) {
+            @PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
+        cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1 (provider-shared)
         return cloudAccountRepository
                 .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId)
                 .map(account -> {
@@ -533,7 +599,19 @@ public class DbOpsController {
     @PostMapping("/{accountId}/explain-query")
     public ResponseEntity<Map<String, Object>> enqueueExplain(
             @PathVariable String accountId,
-            @RequestBody ExplainQueryRequest body) {
+            @RequestBody ExplainQueryRequest body,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1 (provider-shared)
+
+        // SEC-2/3: Explain is disabled server-side (xamops.dbops.explain.enabled, default false).
+        // Fail closed at enqueue — persist nothing, return 409 so the UI can tell "feature off"
+        // (409) apart from "not entitled" (the 403 the guard above returns on this same handler).
+        if (!dbOpsFeatureFlags.isExplainEnabled()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "explain_disabled",
+                    "message", "Explain is temporarily unavailable."));
+        }
 
         return cloudAccountRepository
                 .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId)
@@ -573,9 +651,23 @@ public class DbOpsController {
      * Returns status PENDING / IN_FLIGHT / COMPLETED / FAILED / EXPIRED.
      */
     @GetMapping("/{accountId}/explain-result/{requestId}")
-    public ResponseEntity<ExplainResultDto> getExplainResult(
+    public ResponseEntity<?> getExplainResult(
             @PathVariable String accountId,
-            @PathVariable String requestId) {
+            @PathVariable String requestId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        // SEC-1 (provider-shared): entitlement first. Phase-1 residual (documented, not fixed
+        // here): the row is still fetched by requestId ignoring the account, so this proves the
+        // caller owns the path account but not the result row. Moot in Phase 0 — Explain is
+        // disabled so no result rows are produced; scoping explain_request by account is Phase 1.
+        cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId);
+
+        // SEC-2/3: same 409 as enqueue when disabled.
+        if (!dbOpsFeatureFlags.isExplainEnabled()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "explain_disabled",
+                    "message", "Explain is temporarily unavailable."));
+        }
 
         Optional<ExplainRequest> reqOpt = explainRequestRepository.findById(requestId);
         if (reqOpt.isEmpty()) {
@@ -600,7 +692,11 @@ public class DbOpsController {
     public ResponseEntity<List<DbHealthSnapshotDto>> getHealthHistory(
             @PathVariable String accountId,
             @RequestParam String instanceId,
-            @RequestParam(defaultValue = "24") int hours) {
+            @RequestParam(defaultValue = "24") int hours,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        // SEC-1 (provider-shared): guard BEFORE the try so a denied request is a 403, not
+        // swallowed into an empty 200 by the catch below.
+        cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId);
         try {
             com.xammer.cloud.domain.CloudAccount account = getAccount(accountId);
             java.time.LocalDateTime since = java.time.LocalDateTime.now().minusHours(hours);
@@ -627,7 +723,10 @@ public class DbOpsController {
      * Returns the latest health snapshot for every DB instance under this account.
      */
     @GetMapping("/{accountId}/health-snapshots")
-    public ResponseEntity<List<DbHealthSnapshotDto>> getHealthSnapshots(@PathVariable String accountId) {
+    public ResponseEntity<List<DbHealthSnapshotDto>> getHealthSnapshots(@PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        // SEC-1: guard BEFORE the try so a denied request is a 403, not swallowed into 200.
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId);
         try {
             com.xammer.cloud.domain.CloudAccount account = getAccount(accountId);
             List<DbHealthSnapshot> snaps = dbHealthSnapshotRepository.findLatestPerInstance(account.getId());
@@ -651,7 +750,10 @@ public class DbOpsController {
      * Returns active alerts + alerts resolved in the last 24h for the in-app feed.
      */
     @GetMapping("/{accountId}/db-alerts")
-    public ResponseEntity<List<DbHealthAlertDto>> getDbAlerts(@PathVariable String accountId) {
+    public ResponseEntity<List<DbHealthAlertDto>> getDbAlerts(@PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        // SEC-1: guard BEFORE the try so a denied request is a 403, not swallowed into 200.
+        cloudAccountAccessService.requireAwsAccess(userDetails, accountId);
         try {
             com.xammer.cloud.domain.CloudAccount account = getAccount(accountId);
             java.time.LocalDateTime since = java.time.LocalDateTime.now().minusHours(24);
@@ -668,19 +770,25 @@ public class DbOpsController {
     // ── MongoDB agent endpoints ───────────────────────────────────────────────
 
     @GetMapping("/{accountId}/agent-mongo-metrics")
-    public ResponseEntity<List<MongoInstanceMetricsDto>> getMongoMetrics(@PathVariable String accountId) {
+    public ResponseEntity<List<MongoInstanceMetricsDto>> getMongoMetrics(@PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1 (provider-shared)
         return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "mongo-instance-metrics:",
                 new TypeReference<List<MongoInstanceMetricsDto>>() {}));
     }
 
     @GetMapping("/{accountId}/agent-mongo-slow-ops")
-    public ResponseEntity<List<MongoSlowOpDto>> getMongoSlowOps(@PathVariable String accountId) {
+    public ResponseEntity<List<MongoSlowOpDto>> getMongoSlowOps(@PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1 (provider-shared)
         return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "mongo-slow-ops:",
                 new TypeReference<List<MongoSlowOpDto>>() {}));
     }
 
     @GetMapping("/{accountId}/agent-mongo-index-stats")
-    public ResponseEntity<List<MongoIndexStatDto>> getMongoIndexStats(@PathVariable String accountId) {
+    public ResponseEntity<List<MongoIndexStatDto>> getMongoIndexStats(@PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1 (provider-shared)
         return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "mongo-index-stats:",
                 new TypeReference<List<MongoIndexStatDto>>() {}));
     }
@@ -688,19 +796,25 @@ public class DbOpsController {
     // ── Redis agent endpoints ─────────────────────────────────────────────────
 
     @GetMapping("/{accountId}/agent-redis-metrics")
-    public ResponseEntity<List<RedisInstanceMetricsDto>> getRedisMetrics(@PathVariable String accountId) {
+    public ResponseEntity<List<RedisInstanceMetricsDto>> getRedisMetrics(@PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1 (provider-shared)
         return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "redis-instance-metrics:",
                 new TypeReference<List<RedisInstanceMetricsDto>>() {}));
     }
 
     @GetMapping("/{accountId}/agent-redis-slow-log")
-    public ResponseEntity<List<RedisSlowLogDto>> getRedisSlowLog(@PathVariable String accountId) {
+    public ResponseEntity<List<RedisSlowLogDto>> getRedisSlowLog(@PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1 (provider-shared)
         return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "redis-slow-log:",
                 new TypeReference<List<RedisSlowLogDto>>() {}));
     }
 
     @GetMapping("/{accountId}/agent-redis-keyspace")
-    public ResponseEntity<List<RedisKeyspaceDto>> getRedisKeyspace(@PathVariable String accountId) {
+    public ResponseEntity<List<RedisKeyspaceDto>> getRedisKeyspace(@PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1 (provider-shared)
         return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "redis-keyspace:",
                 new TypeReference<List<RedisKeyspaceDto>>() {}));
     }
