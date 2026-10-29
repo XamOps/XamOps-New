@@ -1,5 +1,6 @@
 package com.xammer.cloud.service;
 
+import com.xammer.cloud.domain.AwsBillingSource;
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.VerifyAccountRequest;
@@ -22,9 +23,11 @@ import com.xammer.cloud.repository.SreInvestigationRepository;
 import com.xammer.cloud.repository.StatefulAsgConfigRepository;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.service.cur.CurAutoRegistrationService;
+import com.xammer.cloud.service.stack.CurStackService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.context.ApplicationEventPublisher;
@@ -43,6 +46,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 
 @Service
 public class AwsAccountService {
@@ -180,6 +184,14 @@ public class AwsAccountService {
 
         newAccount.setAwsAccountId(awsAccountId);
         newAccount.setProvider("AWS");
+
+        // Persist the onboarding billing source on the new account, defaulting a null/blank
+        // value to OWN_CUR. A newly onboarded account is treated as owning its own CUR unless
+        // the caller explicitly says otherwise, so the CUR stack is expected and auto-created
+        // after the connection stack completes. An explicit non-null value is honored exactly
+        // as before; an unparseable string falls back to OWN_CUR rather than failing onboarding.
+        AwsBillingSource effectiveSource = resolveOnboardingBillingSource(awsBillingSource);
+        newAccount.setAwsBillingSource(effectiveSource);
         cloudAccountRepository.save(newAccount);
 
         String stackName = "XamOps-Connection-" + accountName.replaceAll("[^a-zA-Z0-9-]", "");
@@ -212,7 +224,7 @@ public class AwsAccountService {
          * paying to store a second copy; and an account whose payer never enabled billing
          * access cannot create one at all.
          */
-        boolean createReport = "OWN_CUR".equals(awsBillingSource);
+        boolean createReport = effectiveSource == AwsBillingSource.OWN_CUR;
 
         // Region comes from the queue URL rather than a second setting, so the two cannot
         // disagree: sqs.<region>.amazonaws.com is the only shape SQS publishes.
@@ -447,6 +459,7 @@ public class AwsAccountService {
             logger.info("Successfully verified and connected to account: {}", account.getAccountName());
             CloudAccount saved = cloudAccountRepository.save(account);
             publishConnected(saved, reconnected);
+            triggerCurStackCreationOnConnect(saved);
             return saved;
         } catch (Exception e) {
             account.setStatus("FAILED");
@@ -497,6 +510,7 @@ public class AwsAccountService {
             CloudAccount saved = cloudAccountRepository.save(account);
             publishConnected(saved, reconnected);
             autoRegisterCur(saved);
+            triggerCurStackCreationOnConnect(saved);
             return saved;
         } catch (Exception e) {
             account.setStatus("FAILED");
@@ -551,9 +565,130 @@ public class AwsAccountService {
         }
     }
 
+    /**
+     * The billing source a newly onboarded account should be persisted with.
+     *
+     * <p>A null or blank value — the common case when the operator does not pick one — defaults
+     * to {@link AwsBillingSource#OWN_CUR}: a fresh account is assumed to own its CUR so the CUR
+     * stack is expected and auto-created after the connection stack completes. An explicit value
+     * is honored exactly as given; an unrecognized string falls back to OWN_CUR with a warning
+     * rather than throwing, because a bad billing-source string must not fail onboarding.
+     */
+    private AwsBillingSource resolveOnboardingBillingSource(String awsBillingSource) {
+        if (awsBillingSource == null || awsBillingSource.isBlank()) {
+            return AwsBillingSource.OWN_CUR;
+        }
+        try {
+            return AwsBillingSource.valueOf(awsBillingSource.trim());
+        } catch (IllegalArgumentException e) {
+            logger.warn("Unrecognized awsBillingSource '{}' on onboarding; defaulting to OWN_CUR.",
+                    awsBillingSource);
+            return AwsBillingSource.OWN_CUR;
+        }
+    }
+
+    /**
+     * Auto-creates the account's CUR stack (XamOps-CUR-&lt;accountName&gt; in us-east-1) right after
+     * the connection stack completes, so a new OWN_CUR account gets its CUR without the operator
+     * opening the Update-stack modal.
+     *
+     * <p>Best-effort and never fails onboarding: the account is already saved CONNECTED before this
+     * is called, the work is handed to the {@code stackSequenceExecutor} background thread (whose
+     * decorator carries tenant + MDC for the tenant-routed CUR save), and any submit failure — a
+     * full pool, anything — is caught and logged. Only OWN_CUR accounts are considered; explicit
+     * non-OWN_CUR sources (XAMMER_MPA_CUR, EXISTING_CUR, COST_EXPLORER_ONLY) are skipped silently.
+     * The CUR-template env gate is handled inside {@link CurStackService#applyAsync} (returns
+     * SKIPPED when none is configured), so no second environment check is needed here.
+     */
+    private void triggerCurStackCreationOnConnect(CloudAccount account) {
+        if (account.resolveAwsBillingSource() != AwsBillingSource.OWN_CUR) {
+            logger.info("[CUR] Skipping auto-CUR stack for non-OWN_CUR account {} (source={})",
+                    account.getAwsAccountId(), account.resolveAwsBillingSource());
+            return;
+        }
+        try {
+            stackSequenceExecutor.execute(() -> runOnboardCurWithRetry(account));
+            logger.info("[CUR] Submitted auto-CUR stack creation for account {} on connect",
+                    account.getAwsAccountId());
+        } catch (RuntimeException ex) {
+            // Covers RejectedExecutionException (full pool) and any other submit error.
+            // A full pool or any submit error must not affect onboarding — the account is already
+            // connected. The CUR stack can still be created later from the Update-stack action.
+            logger.warn("[CUR] Could not submit auto-CUR stack creation for account {}: {}",
+                    account.getAwsAccountId(), ex.getMessage());
+        }
+    }
+
+    /**
+     * Runs the onboarding CUR attempt with a bounded first-run IAM-propagation retry around the
+     * reused {@link CurStackService#applyAsync} logic (no CUR logic is re-implemented here, only
+     * the retry scheduling). The connection stack was just created so there is no change-set —
+     * {@code connectionChangeSetRan} is false — but at onboarding a PENDING_PERMISSION result is
+     * the expected first-run propagation delay for the freshly minted CUR grant, so it is treated
+     * as retryable here. Every other outcome is terminal and stops the loop. Catches everything so
+     * nothing ever propagates off the background thread.
+     */
+    private void runOnboardCurWithRetry(CloudAccount account) {
+        try {
+            for (int attempt = 0; attempt < onboardCurRetryAttempts; attempt++) {
+                CurStackService.CurApplyResult result = curStackService.applyAsync(account, false);
+                CurStackService.CurStatus status = result.curStatus();
+                if (status == CurStackService.CurStatus.PENDING_PERMISSION
+                        && attempt < onboardCurRetryAttempts - 1) {
+                    logger.info("[CUR] Auto-CUR for account {} pending IAM propagation, retry {} of {}",
+                            account.getAwsAccountId(), attempt + 1, onboardCurRetryAttempts);
+                    sleepQuietly(onboardCurRetryBackoffMs);
+                    continue;
+                }
+                logger.info("[CUR] Auto-CUR for account {} finished with status {} ({})",
+                        account.getAwsAccountId(), status, result.message());
+                return;
+            }
+            logger.warn("[CUR] Auto-CUR for account {} exhausted {} attempts still PENDING_PERMISSION;"
+                    + " IAM grant has not propagated. The CUR stack can be created from Update stack.",
+                    account.getAwsAccountId(), onboardCurRetryAttempts);
+        } catch (Throwable t) {
+            // applyAsync never throws, but the retry loop itself must also never take down the
+            // background thread — a CUR failure is independent of onboarding success.
+            logger.warn("[CUR] Auto-CUR stack creation for account {} failed unexpectedly: {}",
+                    account.getAwsAccountId(), t.getMessage());
+        }
+    }
+
+    private void sleepQuietly(long ms) {
+        if (ms <= 0) {
+            return;
+        }
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     public void clearAllCaches() {
         cacheService.evictAllCaches();
     }
+
+    // The CUR-stack machinery reused at onboarding — same logic the Update-stack action runs.
+    // Injected as a field (not a constructor param) so the 7-arg positional constructor both
+    // AwsAccountService*Test classes depend on stays unchanged. CurStackService depends only on
+    // AwsClientProvider, CloudAccountRepository and a @Value string, none of which pull in this
+    // service, so eager field injection introduces no construction-time cycle.
+    @Autowired private CurStackService curStackService;
+
+    // The sequenced-stack executor (AsyncConfig). Its tenantTaskDecorator propagates tenant +
+    // MDC, which the CUR path's tenant-routed cloudAccountRepository.save requires. The callback
+    // thread submits here and returns immediately; the CUR attempt runs on a pool thread.
+    @Autowired
+    @Qualifier("stackSequenceExecutor")
+    private Executor stackSequenceExecutor;
+
+    // Bounded first-run IAM-propagation retry for the onboarding CUR attempt. Package-private so
+    // tests can shrink the backoff to zero and run without real sleeps, mirroring
+    // StackSequenceService's tunable fields.
+    int onboardCurRetryAttempts = 6;
+    long onboardCurRetryBackoffMs = 12_000;
 
     @Autowired private ResourceLabelAssignmentRepository resourceLabelAssignmentRepository;
     @Autowired private EbsVolumeActionRepository ebsVolumeActionRepository;
