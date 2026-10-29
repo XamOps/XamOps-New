@@ -1,0 +1,7 @@
+{
+  "task_id": "task-cur-two-stack",
+  "task_description": "Two-stack AWS onboarding: connection stack (ap-south-1, IAM role + inventory, no CUR creation) plus a separate CUR 1.0 stack (us-east-1). Revert the failed Lambda CUR custom resource from the eight connection templates while keeping the role's CUR read/query grants; add a second launch URL (curUrl) and persist CUR stack identity in the backend; surface the second launch button and a CUR update section in the frontend. CUR 2.0 / Data Exports is out of scope.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null
+}

@@ -6,6 +6,7 @@ import {
   fetchStackProgress,
   previewStackUpdate,
   StackUpdateError,
+  type CurApplyResult,
   type StackUpdatePreview,
   type StackUpdateProgress,
 } from '../../api/stackApi';
@@ -37,6 +38,23 @@ const ACTION_TONE: Record<string, string> = {
   Dynamic: 'bg-amber-50 text-amber-700 border-amber-200',
 };
 
+/**
+ * CUR statuses the customer can act on but no role can grant itself — shown as amber notes,
+ * never as the grantUrl link reserved for the connection side. PENDING_PERMISSION is no longer
+ * here: the retry is now internal (surfaced as RETRYING_PERMISSION), so only the terminal
+ * no-permission outcome warrants the note.
+ */
+const CUR_PERMISSION_STATUSES = new Set(['NO_PERMISSION_TERMINAL']);
+
+/** CUR phase values that mean the CUR stack is actively running (spinner). */
+const CUR_RUNNING_STATUSES = new Set(['CREATING', 'UPDATING', 'RETRYING_PERMISSION']);
+/** CUR phase values that mean the CUR stack settled successfully (check). */
+const CUR_DONE_STATUSES = new Set(['COMPLETED', 'NO_CHANGES']);
+/** CUR phase values that are terminal failures (alert). */
+const CUR_FAILED_STATUSES = new Set(['FAILED']);
+/** CUR phase values that settled on a soft/amber terminal outcome. */
+const CUR_AMBER_STATUSES = new Set(['NO_PERMISSION_TERMINAL', 'BUSY']);
+
 const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
   accountId,
   accountName,
@@ -45,6 +63,9 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
   const [phase, setPhase] = useState<Phase>('previewing');
   const [preview, setPreview] = useState<StackUpdatePreview | null>(null);
   const [progress, setProgress] = useState<StackUpdateProgress | null>(null);
+  // The CUR submit outcome, seeded from executeStackUpdate so the CUR line shows a status
+  // before the first progress poll returns its own `cur` sub-object.
+  const [curSeed, setCurSeed] = useState<CurApplyResult | null>(null);
   const [error, setError] = useState<{
     message: string;
     remedy?: string;
@@ -78,7 +99,13 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
       try {
         const p = await fetchStackProgress(accountId);
         setProgress(p);
-        if (!p.inProgress) {
+        // The job's `done` flag is authoritative: it is true only when both the connection and
+        // CUR phases are terminal. The worker polls every 10s and this poll runs every 5s, so
+        // `done` can flip up to one worker tick before we observe it — that latency is expected.
+        // Fall back to the legacy two-in-progress check only when `done` is absent (fallback
+        // response from a server with no active job).
+        const settled = p.done ?? (!p.inProgress && !(p.cur?.inProgress ?? false));
+        if (settled) {
           setPhase('settled');
           if (pollRef.current) window.clearInterval(pollRef.current);
           pollRef.current = null;
@@ -120,10 +147,13 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
   }, [phase, onClose]);
 
   const run = async () => {
-    if (!preview?.changeSetId) return;
+    // A CUR-only apply has no connection change set — allow it as long as there is some
+    // change to make (either a connection change set or a CUR change row).
+    if (!preview?.changeSetId && !preview?.curChange) return;
     setPhase('running');
     try {
-      await executeStackUpdate(accountId, preview.changeSetId);
+      const result = await executeStackUpdate(accountId, preview.changeSetId);
+      setCurSeed(result.cur);
       startPolling();
     } catch (e: unknown) {
       const err = e as StackUpdateError;
@@ -237,7 +267,7 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
             </div>
           )}
 
-          {phase === 'preview' && preview?.noChanges && (
+          {phase === 'preview' && preview?.noChanges && !preview.curChange && (
             <div className="text-center py-8">
               <Icon
                 icon="mdi:check-circle-outline"
@@ -249,7 +279,7 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
             </div>
           )}
 
-          {phase === 'preview' && preview && !preview.noChanges && (
+          {phase === 'preview' && preview && (!preview.noChanges || preview.curChange) && (
             <div className="space-y-5">
               {preview.parameterChanges.length > 0 && (
                 <div>
@@ -275,7 +305,7 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
 
               <div>
                 <h4 className="text-[10.5px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] mb-2">
-                  Resources ({preview.resourceChanges.length})
+                  Resources ({preview.resourceChanges.length + (preview.curChange ? 1 : 0)})
                 </h4>
                 <div className="space-y-1">
                   {preview.resourceChanges.map((c) => (
@@ -303,6 +333,31 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
                       )}
                     </div>
                   ))}
+
+                  {/* The CUR report stack rides along on the same Update button. Create tones
+                      like an Add, Update like a Modify, matching the connection rows above. */}
+                  {preview.curChange && (
+                    <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-[rgba(0,0,0,0.07)]">
+                      <span
+                        className={`text-[10.5px] font-semibold px-1.5 py-0.5 rounded border ${
+                          ACTION_TONE[preview.curChange.action === 'Create' ? 'Add' : 'Modify']
+                        }`}
+                      >
+                        {preview.curChange.action === 'Create' ? 'Add' : 'Modify'}
+                      </span>
+                      <span className="text-[12.5px] font-medium text-black truncate">
+                        XamOpsCurReport
+                      </span>
+                      <span className="text-[11px] text-[rgba(0,0,0,0.4)] truncate ml-auto">
+                        AWS::CloudFormation::Stack · us-east-1
+                      </span>
+                      {preview.curChange.status.includes('_IN_PROGRESS') && (
+                        <span className="text-[10.5px] font-semibold text-amber-600 flex-shrink-0">
+                          in progress — will retry
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -327,20 +382,139 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
 
           {(phase === 'running' || phase === 'settled') && (
             <div className="space-y-3">
-              <div className="flex items-center gap-2.5">
-                {phase === 'running' ? (
-                  <Icon icon="mdi:loading" width={16} className="animate-spin text-blue-600" />
-                ) : (
-                  <Icon
-                    icon={progress?.failed ? 'mdi:alert-circle-outline' : 'mdi:check-circle-outline'}
-                    width={17}
-                    className={progress?.failed ? 'text-rose-500' : 'text-emerald-500'}
-                  />
-                )}
-                <span className="text-[13px] font-mono text-black">
-                  {progress?.status ?? 'starting…'}
-                </span>
-              </div>
+              {/* Connection phase: driven off connectionPhase when present (sequenced view),
+                  falling back to the flat status/inProgress/failed for the legacy response. */}
+              {(() => {
+                const connPhase = progress?.connectionPhase;
+                const connUpdating = connPhase ? connPhase === 'UPDATING' : (progress?.inProgress ?? true);
+                const connFailed = connPhase
+                  ? connPhase === 'FAILED' || connPhase === 'TIMED_OUT'
+                  : (progress?.failed ?? false);
+                return (
+                  <>
+                    <div className="flex items-center gap-2.5">
+                      {connUpdating ? (
+                        <Icon icon="mdi:loading" width={16} className="animate-spin text-blue-600" />
+                      ) : (
+                        <Icon
+                          icon={connFailed ? 'mdi:alert-circle-outline' : 'mdi:check-circle-outline'}
+                          width={17}
+                          className={connFailed ? 'text-rose-500' : 'text-emerald-500'}
+                        />
+                      )}
+                      <span className="text-[13px] font-mono text-black">
+                        {progress?.status ?? 'starting…'}
+                      </span>
+                    </div>
+                    {/* A connection failure may carry a message and a remedy hint (e.g. a
+                        worker-side execute AccessDenied pointing at Diagnose for the grant).
+                        This is text, not the one-click grant button reserved for the pre-flight. */}
+                    {connFailed && progress?.connectionMessage && (
+                      <div className="flex gap-2.5 rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-3">
+                        <Icon
+                          icon="mdi:alert-outline"
+                          width={17}
+                          className="text-rose-600 flex-shrink-0 mt-0.5"
+                        />
+                        <div>
+                          <p className="text-[12.5px] text-rose-900 leading-relaxed">
+                            {progress.connectionMessage}
+                          </p>
+                          {progress.connectionRemedy && (
+                            <p className="text-[11.5px] text-[rgba(0,0,0,0.5)] mt-1 leading-relaxed">
+                              {progress.connectionRemedy}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+
+              {/* The CUR stack runs in its own region alongside the connection stack. Its icon is
+                  driven directly off cur.status (seeded from the submit outcome until the first
+                  progress poll returns a `cur` sub-object). */}
+              {(() => {
+                const curStatus = progress?.cur?.status ?? curSeed?.curStatus;
+                if (!curStatus || curStatus === 'SKIPPED') return null;
+                let icon: string;
+                let className: string;
+                let spinning = false;
+                if (CUR_RUNNING_STATUSES.has(curStatus)) {
+                  icon = 'mdi:loading';
+                  className = 'text-blue-600';
+                  spinning = true;
+                } else if (curStatus === 'WAITING_FOR_CONNECTION') {
+                  icon = 'mdi:circle-small';
+                  className = 'text-[rgba(0,0,0,0.3)]';
+                } else if (CUR_DONE_STATUSES.has(curStatus)) {
+                  icon = 'mdi:check-circle-outline';
+                  className = 'text-emerald-500';
+                } else if (CUR_FAILED_STATUSES.has(curStatus)) {
+                  icon = 'mdi:alert-circle-outline';
+                  className = 'text-rose-500';
+                } else if (CUR_AMBER_STATUSES.has(curStatus)) {
+                  icon = 'mdi:alert-outline';
+                  className = 'text-amber-600';
+                } else {
+                  icon = 'mdi:circle-small';
+                  className = 'text-[rgba(0,0,0,0.3)]';
+                }
+                return (
+                  <div className="flex items-center gap-2.5">
+                    <Icon
+                      icon={icon}
+                      width={spinning ? 16 : 17}
+                      className={spinning ? `animate-spin ${className}` : className}
+                    />
+                    <span className="text-[13px] font-mono text-black">
+                      CUR (us-east-1): {curStatus}
+                    </span>
+                  </div>
+                );
+              })()}
+
+              {/* While the grant propagates, the CUR phase retries internally (no second click).
+                  Surface it as an amber note that counts the attempt. */}
+              {(() => {
+                const curStatus = progress?.cur?.status ?? curSeed?.curStatus;
+                if (curStatus !== 'RETRYING_PERMISSION') return null;
+                const attempt = (progress?.cur?.attempt ?? 0) + 1;
+                return (
+                  <div className="flex gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-3">
+                    <Icon
+                      icon="mdi:alert-outline"
+                      width={17}
+                      className="text-amber-600 flex-shrink-0 mt-0.5"
+                    />
+                    <p className="text-[12.5px] text-amber-900 leading-relaxed">
+                      Waiting for the new permission to take effect (retry {attempt} of 6)…
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* A terminal CUR permission refusal is the customer's to fix in AWS, but no role
+                  can grant itself permission — so it shows as an amber note, never a grant link.
+                  Done stays enabled. */}
+              {(() => {
+                const curStatus = progress?.cur?.status ?? curSeed?.curStatus;
+                if (!curStatus || !CUR_PERMISSION_STATUSES.has(curStatus)) return null;
+                return (
+                  <div className="flex gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-3">
+                    <Icon
+                      icon="mdi:alert-outline"
+                      width={17}
+                      className="text-amber-600 flex-shrink-0 mt-0.5"
+                    />
+                    <p className="text-[12.5px] text-amber-900 leading-relaxed">
+                      {progress?.cur?.message ?? curSeed?.message
+                        ?? 'The CUR stack needs a permission that must be approved in AWS.'}
+                    </p>
+                  </div>
+                );
+              })()}
 
               <div className="rounded-lg border border-[rgba(0,0,0,0.08)] divide-y divide-[rgba(0,0,0,0.05)] max-h-[300px] overflow-y-auto">
                 {(progress?.events ?? []).map((e, i) => (
@@ -381,13 +555,15 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
           >
             {phase === 'settled' ? 'Done' : 'Cancel'}
           </button>
-          {phase === 'preview' && preview && !preview.noChanges && (
+          {phase === 'preview' && preview && (!preview.noChanges || preview.curChange) && (
             <button
               onClick={run}
               className="h-9 px-4 rounded-lg bg-blue-600 text-white text-[12.5px] font-semibold hover:bg-blue-700"
             >
-              Apply {preview.resourceChanges.length} change
-              {preview.resourceChanges.length === 1 ? '' : 's'}
+              {(() => {
+                const count = preview.resourceChanges.length + (preview.curChange ? 1 : 0);
+                return `Apply ${count} change${count === 1 ? '' : 's'}`;
+              })()}
             </button>
           )}
         </div>

@@ -97,9 +97,11 @@ public class StackUpdateService {
 
     private final AwsClientProvider awsClientProvider;
     private final StackDiagnosisService diagnosisService;
+    private final CurStackService curStackService;
     private final String inventoryQueueUrl;
     private final String readOnlyTemplateUrl;
     private final String readWriteTemplateUrl;
+    private final String defaultRegion;
     private final java.net.http.HttpClient http = java.net.http.HttpClient.newBuilder()
             .connectTimeout(TEMPLATE_FETCH_TIMEOUT)
             .followRedirects(java.net.http.HttpClient.Redirect.NORMAL)
@@ -107,14 +109,18 @@ public class StackUpdateService {
 
     public StackUpdateService(AwsClientProvider awsClientProvider,
                               StackDiagnosisService diagnosisService,
+                              CurStackService curStackService,
                               @Value("${xamops.inventory.events.queue-url:}") String inventoryQueueUrl,
                               @Value("${cloudformation.template.s3.url:}") String readOnlyTemplateUrl,
-                              @Value("${cloudformation.template.s3.readwrite.url:}") String readWriteTemplateUrl) {
+                              @Value("${cloudformation.template.s3.readwrite.url:}") String readWriteTemplateUrl,
+                              @Value("${aws.region:ap-south-1}") String defaultRegion) {
         this.awsClientProvider = awsClientProvider;
         this.diagnosisService = diagnosisService;
+        this.curStackService = curStackService;
         this.inventoryQueueUrl = inventoryQueueUrl;
         this.readOnlyTemplateUrl = readOnlyTemplateUrl;
         this.readWriteTemplateUrl = readWriteTemplateUrl;
+        this.defaultRegion = defaultRegion;
     }
 
     /** One resource the change set will touch. */
@@ -127,14 +133,37 @@ public class StackUpdateService {
     }
 
     /**
+     * The CUR stack half of the preview, present only for accounts that own their report.
+     *
+     * <p>Null for a non-OWN_CUR account or an environment with no CUR template. Otherwise it
+     * tells the reader whether the Apply would Create or Update the CUR stack alongside the
+     * connection change, so the "N changes" count and the preview rows include it.
+     *
+     * @param action   "Create" or "Update"
+     * @param stackName the CUR stack name resolved for the account
+     * @param region    always us-east-1 (where AWS::CUR lives)
+     * @param status    the detected {@link CurStackService.State} name
+     */
+    public record CurChange(String action, String stackName, String region, String status) {
+    }
+
+    /**
      * What executing would do.
      *
      * @param changeSetId null when there is nothing to change
      * @param noChanges   true when the stack already matches — not a failure
+     * @param curChange   the CUR stack half, or null when the account has no CUR stack
      */
     public record Preview(String changeSetId, String stackName, String stackId, String region,
                           boolean noChanges, List<ParameterChange> parameterChanges,
-                          List<ResourceChange> resourceChanges, String detail) {
+                          List<ResourceChange> resourceChanges, String detail, CurChange curChange) {
+    }
+
+    /**
+     * The combined outcome of {@link #applyAll}: whether the connection change set was executed,
+     * and the CUR stack sub-result.
+     */
+    public record ApplyResult(boolean connectionStarted, CurStackService.CurApplyResult cur) {
     }
 
     /**
@@ -208,6 +237,11 @@ public class StackUpdateService {
             // Otherwise new with a default: left out so CloudFormation applies the default.
         }
 
+        // The CUR stack is a second, separate stack this same Apply will create or update, for
+        // accounts that own their report. Detecting it here lets the preview show it as a row and
+        // count it toward the total, so "Apply N changes" means both stacks, not just this one.
+        CurChange curChange = curChangeFor(account);
+
         String changeSetName = "xamops-" + Instant.now().toEpochMilli();
         cfn.createChangeSet(CreateChangeSetRequest.builder()
                 .stackName(diagnosis.stackId())
@@ -226,9 +260,17 @@ public class StackUpdateService {
         // is the good outcome, and the commonest one once a fleet has been swept.
         if (isNoChanges(described)) {
             cleanUp(cfn, described.changeSetId());
+            // The connection stack already matches — but if the CUR stack still has work to do,
+            // this is NOT a no-op Apply. Report it as changes, with only the CUR half populated.
+            if (curChange != null) {
+                return new Preview(null, stack.stackName(), stack.stackId(), region, false,
+                        parameterChanges, List.of(),
+                        "The connection stack already matches; the CUR report stack still has changes.",
+                        curChange);
+            }
             return new Preview(null, stack.stackName(), stack.stackId(), region, true,
                     parameterChanges, List.of(),
-                    "This stack already matches what this environment expects.");
+                    "This stack already matches what this environment expects.", null);
         }
         if (!"CREATE_COMPLETE".equals(described.statusAsString())) {
             cleanUp(cfn, described.changeSetId());
@@ -263,7 +305,46 @@ public class StackUpdateService {
                 account.getAwsAccountId(), parameterChanges.size(), resourceChanges.size());
 
         return new Preview(described.changeSetId(), stack.stackName(), stack.stackId(), region,
-                false, parameterChanges, resourceChanges, null);
+                false, parameterChanges, resourceChanges, null, curChange);
+    }
+
+    /**
+     * The CUR stack half of a preview: null when the account has no CUR stack, otherwise a
+     * Create/Update row derived from {@link CurStackService#detect}.
+     */
+    private CurChange curChangeFor(CloudAccount account) {
+        CurStackService.DetectResult detected = curStackService.detect(account);
+        switch (detected.state()) {
+            case NOT_APPLICABLE:
+                return null;
+            case ABSENT:
+            case NO_PERMISSION:
+                return new CurChange("Create", detected.stackName(), "us-east-1", detected.state().name());
+            case PRESENT:
+            case BUSY:
+            default:
+                return new CurChange("Update", detected.stackName(), "us-east-1", detected.state().name());
+        }
+    }
+
+    /**
+     * Executes the connection change set (when there is one) and then the CUR stack create/update,
+     * returning both outcomes.
+     *
+     * <p>The connection half is executed only when a change set id was supplied — a no-op Apply
+     * on the connection side (CUR-only work) passes a null id. The CUR half always runs, through
+     * {@link CurStackService#applyAsync}, which never throws, so a CUR failure is carried in the
+     * result rather than failing the whole Apply.
+     *
+     * @param changeSetId the connection change set to execute, or null/blank for CUR-only
+     */
+    public ApplyResult applyAll(CloudAccount account, String changeSetId) {
+        boolean connectionRan = changeSetId != null && !changeSetId.isBlank();
+        if (connectionRan) {
+            execute(account, changeSetId);
+        }
+        CurStackService.CurApplyResult cur = curStackService.applyAsync(account, connectionRan);
+        return new ApplyResult(connectionRan, cur);
     }
 
     /** Runs a change set produced by {@link #preview}. */
@@ -272,7 +353,7 @@ public class StackUpdateService {
             throw new StackUpdateException("NO_CHANGE_SET",
                     "No change set to execute. Preview the update first.", null);
         }
-        String region = account.getStackRegion() != null ? account.getStackRegion() : "us-east-1";
+        String region = account.getStackRegion() != null ? account.getStackRegion() : defaultRegion;
         awsClientProvider.getCloudFormationClient(account, region)
                 .executeChangeSet(ExecuteChangeSetRequest.builder()
                         .changeSetName(changeSetId)
@@ -297,7 +378,7 @@ public class StackUpdateService {
      * rather than hidden behind a result.
      */
     public Progress progress(CloudAccount account, int limit) {
-        String region = account.getStackRegion() != null ? account.getStackRegion() : "us-east-1";
+        String region = account.getStackRegion() != null ? account.getStackRegion() : defaultRegion;
         CloudFormationClient cfn = awsClientProvider.getCloudFormationClient(account, region);
 
         Stack stack = cfn.describeStacks(DescribeStacksRequest.builder()

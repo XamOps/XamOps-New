@@ -1,0 +1,52 @@
+name: CloudFormation Validation
+
+# Lints the CUR report stack and the connection-role stacks with cfn-lint so a broken
+# template never reaches a customer's "Apply changes" action. These templates are applied
+# by the XamOps backend on behalf of the customer, so a syntax or reference error surfaces
+# as a stack rollback in the customer's account rather than a build failure here — which is
+# exactly what this check is meant to prevent.
+#
+# The .backup.yml snapshot is deliberately excluded: it is a point-in-time copy kept for
+# reference, not a template we deploy.
+
+on:
+  push:
+    paths:
+      - 'cloudformation/**'
+      - '.github/workflows/cfn-validate.yml'
+  pull_request:
+    paths:
+      - 'cloudformation/**'
+      - '.github/workflows/cfn-validate.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  cfn-lint:
+    name: Lint CUR and connection-role templates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install cfn-lint
+        run: pip install cfn-lint
+
+      - name: Lint templates
+        run: |
+          cfn-lint \
+            cloudformation/xamops-cur-report.yml \
+            cloudformation/xamops-readonly-role.yml \
+            cloudformation/xamops-readonly-role-local.yml \
+            cloudformation/xamops-readonly-role-uat.yml \
+            cloudformation/xamops-readonly-role-uat-no-inventory.yml \
+            cloudformation/xamops-readwrite-role.yml \
+            cloudformation/xamops-readwrite-role.local.yml \
+            cloudformation/xamops-readwrite-role.live.yml \
+            cloudformation/xamops-readwrite-role-uat.yml

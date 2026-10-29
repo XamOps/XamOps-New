@@ -64,7 +64,7 @@ export function useAddGcpAccount(): UseAddGcpAccountReturn {
   const [showScript, setShowScript] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const [commandText, setCommandText] = useState(
-    `sh <(curl -s ${SCRIPT_URL}) YOUR_PROJECT_ID`
+    `bash <(curl -s ${SCRIPT_URL}) YOUR_PROJECT_ID`
   );
   const [fullScript, setFullScript] = useState('# Loading script...');
 
@@ -95,7 +95,7 @@ export function useAddGcpAccount(): UseAddGcpAccountReturn {
    */
   const updateCommand = useCallback((newProjectId: string) => {
     const pid = newProjectId.trim() || 'YOUR_PROJECT_ID';
-    setCommandText(`sh <(curl -s ${SCRIPT_URL}) ${pid}`);
+    setCommandText(`bash <(curl -s ${SCRIPT_URL}) ${pid}`);
   }, []);
 
   /**
@@ -137,7 +137,7 @@ export function useAddGcpAccount(): UseAddGcpAccountReturn {
       }
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : 'Unknown error';
-      alert(`Invalid JSON format.\n\nPlease paste the complete service account key from the script output.\n\nError: ${errorMessage}`);
+      alert(`Invalid JSON format.\n\nPlease paste the full contents of the key file the script saved (xamops-${projectId.trim()}-key.json).\n\nError: ${errorMessage}`);
       return;
     }
 

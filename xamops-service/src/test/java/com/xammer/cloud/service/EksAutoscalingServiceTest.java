@@ -431,6 +431,46 @@ class EksAutoscalingServiceTest {
     }
 
     @Test
+    void summarizeReadsTheEffectiveGateFromRuntimeRecordsNotTheStoredPolicy() {
+        config.setAutoscalingEnabled(true);
+        // Policy says full/live, but the effective gate is read only from the runtime records.
+        storeRow(EksAutoscalingService.DT_POLICY, "{\"autoscalerMode\":\"full\",\"evictorPolicy\":{\"analyseOnly\":false}}");
+
+        // (c) No runtime record has been seen → UNKNOWN (never fabricated from the policy).
+        assertThat(service.summarize(config).effectiveActing())
+                .isEqualTo(EksAutoscalingService.EFFECTIVE_UNKNOWN);
+
+        // (b) policy=full but the newest consolidation run ran in simulate / dry-run → NOT_ACTING.
+        storeRow(EksAutoscalingService.DT_CONSOLIDATION_RUNS,
+                "{\"status\":\"OK\",\"runs\":[{\"runId\":\"consolidation-2\",\"mode\":\"simulate\",\"dryRun\":true},"
+                        + "{\"runId\":\"consolidation-1\",\"mode\":\"live\",\"dryRun\":false}]}");
+        storeRow(EksAutoscalingService.DT_REBALANCE_STATUS, "{\"status\":\"idle\",\"dryRun\":true}");
+        assertThat(service.summarize(config).effectiveActing())
+                .isEqualTo(EksAutoscalingService.EFFECTIVE_NOT_ACTING);
+
+        // (a) the newest consolidation run ran live → ACTING.
+        storeRow(EksAutoscalingService.DT_CONSOLIDATION_RUNS,
+                "{\"status\":\"OK\",\"runs\":[{\"runId\":\"consolidation-3\",\"mode\":\"live\",\"dryRun\":false}]}");
+        assertThat(service.summarize(config).effectiveActing())
+                .isEqualTo(EksAutoscalingService.EFFECTIVE_ACTING);
+
+        // A live rebalance alone also reads as ACTING.
+        cache.remove(config.getId() + "|" + EksAutoscalingService.DT_CONSOLIDATION_RUNS);
+        storeRow(EksAutoscalingService.DT_REBALANCE_STATUS, "{\"status\":\"running\",\"dryRun\":false}");
+        assertThat(service.summarize(config).effectiveActing())
+                .isEqualTo(EksAutoscalingService.EFFECTIVE_ACTING);
+    }
+
+    @Test
+    void theCapabilitiesPayloadStillSerializesWhenEffectiveActingIsOmitted() throws Exception {
+        // Backward compat: a NodeAutomation without the new field (an older serializer) still maps.
+        String legacy = "{\"enabled\":true,\"mode\":\"full\",\"evictorAnalyseOnly\":false,\"derivedState\":\"AUTOMATED\"}";
+        var node = JSON.readValue(legacy, com.xammer.cloud.dto.k8s.K8sCapabilitiesDto.NodeAutomation.class);
+        assertThat(node.derivedState()).isEqualTo("AUTOMATED");
+        assertThat(node.effectiveActing()).isNull();
+    }
+
+    @Test
     void readsUseTheResolvedConfigOnly() {
         service.getNodeFleetReport(config);
         service.getEvictorCandidates(config);

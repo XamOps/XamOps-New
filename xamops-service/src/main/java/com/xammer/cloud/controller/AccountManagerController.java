@@ -10,7 +10,9 @@ import com.xammer.cloud.dto.*;
 import com.xammer.cloud.event.CloudAccountConnectedEvent;
 import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.stack.CurStackService;
 import com.xammer.cloud.service.stack.StackDiagnosisService;
+import com.xammer.cloud.service.stack.StackSequenceService;
 import com.xammer.cloud.service.stack.StackUpdateService;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.repository.UserRepository;
@@ -59,6 +61,12 @@ public class AccountManagerController {
     @Autowired
     private StackUpdateService stackUpdateService;
 
+    @Autowired
+    private StackSequenceService stackSequenceService;
+
+    @Autowired
+    private CurStackService curStackService;
+
     /**
      * Where xamops-stack-updater.yml is published, for the one-click grant offered to an account
      * connected before onboarding carried the updater role itself.
@@ -97,11 +105,19 @@ public class AccountManagerController {
             Map<String, Object> result = awsAccountService.generateCloudFormationUrl(request.getAccountName(),
                     request.getAwsAccountId(), request.getAccessType(), clientId, request.getCurS3Bucket(),
                     request.getAwsBillingSource());
-            Map<String, String> stackDetails = Map.of(
-                    "url", result.get("url").toString(),
-                    "externalId", result.get("externalId").toString(),
-                    "eventBridgeEnabled", result.get("eventBridgeEnabled").toString(),
-                    "roleName", result.get("roleName").toString());
+            Map<String, String> stackDetails = new HashMap<>();
+            stackDetails.put("url", result.get("url").toString());
+            stackDetails.put("externalId", result.get("externalId").toString());
+            stackDetails.put("eventBridgeEnabled", result.get("eventBridgeEnabled").toString());
+            stackDetails.put("roleName", result.get("roleName").toString());
+            // The CUR stack is a second, separate launch in us-east-1, surfaced only for
+            // accounts that own their report. Added additively so clients that ignore these
+            // keys keep working unchanged.
+            if (result.get("curUrl") != null) {
+                stackDetails.put("curUrl", String.valueOf(result.get("curUrl")));
+                stackDetails.put("curStackName", String.valueOf(result.get("curStackName")));
+                stackDetails.put("curRegion", String.valueOf(result.get("curRegion")));
+            }
             return ResponseEntity.ok(stackDetails);
         } catch (Exception e) {
             return ResponseEntity.badRequest()
@@ -182,26 +198,41 @@ public class AccountManagerController {
     }
 
     /**
-     * Runs a change set produced by the preview.
+     * Starts the sequenced connection→CUR stack update produced by the preview.
      *
      * <p>Takes the change set id rather than recomputing, so what executes is exactly what
-     * was shown. A stale id fails at AWS rather than silently applying something else.
+     * was shown. Returns 202 immediately; the work runs on a background worker and the modal
+     * follows it via {@link #stackUpdateProgress}. A stale id fails later on the worker rather
+     * than silently applying something else. The CFN-permission grant flow is now driven by the
+     * {@code diagnose} pre-flight inside {@link StackSequenceService#start} (which throws
+     * NO_CFN_PERMISSION on the request thread), so {@link #withAwsAccount} still routes it through
+     * {@link #addGrant}. The new SEQUENCE_IN_PROGRESS / SEQUENCE_CAPACITY verdicts map to 409.
      */
     @PostMapping("/stack-update/{accountId}/execute")
     public ResponseEntity<?> executeStackUpdate(@PathVariable String accountId,
                                                 @RequestBody Map<String, String> body) {
-        return withAwsAccount(accountId, account -> {
-            stackUpdateService.execute(account, body.get("changeSetId"));
-            return ResponseEntity.accepted().body(Map.of("message", "Update started"));
-        });
+        return withAwsAccount(accountId, account ->
+                ResponseEntity.accepted().body(stackSequenceService.start(account, body.get("changeSetId"))));
     }
 
-    /** Stack status and recent events, for following an update as it runs. */
+    /**
+     * The sequenced two-phase progress of an update as it runs.
+     *
+     * <p>Keeps the connection stack's flat fields (status, inProgress, failed, events) at the top
+     * level and the {@code cur} sub-object, and adds the sequenced view: {@code connectionPhase},
+     * {@code connectionMessage}/{@code connectionRemedy}, the CUR phase enum in {@code cur.status}
+     * with {@code cur.attempt}, and an overall {@code done} flag that gates the modal's Done
+     * button. When no job is in flight (modal opened cold, or server restarted mid-run) the
+     * service falls back to a legacy live read.
+     */
     @GetMapping("/stack-update/{accountId}/progress")
     public ResponseEntity<?> stackUpdateProgress(@PathVariable String accountId,
                                                  @RequestParam(defaultValue = "25") int limit) {
-        return withAwsAccount(accountId, account ->
-                ResponseEntity.ok(stackUpdateService.progress(account, Math.min(limit, 100))));
+        return withAwsAccount(accountId, account -> {
+            StackSequenceService.SequenceProgress progress =
+                    stackSequenceService.progress(account, Math.min(limit, 100));
+            return ResponseEntity.ok(progress.toResponseMap());
+        });
     }
 
     /**

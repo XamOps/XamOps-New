@@ -177,11 +177,13 @@ public class K8sCapabilitiesService {
         try {
             EksAutoscalingService.NodeAutomationSummary s = autoscalingService.summarize(config);
             String derived = "NOT_INSTALLED".equals(automationAgent.status()) ? "NOT_INSTALLED" : s.derivedState();
-            nodeAutomation = new NodeAutomation(s.enabled(), s.mode(), s.evictorAnalyseOnly(), derived);
+            nodeAutomation = new NodeAutomation(s.enabled(), s.mode(), s.evictorAnalyseOnly(), derived,
+                    s.effectiveActing());
         } catch (RuntimeException e) {
             log.warn("Capabilities: node automation summary failed for cluster config {}: {}", config.getId(),
                     e.getClass().getSimpleName());
-            nodeAutomation = new NodeAutomation(Boolean.TRUE.equals(config.getAutoscalingEnabled()), null, null, "UNKNOWN");
+            nodeAutomation = new NodeAutomation(Boolean.TRUE.equals(config.getAutoscalingEnabled()), null, null,
+                    "UNKNOWN", EksAutoscalingService.EFFECTIVE_UNKNOWN);
         }
 
         return new Cluster(config.getClusterName(), true, connection(gateRows), writeGate(gate),

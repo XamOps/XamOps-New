@@ -62,6 +62,9 @@ export function accessMark(caps: Pick<K8sCapabilitiesValue, 'status' | 'data' | 
   if (caps.noAccess) return { state: 'not-set-up', label: 'No access' };
   if (caps.status === 'error' || !caps.data) return { state: 'unknown', label: 'Unknown' };
   const connection = cluster?.connection ?? caps.data.connection;
+  // A malformed / empty / partial payload can leave `connection` undefined (BUG-2): degrade the strip
+  // to the honest Unknown mark instead of dereferencing `.accessLevel` and crashing the page.
+  if (!connection) return { state: 'unknown', label: 'Unknown' };
   return connection.accessLevel === 'READ_WRITE'
     ? { state: 'healthy', label: 'Read-write' }
     : { state: 'not-set-up', label: 'Read-only' };

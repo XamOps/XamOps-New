@@ -175,6 +175,37 @@ function applyCapability(caps: K8sCapabilitiesValue, row: TodayRow, clusterName:
   return rankGates(gates);
 }
 
+/**
+ * The node-automation "acting" rows (BUG-1): capabilities whose Apply means the agent would make a
+ * live change on the cluster. When the gate is open in policy but the agent's effective gate is OFF
+ * (DRY_RUN / controller disabled), these rows must read the honest "Ready to enable" intermediate
+ * state instead of a flat "Available". VPA, Scale-out and Node-templates are not acting node controls.
+ */
+const ACTING_NODE_ROWS: ReadonlySet<string> = new Set([
+  'node-consolidation',
+  'node-optimizer',
+  'rebalancing',
+  'hpa-manager',
+  'spot-interruption',
+]);
+
+/** The honest reason shown in the drawer when a gate is open in policy but the controller isn't acting. */
+export const CONTROLLER_NOT_ACTING_REASON =
+  'Enabled in policy but not acting — turned off in this environment (DRY_RUN / controller disabled). '
+  + 'XamOps will not make this change until it is armed.';
+
+/**
+ * Whether an acting node row should read "Ready to enable" (BUG-1): the gate is open (`allowed`), the
+ * row is an acting node control, and the cluster's effective gate positively reports `NOT_ACTING`.
+ * `ACTING`, `UNKNOWN` and an absent field (an older backend) keep today's behavior — a truly-open gate
+ * still reads `Available`, because `UNKNOWN` means we honestly can't tell and must not downgrade.
+ */
+function isReadyToEnable(caps: K8sCapabilitiesValue, row: TodayRow, capability: Capability, clusterName: string): boolean {
+  if (!capability.allowed || !ACTING_NODE_ROWS.has(row.id)) return false;
+  const cluster = caps.status === 'ready' ? findCluster(caps.data, clusterName) : null;
+  return cluster?.nodeAutomation?.effectiveActing === 'NOT_ACTING';
+}
+
 /** "data 4 min old", or "no data yet" when the agent reported no time. */
 function dataAge(at: string | null, now: number): string {
   const ago = formatAgo(at, now);
@@ -186,7 +217,10 @@ function dataAge(at: string | null, now: number): string {
  * gate / reason / RCA copy lives in the row's DetailDrawer (opened by activating the row), not in
  * the cell — the table stays a scannable grid and the detail reads in the drawer.
  */
-function ApplyCell({ capability }: { capability: Capability }) {
+function ApplyCell({ capability, readyToEnable = false }: { capability: Capability; readyToEnable?: boolean }) {
+  // Gate open in policy but the controller isn't acting (DRY_RUN / disabled): the honest v3
+  // intermediate state — dot + word, tone `warn` (amber: "actionable, not broken"), no lock, no pill.
+  if (capability.allowed && readyToEnable) return <StatusDot tone="warn" label="Ready to enable" />;
   if (capability.allowed) return <StatusDot tone="good" label="Available" />;
   const gate = capability.gate;
   if (!gate) return <span className={MUTED}>{CHECKING_ACCESS_TEXT}</span>;
@@ -199,7 +233,13 @@ function ApplyCell({ capability }: { capability: Capability }) {
 }
 
 /** The drawer's Apply section for a gated row: the gate heading, text, "Also needs" and raw reason. */
-function applyDrawerData(capability: Capability): DrawerDatum[] {
+function applyDrawerData(capability: Capability, readyToEnable = false): DrawerDatum[] {
+  if (capability.allowed && readyToEnable) {
+    return [
+      { label: 'Status', value: 'Ready to enable' },
+      { label: 'Reason', value: CONTROLLER_NOT_ACTING_REASON },
+    ];
+  }
   if (capability.allowed) {
     return [{ label: 'Apply', value: 'Available — XamOps may make this change on the cluster.' }];
   }
@@ -238,6 +278,10 @@ function AccessStatus({ state, label, detail }: { state: StatusState; label: str
 
 function ConnectionValue({ data, clusterName }: { data: CapabilitiesDto; clusterName: string }) {
   const connection = findCluster(data, clusterName)?.connection ?? data.connection;
+  // BUG-2: a malformed / empty / partial capabilities payload ({}, null, no connection) leaves
+  // `connection` undefined. Degrade to the honest Unknown access state (v3) rather than dereferencing
+  // `.accessLevel` and crashing the whole EKS page into the global error boundary.
+  if (!connection) return <AccessStatus state="unknown" label="Unknown" />;
   const readOnly = connection.accessLevel !== 'READ_WRITE';
   const verified = (connection.status ?? '').toUpperCase() === 'CONNECTED';
   const readOnlyCopy = reasonCopy({ reason: 'READ_ONLY_CONNECTION' });
@@ -263,7 +307,10 @@ function ConnectionValue({ data, clusterName }: { data: CapabilitiesDto; cluster
 }
 
 function PermissionValue({ data }: { data: CapabilitiesDto }) {
-  const { reasons, detail } = data.user;
+  // BUG-2: a {} / partial payload has no `user`; degrade to Unknown instead of destructuring undefined.
+  const user = data.user;
+  if (!user || !Array.isArray(user.reasons)) return <AccessStatus state="unknown" label="Unknown" />;
+  const { reasons, detail } = user;
   if (reasons.includes('NO_USER_PERMISSION')) {
     if (detail === 'ROLE') return <AccessStatus state="not-set-up" label="View only: your role can't change automation" />;
     if (detail === 'IMPERSONATION') return <AccessStatus state="not-set-up" label="View only while signed in as another user" />;
@@ -485,7 +532,8 @@ function TodayTable({
             </span>
           );
         }
-        return <ApplyCell capability={applyCapability(caps, row, clusterName)} />;
+        const capability = applyCapability(caps, row, clusterName);
+        return <ApplyCell capability={capability} readyToEnable={isReadyToEnable(caps, row, capability, clusterName)} />;
       },
     },
   ];
@@ -513,7 +561,10 @@ function TodayTable({
                 : null,
             }],
         }
-        : { title: 'Apply', data: applyDrawerData(applyCapability(caps, row, clusterName)) };
+        : (() => {
+          const capability = applyCapability(caps, row, clusterName);
+          return { title: 'Apply', data: applyDrawerData(capability, isReadyToEnable(caps, row, capability, clusterName)) };
+        })();
     return [
       capabilitySection,
       ...(row.id === 'spot-interruption' ? [{ title: 'Spot interruption', data: spotDrawerData(pageHrefs.spotInterruptions) } as DrawerSection] : []),

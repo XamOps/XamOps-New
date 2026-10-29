@@ -1,3 +1,12 @@
+# Template version rw-2026.10.1 (Metadata.XamOps.TemplateVersion and Outputs.TemplateVersion).
+# Bump both, identically in the prod, uat and local variants, on every permission change.
+#
+# rw-2026.10.1: AutoSpotting least-privilege policy XamOpsAutoSpottingPolicy; 22 unused
+# Spot/Fleet/ASG actions removed from XamOpsPolicySpots; iam:PassRole limited to EC2 and
+# this account's roles.
+#
+# Do not change RoleName, Path, the trust policy, any logical id, or any
+# ManagedPolicyName/Description: those replace the resource and break Update stack.
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   XamOps Read-Write + AutoSpotting Stack: Creates a secure IAM Role for the XamOps platform
@@ -6,6 +15,8 @@ Description: >
   Deploys EventBridge rules and a Lambda forwarder for real-time Spot instance event capture.
 
 Metadata:
+  XamOps:
+    TemplateVersion: rw-2026.10.1
   AWS::CloudFormation::Interface:
     ParameterGroups:
       - Label:
@@ -23,6 +34,7 @@ Metadata:
           - XammerSQSQueueUrl
           - XammerRegion
           - EnableAutoSpotting
+          - AutoSpottingPassRoleArns
     ParameterLabels:
       XamOpsAccountId:
         default: "XamOps AWS Account ID"
@@ -36,6 +48,8 @@ Metadata:
         default: "Xammer AWS Region"
       EnableAutoSpotting:
         default: "Enable AutoSpotting"
+      AutoSpottingPassRoleArns:
+        default: "AutoSpotting instance-profile roles (optional)"
 
 Parameters:
   XamOpsAccountId:
@@ -72,6 +86,15 @@ Parameters:
       - 'true'
       - 'false'
     Description: Enable or disable AutoSpotting event forwarding to XamOps.
+
+  AutoSpottingPassRoleArns:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: >
+      (Optional) ARNs of the IAM roles your Auto Scaling launch templates' instance profiles
+      use. When set, XamOps may pass only these roles to EC2 when it updates or refreshes an
+      Auto Scaling group (AutoSpotting, EBS automation). Leave blank to allow any role in this
+      account, still only to EC2.
 
   # -------------------------------------------------------------------
   # Inventory events (near-real-time resource discovery)
@@ -163,110 +186,29 @@ Parameters:
       Leave blank if this account is under a XamOps payer account, or if you have no CUR.
       Use AUTO if you are also deploying the XamOps cost reporting stack, which creates
       xamops-cur-<this account id>.
-  # CUR 2.0 Data Export (billing reconciliation for BillOps invoicing)
-  #
-  # On by default, same reasoning as EnableInventoryEvents. Cost to this
-  # account is a few cents a month (S3 storage + requests only — Data
-  # Exports itself has no AWS charge) and is purged automatically after
-  # 90 days. Read-write accounts get the exact same billing pipeline as
-  # read-only accounts — CUR export is unrelated to the write permissions
-  # this role adds, so there's no reason for the two paths to diverge.
-  # -------------------------------------------------------------------
-  EnableCurExport:
-    Type: String
-    Default: 'false'
-    AllowedValues: ['true', 'false']
-    Description: >
-      Set up an AWS Cost and Usage Report (CUR 2.0) export to a dedicated S3
-      bucket in this account, so BillOps can reconcile invoices from AWS's
-      billing source of truth instead of Cost Explorer's aggregated totals.
-      Creates one S3 bucket and one Data Export. Cost is typically a few
-      cents a month.
-
-  XamOpsCurExportTemplateUrl:
-    Type: String
-    Description: S3 URL of the nested CUR export template.
-    Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-cur-export-nested.yaml'
-
-  # ---------------------------------------------------------------------------------
-  # CUR 1.0 — the report XamOps itself reads.
-  #
-  # On by default, and nested here rather than left to a second launch link, because an
-  # optional step is one most accounts never take: XamOps then shows Cost Explorer
-  # figures everywhere and nobody can say why the per-resource and invoice views are
-  # empty. CUR 2.0 above stays available but is off by default; the two write the same
-  # bucket name and only one can own it.
-  # ---------------------------------------------------------------------------------
-  EnableCurReport:
-    Type: String
-    Default: 'true'
-    AllowedValues: ['true', 'false']
-    Description: >
-      Create an AWS Cost and Usage Report (CUR 1.0) in this account, so XamOps can show
-      per-resource cost, invoice-level charges and data transfer breakdowns that the Cost
-      Explorer API cannot express. Set to false for an account under a XamOps payer
-      account, which is already covered by that payer's report.
-
-  XamOpsCurReportTemplateUrl:
-    Type: String
-    Description: S3 URL of the nested CUR 1.0 report template.
-    Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-cur-report.yml'
 
 Conditions:
   IsAutoSpottingEnabled: !Equals [!Ref EnableAutoSpotting, 'true']
+
+  # True when the customer listed instance-profile roles in AutoSpottingPassRoleArns. A blank
+  # CommaDelimitedList arrives as [''], so it is joined before the comparison.
+  HasPassRoleScope: !Not [!Equals [!Join ['', !Ref AutoSpottingPassRoleArns], '']]
 
   # Guards the nested stack. With inventory events off, nothing below is created
   # and the account simply relies on 60s polling.
   DeployInventoryEvents: !Equals [!Ref EnableInventoryEvents, 'true']
 
-  # Guards the CUR export nested stack. With this off, BillOps simply keeps
-  # reconciling this account's invoices from Cost Explorer.
-  DeployCurExport: !Equals [!Ref EnableCurExport, 'true']
+  # Whether the role is granted CUR read permissions at all. True whenever the
+  # customer named a bucket (or passed AUTO). The CUR itself is created by the
+  # separate us-east-1 CUR stack (xamops-cur-report.yml), not by this template.
+  HasCurBucket: !Not [!Equals [!Ref CurS3Bucket, '']]
 
-  # AWS::CUR::ReportDefinition exists only in us-east-1, and a nested stack is created in
-  # its parent's region. The onboarding link pins us-east-1, but a customer who changes it
-  # in the console would otherwise fail the whole connection on a report they can live
-  # without — so the report is skipped instead, and the platform reports it as missing.
-  IsCurReportRegion: !Equals [!Ref 'AWS::Region', 'us-east-1']
-
-  DeployCurReport: !And
-    - !Equals [!Ref EnableCurReport, 'true']
-    - !Condition IsCurReportRegion
-
-  # Whether the role is granted CUR read permissions at all.
-  #
-  # Deploying the export is itself a bucket: the nested stack creates
-  # xamops-cur-<this account id> whether or not anyone named it here. Testing only
-  # CurS3Bucket left the two defaults contradicting each other — EnableCurExport
-  # defaults to 'true' and CurS3Bucket to '' — so a stack launched with defaults
-  # created a CUR bucket and then withheld permission to read it. The data arrived
-  # and every query against it failed with AccessDenied.
-  #
-  # An account under a XamOps payer account sets EnableCurExport to 'false' and still
-  # gets no CUR permissions, which is the case this guard exists for.
-  # Either report writes the same bucket, xamops-cur-<this account id>, so the read
-  # grant follows whichever one is on rather than being tied to the CUR 2.0 export.
-  CreatesOwnCurBucket: !Or
-    - !Condition DeployCurExport
-    - !Condition DeployCurReport
-
-  HasCurBucket: !Or
-    - !Not [!Equals [!Ref CurS3Bucket, '']]
-    - !Condition CreatesOwnCurBucket
-
-  # Whether the bucket is the one the export nested stack creates, rather than one the
-  # customer named. 'AUTO' says so explicitly; an empty value alongside the export says
-  # so implicitly, and both have to resolve to the same ARN or the policy names a bucket
-  # that does not exist.
-  #
-  # Derived here rather than passed in, because the onboarding UI does not know the account
-  # id when it builds this launch URL. An IAM policy may name a bucket that does not exist
-  # yet — it grants nothing until it does — so the two stacks can be launched in any order.
+  # Whether the bucket is the one the CUR stack creates (xamops-cur-<account id>),
+  # rather than one the customer named. 'AUTO' says so explicitly; an empty value
+  # means the same implicitly.
   AutoCurBucket: !Or
     - !Equals [!Ref CurS3Bucket, 'AUTO']
-    - !And
-      - !Equals [!Ref CurS3Bucket, '']
-      - !Condition CreatesOwnCurBucket
+    - !Equals [!Ref CurS3Bucket, '']
 
 Resources:
 
@@ -428,6 +370,7 @@ Resources:
               - 'sts:GetCallerIdentity'
               - 'aws-marketplace:SearchAgreements'
               - 'aws-marketplace:DescribeAgreement'
+              - 'aws-marketplace:GetAgreementApprovalRequest'
               - 'aws-marketplace:GetAgreementTerms'
               - 'aws-marketplace:DescribeEntity'
               - 'aws-marketplace:SendAgreementPaymentRequest'
@@ -493,6 +436,22 @@ Resources:
               - 'ec2:AssociateAddress'
               - 'ec2:DisassociateAddress'
             Resource: '*'
+          # iam:PassRole for EBS automation's instance refresh (EbsAsgHelper.startInstanceRefresh):
+          # Auto Scaling validates the launch template's instance profile by checking that the
+          # caller may pass its role to EC2. No XamOps code passes a role to any other service
+          # from this role. Instance profiles hold only roles of this account. Formerly an
+          # unconditioned action in the inline XamOpsPolicyRightsizing; kept here because the
+          # role's inline policies are too close to IAM's 10,240-byte limit.
+          - Sid: XamOpsRightsizingPassRoleToEc2
+            Effect: Allow
+            Action: 'iam:PassRole'
+            Resource: !If
+              - HasPassRoleScope
+              - !Ref AutoSpottingPassRoleArns
+              - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*'
+            Condition:
+              StringEquals:
+                'iam:PassedToService': 'ec2.amazonaws.com'
 
   # -----------------------------------------------------------------
   # Policy 3: AutoSpotting — Spot Fleet, EC2 Fleet, and ASG management
@@ -504,42 +463,45 @@ Resources:
       Description: Spot Fleet, EC2 Fleet, and Auto Scaling Group management for XamOps AutoSpotting
       PolicyDocument:
         Version: '2012-10-17'
+        # rw-2026.10.1 removed these 22 actions: no XamOps code path calls these; Phase B does
+        # not need them. ec2:RequestSpotInstances, ec2:CancelSpotInstanceRequests,
+        # ec2:RequestSpotFleet, ec2:CancelSpotFleetRequests, ec2:ModifySpotFleetRequest,
+        # ec2:CreateFleet, ec2:DeleteFleets, ec2:ModifyFleet, ec2:CreateLaunchTemplate,
+        # ec2:DeleteLaunchTemplate, ec2:DeleteLaunchTemplateVersions,
+        # autoscaling:CreateAutoScalingGroup, autoscaling:SetDesiredCapacity,
+        # autoscaling:TerminateInstanceInAutoScalingGroup, autoscaling:PutScalingPolicy,
+        # autoscaling:DeletePolicy, autoscaling:PutScheduledUpdateGroupAction,
+        # autoscaling:DeleteScheduledAction, autoscaling:AttachInstances,
+        # autoscaling:DetachInstances, autoscaling:CreateLaunchConfiguration,
+        # autoscaling:DeleteLaunchConfiguration.
         Statement:
-          - Effect: Allow
+          # Reads, also in ReadOnlyAccess. Spot pricing: SpotPricingService.
+          - Sid: XamOpsSpotReads
+            Effect: Allow
             Action:
-              - 'ec2:RequestSpotInstances'
-              - 'ec2:CancelSpotInstanceRequests'
               - 'ec2:DescribeSpotInstanceRequests'
               - 'ec2:DescribeSpotFleetInstances'
               - 'ec2:DescribeSpotFleetRequests'
               - 'ec2:DescribeSpotPriceHistory'
-              - 'ec2:RequestSpotFleet'
-              - 'ec2:CancelSpotFleetRequests'
-              - 'ec2:ModifySpotFleetRequest'
-              - 'ec2:CreateFleet'
-              - 'ec2:DeleteFleets'
               - 'ec2:DescribeFleets'
               - 'ec2:DescribeFleetInstances'
-              - 'ec2:ModifyFleet'
-              - 'ec2:CreateLaunchTemplate'
-              - 'ec2:ModifyLaunchTemplate'
-              - 'ec2:DeleteLaunchTemplate'
-              - 'ec2:CreateLaunchTemplateVersion'
-              - 'ec2:DeleteLaunchTemplateVersions'
-              - 'autoscaling:CreateAutoScalingGroup'
+            Resource: '*'
+          # AutoSpotting (UpdateAutoScalingGroup, StartInstanceRefresh), EBS automation
+          # (StartInstanceRefresh: EbsAsgHelper.startInstanceRefresh), waste cleanup
+          # (DeleteAutoScalingGroup: WasteDeleteService.deleteAutoScalingGroup).
+          - Sid: XamOpsAutoScalingGroupWrites
+            Effect: Allow
+            Action:
               - 'autoscaling:UpdateAutoScalingGroup'
-              - 'autoscaling:DeleteAutoScalingGroup'
-              - 'autoscaling:SetDesiredCapacity'
-              - 'autoscaling:TerminateInstanceInAutoScalingGroup'
-              - 'autoscaling:PutScalingPolicy'
-              - 'autoscaling:DeletePolicy'
-              - 'autoscaling:PutScheduledUpdateGroupAction'
-              - 'autoscaling:DeleteScheduledAction'
-              - 'autoscaling:AttachInstances'
-              - 'autoscaling:DetachInstances'
-              - 'autoscaling:CreateLaunchConfiguration'
-              - 'autoscaling:DeleteLaunchConfiguration'
               - 'autoscaling:StartInstanceRefresh'
+              - 'autoscaling:DeleteAutoScalingGroup'
+            Resource: '*'
+          # EBS automation: new launch template version and set it as default (EbsAsgHelper).
+          - Sid: XamOpsLaunchTemplateVersions
+            Effect: Allow
+            Action:
+              - 'ec2:CreateLaunchTemplateVersion'
+              - 'ec2:ModifyLaunchTemplate'
             Resource: '*'
 
   # -----------------------------------------------------------------
@@ -1057,7 +1019,6 @@ Resources:
                   - 'ecs:UpdateService'
                   - 'elasticache:ModifyReplicationGroup'
                   - 'es:UpdateDomainConfig'
-                  - 'iam:PassRole'
                   - 'kms:CreateGrant'
                   - 'kms:Decrypt'
                   - 'kms:Encrypt'
@@ -1076,72 +1037,9 @@ Resources:
                   - 'lambda:UpdateFunctionConfiguration'
                   - 'rds:ModifyDBInstance'
                 Resource: '*'
-        # -----------------------------------------------------------------
-        # BillOps CUR read access — scoped to the dedicated
-        # xamops-cur-{accountId} bucket created by the nested
-        # XamOpsCurExport stack below, not a wildcard. Kept as its own
-        # inline policy (like Rightsizing above) since this role is
-        # already at the 10 managed-policy limit.
-        # -----------------------------------------------------------------
-        - PolicyName: XamOpsPolicyCurRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: XamOpsCurReadAccess
-                Effect: Allow
-                Action:
-                  - 's3:GetObject'
-                  - 's3:ListBucket'
-                Resource:
-                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}'
-                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/*'
-
-              # ------------------------------------------------------------------
-              # CUR querying (Athena + Glue) — granted UNCONDITIONALLY here, so an
-              # account connected in ANY region can read its CUR.
-              #
-              # The conditional XamOpsCurReadPolicy block elsewhere only attaches when
-              # HasCurBucket is true, and that depends on DeployCurReport, which is
-              # region-gated to us-east-1 (AWS::CUR::ReportDefinition exists only there).
-              # A stack launched in ap-south-1 with CurS3Bucket blank therefore got S3
-              # read but no athena:StartQueryExecution, so every CUR query failed with
-              # AccessDenied even though the report and bucket (created in us-east-1)
-              # were present. IAM is global, so decoupling the grant from the region-gated
-              # report creation is the correct fix — no stack move, no per-account param.
-              # Resource: '*' matches AWS's own scoping for these actions; the only CUR
-              # data reachable is one already readable via XamOpsCurReadAccess.
-              # ------------------------------------------------------------------
-              - Sid: XamOpsCurAthenaQueryUnconditional
-                Effect: Allow
-                Action:
-                  - 'athena:StartQueryExecution'
-                  - 'athena:StopQueryExecution'
-                  - 'athena:GetQueryExecution'
-                  - 'athena:GetQueryResults'
-                  - 'athena:GetWorkGroup'
-                Resource: '*'
-
-              - Sid: XamOpsCurGlueCatalogUnconditional
-                Effect: Allow
-                Action:
-                  - 'glue:GetDatabase'
-                  - 'glue:GetDatabases'
-                  - 'glue:GetTable'
-                  - 'glue:GetTables'
-                  - 'glue:GetPartition'
-                  - 'glue:GetPartitions'
-                  - 'glue:CreateDatabase'
-                  - 'glue:CreateTable'
-                  - 'glue:DeleteTable'
-                  - 'glue:BatchCreatePartition'
-                Resource: '*'
-
-              - Sid: XamOpsCurAthenaResultsWriteUnconditional
-                Effect: Allow
-                Action:
-                  - 's3:PutObject'
-                  - 's3:AbortMultipartUpload'
-                Resource: !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/xamops-athena-results/*'
+              # iam:PassRole, formerly unconditioned in the statement above, is the conditioned
+              # XamOpsRightsizingPassRoleToEc2 in XamOpsPolicyEC2Manage: the role's inline
+              # policies are too close to IAM's 10,240-byte limit to hold it.
         # -----------------------------------------------------------------
         # CloudK8s fleet read - roadmap Appendix 8.1 Catalog-A read delta.
         # Kept as its own inline policy: 2,722 compacted chars does not fit in
@@ -1247,11 +1145,189 @@ Resources:
                   - 'cloudformation:DetectStackSetDrift'
                   - 'cloudformation:DescribeStackSetOperation'
                 Resource: '*'
+
+        # -----------------------------------------------------------------
+        # One-click CUR stack management.
+        #
+        # Lets the XamOps backend create/update the XamOps-CUR-<account> stack and
+        # provision the xamops-cur-<account id> bucket out-of-band, so "Apply changes"
+        # can set up Cost and Usage Reporting in the same action that updates the
+        # connection role. Scoped as tightly as each API allows: the CloudFormation
+        # grant is bounded to XamOps-CUR-* stacks in us-east-1, the bucket grant to
+        # xamops-cur-* buckets. cur:* and s3:ListAllMyBuckets have no resource-level
+        # ARNs, so Resource '*' there is intentional, not a wildcard oversight.
+        # cur:DeleteReportDefinition is included so CloudFormation can roll back a failed
+        # report create; cur:ListTagsForResource is required by CFN during create.
+        # -----------------------------------------------------------------
+        - PolicyName: XamOpsCurStackManage
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CurStackManage
+                Effect: Allow
+                Action:
+                  - 'cloudformation:CreateStack'
+                  - 'cloudformation:UpdateStack'
+                  - 'cloudformation:DescribeStacks'
+                  - 'cloudformation:DescribeStackEvents'
+                  - 'cloudformation:DescribeStackResources'
+                  - 'cloudformation:GetTemplateSummary'
+                Resource: !Sub 'arn:aws:cloudformation:us-east-1:${AWS::AccountId}:stack/XamOps-CUR-*/*'
+              - Sid: CurBucketProvision
+                Effect: Allow
+                Action:
+                  - 's3:CreateBucket'
+                  - 's3:PutBucketPolicy'
+                  - 's3:GetBucketPolicy'
+                  - 's3:PutBucketPublicAccessBlock'
+                  - 's3:PutEncryptionConfiguration'
+                  - 's3:PutLifecycleConfiguration'
+                  - 's3:ListBucket'
+                  - 's3:GetBucketLocation'
+                Resource:
+                  - 'arn:aws:s3:::xamops-cur-*'
+                  - 'arn:aws:s3:::xamops-cur-*/*'
+              - Sid: CurReportDefinitionManage
+                Effect: Allow
+                Action:
+                  - 'cur:PutReportDefinition'
+                  - 'cur:DescribeReportDefinitions'
+                  - 'cur:ModifyReportDefinition'
+                  - 'cur:DeleteReportDefinition'
+                  - 'cur:ListTagsForResource'
+                  # CUR has no resource-level ARNs, so '*' here is intentional.
+                  - 's3:ListAllMyBuckets'
+                Resource: '*'
       Tags:
         - Key: ManagedBy
           Value: CloudFormation
         - Key: Platform
           Value: XamOps
+
+  # =================================================================
+  # AUTOSPOTTING: least-privilege policy (rw-2026.10.1)
+  #
+  # Everything Spot automation needs, for the current code and for Phase B. The reads
+  # duplicate ReadOnlyAccess on purpose, so the set is self-contained and matches the action
+  # set of the Phase B session policy, which must stay a subset of this policy.
+  #
+  # Marker-tag keys: autospotting.tag.key (default spot-enabled) and Phase B's
+  # xamops:autospotting:group-id. A deployment with a non-default autospotting.tag.key must
+  # add that key to XamOpsAutoSpottingMarkerTags.
+  #
+  # Phase B's Deny-by-tag statements (EKS, Elastic Beanstalk and Karpenter groups) belong only
+  # in the session policy, never here: this role is shared with other features.
+  #
+  # An AWS::IAM::Policy rather than an entry in the role's Policies, so the simulate statement
+  # can name the role with !GetAtt without a cycle. Keep this block identical in the prod, uat
+  # and local templates.
+  # =================================================================
+  XamOpsAutoSpottingPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: xamops-autospotting
+      Roles:
+        - !Ref XamOpsReadWriteRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: XamOpsAutoSpottingRead
+            Effect: Allow
+            Action:
+              - 'autoscaling:DescribeAutoScalingGroups'
+              - 'autoscaling:DescribeAutoScalingInstances'
+              - 'autoscaling:DescribeInstanceRefreshes'
+              - 'autoscaling:DescribeLifecycleHooks'
+              - 'autoscaling:DescribePolicies'
+              - 'autoscaling:DescribeScalingActivities'
+              - 'autoscaling:DescribeScheduledActions'
+              - 'autoscaling:DescribeTags'
+              - 'autoscaling:DescribeTrafficSources'
+              - 'autoscaling:DescribeWarmPool'
+              - 'ce:GetReservationCoverage'
+              - 'ce:GetReservationUtilization'
+              - 'ce:GetSavingsPlansCoverage'
+              - 'ce:GetSavingsPlansUtilization'
+              - 'cloudformation:DescribeStacks'
+              - 'cloudwatch:GetMetricData'
+              - 'ec2:DescribeCapacityReservations'
+              - 'ec2:DescribeImages'
+              - 'ec2:DescribeInstanceTypeOfferings'
+              - 'ec2:DescribeInstanceTypes'
+              - 'ec2:DescribeInstances'
+              - 'ec2:DescribeLaunchTemplateVersions'
+              - 'ec2:DescribeLaunchTemplates'
+              - 'ec2:DescribePlacementGroups'
+              - 'ec2:DescribeRegions'
+              - 'ec2:DescribeSpotPriceHistory'
+              - 'ec2:DescribeSubnets'
+              - 'ec2:GetSpotPlacementScores'
+              - 'ecs:DescribeCapacityProviders'
+              - 'elasticloadbalancing:DescribeInstanceHealth'
+              - 'elasticloadbalancing:DescribeTargetGroupAttributes'
+              - 'elasticloadbalancing:DescribeTargetHealth'
+              - 'events:DescribeRule'
+              - 'iam:GetInstanceProfile'
+              - 'servicequotas:GetServiceQuota'
+              - 'ssm:GetParameters'
+            Resource: '*'
+          # Phase B: forwarder role id fallback.
+          - Sid: XamOpsAutoSpottingForwarderRoleLookup
+            Effect: Allow
+            Action: 'iam:GetRole'
+            Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/xamops-as-events-fwd-role*'
+          # Phase B: pre-flight permission check, on this role only.
+          - Sid: XamOpsAutoSpottingSimulateSelf
+            Effect: Allow
+            Action: 'iam:SimulatePrincipalPolicy'
+            Resource: !GetAtt XamOpsReadWriteRole.Arn
+          # Enable, apply and disable. StartInstanceRefresh is for the current code only;
+          # Phase B never starts a refresh.
+          - Sid: XamOpsAutoSpottingUpdateGroups
+            Effect: Allow
+            Action:
+              - 'autoscaling:UpdateAutoScalingGroup'
+              - 'autoscaling:StartInstanceRefresh'
+            Resource: !Sub 'arn:${AWS::Partition}:autoscaling:*:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/*'
+          - Sid: XamOpsAutoSpottingMarkerTags
+            Effect: Allow
+            Action:
+              - 'autoscaling:CreateOrUpdateTags'
+              - 'autoscaling:DeleteTags'
+            Resource: !Sub 'arn:${AWS::Partition}:autoscaling:*:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/*'
+            Condition:
+              'ForAllValues:StringEquals':
+                'aws:TagKeys':
+                  - 'spot-enabled'
+                  - 'xamops:autospotting:group-id'
+          # Auto Scaling dry-runs RunInstances for the caller whenever an update or refresh
+          # involves the group's launch template.
+          - Sid: XamOpsAutoSpottingLaunchTemplateUse
+            Effect: Allow
+            Action: 'ec2:RunInstances'
+            Resource: '*'
+            Condition:
+              ArnLike:
+                'ec2:LaunchTemplate': !Sub 'arn:${AWS::Partition}:ec2:*:${AWS::AccountId}:launch-template/*'
+          # Launch templates with tag specifications.
+          - Sid: XamOpsAutoSpottingTagOnLaunch
+            Effect: Allow
+            Action: 'ec2:CreateTags'
+            Resource: !Sub 'arn:${AWS::Partition}:ec2:*:${AWS::AccountId}:*/*'
+            Condition:
+              StringEquals:
+                'ec2:CreateAction': 'RunInstances'
+          # Launch templates with an instance profile.
+          - Sid: XamOpsAutoSpottingPassRoleToEc2
+            Effect: Allow
+            Action: 'iam:PassRole'
+            Resource: !If
+              - HasPassRoleScope
+              - !Ref AutoSpottingPassRoleArns
+              - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*'
+            Condition:
+              StringEquals:
+                'iam:PassedToService': 'ec2.amazonaws.com'
 
   # =================================================================
   # EKS CONFIGMAP AUTOMATION
@@ -1729,40 +1805,6 @@ Resources:
         IncludeSecurityFindings: !Ref IncludeSecurityFindings
         ResourceSuffix: !Ref XamOpsInventoryResourceSuffix
 
-  # =================================================================
-  # CUR 2.0 DATA EXPORT (nested)
-  #
-  # Nested for the same reason as inventory events: keeps the S3 bucket,
-  # bucket policy, and BCMDataExports::Export resources out of the base
-  # role definition so they can be reused/updated independently and skipped
-  # entirely when disabled. Identical to the one deployed from the
-  # read-only template — CUR export doesn't depend on which role a customer
-  # chose.
-  # =================================================================
-  XamOpsCurExport:
-    Type: AWS::CloudFormation::Stack
-    Condition: DeployCurExport
-    Properties:
-      TemplateURL: !Ref XamOpsCurExportTemplateUrl
-      TimeoutInMinutes: 15
-      Parameters:
-        XamOpsAccountId: !Ref XamOpsAccountId
-
-  # =================================================================
-  # CUR 1.0 REPORT (nested)
-  #
-  # Defaults in that template — report name xamops-cur, prefix cur, HOURLY, resource ids
-  # on — are what CurAutoRegistrationService looks for when it registers the source
-  # automatically. Changing them here without changing that service leaves the report
-  # created and unregistered.
-  # =================================================================
-  XamOpsCurReport:
-    Type: AWS::CloudFormation::Stack
-    Condition: DeployCurReport
-    Properties:
-      TemplateURL: !Ref XamOpsCurReportTemplateUrl
-      TimeoutInMinutes: 15
-
   # ===================================================================================
   # Stack updates from the XamOps console
   #
@@ -1944,28 +1986,6 @@ Outputs:
     Description: ARN of the XamOps cost management policy.
     Value: !Ref XamOpsPolicyCostManage
 
-  CurExportEnabled:
-    Description: Whether a CUR 2.0 Data Export was configured for BillOps.
-    Value: !Ref EnableCurExport
-
-  CurBucketName:
-    Description: >
-      S3 bucket receiving CUR 2.0 exports. Feed this into CloudAccount.curS3Bucket
-      during account verification so BillOps can locate the export.
-    Value: !If
-      - DeployCurExport
-      - !GetAtt XamOpsCurExport.Outputs.CurBucketName
-      - 'disabled — BillOps will use Cost Explorer instead'
-
-  CurReportPrefix:
-    Description: >
-      S3 key prefix under which CUR 2.0 files are delivered. Feed this into
-      CloudAccount.curReportPath during account verification.
-    Value: !If
-      - DeployCurExport
-      - !GetAtt XamOpsCurExport.Outputs.CurReportPrefix
-      - 'disabled'
-
   AutoSpottingForwarderFunctionArn:
     Description: ARN of the AutoSpotting event forwarder Lambda function.
     Value: !GetAtt AutoSpottingEventForwarderFunction.Arn
@@ -1993,3 +2013,7 @@ Outputs:
       - DeployInventoryEvents
       - !GetAtt XamOpsInventoryEvents.Outputs.RegionCount
       - '0'
+
+  TemplateVersion:
+    Description: Version of this XamOps read-write template. XamOps reads it to know which permissions the stack carries.
+    Value: rw-2026.10.1

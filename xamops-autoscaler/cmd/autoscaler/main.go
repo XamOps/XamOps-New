@@ -532,7 +532,7 @@ func runCycle(
 	orphanRecs := exec.RecoverOrphans(ctx, d.nodeActionMode())
 	acts.add("scale-in", 1, orphanRecs...)
 	// xamops_orphans_recovered_total — count the orphaned drains this cycle recovered.
-	mset.AddOrphansRecovered(len(orphanRecs))
+	mset.AddOrphansRecovered(drain.CountRecovered(orphanRecs))
 
 	// ── 1. Rebalancer (highest priority — changes node topology) ─────────────
 	armed := cfg.EnableRebalancer && bundle.AutoscalerMode == "full" && bundle.Rebalancer.Enabled

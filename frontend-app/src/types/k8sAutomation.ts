@@ -179,6 +179,13 @@ export interface CapabilitiesCluster {
     mode: string | null;
     evictorAnalyseOnly: boolean | null;
     derivedState: NodeAutomationState;
+    /**
+     * The agent's TRUE effective node-automation gate, independent of the stored policy (BUG-1):
+     * `ACTING` when a runtime signal shows the controllers running live, `NOT_ACTING` when they are
+     * turned off in this environment (DRY_RUN / controller disabled), and `UNKNOWN` (or absent, from
+     * an older backend) when it genuinely can't be told. Optional so older payloads are unaffected.
+     */
+    effectiveActing?: 'ACTING' | 'NOT_ACTING' | 'UNKNOWN';
   };
   dataSources: Array<{ type: string; collectedAt: string | null; items: number | null; displayed: boolean }>;
 }

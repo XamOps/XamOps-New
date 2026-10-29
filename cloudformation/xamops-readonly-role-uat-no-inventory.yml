@@ -152,102 +152,19 @@ Parameters:
       Leave blank if this account is under a XamOps payer account, or if you have no CUR.
       Use AUTO if you are also deploying the XamOps cost reporting stack, which creates
       xamops-cur-<this account id>.
-  # CUR 2.0 Data Export (billing reconciliation for BillOps invoicing)
-  #
-  # Cost to this account is a few cents a month (S3 storage + requests only — Data
-  # Exports itself has no AWS charge) and is purged automatically after
-  # 90 days.
-  # -------------------------------------------------------------------
-  EnableCurExport:
-    Type: String
-    Default: 'false'
-    AllowedValues: ['true', 'false']
-    Description: >
-      Set up an AWS Cost and Usage Report (CUR 2.0) export to a dedicated S3
-      bucket in this account, so BillOps can reconcile invoices from AWS's
-      billing source of truth instead of Cost Explorer's aggregated totals.
-      Creates one S3 bucket and one Data Export. Cost is typically a few
-      cents a month.
-
-  XamOpsCurExportTemplateUrl:
-    Type: String
-    Description: S3 URL of the nested CUR export template.
-    Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-cur-export-nested.yaml'
-
-  # ---------------------------------------------------------------------------------
-  # CUR 1.0 — the report XamOps itself reads.
-  #
-  # On by default, and nested here rather than left to a second launch link, because an
-  # optional step is one most accounts never take: XamOps then shows Cost Explorer
-  # figures everywhere and nobody can say why the per-resource and invoice views are
-  # empty. CUR 2.0 above stays available but is off by default; the two write the same
-  # bucket name and only one can own it.
-  # ---------------------------------------------------------------------------------
-  EnableCurReport:
-    Type: String
-    Default: 'true'
-    AllowedValues: ['true', 'false']
-    Description: >
-      Create an AWS Cost and Usage Report (CUR 1.0) in this account, so XamOps can show
-      per-resource cost, invoice-level charges and data transfer breakdowns that the Cost
-      Explorer API cannot express. Set to false for an account under a XamOps payer
-      account, which is already covered by that payer's report.
-
-  XamOpsCurReportTemplateUrl:
-    Type: String
-    Description: S3 URL of the nested CUR 1.0 report template.
-    Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-cur-report.yml'
 
 Conditions:
-  # Guards the CUR export nested stack. With this off, BillOps simply keeps
-  # reconciling this account's invoices from Cost Explorer.
-  DeployCurExport: !Equals [!Ref EnableCurExport, 'true']
+  # Whether the role is granted CUR read permissions at all. True whenever the
+  # customer named a bucket (or passed AUTO). The CUR itself is created by the
+  # separate us-east-1 CUR stack (xamops-cur-report.yml), not by this template.
+  HasCurBucket: !Not [!Equals [!Ref CurS3Bucket, '']]
 
-  # AWS::CUR::ReportDefinition exists only in us-east-1, and a nested stack is created in
-  # its parent's region. The onboarding link pins us-east-1, but a customer who changes it
-  # in the console would otherwise fail the whole connection on a report they can live
-  # without — so the report is skipped instead, and the platform reports it as missing.
-  IsCurReportRegion: !Equals [!Ref 'AWS::Region', 'us-east-1']
-
-  DeployCurReport: !And
-    - !Equals [!Ref EnableCurReport, 'true']
-    - !Condition IsCurReportRegion
-
-  # Whether the role is granted CUR read permissions at all.
-  #
-  # Deploying the export is itself a bucket: the nested stack creates
-  # xamops-cur-<this account id> whether or not anyone named it here. Testing only
-  # CurS3Bucket left the two defaults contradicting each other — EnableCurExport
-  # defaults to 'true' and CurS3Bucket to '' — so a stack launched with defaults
-  # created a CUR bucket and then withheld permission to read it. The data arrived
-  # and every query against it failed with AccessDenied.
-  #
-  # Keeping the grant off entirely — rather than scoped to a wildcard — is what lets an
-  # account under a XamOps MPA deploy this stack with the same permission surface it had
-  # before CUR support existed. That account sets EnableCurExport to 'false'.
-  # Either report writes the same bucket, xamops-cur-<this account id>, so the read
-  # grant follows whichever one is on rather than being tied to the CUR 2.0 export.
-  CreatesOwnCurBucket: !Or
-    - !Condition DeployCurExport
-    - !Condition DeployCurReport
-
-  HasCurBucket: !Or
-    - !Not [!Equals [!Ref CurS3Bucket, '']]
-    - !Condition CreatesOwnCurBucket
-
-  # Whether the bucket is the one the export nested stack creates, rather than one the
-  # customer named. 'AUTO' says so explicitly; an empty value alongside the export says
-  # so implicitly, and both have to resolve to the same ARN or the policy names a bucket
-  # that does not exist.
-  #
-  # Derived here rather than passed in, because the onboarding UI does not know the account
-  # id when it builds this launch URL. An IAM policy may name a bucket that does not exist
-  # yet — it grants nothing until it does — so the two stacks can be launched in any order.
+  # Whether the bucket is the one the CUR stack creates (xamops-cur-<account id>),
+  # rather than one the customer named. 'AUTO' says so explicitly; an empty value
+  # means the same implicitly.
   AutoCurBucket: !Or
     - !Equals [!Ref CurS3Bucket, 'AUTO']
-    - !And
-      - !Equals [!Ref CurS3Bucket, '']
-      - !Condition CreatesOwnCurBucket
+    - !Equals [!Ref CurS3Bucket, '']
 
 Resources:
   # =================================================================
@@ -547,18 +464,6 @@ Resources:
                     - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/xamops-athena-results/*'
                     - !Sub 'arn:aws:s3:::${CurS3Bucket}/xamops-athena-results/*'
                 - !Ref 'AWS::NoValue'
-
-              # BillOps CUR read access — scoped to the dedicated
-              # xamops-cur-{accountId} bucket created by the nested
-              # XamOpsCurExport stack, not a wildcard.
-              - Sid: 'XamOpsCurReadAccess'
-                Effect: Allow
-                Action:
-                  - 's3:GetObject'
-                  - 's3:ListBucket'
-                Resource:
-                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}'
-                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/*'
         # -----------------------------------------------------------------
         # CloudK8s fleet read - roadmap Appendix 8.1 Catalog-A read delta.
         # Kept as its own inline policy: 2,722 compacted chars does not fit in
@@ -663,6 +568,59 @@ Resources:
                   - 'cloudformation:DescribeStackInstance'
                   - 'cloudformation:DetectStackSetDrift'
                   - 'cloudformation:DescribeStackSetOperation'
+                Resource: '*'
+
+        # -----------------------------------------------------------------
+        # One-click CUR stack management.
+        #
+        # Lets the XamOps backend create/update the XamOps-CUR-<account> stack and
+        # provision the xamops-cur-<account id> bucket out-of-band, so "Apply changes"
+        # can set up Cost and Usage Reporting in the same action that updates the
+        # connection role. Scoped as tightly as each API allows: the CloudFormation
+        # grant is bounded to XamOps-CUR-* stacks in us-east-1, the bucket grant to
+        # xamops-cur-* buckets. cur:* and s3:ListAllMyBuckets have no resource-level
+        # ARNs, so Resource '*' there is intentional, not a wildcard oversight.
+        # cur:DeleteReportDefinition is included so CloudFormation can roll back a failed
+        # report create; cur:ListTagsForResource is required by CFN during create.
+        # -----------------------------------------------------------------
+        - PolicyName: XamOpsCurStackManage
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CurStackManage
+                Effect: Allow
+                Action:
+                  - 'cloudformation:CreateStack'
+                  - 'cloudformation:UpdateStack'
+                  - 'cloudformation:DescribeStacks'
+                  - 'cloudformation:DescribeStackEvents'
+                  - 'cloudformation:DescribeStackResources'
+                  - 'cloudformation:GetTemplateSummary'
+                Resource: !Sub 'arn:aws:cloudformation:us-east-1:${AWS::AccountId}:stack/XamOps-CUR-*/*'
+              - Sid: CurBucketProvision
+                Effect: Allow
+                Action:
+                  - 's3:CreateBucket'
+                  - 's3:PutBucketPolicy'
+                  - 's3:GetBucketPolicy'
+                  - 's3:PutBucketPublicAccessBlock'
+                  - 's3:PutEncryptionConfiguration'
+                  - 's3:PutLifecycleConfiguration'
+                  - 's3:ListBucket'
+                  - 's3:GetBucketLocation'
+                Resource:
+                  - 'arn:aws:s3:::xamops-cur-*'
+                  - 'arn:aws:s3:::xamops-cur-*/*'
+              - Sid: CurReportDefinitionManage
+                Effect: Allow
+                Action:
+                  - 'cur:PutReportDefinition'
+                  - 'cur:DescribeReportDefinitions'
+                  - 'cur:ModifyReportDefinition'
+                  - 'cur:DeleteReportDefinition'
+                  - 'cur:ListTagsForResource'
+                  # CUR has no resource-level ARNs, so '*' here is intentional.
+                  - 's3:ListAllMyBuckets'
                 Resource: '*'
 
   # =================================================================
@@ -958,42 +916,6 @@ Resources:
   # the permissions that update needs.
   # =================================================================
 
-  # =================================================================
-  # CUR 2.0 Data Export (nested)
-  #
-  # Nested for the same reason as inventory events: keeps the S3 bucket,
-  # bucket policy, and BCMDataExports::Export resources out of the base
-  # read-only role definition so they can be reused/updated independently
-  # and skipped entirely when disabled.
-  #
-  # Without this resource the EnableCurExport parameter and DeployCurExport
-  # condition above are inert — the switch exists but nothing acts on it, so
-  # the stack reports success having created no report at all.
-  # =================================================================
-  XamOpsCurExport:
-    Type: AWS::CloudFormation::Stack
-    Condition: DeployCurExport
-    Properties:
-      TemplateURL: !Ref XamOpsCurExportTemplateUrl
-      TimeoutInMinutes: 15
-      Parameters:
-        XamOpsAccountId: !Ref XamOpsAccountId
-
-  # =================================================================
-  # CUR 1.0 REPORT (nested)
-  #
-  # Defaults in that template — report name xamops-cur, prefix cur, HOURLY, resource ids
-  # on — are what CurAutoRegistrationService looks for when it registers the source
-  # automatically. Changing them here without changing that service leaves the report
-  # created and unregistered.
-  # =================================================================
-  XamOpsCurReport:
-    Type: AWS::CloudFormation::Stack
-    Condition: DeployCurReport
-    Properties:
-      TemplateURL: !Ref XamOpsCurReportTemplateUrl
-      TimeoutInMinutes: 15
-
   # ===================================================================================
   # Stack updates from the XamOps console
   #
@@ -1153,28 +1075,6 @@ Outputs:
   InventoryEventRegionCount:
     Description: Number of regions forwarding inventory events.
     Value: '0'
-
-  CurBucketName:
-    Description: >
-      S3 bucket receiving CUR 2.0 exports. Feed this into CloudAccount.curS3Bucket
-      during account verification so BillOps can locate the export.
-    Value: !If
-      - DeployCurExport
-      - !GetAtt XamOpsCurExport.Outputs.CurBucketName
-      - 'disabled — BillOps will use Cost Explorer instead'
-
-  CurExportEnabled:
-    Description: Whether a CUR 2.0 Data Export was configured for BillOps.
-    Value: !Ref EnableCurExport
-
-  CurReportPrefix:
-    Description: >
-      S3 key prefix under which CUR 2.0 files are delivered. Feed this into
-      CloudAccount.curReportPath during account verification.
-    Value: !If
-      - DeployCurExport
-      - !GetAtt XamOpsCurExport.Outputs.CurReportPrefix
-      - 'disabled'
 
   XamOpsRoleName:
     Description: Name of the IAM role created for the XamOps platform.

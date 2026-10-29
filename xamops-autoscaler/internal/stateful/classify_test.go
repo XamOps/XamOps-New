@@ -93,11 +93,22 @@ func TestOnlyReadyReplicaRefused(t *testing.T) {
 }
 
 func TestEmptyDirDBRefusedRegardlessOfRole(t *testing.T) {
-	// emptyDir wins over everything, even a primary with many replicas.
+	// An emptyDir-only DB (no PVC) is refused db-emptydir, even a primary with many
+	// replicas: the emptyDir gate wins when there is no PVC backing the data.
 	cr := cnpgCluster("pg", "pg-1", nil)
 	pod := PodFacts{Namespace: "db", Name: "pg-1", Labels: map[string]string{LabelCNPGCluster: "pg", LabelCNPGInstanceRole: "primary"},
 		HasEmptyDirAtDataPath: true, ReadyReplicas: 3}
 	verdict(t, Classify(pod, cr, now), ClassProtected, CodeDBEmptyDir)
+}
+
+func TestPVCBackedDBWithEmptyDirResolvesByRole(t *testing.T) {
+	// A PVC-backed DB that also mounts a scratch/OTel emptyDir keeps its real data on
+	// the PVC, so the emptyDir gate no longer masks the role: a CNPG primary (by
+	// label) resolves to db-primary, not db-emptydir.
+	cr := cnpgCluster("pg", "pg-1", nil)
+	pod := PodFacts{Namespace: "db", Name: "pg-1", Labels: map[string]string{LabelCNPGCluster: "pg", LabelCNPGInstanceRole: "primary"},
+		HasEmptyDirAtDataPath: true, HasPVC: true, ReadyReplicas: 3}
+	verdict(t, Classify(pod, cr, now), ClassProtected, CodeDBPrimary)
 }
 
 func TestMemoryEmptyDirIsNotDBEmptyDir(t *testing.T) {

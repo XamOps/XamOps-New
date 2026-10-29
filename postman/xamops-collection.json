@@ -588,6 +588,109 @@
       ]
     },
     {
+      "name": "MediaOps",
+      "item": [
+        {
+          "name": "Overview (unauthenticated -> 401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{MEDIAOPS_URL}}/api/media-ops/overview",
+              "host": ["{{MEDIAOPS_URL}}"],
+              "path": ["api", "media-ops", "overview"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('No server error (not 5xx)', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "// The controller resolves the client id from the security context and",
+                  "// answers 401 itself when there is no session; a security filter may also",
+                  "// return 401/403 before the handler runs. 200 when authenticated.",
+                  "pm.test('Authenticated or protected (200/401/403)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 401, 403]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Jobs (unauthenticated -> 401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{MEDIAOPS_URL}}/api/media-ops/jobs",
+              "host": ["{{MEDIAOPS_URL}}"],
+              "path": ["api", "media-ops", "jobs"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('No server error (not 5xx)', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Authenticated or protected (200/401/403)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 401, 403]);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('Response body is an array', function () {",
+                  "        pm.expect(pm.response.json()).to.be.an('array');",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Probe (missing sourceUrl -> 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{MEDIAOPS_URL}}/api/media-ops/probe",
+              "host": ["{{MEDIAOPS_URL}}"],
+              "path": ["api", "media-ops", "probe"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('No server error (not 5xx)', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "// Unauthenticated requests are rejected first (401/403). When authenticated,",
+                  "// a body with no sourceUrl is rejected with 400 before any fetch happens.",
+                  "pm.test('Missing sourceUrl or unauthenticated is rejected (400/401/403)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([400, 401, 403]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "BillOps",
       "item": [
         {

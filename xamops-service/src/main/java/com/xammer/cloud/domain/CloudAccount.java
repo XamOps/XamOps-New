@@ -221,6 +221,22 @@ public class CloudAccount {
     @Column(name = "stack_checked_at")
     private Instant stackCheckedAt;
 
+    /**
+     * The CUR stack created for this account's own Cost and Usage Report, recorded separately
+     * from the connection stack above because the two now live in different regions and are
+     * created independently. The CUR stack has no EventBridge callback of its own, so its
+     * identity is captured at URL-generation time rather than on connect.
+     *
+     * <p>Null for every account that does not own its CUR (anything but OWN_CUR), exactly as
+     * it was before this was recorded.
+     */
+    @Column(name = "cur_stack_name")
+    private String curStackName;
+
+    /** Region the CUR stack is pinned to — us-east-1, the only region AWS::CUR lives in. */
+    @Column(name = "cur_stack_region")
+    private String curStackRegion;
+
     // Getter and setter for awsAccountId
     public String getAwsAccountId() {
         return awsAccountId;

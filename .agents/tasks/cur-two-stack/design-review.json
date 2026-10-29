@@ -1,0 +1,48 @@
+{
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "HIGH",
+      "location": "PART C3 — generateStackUpdateGuide 'cur' section 'applicable' flag",
+      "problem": "Uses account.getAwsBillingSource() which does not exist (the accessor is resolveAwsBillingSource()), and compares a String to the AwsBillingSource enum via \"OWN_CUR\".equals(...), which is always false. Result: 'applicable' is always \"false\" and the CUR update subsection (rendered only when cur.applicable === 'true') never appears, so 'update both stacks' silently fails for every account.",
+      "fix": "boolean curApplicable = account.resolveAwsBillingSource() == AwsBillingSource.OWN_CUR; then \"applicable\", String.valueOf(curApplicable). Import AwsBillingSource. Decide explicitly whether EXISTING_CUR (AwsBillingSource.ownsCur()) should also qualify."
+    },
+    {
+      "id": 2,
+      "severity": "MEDIUM",
+      "location": "PART A file list / Files-to-change summary",
+      "problem": "application-preprod.properties launches xamops-readonly-rolepreprod.yml and xamops-readwrite-role-preprod.yml (lines 25-26), neither of which is in the eight-file list nor present in the repo. If those published S3 objects carry the same failing XamOpsCurManagerFunction custom resource, the Part A revert never touches preprod and preprod keeps failing exactly as the user reported.",
+      "fix": "Either (a) document how the preprod S3 objects are produced from the base templates and name the republish step, or (b) add xamops-readonly-rolepreprod.yml and xamops-readwrite-role-preprod.yml to Part A scope and to the ABSENT/PRESENT grep assertions."
+    },
+    {
+      "id": 3,
+      "severity": "MEDIUM",
+      "location": "PART A 'Chosen approach' step 2 — HasCurBucket rewrite to !Equals ['true','true']",
+      "problem": "Today HasCurBucket is conditional (false for blank CurS3Bucket + no report), and the AwsAccountService Javadoc explicitly states non-OWN_CUR/payer-covered accounts get NO CUR permissions. Making HasCurBucket always-true attaches CUR S3/Athena/Glue read grants to every connection role including non-OWN_CUR ones. The design calls this 'no behaviour change', but it is a deliberate reversal of documented current behavior across ~100 accounts.",
+      "fix": "Either (a) explicitly accept and document the change and add a task to fix the now-wrong AwsAccountService Javadoc, or (b) keep HasCurBucket conditional on CurS3Bucket being non-blank (drop only the DeployCur* dependency) so blank-bucket non-OWN_CUR accounts still attach nothing. Choose one explicitly."
+    },
+    {
+      "id": 4,
+      "severity": "MEDIUM",
+      "location": "PART A file list — xamops-readwrite-role.live.yml",
+      "problem": "No application*.properties references any *.live.yml, so the scope list includes a file no environment launches while excluding the preprod pair that a profile does launch (finding #2). The list was derived by grep for XamOpsCurManagerFunction rather than by which templates onboarding actually serves, which is why preprod slipped through.",
+      "fix": "Re-derive Part A scope from the cloudformation.template.s3.url/.readwrite.url values across all four profiles (plus any live/preprod publish pipeline), reconcile the list, and state the derivation in the design so it is auditable."
+    },
+    {
+      "id": 5,
+      "severity": "NIT",
+      "location": "PART C4 — 'set these before that save, or save again'",
+      "problem": "cloudAccountRepository.save(newAccount) runs at AwsAccountService.java:170, before createReport (201) and the stack-name derivation exist, so the CUR fields cannot be set 'before that save' — only the 'save again' branch is feasible.",
+      "fix": "Specify a single approach: set curStackName/curStackRegion after createReport/stackName are computed and call save() a second time."
+    },
+    {
+      "id": 6,
+      "severity": "NIT",
+      "location": "PART A opening — 'each file matches XamOpsCurManagerFunction once'",
+      "problem": "grep -c XamOpsCurManagerFunction returns 6,4,4,4,4,4,3,4 across the eight files, not 1. The stated grep evidence is inaccurate (the authoritative guard is the Testability grep==0, which is correct).",
+      "fix": "Reword to 'each file contains XamOpsCurManagerFunction' (presence, not count) or cite the resource-definition count."
+    }
+  ],
+  "reviewDoc": "/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cur-two-stack/.agents/tasks/cur-two-stack/design-review.md"
+}
