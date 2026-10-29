@@ -68,5 +68,12 @@ public enum HpaReason {
     HPA_NOT_READABLE,
 
     /** VPA ownership was unreadable (RBAC 403 / unreachable API), so the resource yields. */
-    VPA_NOT_READABLE
+    VPA_NOT_READABLE,
+
+    /**
+     * A standalone CPU-target retune was submitted while the D3b target-retune sub-flag is off, so
+     * the move is refused outright rather than clamped. Distinct from the applied-outcome
+     * {@link #TARGET_RETUNED}: this names a <em>refusal</em>, not a change that landed.
+     */
+    TARGET_RETUNE_DISABLED
 }

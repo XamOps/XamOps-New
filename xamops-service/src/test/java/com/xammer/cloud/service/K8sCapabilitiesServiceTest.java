@@ -187,9 +187,30 @@ class K8sCapabilitiesServiceTest {
     }
 
     @Test
-    void hpaApplyReadinessDerivesFromAReadWriteConnection_withTheStandalonePropertyFalse() {
-        // The standalone hpa-apply readiness property is left false; tenant A is read-write.
+    void hpaApplyReadinessReadsTheStagingFlag_notAReadWriteConnection() {
+        // Regression (FEAT-001): hpa-apply is no longer derived from the read-write connection. A
+        // read-write account with the standalone staging flag false reports hpa-apply NOT ready,
+        // matching HpaApplyService's enforcement gate (the staging flag is an AND term there).
         assertThat(readiness.isHpaApply()).isFalse();
+
+        K8sCapabilitiesDto dto = capabilities();
+
+        assertThat(dto.connection().accessLevel()).isEqualTo("READ_WRITE");
+        assertThat(dto.readiness().get("hpa-apply")).satisfies(r -> {
+            assertThat(r.ready()).isFalse();
+            assertThat(r.reason()).isEqualTo("CONTROLLER_NOT_READY");
+            assertThat(r.message())
+                    .isEqualTo("Automated HPA changes are disabled until the HPA manager passes safety validation.");
+        });
+        // Every other key reads straight from the properties, as before.
+        assertThat(dto.readiness().get("vpa-apply").ready()).isFalse();
+        assertThat(dto.readiness().get("vertical-rightsizing").ready()).isFalse();
+    }
+
+    @Test
+    void hpaApplyReadinessIsReadyOnlyWhenTheStagingFlagIsTrue() {
+        // Flip the staging flag: the key now reports ready, regardless of the connection access level.
+        readiness.setHpaApply(true);
 
         K8sCapabilitiesDto dto = capabilities();
 
@@ -199,13 +220,10 @@ class K8sCapabilitiesServiceTest {
             assertThat(r.reason()).isNull();
             assertThat(r.message()).isNull();
         });
-        // Every other key is untouched by the derivation (still read from the properties).
-        assertThat(dto.readiness().get("vpa-apply").ready()).isFalse();
-        assertThat(dto.readiness().get("vertical-rightsizing").ready()).isFalse();
     }
 
     @Test
-    void hpaApplyReadinessIsFalseForAReadOnlyConnection_withTheStandalonePropertyFalse() {
+    void hpaApplyReadinessIsFalseForAReadOnlyConnection_withTheStagingFlagFalse() {
         world.tenantA.setAccessType("read-only");
         assertThat(readiness.isHpaApply()).isFalse();
 

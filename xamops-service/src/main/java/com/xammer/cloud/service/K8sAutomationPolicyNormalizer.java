@@ -119,9 +119,13 @@ public class K8sAutomationPolicyNormalizer {
                 new Coercion(K8sReadinessKey.HPA_APPLY, "hpaManagerPolicy.analyseOnly",
                         b -> !b.getHpaManagerPolicy().isAnalyseOnly(),
                         b -> b.getHpaManagerPolicy().setAnalyseOnly(true)),
-                new Coercion(K8sReadinessKey.VPA_APPLY, "vpaManagerPolicy.analyseOnly,vpaManagerPolicy.updateMode",
-                        b -> !b.getVpaManagerPolicy().isAnalyseOnly() || !"Off".equals(b.getVpaManagerPolicy().getUpdateMode()),
+                new Coercion(K8sReadinessKey.VPA_APPLY,
+                        "vpaManagerPolicy.enabled,vpaManagerPolicy.analyseOnly,vpaManagerPolicy.updateMode",
+                        b -> b.getVpaManagerPolicy().isEnabled()
+                                || !b.getVpaManagerPolicy().isAnalyseOnly()
+                                || !"Off".equals(b.getVpaManagerPolicy().getUpdateMode()),
                         b -> {
+                            b.getVpaManagerPolicy().setEnabled(false);
                             b.getVpaManagerPolicy().setAnalyseOnly(true);
                             b.getVpaManagerPolicy().setUpdateMode("Off");
                         }),
