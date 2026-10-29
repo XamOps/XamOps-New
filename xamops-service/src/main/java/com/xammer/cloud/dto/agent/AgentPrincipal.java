@@ -28,33 +28,54 @@ public final class AgentPrincipal {
         LEGACY_GLOBAL
     }
 
+    /**
+     * Which key of a CLUSTER-scoped principal authenticated the request (design §4.3): the
+     * read-only data agent ({@code kubernetes_cluster_config.agent_api_key}) or the automation
+     * agent ({@code automation_agent_api_key}). {@code null} for non-CLUSTER scopes.
+     */
+    public enum AgentRole {
+        DATA,
+        AUTOMATION
+    }
+
     private final Scope scope;
     /** Provider account id (AWS account number / GCP project / Azure subscription), or null for legacy. */
     private final String providerAccountId;
     /** Cluster name for CLUSTER scope, otherwise null. */
     private final String clusterName;
+    /** Which cluster key authenticated this principal; null for ACCOUNT / LEGACY_GLOBAL. */
+    private final AgentRole role;
 
-    private AgentPrincipal(Scope scope, String providerAccountId, String clusterName) {
+    private AgentPrincipal(Scope scope, String providerAccountId, String clusterName, AgentRole role) {
         this.scope = scope;
         this.providerAccountId = providerAccountId;
         this.clusterName = clusterName;
+        this.role = role;
     }
 
+    /** A cluster-scoped principal authenticated by the read-only data key (the default role). */
     public static AgentPrincipal cluster(String providerAccountId, String clusterName) {
-        return new AgentPrincipal(Scope.CLUSTER, providerAccountId, clusterName);
+        return new AgentPrincipal(Scope.CLUSTER, providerAccountId, clusterName, AgentRole.DATA);
+    }
+
+    /** A cluster-scoped principal authenticated by the given cluster key role. */
+    public static AgentPrincipal cluster(String providerAccountId, String clusterName, AgentRole role) {
+        return new AgentPrincipal(Scope.CLUSTER, providerAccountId, clusterName, role);
     }
 
     public static AgentPrincipal account(String providerAccountId) {
-        return new AgentPrincipal(Scope.ACCOUNT, providerAccountId, null);
+        return new AgentPrincipal(Scope.ACCOUNT, providerAccountId, null, null);
     }
 
     public static AgentPrincipal legacyGlobal() {
-        return new AgentPrincipal(Scope.LEGACY_GLOBAL, null, null);
+        return new AgentPrincipal(Scope.LEGACY_GLOBAL, null, null, null);
     }
 
     public Scope getScope() { return scope; }
     public String getProviderAccountId() { return providerAccountId; }
     public String getClusterName() { return clusterName; }
+    /** The cluster key role (DATA / AUTOMATION) for CLUSTER scope, else null. */
+    public AgentRole getRole() { return role; }
 
     /** True when this key proves which account it belongs to. */
     public boolean isScoped() { return scope != Scope.LEGACY_GLOBAL; }
@@ -105,7 +126,7 @@ public final class AgentPrincipal {
     @Override
     public String toString() {
         return switch (scope) {
-            case CLUSTER -> "cluster:" + clusterName + "@" + providerAccountId;
+            case CLUSTER -> "cluster:" + clusterName + "@" + providerAccountId + "/" + role;
             case ACCOUNT -> "account:" + providerAccountId;
             case LEGACY_GLOBAL -> "legacy-global-key";
         };

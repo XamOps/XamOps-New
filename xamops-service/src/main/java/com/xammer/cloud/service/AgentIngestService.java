@@ -185,7 +185,23 @@ public class AgentIngestService {
                         cfg.getClusterName(), cfg.getCloudAccountId());
                 return null;
             }
-            return AgentPrincipal.cluster(providerAccountId, cfg.getClusterName());
+            return AgentPrincipal.cluster(providerAccountId, cfg.getClusterName(), AgentPrincipal.AgentRole.DATA);
+        }
+
+        // 1b. Automation-agent cluster key (design §4.3). Checked before the account/legacy tiers
+        //     so the automation agent authenticates with a dedicated key and resolves to the same
+        //     cluster, tagged with the AUTOMATION role.
+        Optional<KubernetesClusterConfig> automationCluster =
+                clusterConfigRepository.findByAutomationAgentApiKey(apiKey);
+        if (automationCluster.isPresent()) {
+            KubernetesClusterConfig cfg = automationCluster.get();
+            String providerAccountId = resolveProviderAccountId(cfg.getCloudAccountId());
+            if (providerAccountId == null) {
+                logger.warn("Automation agent key resolved to cluster {} whose cloud account {} no longer exists",
+                        cfg.getClusterName(), cfg.getCloudAccountId());
+                return null;
+            }
+            return AgentPrincipal.cluster(providerAccountId, cfg.getClusterName(), AgentPrincipal.AgentRole.AUTOMATION);
         }
 
         // 2. Account-scoped key — VM agents (disk, database) that have no cluster row.

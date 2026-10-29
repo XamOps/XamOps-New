@@ -7,7 +7,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.HashMap;
@@ -29,11 +28,12 @@ public class ClusterIntegrationService {
     private static final String API_KEY_PREFIX = "xamops_"; // Prefix for easy identification
 
     private final KubernetesClusterConfigRepository clusterConfigRepository;
-    private final SecureRandom secureRandom;
+    private final com.xammer.cloud.service.onboarding.ClusterKeyService clusterKeyService;
 
-    public ClusterIntegrationService(KubernetesClusterConfigRepository clusterConfigRepository) {
+    public ClusterIntegrationService(KubernetesClusterConfigRepository clusterConfigRepository,
+                                     com.xammer.cloud.service.onboarding.ClusterKeyService clusterKeyService) {
         this.clusterConfigRepository = clusterConfigRepository;
-        this.secureRandom = new SecureRandom();
+        this.clusterKeyService = clusterKeyService;
     }
 
     /**
@@ -304,13 +304,9 @@ public class ClusterIntegrationService {
      * @return A URL-safe Base64 encoded API key with prefix
      */
     private String generateSecureApiKey() {
-        byte[] randomBytes = new byte[API_KEY_LENGTH];
-        secureRandom.nextBytes(randomBytes);
-
-        // Use URL-safe Base64 encoding (no padding)
-        String encodedKey = Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
-
-        return API_KEY_PREFIX + encodedKey;
+        // BP-3 (design §4.6): the key generator is owned by ClusterKeyService now; delegate so
+        // the data key has one minting path. Shape is unchanged (xamops_ + 32 url-safe bytes).
+        return clusterKeyService.generateKey();
     }
 
     /**

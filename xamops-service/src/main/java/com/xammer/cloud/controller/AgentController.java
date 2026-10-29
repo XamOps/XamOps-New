@@ -381,6 +381,9 @@ public class AgentController {
         clusterConfig.setLastAgentCheckin(LocalDateTime.now());
         if (agentVersion != null) clusterConfig.setAgentVersion(agentVersion);
         clusterConfig.setAgentStatus("active");
+        // BP-3 (design §4.3): record which key authenticated and stamp its last-used time,
+        // throttled to one write per 5 min so a per-second heartbeat does not thrash the row.
+        applyKeyUsage(clusterConfig, principal, agentVersion);
         clusterConfigRepository.save(clusterConfig);
 
         AgentEvent event = new AgentEvent(clusterConfig.getId(), "checkin");
@@ -763,6 +766,42 @@ public class AgentController {
                 clusterConfigId, PageRequest.of(0, limit)).getContent();
 
         return ResponseEntity.ok(events);
+    }
+
+    /**
+     * BP-3 (design §4.3): stamp the appropriate key's last-used time and record the scope the
+     * data agent last authenticated with. Throttled to one write per 5 min. The automation agent
+     * is identified as a CLUSTER principal whose role is AUTOMATION (or by the {@code -autoscaler}
+     * version suffix as a fallback); everything else stamps the data key.
+     */
+    private void applyKeyUsage(KubernetesClusterConfig config, AgentPrincipal principal, String agentVersion) {
+        java.time.Instant now = java.time.Instant.now();
+        boolean automation =
+                (principal.getScope() == AgentPrincipal.Scope.CLUSTER
+                        && principal.getRole() == AgentPrincipal.AgentRole.AUTOMATION)
+                || (agentVersion != null && agentVersion.endsWith("-autoscaler"));
+
+        if (automation) {
+            if (throttled(config.getAutomationKeyLastUsedAt(), now)) {
+                config.setAutomationKeyLastUsedAt(now);
+            }
+            return;
+        }
+
+        if (throttled(config.getAgentKeyLastUsedAt(), now)) {
+            config.setAgentKeyLastUsedAt(now);
+        }
+        // last_agent_key_scope tracks the DATA agent's authentication scope only.
+        config.setLastAgentKeyScope(switch (principal.getScope()) {
+            case CLUSTER -> "CLUSTER";
+            case ACCOUNT -> "ACCOUNT";
+            case LEGACY_GLOBAL -> "LEGACY_GLOBAL";
+        });
+    }
+
+    /** True when the last-used stamp is null or older than the 5-minute throttle window. */
+    private static boolean throttled(java.time.Instant last, java.time.Instant now) {
+        return last == null || last.isBefore(now.minusSeconds(300));
     }
 
     /**
