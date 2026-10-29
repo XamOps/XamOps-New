@@ -719,7 +719,8 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
           serviceName: pricingScope.service,
           regionName: pricingScope.lineId != null ? null : pricingScope.region || null,
           usageType: pricingScope.lineId != null ? null : pricingScope.usageType || null,
-          lineItemId: pricingScope.lineId ?? null,
+          // Only on a single-charge rate, so a level rate posts exactly what it always has.
+          ...(pricingScope.lineId != null ? { lineItemId: pricingScope.lineId } : {}),
           unitRate: parsedRate,
           rateUnit: priceRateUnit.trim() || null,
           excludeFromOverallDiscount: priceShield,
