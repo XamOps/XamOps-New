@@ -55,7 +55,8 @@ class K8sCapabilitiesControllerTest {
                 anyLong(), anyString(), any())).thenReturn(Optional.empty());
         EksAutoscalingService autoscalingService = mock(EksAutoscalingService.class);
         when(autoscalingService.summarize(any())).thenReturn(
-                new EksAutoscalingService.NodeAutomationSummary(false, null, null, "OFF"));
+                new EksAutoscalingService.NodeAutomationSummary(false, null, null, "OFF",
+                        EksAutoscalingService.EFFECTIVE_UNKNOWN));
         K8sCapabilitiesService service = new K8sCapabilitiesService(world.accessService, cacheRepository,
                 eventRepository, autoscalingService, new K8sAutomationReadinessProperties(), new MockEnvironment());
         mvc = MockMvcBuilders.standaloneSetup(new K8sCapabilitiesController(service))

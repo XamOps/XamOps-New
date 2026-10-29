@@ -2,6 +2,7 @@ package com.xammer.cloud.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.xammer.cloud.domain.AgentDataCache;
@@ -105,9 +106,19 @@ public class EksAutoscalingService {
      *
      * @param derivedState {@code OFF}, {@code ANALYSIS} or {@code AUTOMATED}; capabilities replaces
      *                     it with {@code NOT_INSTALLED} when the automation agent was never seen
+     * @param effectiveActing the agent's TRUE effective gate, read from the runtime records it pushes
+     *                     (consolidation runs' {@code mode}, the rebalance status' {@code dryRun}) and
+     *                     NOT from the stored policy: {@code ACTING}, {@code NOT_ACTING} or
+     *                     {@code UNKNOWN} when no runtime signal has been seen
      */
-    public record NodeAutomationSummary(boolean enabled, String mode, Boolean evictorAnalyseOnly, String derivedState) {
+    public record NodeAutomationSummary(boolean enabled, String mode, Boolean evictorAnalyseOnly, String derivedState,
+                                        String effectiveActing) {
     }
+
+    /** Tri-state for {@link NodeAutomationSummary#effectiveActing()} (design BUG-1, state-truth). */
+    public static final String EFFECTIVE_ACTING = "ACTING";
+    public static final String EFFECTIVE_NOT_ACTING = "NOT_ACTING";
+    public static final String EFFECTIVE_UNKNOWN = "UNKNOWN";
 
     private final KubernetesClusterConfigRepository clusterConfigRepository;
     private final AgentDataCacheRepository agentDataCacheRepository;
@@ -220,7 +231,106 @@ public class EksAutoscalingService {
         return new NodeAutomationSummary(enabled,
                 stored || enabled ? b.getAutoscalerMode() : null,
                 stored || enabled ? b.getEvictorPolicy().isAnalyseOnly() : null,
-                derived);
+                derived,
+                effectiveActing(config));
+    }
+
+    /**
+     * The agent's TRUE effective node-automation gate, read ONLY from the runtime records it pushes
+     * (never the stored policy — that is exactly the signal BUG-1 can't trust). A controller running
+     * live stamps {@code mode=live}/{@code dryRun=false} on its newest record; a controller turned
+     * off in this environment (DRY_RUN / ENABLE_*=false) stamps {@code mode=simulate}/{@code dryRun=true}.
+     *
+     * <ul>
+     *   <li>{@code ACTING} — any fresh runtime record shows a live, non-dry-run controller;</li>
+     *   <li>{@code NOT_ACTING} — a fresh runtime record exists and every one is simulate / dry-run;</li>
+     *   <li>{@code UNKNOWN} — no runtime record has been seen (older agent, nothing pushed, or a read
+     *       failure), so we honestly can't tell. Never fabricated.</li>
+     * </ul>
+     */
+    private String effectiveActing(KubernetesClusterConfig config) {
+        boolean sawSignal = false;
+
+        Boolean consolidation = consolidationRunsActing(config);
+        if (consolidation != null) {
+            if (Boolean.TRUE.equals(consolidation)) {
+                return EFFECTIVE_ACTING;
+            }
+            sawSignal = true;
+        }
+
+        Boolean rebalance = rebalanceActing(config);
+        if (rebalance != null) {
+            if (Boolean.TRUE.equals(rebalance)) {
+                return EFFECTIVE_ACTING;
+            }
+            sawSignal = true;
+        }
+
+        return sawSignal ? EFFECTIVE_NOT_ACTING : EFFECTIVE_UNKNOWN;
+    }
+
+    /**
+     * The newest consolidation run's gate: {@code true} when it ran {@code mode=live} (acting),
+     * {@code false} when it ran {@code mode=simulate} / {@code dryRun=true} (not acting), {@code null}
+     * when no readable run exists.
+     */
+    private Boolean consolidationRunsActing(KubernetesClusterConfig config) {
+        if (config == null) {
+            return null;
+        }
+        Optional<AgentDataCache> cacheOpt =
+                agentDataCacheRepository.findByClusterConfigIdAndDataType(config.getId(), DT_CONSOLIDATION_RUNS);
+        if (cacheOpt.isEmpty() || cacheOpt.get().getDataJson() == null) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(cacheOpt.get().getDataJson());
+            JsonNode runs = root.path("runs");
+            if (!runs.isArray() || runs.isEmpty()) {
+                return null;
+            }
+            // Runs are newest-first; the first readable run's gate is the current effective one.
+            JsonNode newest = runs.get(0);
+            if (newest.hasNonNull("dryRun")) {
+                return !newest.get("dryRun").asBoolean();
+            }
+            if (newest.hasNonNull("mode")) {
+                return "live".equalsIgnoreCase(newest.get("mode").asText());
+            }
+            return null;
+        } catch (Exception e) {
+            logger.warn("Consolidation runs for cluster config {} couldn't be read for the effective gate: {}",
+                    config.getId(), e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * The rebalance status' gate: {@code true} when the controller reported it is acting
+     * ({@code dryRun=false}), {@code false} when {@code dryRun=true}, {@code null} when the record
+     * carries no {@code dryRun} (nothing has run, or an older agent didn't stamp it).
+     */
+    private Boolean rebalanceActing(KubernetesClusterConfig config) {
+        if (config == null) {
+            return null;
+        }
+        Optional<AgentDataCache> cacheOpt =
+                agentDataCacheRepository.findByClusterConfigIdAndDataType(config.getId(), DT_REBALANCE_STATUS);
+        if (cacheOpt.isEmpty() || cacheOpt.get().getDataJson() == null) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(cacheOpt.get().getDataJson());
+            if (root.hasNonNull("dryRun")) {
+                return !root.get("dryRun").asBoolean();
+            }
+            return null;
+        } catch (Exception e) {
+            logger.warn("Rebalance status for cluster config {} couldn't be read for the effective gate: {}",
+                    config.getId(), e.getMessage());
+            return null;
+        }
     }
 
     // ── Policy saves ──────────────────────────────────────────────────────

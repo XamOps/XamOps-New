@@ -54,8 +54,17 @@ public record K8sCapabilitiesDto(
     public record AutomationAgent(String status, String lastSeenAt, String version) {
     }
 
-    /** @param derivedState NOT_INSTALLED, OFF, ANALYSIS or AUTOMATED (design D5) */
-    public record NodeAutomation(boolean enabled, String mode, Boolean evictorAnalyseOnly, String derivedState) {
+    /**
+     * @param derivedState NOT_INSTALLED, OFF, ANALYSIS or AUTOMATED (design D5)
+     * @param effectiveActing the agent's TRUE effective gate for node automation, independent of the
+     *        stored policy: {@code ACTING} when a fresh runtime signal shows the controllers running
+     *        live (not DRY_RUN / not simulate), {@code NOT_ACTING} when a fresh runtime signal shows
+     *        them turned off in this environment (DRY_RUN / simulate / disabled), and {@code UNKNOWN}
+     *        when no runtime signal has been seen. ADDITIVE and last in the record: older payloads and
+     *        consumers that omit it are unaffected and the UI treats a missing value as {@code UNKNOWN}.
+     */
+    public record NodeAutomation(boolean enabled, String mode, Boolean evictorAnalyseOnly, String derivedState,
+                                 String effectiveActing) {
     }
 
     /** @param displayed whether the dashboard shows this source (kubescape, opencost and karpenter flags) */

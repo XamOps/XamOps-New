@@ -74,6 +74,11 @@ vi.mock('../../components/CloudK8s/CloudK8sClusterTable', () => ({
 vi.mock('../../components/CloudK8s/CloudK8sIntegrations', () => ({ default: () => <div>Fleet integrations</div> }));
 
 import EksDetailsPage, { INVALID_LINK_NOTICE, parseClusterLink } from '../EksDetailsPage';
+import {
+  SESSION_EXPIRED_EVENT,
+  SESSION_EXPIRED_HEADING,
+  SESSION_EXPIRED_LINK,
+} from '../../components/Shared/SessionExpiredOverlay';
 import CloudK8sPage from '../CloudK8sPage';
 import { TopbarProvider, useTopbar } from '../../contexts/TopbarContext';
 import { ThemeProvider } from '../../contexts/ThemeContext';
@@ -508,5 +513,109 @@ describe('cluster page shell', () => {
     flags.podsThrows = false;
     await user.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await find('Pods tab content')).toBeInTheDocument();
+  });
+});
+
+/** BUG-1: the Overview Apply column must tell the TRUE effective state, not just backend policy. */
+describe('BUG-1 — honest effective-gate Apply state', () => {
+  /** Open every hard gate so a node-automation row's Apply reads purely from the effective gate. */
+  const gateOpen = (dto: CapabilitiesDto) => {
+    for (const key of Object.keys(dto.readiness)) {
+      dto.readiness[key] = { ready: true, reason: null, message: null };
+    }
+  };
+
+  it('reads Available when the gate is open and the effective gate is ACTING', async () => {
+    getCapabilities.mockReset().mockResolvedValue(capabilities((dto) => {
+      gateOpen(dto);
+      dto.clusters[0].nodeAutomation.effectiveActing = 'ACTING';
+    }));
+    renderAt(`${BASE}&tab=automation`);
+    const table = await screen.findByRole('table', { name: AUTOMATION_HEADING }, { timeout: 4000 });
+    await waitFor(() => expect(rowByLabel(table, 'Rebalancing')).toHaveTextContent('Available'));
+    expect(rowByLabel(table, 'Rebalancing')).not.toHaveTextContent('Ready to enable');
+  });
+
+  it('reads Ready to enable (not Available) when the gate is open but the effective gate is NOT_ACTING', async () => {
+    getCapabilities.mockReset().mockResolvedValue(capabilities((dto) => {
+      gateOpen(dto);
+      dto.clusters[0].nodeAutomation.effectiveActing = 'NOT_ACTING';
+    }));
+    renderAt(`${BASE}&tab=automation`);
+    const table = await screen.findByRole('table', { name: AUTOMATION_HEADING }, { timeout: 4000 });
+    await waitFor(() => expect(rowByLabel(table, 'Rebalancing')).toHaveTextContent('Ready to enable'));
+    expect(rowByLabel(table, 'Rebalancing')).not.toHaveTextContent('Available');
+
+    // The drawer explains the honest reason (not acting / DRY_RUN / controller disabled).
+    await userEvent.click(rowByLabel(table, 'Rebalancing'));
+    expect(screen.getByRole('dialog')).toHaveTextContent(/not acting/i);
+    expect(screen.getByRole('dialog')).toHaveTextContent(/DRY_RUN/);
+    await userEvent.keyboard('{Escape}');
+  });
+
+  it('a hard gate still wins over Ready to enable', async () => {
+    // Read-write but the rebalancer readiness stays false: the row is Blocked regardless of the gate.
+    getCapabilities.mockReset().mockResolvedValue(capabilities((dto) => {
+      dto.clusters[0].nodeAutomation.effectiveActing = 'NOT_ACTING';
+    }));
+    renderAt(`${BASE}&tab=automation`);
+    const table = await screen.findByRole('table', { name: AUTOMATION_HEADING }, { timeout: 4000 });
+    await waitFor(() => expect(rowByLabel(table, 'Rebalancing')).toHaveTextContent('Blocked'));
+    expect(rowByLabel(table, 'Rebalancing')).not.toHaveTextContent('Ready to enable');
+    expect(rowByLabel(table, 'Rebalancing')).not.toHaveTextContent('Available');
+  });
+
+  it('keeps Available on an older backend that omits effectiveActing (UNKNOWN)', async () => {
+    getCapabilities.mockReset().mockResolvedValue(capabilities((dto) => {
+      gateOpen(dto);
+      delete dto.clusters[0].nodeAutomation.effectiveActing; // older payload
+    }));
+    renderAt(`${BASE}&tab=automation`);
+    const table = await screen.findByRole('table', { name: AUTOMATION_HEADING }, { timeout: 4000 });
+    await waitFor(() => expect(rowByLabel(table, 'Rebalancing')).toHaveTextContent('Available'));
+    expect(rowByLabel(table, 'Rebalancing')).not.toHaveTextContent('Ready to enable');
+  });
+});
+
+/** BUG-2: a malformed / empty / partial capabilities payload must degrade, never crash the page. */
+describe('BUG-2 — malformed capabilities payload degrades to Unknown', () => {
+  const accessRow = (term: string): HTMLElement => {
+    const dt = screen.getByText(term);
+    const row = dt.closest('div');
+    if (!row) throw new Error(`no access row ${term}`);
+    return row as HTMLElement;
+  };
+
+  it.each([
+    ['empty object', {} as unknown as CapabilitiesDto],
+    ['null', null as unknown as CapabilitiesDto],
+    ['partial (cluster, no connection)', { clusters: [{ clusterName: 'prod-eks-cluster' }] } as unknown as CapabilitiesDto],
+  ])('renders the page and shows Unknown access for a %s payload', async (_label, payload) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    getCapabilities.mockReset().mockResolvedValue(payload);
+    renderAt(`${BASE}&tab=automation`);
+
+    // The automation table still renders — the global "Something went wrong" boundary did NOT fire.
+    await screen.findByRole('table', { name: AUTOMATION_HEADING }, { timeout: 4000 });
+    expect(screen.queryByText('Something went wrong')).toBeNull();
+
+    // The Access card degrades Connection and Permission to the honest Unknown state.
+    expect(accessRow('Connection')).toHaveTextContent('Unknown');
+    expect(accessRow('Your permission')).toHaveTextContent('Unknown');
+  });
+});
+
+/** BUG-3: a mid-flow 401 must show an honest re-auth state, never a near-blank page. */
+describe('BUG-3 — expired session shows an honest interstitial', () => {
+  it('shows the session-expired card when a 401 fires mid-flow', async () => {
+    renderAt(`${BASE}&tab=automation`);
+    await screen.findByRole('table', { name: AUTOMATION_HEADING }, { timeout: 4000 });
+
+    // apiClient dispatches this on a mid-session 401 (utils/apiClient.ts).
+    window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
+
+    // The page is not blank: the honest interstitial and a re-auth link to /login are shown.
+    expect(await screen.findByText(SESSION_EXPIRED_HEADING)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: SESSION_EXPIRED_LINK })).toHaveAttribute('href', '/login');
   });
 });

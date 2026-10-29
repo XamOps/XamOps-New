@@ -57,12 +57,16 @@ export function accessOverlays(
   const cluster = findCluster(data, clusterName);
   const connection = cluster?.connection ?? data.connection;
   const out: AccessOverlay[] = [];
-  if (connection.accessLevel !== 'READ_WRITE') out.push('read-only');
-  if (data.user.reasons.includes('NO_USER_PERMISSION')) {
+  // BUG-2: a malformed / empty / partial capabilities payload ({}, no connection, no user) must not
+  // crash the hero banner. Treat missing pieces as "nothing to overlay" and let the Access card show
+  // the honest Unknown state rather than dereferencing undefined.
+  const reasons = Array.isArray(data.user?.reasons) ? data.user.reasons : [];
+  if (connection && connection.accessLevel !== 'READ_WRITE') out.push('read-only');
+  if (reasons.includes('NO_USER_PERMISSION')) {
     out.push(data.user.detail === 'IMPERSONATION' ? 'impersonation' : 'no-permission');
   }
-  if ((connection.status ?? '').toUpperCase() !== 'CONNECTED') out.push('not-verified');
-  if (caps.demo || data.user.reasons.includes('DEMO')) out.push('demo');
+  if (connection && (connection.status ?? '').toUpperCase() !== 'CONNECTED') out.push('not-verified');
+  if (caps.demo || reasons.includes('DEMO')) out.push('demo');
   return out;
 }
 

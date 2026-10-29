@@ -191,9 +191,11 @@ export function computeCapability(input: CapabilityInput): Capability {
     }
 
     if (NEEDS_AUTOMATION_AGENT.has(actionId) && input.cluster) {
-      if (!cluster || cluster.agent.status === 'NOT_INSTALLED') {
+      // A malformed / partial payload can list a cluster with no agent / automationAgent (BUG-2):
+      // treat a missing agent as NOT_INSTALLED and fail closed instead of dereferencing undefined.
+      if (!cluster || cluster.agent?.status === 'NOT_INSTALLED' || !cluster.agent) {
         gates.push({ reason: 'AGENT_NOT_INSTALLED', detail: 'XAMOPS_AGENT' });
-      } else if (cluster.automationAgent.status === 'NOT_INSTALLED') {
+      } else if (!cluster.automationAgent || cluster.automationAgent.status === 'NOT_INSTALLED') {
         gates.push({ reason: 'AGENT_NOT_INSTALLED', detail: 'AUTOMATION_AGENT' });
       } else if (cluster.automationAgent.status === 'UNKNOWN') {
         gates.push({ reason: 'UNKNOWN' });

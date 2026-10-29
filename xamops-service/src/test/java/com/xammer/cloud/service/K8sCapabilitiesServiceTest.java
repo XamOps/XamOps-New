@@ -96,7 +96,8 @@ class K8sCapabilitiesServiceTest {
         when(eventRepository.findFirstByClusterConfigIdAndAgentVersionEndingWithAndCreatedAtAfterOrderByCreatedAtDesc(
                 anyLong(), anyString(), any())).thenReturn(Optional.empty());
         when(autoscalingService.summarize(any())).thenReturn(
-                new EksAutoscalingService.NodeAutomationSummary(true, "full", true, "ANALYSIS"));
+                new EksAutoscalingService.NodeAutomationSummary(true, "full", true, "ANALYSIS",
+                        EksAutoscalingService.EFFECTIVE_UNKNOWN));
         owner = world.addUser(10L, 1L, "owner@tenant-a.example", "XAMOPS", "ROLE_XAMOPS", List.of());
         logger = (Logger) LoggerFactory.getLogger(K8sCapabilitiesService.class);
         logs = new ListAppender<>();
@@ -405,7 +406,19 @@ class K8sCapabilitiesServiceTest {
             assertThat(n.mode()).isEqualTo("full");
             assertThat(n.evictorAnalyseOnly()).isTrue();
             assertThat(n.derivedState()).isEqualTo("ANALYSIS");
+            // The additive effective-gate signal flows straight from the summary (BUG-1).
+            assertThat(n.effectiveActing()).isEqualTo(EksAutoscalingService.EFFECTIVE_UNKNOWN);
         });
+    }
+
+    @Test
+    void nodeAutomationCarriesTheEffectiveActingSignalFromTheSummary() {
+        automationEvent(100L, NOW.minus(Duration.ofMinutes(1)), "1.0.0-autoscaler");
+        when(autoscalingService.summarize(any())).thenReturn(
+                new EksAutoscalingService.NodeAutomationSummary(true, "full", false, "AUTOMATED",
+                        EksAutoscalingService.EFFECTIVE_NOT_ACTING));
+        assertThat(cluster(capabilities(), CLUSTER).nodeAutomation().effectiveActing())
+                .isEqualTo(EksAutoscalingService.EFFECTIVE_NOT_ACTING);
     }
 
     // ── Clock rule ────────────────────────────────────────────────────────

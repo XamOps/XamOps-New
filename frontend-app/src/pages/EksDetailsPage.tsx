@@ -22,6 +22,7 @@ import { isDemoMode } from '../demo/demoConfig';
 import { resolveClusterVersion } from '../utils/k8sVersion';
 import { parseClusterLink, type ClusterLink } from '../utils/k8sClusterLink';
 import ErrorBoundary from '../components/Shared/ErrorBoundary';
+import SessionExpiredOverlay from '../components/Shared/SessionExpiredOverlay';
 import { ClusterHeader } from '../components/EksDetails/ClusterHeader';
 import { ClusterStatusStrip } from '../components/EksDetails/ClusterStatusStrip';
 import EksDiagnosticsPanel from '../components/EksDetails/EksDiagnosticsPanel';
@@ -186,6 +187,9 @@ function ClusterPage({ link, debug }: { link: ClusterLink; debug: boolean }) {
       data-cloudk8s-theme={theme}
       style={{ fontFamily: 'ui-sans-serif, system-ui, sans-serif' }}
     >
+      {/* BUG-3: a mid-flow 401 fires `session-expired`; this honest interstitial covers the page for
+          the beat before AuthContext's redirect paints, so the EKS/Automation route is never blank. */}
+      <SessionExpiredOverlay />
       {/* min-w-0 down the chain: the content area is viewport − the ~220px app sidebar; without it a
           wide table (Workloads › Pods) would push this column past that width and clip the last
           column at the edge instead of scrolling inside its own card (owner polish review #5). */}

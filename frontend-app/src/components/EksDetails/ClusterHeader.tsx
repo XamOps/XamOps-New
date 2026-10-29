@@ -119,10 +119,12 @@ export function ClusterHeader({
     };
   }, [setTitle, setActions, clearActions, clusterName, accountId, version, region, isSyncing, lastUpdateTimestamp, getTimeSince, onSync, onOpenGuide]);
 
-  const snapshot = clockState(caps, cluster ? { status: cluster.agent.status, at: cluster.agent.lastDataAt } : null, 'data');
+  // A malformed / partial capabilities payload can list a cluster with no agent / automationAgent
+  // (BUG-2): fall back to null (an Unknown clock) rather than dereferencing undefined and crashing.
+  const snapshot = clockState(caps, cluster?.agent ? { status: cluster.agent.status, at: cluster.agent.lastDataAt } : null, 'data');
   const reconcile = clockState(
     caps,
-    cluster ? { status: cluster.automationAgent.status, at: cluster.automationAgent.lastSeenAt } : null,
+    cluster?.automationAgent ? { status: cluster.automationAgent.status, at: cluster.automationAgent.lastSeenAt } : null,
     'seen',
   );
 
