@@ -401,13 +401,25 @@ public class AgentController {
      * GET /api/v1/agent/status/{clusterConfigId}
      */
     @GetMapping("/status/{clusterConfigId}")
-    public ResponseEntity<Map<String, Object>> getAgentStatus(@PathVariable Long clusterConfigId) {
+    public ResponseEntity<Map<String, Object>> getAgentStatus(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @PathVariable Long clusterConfigId,
+            HttpServletRequest request) {
         Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository.findById(clusterConfigId);
         if (configOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
 
         KubernetesClusterConfig config = configOpt.get();
+
+        // FR-10.2 / F-25: this endpoint exposes agent telemetry (incl. agentIp via events), so it
+        // requires an agent key whose principal owns the cluster. 401 when unauthenticated, 403
+        // when authenticated but not entitled.
+        ResponseEntity<Map<String, Object>> denied = requireOwningAgent(authHeader, config, request);
+        if (denied != null) {
+            return denied;
+        }
+
         Map<String, Object> status = new HashMap<>();
 
         status.put("clusterName", config.getClusterName());
@@ -451,13 +463,24 @@ public class AgentController {
      */
     @GetMapping("/status")
     public ResponseEntity<Map<String, Object>> getAgentStatusByCluster(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
             @RequestParam String clusterName,
-            @RequestParam Long cloudAccountId) {
+            @RequestParam Long cloudAccountId,
+            HttpServletRequest request) {
 
         Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository
                 .findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
 
         if (configOpt.isEmpty()) {
+            // FR-10.2 / F-25: do not reveal cluster existence without an owning agent key. A
+            // non-existent (account, cluster) pair cannot be owned, so authenticate the key
+            // against the claimed account/cluster first; only then return the not-configured
+            // placeholder, so an unauthenticated caller cannot probe which clusters exist.
+            ResponseEntity<Map<String, Object>> denied =
+                    requireOwningAgent(authHeader, cloudAccountId, clusterName, request);
+            if (denied != null) {
+                return denied;
+            }
             return ResponseEntity.ok(Map.of(
                     "clusterName", clusterName,
                     "agentStatus", "not_configured",
@@ -465,7 +488,7 @@ public class AgentController {
             ));
         }
 
-        return getAgentStatus(configOpt.get().getId());
+        return getAgentStatus(authHeader, configOpt.get().getId(), request);
     }
 
     /**
@@ -720,13 +743,52 @@ public class AgentController {
      */
     @GetMapping("/events/{clusterConfigId}")
     public ResponseEntity<List<AgentEvent>> getAgentEvents(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
             @PathVariable Long clusterConfigId,
-            @RequestParam(defaultValue = "50") int limit) {
+            @RequestParam(defaultValue = "50") int limit,
+            HttpServletRequest request) {
+
+        Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository.findById(clusterConfigId);
+        if (configOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        // FR-10.2 / F-25: events include agentIp, so require an agent key owning the cluster.
+        ResponseEntity<Map<String, Object>> denied = requireOwningAgent(authHeader, configOpt.get(), request);
+        if (denied != null) {
+            return ResponseEntity.status(denied.getStatusCode()).build();
+        }
 
         List<AgentEvent> events = agentEventRepository.findByClusterConfigIdOrderByCreatedAtDesc(
                 clusterConfigId, PageRequest.of(0, limit)).getContent();
 
         return ResponseEntity.ok(events);
+    }
+
+    /**
+     * FR-10.2 / F-25 guard for the agent read endpoints. Authenticates the bearer agent key and
+     * requires its principal to own the cluster. Returns {@code null} when allowed, a 401 body
+     * when the key is missing/invalid, or a 403 body when the key is valid but not entitled.
+     */
+    private ResponseEntity<Map<String, Object>> requireOwningAgent(
+            String authHeader, KubernetesClusterConfig config, HttpServletRequest request) {
+        return requireOwningAgent(authHeader, config.getCloudAccountId(), config.getClusterName(), request);
+    }
+
+    private ResponseEntity<Map<String, Object>> requireOwningAgent(
+            String authHeader, Long cloudAccountId, String clusterName, HttpServletRequest request) {
+        String apiKey = extractApiKey(authHeader);
+        AgentPrincipal principal = apiKey == null ? null : agentIngestService.authenticate(apiKey, getClientIp(request));
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "Invalid or missing API key"));
+        }
+        String ownershipDenied = agentIngestService.checkOwnership(
+                principal, cloudAccountId == null ? null : String.valueOf(cloudAccountId), clusterName);
+        if (ownershipDenied != null) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", ownershipDenied));
+        }
+        return null;
     }
 
     // =========================================================================

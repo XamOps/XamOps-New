@@ -1,24 +1,29 @@
 package com.xammer.cloud.controller;
 
+import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.KubernetesClusterConfig;
+import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
+import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.security.CloudAccountAccessService;
+import com.xammer.cloud.security.K8sAutomationAccessService;
 import com.xammer.cloud.service.ClusterIntegrationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Controller for cluster integration management.
  *
- * Endpoints:
- * - POST /api/v1/clusters/{id}/api-key - Generate new API key
- * - PUT /api/v1/clusters/{id}/api-key - Regenerate API key
- * - DELETE /api/v1/clusters/{id}/api-key - Revoke API key
- * - GET /api/v1/clusters/{id}/integration-status - Get integration status
- * - PUT /api/v1/clusters/{id}/data-source-mode - Set data source mode
- * - GET /api/v1/clusters/{id}/agent-install - Get agent install command
+ * <p>FR-10.1 lockdown (design §4.4): every endpoint resolves the config, finds its owning
+ * account and checks the caller may access it. "Not found" and "not yours" return the same
+ * 403 body so the endpoint is not an enumeration oracle. {@code GET /{id}/agent-install} is
+ * retired (410) in favour of CloudK8s "Connect cluster".</p>
  */
 @RestController
 @RequestMapping("/api/v1/clusters")
@@ -26,148 +31,145 @@ public class ClusterIntegrationController {
 
     private static final Logger logger = LoggerFactory.getLogger(ClusterIntegrationController.class);
 
+    private static final Map<String, Object> FORBIDDEN_BODY =
+            Map.of("success", false, "error", "Cluster not found or access denied.");
+
     private final ClusterIntegrationService integrationService;
+    private final KubernetesClusterConfigRepository clusterConfigRepository;
+    private final K8sAutomationAccessService accessService;
+    private final CloudAccountAccessService cloudAccountAccessService;
 
-    @Value("${xamops.server.url:https://api.xamops.com}")
-    private String xamopsServerUrl;
-
-    public ClusterIntegrationController(ClusterIntegrationService integrationService) {
+    public ClusterIntegrationController(ClusterIntegrationService integrationService,
+                                        KubernetesClusterConfigRepository clusterConfigRepository,
+                                        K8sAutomationAccessService accessService,
+                                        CloudAccountAccessService cloudAccountAccessService) {
         this.integrationService = integrationService;
+        this.clusterConfigRepository = clusterConfigRepository;
+        this.accessService = accessService;
+        this.cloudAccountAccessService = cloudAccountAccessService;
     }
 
     /**
-     * Generate a new API key for a cluster.
-     *
-     * POST /api/v1/clusters/{clusterConfigId}/api-key
+     * Resolve the config and assert the caller owns it. Returns the config when access is
+     * granted, otherwise empty (the caller responds 403 with the opaque body). Uses the same
+     * message for "no such config" and "not entitled" to avoid an enumeration oracle.
      */
+    private Optional<KubernetesClusterConfig> requireOwned(ClientUserDetails user, Long clusterConfigId) {
+        if (user == null || clusterConfigId == null) {
+            return Optional.empty();
+        }
+        Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository.findById(clusterConfigId);
+        if (configOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        KubernetesClusterConfig config = configOpt.get();
+        Optional<CloudAccount> owner = accessService.findOwningAccount(config);
+        if (owner.isEmpty() || !cloudAccountAccessService.canAccess(user, owner.get())) {
+            logger.warn("Denied cluster-integration access: user={} clusterConfigId={}",
+                    user.getId(), clusterConfigId);
+            return Optional.empty();
+        }
+        return configOpt;
+    }
+
+    private ResponseEntity<Map<String, Object>> forbidden() {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(FORBIDDEN_BODY);
+    }
+
     @PostMapping("/{clusterConfigId}/api-key")
-    public ResponseEntity<Map<String, Object>> generateApiKey(@PathVariable Long clusterConfigId) {
+    public ResponseEntity<Map<String, Object>> generateApiKey(
+            @AuthenticationPrincipal ClientUserDetails user,
+            @PathVariable Long clusterConfigId) {
+        if (requireOwned(user, clusterConfigId).isEmpty()) {
+            return forbidden();
+        }
         logger.info("Generating API key for cluster config: {}", clusterConfigId);
         Map<String, Object> result = integrationService.generateApiKey(clusterConfigId);
-
-        if (!(boolean) result.get("success")) {
-            return ResponseEntity.badRequest().body(result);
-        }
-
-        return ResponseEntity.ok(result);
+        return (boolean) result.get("success") ? ResponseEntity.ok(result) : ResponseEntity.badRequest().body(result);
     }
 
-    /**
-     * Generate API key by account and cluster name.
-     *
-     * POST /api/v1/clusters/api-key?cloudAccountId=xxx&clusterName=xxx
-     */
     @PostMapping("/api-key")
     public ResponseEntity<Map<String, Object>> generateApiKeyByName(
+            @AuthenticationPrincipal ClientUserDetails user,
             @RequestParam Long cloudAccountId,
             @RequestParam String clusterName) {
-        logger.info("Generating API key for account: {}, cluster: {}", cloudAccountId, clusterName);
-        Map<String, Object> result = integrationService.generateApiKey(cloudAccountId, clusterName);
-
-        if (!(boolean) result.get("success")) {
-            return ResponseEntity.badRequest().body(result);
+        Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository
+                .findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
+        if (configOpt.isEmpty() || requireOwned(user, configOpt.get().getId()).isEmpty()) {
+            return forbidden();
         }
-
-        return ResponseEntity.ok(result);
+        logger.info("Generating API key for account: {}, cluster: {}", cloudAccountId, clusterName);
+        Map<String, Object> result = integrationService.generateApiKey(configOpt.get().getId());
+        return (boolean) result.get("success") ? ResponseEntity.ok(result) : ResponseEntity.badRequest().body(result);
     }
 
-    /**
-     * Regenerate API key for a cluster.
-     * This invalidates the old key immediately.
-     *
-     * PUT /api/v1/clusters/{clusterConfigId}/api-key
-     */
     @PutMapping("/{clusterConfigId}/api-key")
-    public ResponseEntity<Map<String, Object>> regenerateApiKey(@PathVariable Long clusterConfigId) {
+    public ResponseEntity<Map<String, Object>> regenerateApiKey(
+            @AuthenticationPrincipal ClientUserDetails user,
+            @PathVariable Long clusterConfigId) {
+        if (requireOwned(user, clusterConfigId).isEmpty()) {
+            return forbidden();
+        }
         logger.info("Regenerating API key for cluster config: {}", clusterConfigId);
         Map<String, Object> result = integrationService.regenerateApiKey(clusterConfigId);
-
-        if (!(boolean) result.get("success")) {
-            return ResponseEntity.badRequest().body(result);
-        }
-
-        return ResponseEntity.ok(result);
+        return (boolean) result.get("success") ? ResponseEntity.ok(result) : ResponseEntity.badRequest().body(result);
     }
 
-    /**
-     * Revoke API key for a cluster.
-     *
-     * DELETE /api/v1/clusters/{clusterConfigId}/api-key
-     */
     @DeleteMapping("/{clusterConfigId}/api-key")
-    public ResponseEntity<Map<String, Object>> revokeApiKey(@PathVariable Long clusterConfigId) {
+    public ResponseEntity<Map<String, Object>> revokeApiKey(
+            @AuthenticationPrincipal ClientUserDetails user,
+            @PathVariable Long clusterConfigId) {
+        if (requireOwned(user, clusterConfigId).isEmpty()) {
+            return forbidden();
+        }
         logger.info("Revoking API key for cluster config: {}", clusterConfigId);
         Map<String, Object> result = integrationService.revokeApiKey(clusterConfigId);
-
-        if (!(boolean) result.get("success")) {
-            return ResponseEntity.badRequest().body(result);
-        }
-
-        return ResponseEntity.ok(result);
+        return (boolean) result.get("success") ? ResponseEntity.ok(result) : ResponseEntity.badRequest().body(result);
     }
 
-    /**
-     * Get integration status for a cluster.
-     *
-     * GET /api/v1/clusters/{clusterConfigId}/integration-status
-     */
     @GetMapping("/{clusterConfigId}/integration-status")
-    public ResponseEntity<Map<String, Object>> getIntegrationStatus(@PathVariable Long clusterConfigId) {
-        Map<String, Object> result = integrationService.getIntegrationStatus(clusterConfigId);
-
-        if (!(boolean) result.get("success")) {
-            return ResponseEntity.badRequest().body(result);
+    public ResponseEntity<Map<String, Object>> getIntegrationStatus(
+            @AuthenticationPrincipal ClientUserDetails user,
+            @PathVariable Long clusterConfigId) {
+        if (requireOwned(user, clusterConfigId).isEmpty()) {
+            return forbidden();
         }
-
-        return ResponseEntity.ok(result);
+        Map<String, Object> result = integrationService.getIntegrationStatus(clusterConfigId);
+        return (boolean) result.get("success") ? ResponseEntity.ok(result) : ResponseEntity.badRequest().body(result);
     }
 
-    /**
-     * Set data source mode for a cluster.
-     *
-     * PUT /api/v1/clusters/{clusterConfigId}/data-source-mode
-     * Body: { "mode": "kubeconfig" | "agent" | "hybrid" }
-     */
     @PutMapping("/{clusterConfigId}/data-source-mode")
     public ResponseEntity<Map<String, Object>> setDataSourceMode(
+            @AuthenticationPrincipal ClientUserDetails user,
             @PathVariable Long clusterConfigId,
             @RequestBody Map<String, String> body) {
-
+        if (requireOwned(user, clusterConfigId).isEmpty()) {
+            return forbidden();
+        }
         String mode = body.get("mode");
         if (mode == null || mode.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "error", "Mode is required"
-            ));
+            return ResponseEntity.badRequest().body(Map.of("success", false, "error", "Mode is required"));
         }
-
         logger.info("Setting data source mode to '{}' for cluster config: {}", mode, clusterConfigId);
         Map<String, Object> result = integrationService.setDataSourceMode(clusterConfigId, mode);
-
-        if (!(boolean) result.get("success")) {
-            return ResponseEntity.badRequest().body(result);
-        }
-
-        return ResponseEntity.ok(result);
+        return (boolean) result.get("success") ? ResponseEntity.ok(result) : ResponseEntity.badRequest().body(result);
     }
 
     /**
-     * Get agent installation command for a cluster.
-     *
-     * GET /api/v1/clusters/{clusterConfigId}/agent-install
+     * Retired (design §4.4). The fake Helm/charts.xamops.com path is gone; use CloudK8s
+     * "Connect cluster". Returns 410 Gone with a pointer. Still tenant-checked so it is not an
+     * enumeration oracle.
      */
     @GetMapping("/{clusterConfigId}/agent-install")
     public ResponseEntity<Map<String, Object>> getAgentInstallCommand(
+            @AuthenticationPrincipal ClientUserDetails user,
             @PathVariable Long clusterConfigId,
             @RequestParam(required = false) String serverUrl) {
-
-        String url = serverUrl != null ? serverUrl : xamopsServerUrl;
-        Map<String, Object> result = integrationService.getAgentInstallCommand(clusterConfigId, url);
-
-        if (!(boolean) result.get("success")) {
-            return ResponseEntity.badRequest().body(result);
+        if (requireOwned(user, clusterConfigId).isEmpty()) {
+            return forbidden();
         }
-
-        return ResponseEntity.ok(result);
+        return ResponseEntity.status(HttpStatus.GONE).body(Map.of(
+                "error", "GONE",
+                "message", "Use Connect cluster in CloudK8s"));
     }
 }

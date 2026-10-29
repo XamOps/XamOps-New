@@ -281,83 +281,21 @@ public class ClusterIntegrationService {
     }
 
     /**
-     * Generate Helm install command for XamOps Agent.
+     * Retired agent-install command (design §4.4, FR-10.1).
      *
-     * @param clusterConfigId The cluster configuration ID
-     * @param xamopsServerUrl The XamOps server URL (e.g., https://api.xamops.com)
-     * @return Map containing the Helm command and values
+     * <p>The former implementation rendered a fake {@code helm repo add xamops
+     * https://charts.xamops.com} command and inlined the long-lived agent API key into the
+     * returned values — a chart repo that never existed and a key-leak in a plain GET. Both
+     * are gone. Onboarding now happens through CloudK8s "Connect cluster", which exchanges a
+     * short-lived connect token for the agent key (design §4.3). This method no longer renders
+     * any install text or key; the controller answers 410 Gone.</p>
      */
     @Transactional(readOnly = true)
     public Map<String, Object> getAgentInstallCommand(Long clusterConfigId, String xamopsServerUrl) {
-        Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository.findById(clusterConfigId);
-
-        if (configOpt.isEmpty()) {
-            return Map.of(
-                    "success", false,
-                    "error", "Cluster configuration not found"
-            );
-        }
-
-        KubernetesClusterConfig config = configOpt.get();
-
-        if (config.getAgentApiKey() == null || config.getAgentApiKey().isEmpty()) {
-            return Map.of(
-                    "success", false,
-                    "error", "No API key found. Generate an API key first."
-            );
-        }
-
-        String helmValues = String.format("""
-            # xamops-agent-values.yaml
-            agent:
-              clusterName: "%s"
-              apiKey: "%s"
-              serverUrl: "%s"
-
-              # Data collection intervals (in seconds)
-              collectInterval: 300  # 5 minutes
-              pushInterval: 300     # 5 minutes
-
-              # Collectors to enable
-              collectors:
-                trivy: true
-                kubescape: true
-                opencost: true
-                metrics: true
-
-            resources:
-              requests:
-                cpu: 100m
-                memory: 128Mi
-              limits:
-                cpu: 500m
-                memory: 512Mi
-            """, config.getClusterName(), config.getAgentApiKey(), xamopsServerUrl);
-
-        String helmCommand = String.format("""
-            # Add XamOps Helm repository
-            helm repo add xamops https://charts.xamops.com
-            helm repo update
-
-            # Install XamOps Agent
-            helm upgrade --install xamops-agent xamops/xamops-agent \\
-              --namespace xamops-system \\
-              --create-namespace \\
-              --set agent.clusterName="%s" \\
-              --set agent.apiKey="%s" \\
-              --set agent.serverUrl="%s" \\
-              --wait
-            """, config.getClusterName(), config.getAgentApiKey(), xamopsServerUrl);
-
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("clusterName", config.getClusterName());
-        result.put("helmValues", helmValues);
-        result.put("helmCommand", helmCommand);
-        result.put("apiKey", config.getAgentApiKey());
-        result.put("note", "Save the values file as xamops-agent-values.yaml and run: helm upgrade --install xamops-agent xamops/xamops-agent -f xamops-agent-values.yaml -n xamops-system --create-namespace");
-
-        return result;
+        return Map.of(
+                "success", false,
+                "error", "GONE",
+                "message", "Use Connect cluster in CloudK8s");
     }
 
     /**
