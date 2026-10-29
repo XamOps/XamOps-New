@@ -309,7 +309,7 @@ function PerfChart({
 
 // ── Agent Setup Wizard ────────────────────────────────────────────────────────
 
-interface DsnEntry {
+export interface DsnEntry {
   engine: 'mysql' | 'postgres' | 'mongodb' | 'redis';
   host: string;
   port: string;
@@ -319,18 +319,85 @@ interface DsnEntry {
   sslMode: 'disable' | 'require' | 'prefer';
 }
 
-function buildDsn(d: DsnEntry) {
+/**
+ * Builds a DSN preview for the wizard. SEC-12/SEC-5: the password is always rendered masked as
+ * `***` — the real value never appears in the preview or the generated env-file. The operator
+ * fills it into xamops-agent.env by hand, so the password never leaves the browser for storage.
+ */
+export function buildDsn(d: DsnEntry) {
+  const pass = '***';
   if (d.engine === 'postgres') {
     const ssl = d.sslMode !== 'prefer' ? `?sslmode=${d.sslMode}` : '';
-    return `postgres://${d.user}:${d.pass || '<password>'}@${d.host || '<host>'}:${d.port}/${d.dbName || '<db>'}${ssl}`;
+    return `postgres://${d.user}:${pass}@${d.host || '<host>'}:${d.port}/${d.dbName || '<db>'}${ssl}`;
   }
   if (d.engine === 'mongodb') {
-    return `mongodb://${d.user}:${d.pass || '<password>'}@${d.host || '<host>'}:${d.port}/${d.dbName || 'admin'}`;
+    return `mongodb://${d.user}:${pass}@${d.host || '<host>'}:${d.port}/${d.dbName || 'admin'}`;
   }
   if (d.engine === 'redis') {
-    return `redis://:${d.pass || '<password>'}@${d.host || '<host>'}:${d.port}/${d.dbName || '0'}`;
+    return `redis://:${pass}@${d.host || '<host>'}:${d.port}/${d.dbName || '0'}`;
   }
-  return `${d.user}:${d.pass || '<password>'}@tcp(${d.host || '<host>'}:${d.port})/${d.dbName || '<db>'}`;
+  return `${d.user}:${pass}@tcp(${d.host || '<host>'}:${d.port})/${d.dbName || '<db>'}`;
+}
+
+/** SEC-12: the agent image is pinned, matching install-k8s.sh and xamops-agent/internal/version. */
+export const AGENT_IMAGE = 'xamops/agent:v2.1.0';
+
+/**
+ * SEC-2/3: Explain is disabled server-side (xamops.dbops.explain.enabled defaults off, and the
+ * enqueue/result endpoints return 409). Hard-hide the Explain UI triggers for Phase 0; the code
+ * paths stay behind this flag so flipping it back to true re-enables them when the server does.
+ */
+const EXPLAIN_UI_ENABLED = false;
+
+/**
+ * SEC-7: Postgres setup grants stats-only access (pg_read_all_stats), not a blanket table SELECT.
+ * Exported so the wizard and its unit test reference one source of truth.
+ */
+export const POSTGRES_SETUP_SQL = `-- Create read-only monitoring user
+CREATE USER xamops_reader WITH PASSWORD '<strong_password>';
+GRANT CONNECT ON DATABASE <your_db> TO xamops_reader;
+GRANT USAGE ON SCHEMA public TO xamops_reader;
+GRANT pg_read_all_stats TO xamops_reader;
+-- Optional: enable slow query analysis
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
+
+/**
+ * SEC-12: builds the wizard's install command. The DSN (which carries the password) is written
+ * to a mode-600 env-file via a here-doc rather than inlined as `-e DB_DSN_n=...`, keeping it out
+ * of shell history and `docker inspect`; the image tag is pinned; the DSN password is masked.
+ */
+export function buildAgentRunCmd(opts: {
+  serverUrl: string;
+  apiKey: string;
+  clusterName: string;
+  cloudAccountId: string;
+  queryLimit: number;
+  dsns: DsnEntry[];
+}): string {
+  const envLines = [
+    `XAMOPS_SERVER_URL=${opts.serverUrl || '<your-xamops-url>'}`,
+    `XAMOPS_API_KEY=${opts.apiKey || '<your-api-key>'}`,
+    `CLUSTER_NAME=${opts.clusterName || '<agent-name>'}`,
+    `CLOUD_ACCOUNT_ID=${opts.cloudAccountId || '<account-id>'}`,
+    'COLLECTOR_DB=true',
+    `DB_QUERY_LIMIT=${opts.queryLimit}`,
+    ...opts.dsns.map((d, i) => `DB_DSN_${i}=${buildDsn(d)}`),
+  ];
+  return [
+    '# Write the agent env-file (mode 600 keeps the DSN out of shell history and docker inspect).',
+    '# Replace *** with the real DB password in xamops-agent.env before running.',
+    "cat > xamops-agent.env <<'EOF'",
+    ...envLines,
+    'EOF',
+    'chmod 600 xamops-agent.env',
+    '',
+    'docker run -d \\',
+    '  --name xamops-agent \\',
+    '  --restart unless-stopped \\',
+    '  --network host \\',
+    '  --env-file xamops-agent.env \\',
+    `  ${AGENT_IMAGE}`,
+  ].join('\n');
 }
 
 function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engine: string; instanceId: string; endpoint?: string; onConnected?: (inst: DrawerInstance) => void }) {
@@ -388,12 +455,14 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
   const [dataCounts, setDataCounts] = useState<Record<string, { itemCount: number; collectedAt: string }>>({});
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [disconnecting, setDisconnecting] = useState(false);
+  // SEC-5: the server returns only whether a password is on file (hasPassword), never the value.
+  const [hasSavedPassword, setHasSavedPassword] = useState(false);
 
   const handleDisconnect = () => {
     if (!clusterName || !cloudAccountId) return;
     if (!window.confirm(`Remove agent "${clusterName}" and all its cached data? The Docker container will keep running until you stop it manually.`)) return;
     setDisconnecting(true);
-    apiClient.delete(`/api/v1/agent/db/register?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`)
+    apiClient.delete(`/api/xamops/db-agent/register?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`)
       .then(() => { setViewMode('wizard'); setStep(1); })
       .catch(() => setDisconnecting(false));
   };
@@ -418,7 +487,7 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
   useEffect(() => {
     if (!clusterName || !cloudAccountId) { setViewMode('wizard'); return; }
 
-    const applyConfig = (res: { found: boolean; dbEngine?: string; dbHost?: string; dbPort?: string; dbName?: string; dbUser?: string; dbPassword?: string; serverUrl?: string }) => {
+    const applyConfig = (res: { found: boolean; dbEngine?: string; dbHost?: string; dbPort?: string; dbName?: string; dbUser?: string; hasPassword?: boolean; serverUrl?: string }) => {
       if (!res.found) return false;
       if (res.dbEngine) setSqlEngine(res.dbEngine as 'mysql' | 'postgres' | 'mongodb' | 'redis');
       setDsns(prev => {
@@ -428,19 +497,21 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
         if (res.dbPort) first.port = res.dbPort!;
         if (res.dbName) first.dbName = res.dbName!;
         if (res.dbUser) first.user = res.dbUser!;
-        if (res.dbPassword) first.pass = res.dbPassword!;
+        // SEC-5: the server no longer returns the password — only hasPassword. Leave the field
+        // empty; the operator re-enters it to regenerate the command (it never leaves the browser).
         return [first, ...prev.slice(1)];
       });
       if (res.serverUrl) setServerUrl(res.serverUrl!);
+      setHasSavedPassword(!!res.hasPassword);
       return true;
     };
 
     Promise.all([
-      apiClient.get<{ found: boolean; dbEngine?: string; dbHost?: string; dbPort?: string; dbName?: string; dbUser?: string; dbPassword?: string; serverUrl?: string }>(
-        `/api/v1/agent/db/config?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`
+      apiClient.get<{ found: boolean; dbEngine?: string; dbHost?: string; dbPort?: string; dbName?: string; dbUser?: string; hasPassword?: boolean; serverUrl?: string }>(
+        `/api/xamops/db-agent/config?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`
       ).catch(() => ({ found: false })),
       apiClient.get<{ registered: boolean; isActive: boolean; lastCheckin: string | null; agentIp: string; dataCounts?: Record<string, { itemCount: number; collectedAt: string }> }>(
-        `/api/v1/agent/db/status?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`
+        `/api/xamops/db-agent/status?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`
       ).catch(() => ({ registered: false, isActive: false, lastCheckin: null, agentIp: '' })),
     ]).then(([cfg, status]) => {
       applyConfig(cfg);
@@ -464,12 +535,12 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
     if ((viewMode !== 'wizard' || step !== 3) && viewMode !== 'disconnected') return;
     if (!clusterName || !cloudAccountId) return;
 
-    apiClient.post('/api/v1/agent/db/register', { agentName: clusterName, cloudAccountId })
+    apiClient.post('/api/xamops/db-agent/register', { agentName: clusterName, cloudAccountId })
       .catch(() => { });
 
     const poll = () => {
       apiClient.get<{ registered: boolean; isActive: boolean; lastCheckin: string | null; agentIp: string; dataCounts?: Record<string, { itemCount: number; collectedAt: string }> }>(
-        `/api/v1/agent/db/status?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`
+        `/api/xamops/db-agent/status?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`
       ).then(res => {
         setLastCheckin(res.lastCheckin ?? null);
         setAgentIp(res.agentIp ?? '');
@@ -488,7 +559,7 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
     if (viewMode !== 'connected' || !clusterName || !cloudAccountId) return;
     const poll = () => {
       apiClient.get<{ registered: boolean; isActive: boolean; lastCheckin: string | null; agentIp: string; dataCounts?: Record<string, { itemCount: number; collectedAt: string }> }>(
-        `/api/v1/agent/db/status?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`
+        `/api/xamops/db-agent/status?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`
       ).then(res => {
         setLastCheckin(res.lastCheckin ?? null);
         setAgentIp(res.agentIp ?? '');
@@ -510,13 +581,7 @@ GRANT SELECT ON <your_database>.* TO 'xamops_reader'@'%';
 FLUSH PRIVILEGES;
 -- Note: RDS requires performance_schema=1 in a custom parameter group (requires reboot)`;
 
-  const postgresSql = `-- Create read-only monitoring user
-CREATE USER xamops_reader WITH PASSWORD '<strong_password>';
-GRANT CONNECT ON DATABASE <your_db> TO xamops_reader;
-GRANT USAGE ON SCHEMA public TO xamops_reader;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO xamops_reader;
--- Optional: enable slow query analysis
-CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
+  const postgresSql = POSTGRES_SETUP_SQL;
 
   const mongoSql = `// Create a read-only monitoring user in admin DB
 use admin
@@ -542,20 +607,7 @@ db.grantRolesToUser("xamops_reader", [
 
   const stopCmd = 'docker stop xamops-agent 2>/dev/null; docker rm xamops-agent 2>/dev/null';
 
-  const runCmd = [
-    'docker run -d \\',
-    '  --name xamops-agent \\',
-    '  --restart unless-stopped \\',
-    '  --network host \\',
-    `  -e XAMOPS_SERVER_URL="${serverUrl || '<your-xamops-url>'}" \\`,
-    `  -e XAMOPS_API_KEY="${apiKey || '<your-api-key>'}" \\`,
-    `  -e CLUSTER_NAME="${clusterName || '<agent-name>'}" \\`,
-    `  -e CLOUD_ACCOUNT_ID="${cloudAccountId || '<account-id>'}" \\`,
-    '  -e COLLECTOR_DB=true \\',
-    `  -e DB_QUERY_LIMIT=${queryLimit} \\`,
-    ...dsns.map((d, i) => `  -e DB_DSN_${i}='${buildDsn(d)}' \\`),
-    '  xamops/agent:latest',
-  ].join('\n');
+  const runCmd = buildAgentRunCmd({ serverUrl, apiKey, clusterName, cloudAccountId, queryLimit, dsns });
 
   const copy = (text: string, key: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -775,7 +827,7 @@ db.grantRolesToUser("xamops_reader", [
           <ul className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
             <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">CONNECT</span><span>Allows the agent to open a connection to the database. No data access on its own.</span></li>
             <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">USAGE ON SCHEMA public</span><span>Lets the agent see the list of schema objects (tables, views). Does <strong>not</strong> grant access to row data.</span></li>
-            <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">SELECT ON ALL TABLES</span><span>Reads system catalog views like <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">pg_stat_user_tables</code> and <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">pg_stats</code> for table sizes, index usage, and row counts. We <strong>never</strong> read your business data rows.</span></li>
+            <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">pg_read_all_stats</span><span>Read access to the statistics and plan views only — <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">pg_stat_statements</code>, <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">pg_stat_user_tables</code> and <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">pg_stats</code> for query stats, table sizes, index usage, and row-count estimates. It does <strong>not</strong> grant SELECT on your tables.</span></li>
             <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">pg_stat_statements</span><span>Extension that exposes aggregated query statistics (call counts, avg/max time, rows). Query text is normalized — literals and parameter values are <strong>stripped out</strong>.</span></li>
           </ul>
         ) : (
@@ -958,7 +1010,7 @@ db.grantRolesToUser("xamops_reader", [
               <div className="relative">
                 <input type={showPass[idx] ? 'text' : 'password'} value={d.pass}
                   onChange={e => updateDsn(idx, 'pass', e.target.value)}
-                  placeholder="••••••••"
+                  placeholder={idx === 0 && hasSavedPassword ? 'Saved — re-enter to regenerate the command' : '••••••••'}
                   className="w-full px-2 py-1.5 text-xs rounded-lg bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:border-[rgba(0,0,0,0.2)] pr-7" />
                 <button type="button" onClick={() => setShowPass(p => ({ ...p, [idx]: !p[idx] }))}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.6)]">
@@ -1022,7 +1074,7 @@ db.grantRolesToUser("xamops_reader", [
           onClick={() => {
             setSaveStatus('saving');
             const d0 = dsns[0];
-            apiClient.post('/api/v1/agent/db/config', {
+            apiClient.post('/api/xamops/db-agent/config', {
               agentName: clusterName, cloudAccountId,
               dbEngine: d0.engine, dbHost: d0.host, dbPort: d0.port,
               dbName: d0.dbName, dbUser: d0.user, dbPassword: d0.pass, serverUrl,
@@ -1353,8 +1405,8 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
   return (
     <div className="space-y-4">
 
-      {/* ── Explain Query overlay ── */}
-      {explainQuery !== null && (
+      {/* ── Explain Query overlay ── SEC-2/3: gated off in Phase 0 (feature disabled server-side) */}
+      {EXPLAIN_UI_ENABLED && explainQuery !== null && (
         <div
           className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center p-4 bg-black/50"
           onClick={() => setExplainQuery(null)}
@@ -1562,13 +1614,15 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
                       {copied === gi ? <Icon icon="mdi:check" width={11} /> : <Icon icon="mdi:content-copy" width={11} />}
                       {copied === gi ? 'Copied!' : 'Copy SQL'}
                     </button>
-                    {/* Explain */}
+                    {/* Explain — SEC-2/3: hidden in Phase 0 (feature disabled server-side) */}
+                    {EXPLAIN_UI_ENABLED && (
                     <button
                       onClick={() => setExplainQuery(q.query)}
                       className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium border bg-[rgba(0,0,0,0.03)] text-[#0b8f5a] border-[rgba(0,0,0,0.1)] hover:bg-[rgba(0,0,0,0.05)] transition-colors"
                     >
                       <Icon icon="mdi:console" width={11} className="inline" /> Explain
                     </button>
+                    )}
                   </div>
 
                   {/* SQL block with syntax highlighting */}
@@ -2016,12 +2070,15 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint, onExplain }: {
                       </td>
                     )}
                     <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                      {/* Explain — SEC-2/3: hidden in Phase 0 (feature disabled server-side) */}
+                      {EXPLAIN_UI_ENABLED && (
                       <button
                         onClick={() => onExplain?.(s)}
                         className="px-2 py-1 text-[10px] font-semibold text-[#0b8f5a] dark:text-[rgba(0,0,0,0.4)] border border-[rgba(0,0,0,0.1)] dark:border-indigo-800 rounded-lg hover:bg-[rgba(0,0,0,0.03)] dark:hover:bg-indigo-900/20 transition-colors whitespace-nowrap"
                       >
                         <i className="fas fa-magnifying-glass-chart mr-1 text-[9px]" /> Explain
                       </button>
+                      )}
                     </td>
                   </tr>
 
@@ -4406,7 +4463,7 @@ export default function DbInstanceDetailDrawer({
     if (!agentName || !accountId) return;
     if (!window.confirm(`Remove agent "${agentName}" and all its cached data?\n\nThe Docker container will keep running until you stop it manually on the EC2.`)) return;
     setAgentDisconnecting(true);
-    apiClient.delete(`/api/v1/agent/db/register?agentName=${encodeURIComponent(agentName)}&cloudAccountId=${encodeURIComponent(accountId)}`)
+    apiClient.delete(`/api/xamops/db-agent/register?agentName=${encodeURIComponent(agentName)}&cloudAccountId=${encodeURIComponent(accountId)}`)
       .then(() => window.location.reload())
       .catch(() => setAgentDisconnecting(false));
   };

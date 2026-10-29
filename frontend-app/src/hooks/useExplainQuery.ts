@@ -45,7 +45,14 @@ export function useExplainQuery(accountId: string) {
       }
       setError('Explain timed out — agent did not respond within 60 s');
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Unknown error');
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      // SEC-2/3: Explain is disabled server-side — enqueue and result polling both answer 409
+      // explain_disabled. Surface a calm, non-crashing state instead of a raw error banner.
+      if (msg.includes('explain_disabled') || msg.includes('HTTP 409')) {
+        setError('Explain is temporarily unavailable.');
+      } else {
+        setError(msg);
+      }
     } finally {
       setIsLoading(false);
     }

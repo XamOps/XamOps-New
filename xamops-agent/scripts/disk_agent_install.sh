@@ -32,8 +32,8 @@ info()  { echo -e "${GREEN}[xamops]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[xamops]${NC} $*"; }
 error() { echo -e "${RED}[xamops]${NC} $*"; exit 1; }
 
-# ── Baked-in XamOps connection (customers do NOT change these) ────────────────
-XAMOPS_API_KEY="xamops_SecureAgentKey2024XamOps"
+# ── XamOps connection (SEC-6: key supplied via env, not baked in) ─────────────
+: "${XAMOPS_API_KEY:?paste the account-scoped key from the XamOps wizard}"
 
 # ── Parse args ────────────────────────────────────────────────────────────────
 CLOUD_ACCOUNT_ID=""

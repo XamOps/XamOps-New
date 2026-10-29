@@ -101,7 +101,10 @@ public class AgentIngestService {
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
-    @Value("${xamops.agent.api-key:xamops_DEFAULT_KEY_CHANGE_IN_PRODUCTION}")
+    // SEC-6: no committed default. When XAMOPS_AGENT_API_KEY is unset this is empty, and the
+    // empty-key guard in authenticate() plus the constant-time compare make the legacy
+    // shared-key branch fail closed. Account-scoped xak_ keys are unaffected.
+    @Value("${xamops.agent.api-key:}")
     private String globalAgentApiKey;
 
     /**

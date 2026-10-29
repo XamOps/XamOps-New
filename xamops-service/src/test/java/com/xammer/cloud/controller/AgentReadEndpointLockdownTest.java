@@ -1,5 +1,6 @@
 package com.xammer.cloud.controller;
 
+import com.xammer.cloud.config.DbOpsFeatureFlags;
 import com.xammer.cloud.config.K8sAutomationReadinessProperties;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.agent.AgentPrincipal;
@@ -72,7 +73,8 @@ class AgentReadEndpointLockdownTest {
                 eventRepository, mock(RedisCacheService.class), cloudAccountRepository,
                 mock(SreInvestigationService.class), mock(OpenObserveService.class),
                 mock(ExplainRequestRepository.class), mock(AgentApiKeyService.class),
-                new K8sAutomationPolicyNormalizer(new K8sAutomationReadinessProperties()), accessService);
+                new K8sAutomationPolicyNormalizer(new K8sAutomationReadinessProperties()), accessService,
+                new DbOpsFeatureFlags(false));
 
         request = mock(HttpServletRequest.class);
         when(request.getRemoteAddr()).thenReturn("10.0.0.1");

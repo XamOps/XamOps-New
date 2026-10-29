@@ -19,6 +19,7 @@ import com.xammer.cloud.dto.dbops.MongoReplStatusDto;
 import com.xammer.cloud.dto.dbops.RedisInstanceMetricsDto;
 import com.xammer.cloud.dto.dbops.RedisSlowLogDto;
 import com.xammer.cloud.dto.dbops.RedisKeyspaceDto;
+import com.xammer.cloud.config.DbOpsFeatureFlags;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DbAgentConfigRepository;
 import com.xammer.cloud.repository.DbAgentDataCacheRepository;
@@ -44,6 +45,7 @@ public class DbAgentService {
     private final DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository;
     private final CloudAccountRepository cloudAccountRepository;
     private final ExplainRequestRepository explainRequestRepository;
+    private final DbOpsFeatureFlags dbOpsFeatureFlags;
     private final ObjectMapper objectMapper;
 
     public DbAgentService(
@@ -51,12 +53,14 @@ public class DbAgentService {
             DbAgentDataCacheRepository dbAgentDataCacheRepository,
             DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository,
             CloudAccountRepository cloudAccountRepository,
-            ExplainRequestRepository explainRequestRepository) {
+            ExplainRequestRepository explainRequestRepository,
+            DbOpsFeatureFlags dbOpsFeatureFlags) {
         this.dbAgentConfigRepository = dbAgentConfigRepository;
         this.dbAgentDataCacheRepository = dbAgentDataCacheRepository;
         this.dbAgentMetricsHistoryRepository = dbAgentMetricsHistoryRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.explainRequestRepository = explainRequestRepository;
+        this.dbOpsFeatureFlags = dbOpsFeatureFlags;
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule());
     }
@@ -251,21 +255,28 @@ public class DbAgentService {
                     }
                 }
                 case "db-explain-result" -> {
-                    List<Map<String, Object>> items = objectMapper.readValue(
-                        itemsJson, new TypeReference<List<Map<String, Object>>>() {});
-                    for (Map<String, Object> item : items) {
-                        String commandId = (String) item.get("commandId");
-                        String planJson  = (String) item.get("planJson");
-                        String error     = (String) item.getOrDefault("error", "");
-                        if (commandId == null) continue;
-                        explainRequestRepository.findById(commandId).ifPresent(req -> {
-                            req.setStatus(error != null && !error.isEmpty() ? "FAILED" : "COMPLETED");
-                            req.setResultJson(planJson);
-                            req.setErrorMessage(error != null && !error.isEmpty() ? error : null);
-                            req.setCompletedAt(LocalDateTime.now());
-                            explainRequestRepository.save(req);
-                            logger.info("Explain request {} completed, status={}", commandId, req.getStatus());
-                        });
+                    // SEC-2/3: Explain is disabled server-side (xamops.dbops.explain.enabled,
+                    // default false). Ignore a late result from an in-flight command so it
+                    // cannot mutate an explain_request row while the feature is off.
+                    if (!dbOpsFeatureFlags.isExplainEnabled()) {
+                        logger.debug("db-explain-result ignored — Explain is disabled");
+                    } else {
+                        List<Map<String, Object>> items = objectMapper.readValue(
+                            itemsJson, new TypeReference<List<Map<String, Object>>>() {});
+                        for (Map<String, Object> item : items) {
+                            String commandId = (String) item.get("commandId");
+                            String planJson  = (String) item.get("planJson");
+                            String error     = (String) item.getOrDefault("error", "");
+                            if (commandId == null) continue;
+                            explainRequestRepository.findById(commandId).ifPresent(req -> {
+                                req.setStatus(error != null && !error.isEmpty() ? "FAILED" : "COMPLETED");
+                                req.setResultJson(planJson);
+                                req.setErrorMessage(error != null && !error.isEmpty() ? error : null);
+                                req.setCompletedAt(LocalDateTime.now());
+                                explainRequestRepository.save(req);
+                                logger.info("Explain request {} completed, status={}", commandId, req.getStatus());
+                            });
+                        }
                     }
                 }
                 case "mongo-instance-metrics" -> {
@@ -354,11 +365,17 @@ public class DbAgentService {
     /**
      * Save connection configuration for a DB agent.
      * Creates the agent registration if it doesn't exist yet.
+     *
+     * <p>
+     * SEC-5: the DB password is deliberately NOT a parameter and is never written. The agent
+     * reads its DSN (password included) from its own {@code DB_DSN_n} environment variable on
+     * the customer host; the server has no use for the value, so storing it only created a
+     * plaintext liability. Existing rows are nulled by migration V20261029_1.
      */
     @Transactional
     public DbAgentConfig saveConnectionConfig(String providerAccountId, String agentName,
                                                String dbEngine, String dbHost, String dbPort,
-                                               String dbName, String dbUser, String dbPassword,
+                                               String dbName, String dbUser,
                                                String serverUrl) {
         DbAgentConfig cfg = registerDbAgent(providerAccountId, agentName);
         if (cfg == null) return null;
@@ -368,7 +385,6 @@ public class DbAgentService {
         cfg.setDbPort(dbPort);
         cfg.setDbName(dbName);
         cfg.setDbUser(dbUser);
-        if (dbPassword != null && !dbPassword.isEmpty()) cfg.setDbPassword(dbPassword);
         cfg.setServerUrl(serverUrl);
         return dbAgentConfigRepository.save(cfg);
     }

@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -251,6 +252,15 @@ func execExplain(cmd collector.AgentCommand, dsns []string) collector.ExplainRes
 	now := time.Now().UTC().Format(time.RFC3339)
 	result := collector.ExplainResult{CommandID: cmd.CommandID, DSNAlias: cmd.DSNAlias, CollectedAt: now}
 
+	// SEC-11: validate before touching the database. lib/pq's simple protocol executes stacked
+	// ';' statements, so reject multi-statement input and any non-read leading keyword here,
+	// before anything runs.
+	if err := validateExplainQuery(cmd.QueryText); err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	explainTarget := strings.TrimSuffix(strings.TrimSpace(cmd.QueryText), ";")
+
 	// Find the DSN matching the alias (db-0, db-1, …)
 	dsn := ""
 	for i, d := range dsns {
@@ -281,19 +291,36 @@ func execExplain(cmd collector.AgentCommand, dsns []string) collector.ExplainRes
 		return result
 	}
 
+	// SEC-11: run EXPLAIN inside a read-only transaction with per-statement timeouts, so even
+	// if validation were bypassed no write can occur. The EXPLAIN operand is the query text and
+	// cannot be a bind parameter; moving the driver off lib/pq's simple protocol to the extended
+	// protocol (pgx) is the deferred Phase-1 SEC-2 follow-up. The multi-statement rejection above
+	// plus this read-only tx close the simple-protocol stacked-statement hole.
 	switch cmd.DBEngine {
 	case "postgres":
-		_, _ = db.ExecContext(ctx, "SET statement_timeout = '3s'")
+		tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+		if err != nil {
+			result.Error = fmt.Sprintf("begin read-only tx: %v", err)
+			return result
+		}
+		defer tx.Rollback() // never commit — read-only, plan only
+		_, _ = tx.ExecContext(ctx, "SET LOCAL statement_timeout = '3s'")
+		_, _ = tx.ExecContext(ctx, "SET LOCAL lock_timeout = '1s'")
 		var plan []byte
-		err = db.QueryRowContext(ctx, "EXPLAIN (FORMAT JSON) "+cmd.QueryText).Scan(&plan)
-		if err == nil {
+		if err := tx.QueryRowContext(ctx, "EXPLAIN (FORMAT JSON) "+explainTarget).Scan(&plan); err == nil {
 			result.PlanJSON = string(plan)
 		} else {
 			result.Error = fmt.Sprintf("explain: %v", err)
 		}
 	case "mysql":
-		_, _ = db.ExecContext(ctx, "SET SESSION MAX_EXECUTION_TIME=3000")
-		rows, err := db.QueryContext(ctx, "EXPLAIN FORMAT=JSON "+cmd.QueryText)
+		tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+		if err != nil {
+			result.Error = fmt.Sprintf("begin read-only tx: %v", err)
+			return result
+		}
+		defer tx.Rollback() // never commit — read-only, plan only
+		_, _ = tx.ExecContext(ctx, "SET SESSION MAX_EXECUTION_TIME=3000")
+		rows, err := tx.QueryContext(ctx, "EXPLAIN FORMAT=JSON "+explainTarget)
 		if err != nil {
 			result.Error = fmt.Sprintf("explain: %v", err)
 		} else {
@@ -308,4 +335,25 @@ func execExplain(cmd collector.AgentCommand, dsns []string) collector.ExplainRes
 		result.Error = fmt.Sprintf("unsupported engine: %s", cmd.DBEngine)
 	}
 	return result
+}
+
+// validateExplainQuery is defence-in-depth for the simple-protocol EXPLAIN path (SEC-11).
+// It trims one optional trailing ';' and rejects any query that still contains a ';'
+// (multi-statement / stacked-statement injection), then requires the statement to begin with
+// SELECT or WITH so only read queries are ever explained. It runs nothing itself.
+func validateExplainQuery(queryText string) error {
+	trimmed := strings.TrimSpace(queryText)
+	if trimmed == "" {
+		return fmt.Errorf("empty query")
+	}
+	// Allow exactly one optional trailing ';'; any remaining ';' means multiple statements.
+	trimmed = strings.TrimSuffix(strings.TrimSpace(trimmed), ";")
+	if strings.Contains(trimmed, ";") {
+		return fmt.Errorf("multi-statement query rejected")
+	}
+	upper := strings.ToUpper(strings.TrimSpace(trimmed))
+	if !strings.HasPrefix(upper, "SELECT") && !strings.HasPrefix(upper, "WITH") {
+		return fmt.Errorf("only SELECT or WITH queries may be explained")
+	}
+	return nil
 }

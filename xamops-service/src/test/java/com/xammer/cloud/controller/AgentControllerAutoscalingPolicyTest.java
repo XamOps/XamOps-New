@@ -2,6 +2,7 @@ package com.xammer.cloud.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.config.DbOpsFeatureFlags;
 import com.xammer.cloud.config.K8sAutomationReadinessProperties;
 import com.xammer.cloud.domain.AgentDataCache;
 import com.xammer.cloud.domain.CloudAccount;
@@ -76,7 +77,8 @@ class AgentControllerAutoscalingPolicyTest {
                 mock(AgentEventRepository.class), mock(RedisCacheService.class), cloudAccountRepository,
                 mock(SreInvestigationService.class), mock(OpenObserveService.class),
                 mock(ExplainRequestRepository.class), mock(AgentApiKeyService.class),
-                new K8sAutomationPolicyNormalizer(new K8sAutomationReadinessProperties()), accessService);
+                new K8sAutomationPolicyNormalizer(new K8sAutomationReadinessProperties()), accessService,
+                new DbOpsFeatureFlags(false));
 
         owner = new CloudAccount();
         owner.setId(7L);

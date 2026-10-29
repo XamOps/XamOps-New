@@ -30,17 +30,14 @@ info()  { echo -e "${GREEN}[xamops]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[xamops]${NC} $*"; }
 error() { echo -e "${RED}[xamops]${NC} $*"; exit 1; }
 
-# ── Legacy shared key ─────────────────────────────────────────────────────────
-# Every agent everywhere authenticated with this one value, and it ships in this
-# public script — so it is not a secret and it proves nothing about which account
-# a request belongs to. Prefer -k with an account-scoped key from
-# XamOps → the account's agent settings. This fallback exists only so that
-# installs documented before scoped keys existed keep working.
-LEGACY_SHARED_KEY="xamops_SecureAgentKey2024XamOps"
+# ── Agent key (SEC-6) ─────────────────────────────────────────────────────────
+# No key is baked into this public script. Pass an account-scoped key with -k
+# (XamOps → the account's agent settings), or export XAMOPS_API_KEY. The old
+# shared key was removed; without a key this installer fails closed below.
 
 # ── Parse args ────────────────────────────────────────────────────────────────
 CLOUD_ACCOUNT_ID=""
-XAMOPS_API_KEY=""
+XAMOPS_API_KEY="${XAMOPS_API_KEY:-}"
 BASE_URL="https://api.xamops.com"
 AGENT_VERSION="latest"
 
@@ -57,13 +54,9 @@ done
 [[ -z "$CLOUD_ACCOUNT_ID" ]] && error "-t <aws-account-id> is required — your 12-digit AWS account ID (visible top-right in AWS Console)"
 
 if [[ -z "$XAMOPS_API_KEY" ]]; then
-  XAMOPS_API_KEY="$LEGACY_SHARED_KEY"
-  warn "No -k <api-key> given — using the shared legacy key."
-  warn "That key is published in this script and is being retired. Get an"
-  warn "account-scoped key from XamOps and re-run with -k <api-key>."
-else
-  info "Using account-scoped agent key (${XAMOPS_API_KEY:0:12}...)"
+  error "No agent key. Paste the account-scoped key from XamOps (the account's agent settings) and re-run with -k <api-key>, or export XAMOPS_API_KEY. The shared legacy key has been removed."
 fi
+info "Using account-scoped agent key (${XAMOPS_API_KEY:0:12}...)"
 
 # ── Detect OS/arch ────────────────────────────────────────────────────────────
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
