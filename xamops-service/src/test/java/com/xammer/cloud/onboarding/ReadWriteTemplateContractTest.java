@@ -123,8 +123,7 @@ class ReadWriteTemplateContractTest {
     private static final List<String> LOCAL_PARAMETERS = List.of(
             "XamOpsAccountId", "ExternalId", "EKSClusterNames", "XammerSQSQueueUrl", "XammerRegion",
             "EnableAutoSpotting", "EnableInventoryEvents", "IncludeSecurityFindings", "XamOpsInventoryQueueUrl",
-            "XamOpsInventoryRegion", "XamOpsInventoryTemplateUrl", "CurS3Bucket", "EnableCurExport",
-            "XamOpsCurExportTemplateUrl", "EnableCurReport", "XamOpsCurReportTemplateUrl");
+            "XamOpsInventoryRegion", "XamOpsInventoryTemplateUrl", "CurS3Bucket");
 
     private static final List<String> REMOTE_PARAMETERS = concat(LOCAL_PARAMETERS,
             "XamOpsPrincipalRoleName", "XamOpsInventoryResourceSuffix");

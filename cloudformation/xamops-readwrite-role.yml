@@ -436,6 +436,22 @@ Resources:
               - 'ec2:AssociateAddress'
               - 'ec2:DisassociateAddress'
             Resource: '*'
+          # iam:PassRole for EBS automation's instance refresh (EbsAsgHelper.startInstanceRefresh):
+          # Auto Scaling validates the launch template's instance profile by checking that the
+          # caller may pass its role to EC2. No XamOps code passes a role to any other service
+          # from this role. Instance profiles hold only roles of this account. Formerly an
+          # unconditioned action in the inline XamOpsPolicyRightsizing; kept here because the
+          # role's inline policies are too close to IAM's 10,240-byte limit.
+          - Sid: XamOpsRightsizingPassRoleToEc2
+            Effect: Allow
+            Action: 'iam:PassRole'
+            Resource: !If
+              - HasPassRoleScope
+              - !Ref AutoSpottingPassRoleArns
+              - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*'
+            Condition:
+              StringEquals:
+                'iam:PassedToService': 'ec2.amazonaws.com'
 
   # -----------------------------------------------------------------
   # Policy 3: AutoSpotting — Spot Fleet, EC2 Fleet, and ASG management
@@ -1021,21 +1037,9 @@ Resources:
                   - 'lambda:UpdateFunctionConfiguration'
                   - 'rds:ModifyDBInstance'
                 Resource: '*'
-              # iam:PassRole, formerly unconditioned in the statement above. Its one consumer
-              # is EBS automation's instance refresh (EbsAsgHelper.startInstanceRefresh):
-              # Auto Scaling validates the launch template's instance profile by checking that
-              # the caller may pass its role to EC2. No XamOps code passes a role to any other
-              # service from this role. Instance profiles hold only roles of this account.
-              - Sid: XamOpsRightsizingPassRoleToEc2
-                Effect: Allow
-                Action: 'iam:PassRole'
-                Resource: !If
-                  - HasPassRoleScope
-                  - !Ref AutoSpottingPassRoleArns
-                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*'
-                Condition:
-                  StringEquals:
-                    'iam:PassedToService': 'ec2.amazonaws.com'
+              # iam:PassRole, formerly unconditioned in the statement above, is the conditioned
+              # XamOpsRightsizingPassRoleToEc2 in XamOpsPolicyEC2Manage: the role's inline
+              # policies are too close to IAM's 10,240-byte limit to hold it.
         # -----------------------------------------------------------------
         # CloudK8s fleet read - roadmap Appendix 8.1 Catalog-A read delta.
         # Kept as its own inline policy: 2,722 compacted chars does not fit in
