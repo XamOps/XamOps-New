@@ -1,13 +1,20 @@
 package com.xammer.cloud.autospotting.arch;
 
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaCall;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 /**
@@ -21,6 +28,12 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
  *   <li>nothing outside {@code ..repository.autospotting..} and {@code ..service.autospotting.core..}
  *       depends on the spine repositories.</li>
  * </ol>
+ *
+ * <p>Phase 04 adds a fourth (plan-phase-04.md task 4.2, design-ux-ops.md §9.1): every v2
+ * {@code @Scheduled} method (one in {@code ..service.autospotting..}) must call
+ * {@code JobRunner.runLeased}, so no scheduled AutoSpotting job runs without its job lease. There are
+ * no v2 {@code @Scheduled} methods yet (the machinery ships dark), so the rule is satisfied vacuously
+ * now and fails the first time a later phase adds one that skips the wrapper.
  */
 class AutoSpottingArchitectureTest {
 
@@ -61,5 +74,36 @@ class AutoSpottingArchitectureTest {
                 .because("the spine repositories are driven only by the core services "
                         + "(design-ux-ops.md §9.1)");
         rule.check(classes);
+    }
+
+    @Test
+    void everyV2ScheduledMethodRunsThroughTheJobLeaseWrapper() {
+        ArchRule rule = methods()
+                .that().areAnnotatedWith(org.springframework.scheduling.annotation.Scheduled.class)
+                .and().areDeclaredInClassesThat().resideInAPackage("..service.autospotting..")
+                .should(callJobRunnerRunLeased())
+                .because("a v2 @Scheduled method must take its job lease via JobRunner.runLeased "
+                        + "(design-core.md §3.5, design-ux-ops.md §9.1)");
+        // allowEmptyShould: there are no v2 @Scheduled methods yet (the machinery ships dark).
+        rule.allowEmptyShould(true).check(classes);
+    }
+
+    private static ArchCondition<JavaMethod> callJobRunnerRunLeased() {
+        DescribedPredicate<JavaCall<?>> isRunLeased = new DescribedPredicate<>("a call to JobRunner.runLeased") {
+            @Override
+            public boolean test(JavaCall<?> call) {
+                return call.getTargetOwner().getName()
+                        .equals("com.xammer.cloud.service.autospotting.core.JobRunner")
+                        && call.getName().equals("runLeased");
+            }
+        };
+        return new ArchCondition<>("call JobRunner.runLeased") {
+            @Override
+            public void check(JavaMethod method, ConditionEvents events) {
+                boolean calls = method.getCallsFromSelf().stream().anyMatch(isRunLeased);
+                events.add(new SimpleConditionEvent(method, calls,
+                        method.getFullName() + (calls ? " calls" : " does not call") + " JobRunner.runLeased"));
+            }
+        };
     }
 }

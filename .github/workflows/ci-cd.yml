@@ -602,7 +602,9 @@ jobs:
 
             docker network inspect xamops-network >/dev/null 2>&1 || docker network create xamops-network
 
-            docker stop xamops-service 2>/dev/null || true
+            # -t 45 > the 20s AutoSpotting drain + a 45s cloud-call cap, so SIGKILL can't land inside
+            # the graceful-shutdown window (design-core.md §4.4, V-item; server.shutdown=graceful).
+            docker stop -t 45 xamops-service 2>/dev/null || true
             docker rm   xamops-service 2>/dev/null || true
 
             docker run -d \
