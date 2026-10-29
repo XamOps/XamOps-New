@@ -805,6 +805,21 @@ func (e *Executor) RecoverOrphans(ctx context.Context, mode gate.Mode) []policy.
 	return out
 }
 
+// CountRecovered returns how many of recs are successful live orphan recoveries:
+// recover-orphan records (the action RecoverOrphans emits) with
+// Status==policy.ActionSucceeded. It excludes simulated and failed records so the
+// xamops_orphans_recovered_total counter reflects actual live recoveries, not the raw
+// slice length (BUG-OBS-006).
+func CountRecovered(recs []policy.ActionRecord) int {
+	n := 0
+	for _, rec := range recs {
+		if rec.Action == "recover-orphan" && rec.Status == policy.ActionSucceeded {
+			n++
+		}
+	}
+	return n
+}
+
 // UncordonAllXamopsNodes is the operator recovery lever (FEAT-002, agent-ha-design.md
 // AC4.10): it lists every node and, for each one this autoscaler cordoned
 // (annotation xamops.io/drain-cordoned-by == xamops-automation), uncordons it
