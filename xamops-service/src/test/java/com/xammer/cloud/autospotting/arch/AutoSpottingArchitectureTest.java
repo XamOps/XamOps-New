@@ -100,6 +100,23 @@ class AutoSpottingArchitectureTest {
     }
 
     @Test
+    void noReadOnlyCloudViewDeclaresAMutationShapedMethod() {
+        // plan-phase-06.md task 6.2, design-core.md §7.2/§9.1, AC-PLN-01 (structural part): a
+        // ReadOnlyCloudView implementation exposes only Describe/List/Get, so no method it declares
+        // may read like a mutation (update*, create*, delete*, put*, patch*, insert*, set*, start*,
+        // terminate*). A mutating call then can't compile in planning. Vacuous until a provider's
+        // read-only view ships (Phases 12/26) plus the test FakeSpotProvider.View.
+        ArchRule rule = methods()
+                .that().areDeclaredInClassesThat().areAssignableTo(
+                        "com.xammer.cloud.service.autospotting.spi.ReadOnlyCloudView")
+                .and().areDeclaredInClassesThat().areNotInterfaces()
+                .should(notBeNamedLikeAMutation())
+                .because("a ReadOnlyCloudView exposes only reads, so a mutating call can't compile in "
+                        + "planning (design-core.md §7.2, AC-PLN-01)");
+        rule.allowEmptyShould(true).check(classes);
+    }
+
+    @Test
     void everyV2ScheduledMethodRunsThroughTheJobLeaseWrapper() {
         ArchRule rule = methods()
                 .that().areAnnotatedWith(org.springframework.scheduling.annotation.Scheduled.class)
@@ -135,6 +152,22 @@ class AutoSpottingArchitectureTest {
                     return false;
                 }
             };
+
+    /** The mutation-shaped method-name prefixes refused on a {@link com.xammer.cloud.service.autospotting.spi.ReadOnlyCloudView}. */
+    private static final java.util.List<String> MUTATION_PREFIXES = java.util.List.of(
+            "update", "create", "delete", "put", "patch", "insert", "set", "start", "terminate");
+
+    private static ArchCondition<JavaMethod> notBeNamedLikeAMutation() {
+        return new ArchCondition<>("not be named like a mutation") {
+            @Override
+            public void check(JavaMethod method, ConditionEvents events) {
+                String name = method.getName().toLowerCase(java.util.Locale.ROOT);
+                boolean mutationShaped = MUTATION_PREFIXES.stream().anyMatch(name::startsWith);
+                events.add(new SimpleConditionEvent(method, !mutationShaped,
+                        method.getFullName() + (mutationShaped ? " is named like a mutation" : " is read-shaped")));
+            }
+        };
+    }
 
     private static ArchCondition<JavaMethod> callJobRunnerRunLeased() {
         DescribedPredicate<JavaCall<?>> isRunLeased = new DescribedPredicate<>("a call to JobRunner.runLeased") {
