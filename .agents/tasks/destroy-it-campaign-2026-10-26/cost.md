@@ -282,3 +282,137 @@ not required.
 - **Projected total ≈ $37-108 depending on hold < $200 → NO cap breach → proceeding without warn.**
 
 _Recorded immediately BEFORE scaling ng-ondemand-1 for the Phase-2 re-run._
+
+## Attack-phase update #5 (wf_11056589d901fb99) — Phases 19-22 complete
+
+Context re-asserted before every action (acct 102227938259, region ap-south-1, pinned xamops-test-1 ARN;
+ambient drift to k8opt-chaos ignored, never used). Faults confined to ns `stress` / agent-SA RBAC probes.
+
+- **Phase 19** (quota/limitrange collision): API objects only (ResourceQuota + LimitRange); the rejected
+  k6 pods never ran. **No node churn.**
+- **Phase 20** (scheduling deadlock): 6 Pending pause pods that NEVER scheduled. **No node churn.**
+- **Phase 21** (many-container): 3×40 + 1×150 `pause` containers (tiny 1-2m/1-2Mi requests) on existing
+  nodes; force-deleted at teardown. **No new EC2.**
+- **Phase 22** (RBAC boundary): read-only `auth can-i` probes — **zero** cluster mutation, zero cost.
+
+- **Node count UNCHANGED through 19-22: 35 nodes** (30× t3.medium ng-ondemand + 1 t3.large + 1 spot +
+  3 stateful). ng-ondemand-1 held at min4/desired30/max30 (Phase-9 re-cap intact). **0 FIS templates.**
+- Burn rate unchanged ≈ **$1.65/hr** (baseline + 4 drifted nodes + Grafana LB). Campaign-attributable
+  increment for phases 19-22 ≈ **$0** (no churn).
+
+**Spent-to-date estimate (wall-clock)** ≈ **$40-52**; projected through the 3-day cap ≈ **$130-145** <
+**$200 cap**. **No cap breach → no warn.** Headroom ≈ **$55+**. Phase 23 (compound chaos) + Phase 24
+(metrics poisoning) are pod-only/API-only by design (no planned node growth); tracked next.
+
+_Last updated: after Phase 22 (RBAC boundary), wf_11056589d901fb99._
+
+## Attack-phase update #6 (wf_11056589d901fb99) — Phases 23-24 COMPLETE (all 24 phases done)
+
+Context re-asserted before every destructive action (acct 102227938259, region ap-south-1, pinned
+xamops-test-1 ARN; ambient drift to k8opt-chaos ignored).
+
+- **Phase 23 (compound chaos)** fired REAL AWS FIS `send-spot-instance-interruptions` on EXACTLY
+  `i-0626ed7148ce34ce5` (xamops-test-1 ng-spot-1, resolved by BOTH tags; test-2 `i-09e07a8add9e310b4`/
+  `i-06140cd5359326eab` never touched). Instance terminated; ASG relaunched 1 replacement spot node
+  `i-00cb2a2ffb9721e8e` (ap-south-1b). Spot ≈ $0.015/hr → partial-hour churn ≈ **<$0.05**. Scoped FIS
+  IAM role `destroy-it-p23-fis-spot` created and **deleted** in teardown ($0). The rest of phase 23 was
+  pod-only chaos + ephemeral k6.
+- **Phase 24 (metrics poisoning)** scaled `metrics-server` 2→0→2 (no node churn) + a tiny poison pod
+  (50m/32Mi) on an existing node → ~$0.
+- **Node count UNCHANGED: 35** (30× t3.medium ng-ondemand + 1 t3.large + 1 spot[replaced 1:1] +
+  3 stateful). ng-ondemand-1 held at min4/desired30/max30. **0 FIS templates / 0 scoped IAM roles remain.**
+- Burn rate unchanged ≈ **$1.65/hr** (baseline + 4 drifted nodes + Grafana LB). Campaign-attributable
+  increment for phases 23-24 ≈ **<$0.05** (spot churn only).
+
+### FINAL budget position (all 24 attack phases complete)
+- Total campaign-attributable churn increment across ALL phases ≈ **<$0.15** (two FIS spot terminate/
+  replace cycles in phases 7 and 23; everything else pod-only/API-only, zero node growth beyond the
+  pre-existing scale-holdover).
+- Dominant spend is the baseline + 30-node scale-holdover + Grafana LB at ≈ $1.65/hr wall-clock.
+- **Spent-to-date estimate (wall-clock) ≈ $42-55.** Projected through the 3-day cap ≈ **$130-145.**
+- **Budget REMAINING against the $200 cap ≈ $145-158** (using spent-to-date) / **≈ $55-70 of headroom
+  even against the full-3-day-cap projection.** **NO cap breach at any point → no warning was raised.**
+
+> Teardown lever for the campaign RESTORE step (unchanged): scale ng-ondemand-1 back to baseline 1/4/4
+> (−$1.08/hr vs 30 nodes) and remove Grafana LB / chaos-mesh / stress / k6 / redis. NOTE: this step
+> (phases 19-24) is attack-only; the campaign-wide RESTORE to baseline posture is a separate step.
+
+_Last updated: after Phase 24 (metrics poisoning) — ALL 24 ATTACK PHASES COMPLETE, wf_11056589d901fb99._
+
+## Phase 25 SOAK / LEAK HUNT — ~14h, complete (wf_11056589d901fb99)
+
+Context re-asserted before every fault injection and before teardown (acct **102227938259**, region
+**ap-south-1**, pinned xamops-test-1 ARN; ambient drift ignored).
+
+- **Soak duration actually run: ~14h** (T0 2026-10-28 15:02 UTC → wind-down 2026-10-29 05:01 UTC).
+- **Faults:** in-cluster k6 Job (40 VUs, 60m hold, grafana/k6 — ephemeral pod, ~$0) + chaos-mesh
+  `Schedule soak-pod-kill` (`@every 5m` 10% pod-kill, ns stress — pods only, ~$0). Ran continuously ~14h.
+- **NO node churn from the soak:** node count held at **35** the entire haul; ng-ondemand-1 held
+  **min4/desired30/max30** (no drift); **0 FIS templates**; no new EC2. Soak-attributable churn ≈ **$0**.
+- Burn rate unchanged ≈ **$1.65/hr** (30× t3.medium ng-ondemand + 1× t3.large + 1 spot + 3 stateful +
+  Grafana LB). The ~14h soak added only baseline burn ≈ 14h × $1.65/hr ≈ **+$23**.
+
+### Budget & duration position at soak wind-down
+- **Spent-to-date (wall-clock) estimate ≈ $65-78** (≈ $42-55 through Phase 24 + ~$23 baseline over the
+  14h soak). **Budget REMAINING against the $200 cap ≈ $122-135.**
+- **Duration:** now ~2026-10-29 05:01 UTC, ~2 days into the ~3-day cap → **~24h duration margin** left.
+  Soak wound down at the planned point so restore completes inside the cap.
+- **Restore cost/time:** scaling ng-ondemand-1 30→4 drops −$1.08/hr immediately; removing Grafana LB /
+  chaos-mesh / stress / k6 / redis is ~$0 ongoing. Restore window ~1-2h, a few $ — **well inside both the
+  ≈$122-135 cost headroom and the ~24h duration margin.**
+- **AMPLE margin for restore on BOTH axes. NO cap breach at any point → no warning raised.**
+
+> Teardown lever for the campaign RESTORE step (unchanged): scale ng-ondemand-1 back to baseline 1/4/4
+> (−$1.08/hr vs 30 nodes) and remove Grafana LB / chaos-mesh / stress / k6 / redis.
+
+_Last updated: after Phase 25 (~14h soak/leak-hunt) wind-down + full fault cleanup, wf_11056589d901fb99._
+
+---
+
+## FINAL RECONCILE — AWS Cost Explorer (authoritative) — STEP 4 restore
+
+Context asserted before the query: caller `aws sts get-caller-identity` = account **102227938259**
+(user `iam.autospotting`), region pinned. Cost Explorer is LIVE for this account
+(`aws.costexplorer.mock=false`). Query: `get-cost-and-usage`, UnblendedCost, time period
+**2026-10-26 → 2026-10-30** (the campaign window), account 102227938259.
+
+### Actual spend by service (campaign window, Oct 26–30)
+
+| Service | Actual $ (unblended) |
+|---|---|
+| Amazon EC2 — Compute | 24.42 |
+| AmazonCloudWatch | 21.56 |
+| Amazon EKS (control plane) | 15.20 |
+| EC2 — Other (EBS / data transfer) | 6.56 |
+| Amazon VPC | 4.47 |
+| Elastic Load Balancing (Grafana NLB) | 1.33 |
+| AWS Lambda / X-Ray / CloudWatch Events | ~0.02 |
+| ECR / S3 / KMS / Glue / SNS / SQS / Step Functions | ~0.01 |
+| AWS Cost Explorer API ($0.01/call) | 0.01 |
+| **TOTAL (Cost Explorer, whole account, Oct 26–30)** | **$73.57** |
+
+### Verdict against the $200 HARD cap
+
+- **FINAL TOTAL = $73.57** — reconciled against AWS Cost Explorer (authoritative), the whole account's
+  unblended spend for the campaign window. **UNDER the $200 hard cap** (≈ **$126 headroom**, ~37% of cap used).
+- This figure is a **conservative ceiling**: it is the ENTIRE account's spend for the window, so it
+  over-attributes (the account also carries non-campaign/baseline workloads). True campaign-attributable
+  spend is lower — the dominant drivers (EC2 compute, EKS control plane, CloudWatch, EBS) are the baseline
+  cluster + the 30-node scale-holdover + observability stack, exactly as the running estimates projected
+  ($65–90). Campaign-attributable node-churn increment across all 25 phases remained **<$0.15** (two FIS
+  spot terminate/replace cycles in phases 7 and 23; everything else pod-only / API-only).
+- The estimate-vs-actual gap is small and in the expected direction: running estimates said ≈$65–78
+  spent-to-date / ≈$125 projected through the 3-day cap; actual settled = **$73.57**. No surprise cost.
+- **NO cap breach at any point during the campaign → no cost-warning was ever required.**
+
+### Post-restore burn (going forward, cluster LEFT UP for owner review)
+
+After the STEP-4 restore, ng-ondemand-1 is back to baseline **1/4/4** (desired 4; the ~26 drifted nodes
+are terminating), and the agent is DRY_RUN=true. The cluster + observability stack are intentionally LEFT
+RUNNING for owner review (not torn down). Forward burn drops to roughly the baseline
+≈ **$0.50/hr** (4× t3.medium ondemand + 3× t3.medium stateful + 1× t3.large observability + 1 spot +
+EKS control plane + Grafana NLB) once the excess ondemand nodes finish draining — i.e. ≈ **$12/day**
+while it sits for review. (Owner teardown of the whole cluster would zero this; see the TEARDOWN list in
+`report.md`.)
+
+_Last updated: STEP 4 restore — final Cost Explorer reconcile ($73.57 < $200 cap), wf_11056589d901fb99._

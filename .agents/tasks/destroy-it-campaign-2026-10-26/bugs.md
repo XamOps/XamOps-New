@@ -1,9 +1,59 @@
 # Destroy-It Campaign — Bugs & Findings
 
-Workflow: wf_d2ab28b44080e183
+Workflow: wf_11056589d901fb99 (resume; supersedes wf_d2ab28b44080e183)
 Cluster under test: `arn:aws:eks:ap-south-1:102227938259:cluster/xamops-test-1` (UAT, account 102227938259)
 Image under test: `ghcr.io/xamops/xamops-autoscaler@sha256:5897349fae3d6607c2e019098b736bc0ec44f22887afb29f72f44b1dcfe3897d`
 (main HEAD autoscaler build; = commits b8827ad62 / 91d505a7c / eb629c7cb — autoscaler unchanged across them)
+
+---
+
+## BUG-WIRE-000A — Consolidation Engine had NO enable route (readiness key bound but unreachable) — **HIGH (pre-launch wiring gap, FIXED before launch)**
+
+**Found:** during pre-launch go-live wiring (before any attack phase). The Consolidation Engine v1
+controller (`consolidation-actions`, `K8sReadinessKey.CONSOLIDATION_ACTIONS`) existed in the agent and had
+a readiness key, but there was **no per-cluster write route** to turn it on: the backend exposed no
+`PUT /api/eks/autoscaling/{clusterName}/consolidation` endpoint and `replaceSection` did not persist a
+consolidation section. So an operator could never set `consolidationPolicy.enabled=true` through the API —
+the controller was permanently inert regardless of readiness / ENABLE_CONSOLIDATION / mode.
+
+**Impact:** the entire consolidation acting path (the primary scale-in / bin-packing capability, and the
+path that exercises ng-stateful-1 DB fail-closed protection) was unreachable via the product surface — a
+launch blocker for "every automation feature tested end to end."
+
+**Fix (shipped before launch, commit `eb629c7cb`):** added `PUT .../consolidation` (`ConsolidationPolicyDto`),
+gated by `normalizer.validate(Section.CONSOLIDATION, …)` (refuses `enabled=true` unless
+`consolidation-actions` readiness is ready), persisted via `EksAutoscalingService.saveConsolidationPolicy`
+→ `saveSection(Section.CONSOLIDATION, …)`, and made `replaceSection` persist the consolidation section.
+
+**Verification:** `PUT .../consolidation {enabled:true,…}` → HTTP 200 ("the NEW route; readiness allowed
+live"); gate log then read `consolidation-actions=live` at full-live posture; phases 5/8/13/14/23/25 all
+exercised the live consolidation path (0 DB evicted throughout). **FIXED — folded in per STEP-4 bug-log
+completeness requirement.**
+
+## BUG-WIRE-000B — `spot-interruption-actions` readiness was FORBIDDEN in every profile (incl. UAT) — **MEDIUM (pre-launch wiring gap, FIXED before launch)**
+
+**Found:** during pre-launch go-live wiring. The node-optimizer interruption-handling sub-path
+(`spot-interruption-actions`) could not be enabled anywhere: the readiness key's base default was `false`
+and `K8sAutomationReadinessPropertiesTest` forbade ANY profile — including UAT — from overriding it to
+`true`. So the spot-interruption acting gate could never go live through configuration, blocking the
+spot-interruption attack path (phases 7 / 23).
+
+**Impact:** the spot-interruption controller could not be exercised live end to end on UAT — a gap for the
+"spot" capability in the feature matrix.
+
+**Fix (shipped before launch, commit `91d505a7c`):** `application-uat.properties` sets
+`xamops.k8s.automation.readiness.spot-interruption-actions=true` (**UAT ONLY**; base default stays false,
+prod/preprod/local still forbidden), and `K8sAutomationReadinessPropertiesTest
+.onlyUatMayOverrideSpotInterruptionActions` was updated so only UAT may override it. Runtime still requires
+`node-optimizer-actions` + `nodeOptimizerPolicy.handleSpotInterruptions=true`; the flag only makes it
+settable.
+
+**Verification:** the `interruption` gate read `live` at full-live posture; phase 7 fired a REAL AWS FIS
+spot-interrupt (`i-0025a665eb405673e`) → terminate+replace with 0 req failures / 0 DB evictions, and phase
+23 repeated it under compound chaos (`i-0626ed7148ce34ce5`). **FIXED — folded in per STEP-4 bug-log
+completeness requirement.** (NOTE: these two wiring fixes live on the campaign feature branch /
+`origin/main` at `eb629c7cb` / `91d505a7c`; they are NOT on the stale local `main` HEAD `6b4ec4128` — see
+the STEP-4 git note in report.md.)
 
 ---
 
@@ -212,6 +262,77 @@ Verified live on xamops-test-1: `kubectl get validatingwebhookconfigurations` an
 webhook Service. The agent acts as a controller via the Eviction/drain API and the backend policy API —
 there is no admission webhook to siege. Phase 15 recorded as **not-exercised** with this reason, per the
 step instruction. Not a bug.
+
+---
+
+## PHASES-19-24-OK — no new product bugs; all six HELD (recorded for completeness, NOT bugs)
+
+Phases 19-24 surfaced **no new product defects** — every phase HELD. Recorded here so the bug log stays
+complete:
+- **P19 quota/limitrange collision — HELD.** Namespace fully admission-locked (LimitRange `max 250m/256Mi`
+  rejected scale-up; ResourceQuota `requests.cpu=4` vs `23050m` used rejected k6 pods). Agent did not
+  mis-act: evicted=0, drain_inflight=0, 0 Evicted/preempt, serving fleet 145/145.
+- **P20 scheduling deadlock — HELD.** 6× priority-1000000 pods with unsatisfiable nodeSelector + self-
+  anti-affinity → permanently Pending; scheduler `Preemption is not helpful`; agent drained/evicted
+  nothing, DB 8/8 unchanged.
+- **P21 many-container pods — HELD.** 3×40 + 1×150 containers ingested by collect/fit with 0 panic /
+  collect error / fit error / nil-pointer / index-out-of-range; agent 2/2 0 restarts.
+- **P22 RBAC boundary — HELD.** Agent SA is least-privilege (exact verbs needed, no wildcard/secrets/
+  RBAC-write/kube-system-write, no escalate/bind/impersonate/token-mint) and fail-safe (0 out-of-grant
+  attempts in 5min). *Observation (not a bug):* `kubectl auth can-i create pods/eviction` (slash form)
+  returns a false `no` on client v1.34; `--subresource=eviction` confirms the grant is real — a CLI
+  parse quirk.
+- **P23 COMPOUND CHAOS — HELD.** Simultaneous NetworkChaos partition + PodChaos/Schedule pod-kill storm +
+  StressChaos mem + REAL AWS FIS spot-interrupt of `i-0626ed7148ce34ce5` (ng-spot-1, resolved by BOTH
+  tags; test-2 untouched). Leader no-failover, evicted=0, drain_inflight=0; **every ng-stateful-1 DB pod
+  unchanged (same node/startTime/restarts) — 0 evicted**; serving `http_req_failed=0.00% (8/291,041)`.
+  The I15/I16 DB fail-closed protection held under everything-at-once including node loss. *Operational
+  note (not a bug):* the stored UAT session cookie had expired → 401 on the API-driven `POST /rebalance`;
+  the agent's own consolidation control loop drove the DB-protection test instead.
+- **P24 metrics poisoning — HELD / FAILS SAFE.** Killed metrics-server (API `Available=False`) AND stood
+  up a fake Prometheus feeding `NaN / 0 / -999999 / Infinity / non-numeric` per-node values. Over ~70
+  cycles the agent logged `metrics-server unavailable` + `Consolidation ... actor=NONE / removed=0` — it
+  did NOT read 0%/NaN as "idle → drain everything", and did NOT crash on malformed metric values (0
+  restarts). This is the desired fail-SAFE (fail-closed) behavior for a poisoned/missing metrics pipeline.
+
+OBS-DB-001 (blanket `db-emptydir` refusal reason) reconfirmed under compound chaos (P23), unchanged —
+still a cosmetic/observability finding, not a safety failure.
+
+---
+
+## OBS-SOAK-007 — agent `/metrics` exposes no Go runtime/process gauges (goroutines/heap/fds) — **LOW** (observability)
+
+**Repro (Phase 25 soak):** scraping the agent leader `/metrics` (port 9090) returns only the curated
+XamOps counter set (`xamops_*` — 75 series). It does **not** expose the standard Prometheus Go collector
+series: `go_goroutines`, `go_memstats_heap_inuse_bytes` / `go_memstats_alloc_bytes` /
+`go_memstats_heap_objects`, `process_resident_memory_bytes`, or `process_open_fds`.
+
+**Impact:** long-haul leak-hunting (goroutine growth, heap growth, leaked fds/watches) cannot be done from
+first-class gauges — it falls back to `kubectl top` RSS + container restart-count + indirect proxies
+(e.g. flat `policy_fetch_errors_total`, flat reconcile `cycle_duration`). The ~14h soak found **no leak**
+on any dimension via those proxies (RSS bounded 57-63Mi, 0 restarts, cardinality flat 75, reconcile flat
+~3.03s/cycle, lease transitions flat 54), but an operator watching a dashboard would have no direct
+goroutine/fd/heap line to alert on. **No safety impact — behavior is correct; this is a visibility gap.**
+
+**Fix:** register the standard Prometheus Go collector (`collectors.NewGoCollector()` +
+`NewProcessCollector()`) on the agent's metrics registry so `go_goroutines` / `go_memstats_*` /
+`process_open_fds` / `process_resident_memory_bytes` are scrapeable for long-haul leak detection.
+**Finding only — the soak itself found no leak.**
+
+---
+
+## SOAK-OK — ~14h soak/leak-hunt: NO leak on any dimension; DB fail-closed held long-haul (Phase 25, NOT a bug)
+
+Recorded for completeness. ~14h steady 40-VU k6 load + `@every 5m` 10% pod-kill chaos. **Every leak-hunt
+dimension HELD:** agent RSS bounded 57-63Mi (0 growth), reconcile `cycle_duration` flat at ~3.025 s/cycle
+over 841 soak cycles (no creep), metric cardinality flat at 75 series (no growth), lease transitions flat
+at 54 (no drift), `policy_fetch_errors_total` flat at 2 (no error/fd-proxy accrual), agent 2/2 with **0
+restarts**. **I15/I16 DB fail-closed protection HELD on the REAL ng-stateful-1 databases across the whole
+haul:** 841 consolidation evaluations, `pods_evicted_total=0`, every DB pod unchanged (same
+node/startTime/restarts), 0 Evicted events in both DB namespaces. No breaking point found. (Backend
+Postgres-size trend not captured this step — SaaS DB only reachable via the expired-cookie API; guardrail
+forbids bypass. Not a leak finding either way.) OBS-DB-001 blanket `db-emptydir` reason reconfirmed,
+unchanged.
 
 ---
 
