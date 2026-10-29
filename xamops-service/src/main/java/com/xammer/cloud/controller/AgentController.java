@@ -874,6 +874,12 @@ public class AgentController {
         // 3. By zero-padded AWS account ID via cloud_account table (handles leading-zero stripping:
         //    Long.parseLong("080310056620") = 80310056620, pad back to "080310056620" for DB lookup)
         Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository.findByAgentApiKey(apiKey);
+        // Tier 1b (design §4.3, R2-4): the automation agent authenticates with a dedicated key, so
+        // resolve the config by that key before the cloudAccountId fallbacks. This is the normal
+        // path for the only caller of this endpoint; the account/legacy fallbacks stay for them.
+        if (configOpt.isEmpty()) {
+            configOpt = clusterConfigRepository.findByAutomationAgentApiKey(apiKey);
+        }
         if (configOpt.isEmpty()) {
             configOpt = clusterConfigRepository.findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
         }
