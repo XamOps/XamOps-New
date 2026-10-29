@@ -78,7 +78,11 @@ public class K8sCapabilitiesService {
     private final K8sAutomationReadinessProperties readiness;
     private final Environment environment;
     private final Clock clock;
+    private final com.xammer.cloud.service.onboarding.OnboardingStateDeriver onboardingStateDeriver;
     private final AtomicBoolean warnedUnparseableEngineFlag = new AtomicBoolean();
+
+    /** Automation is "verified" when a matching identity was seen within this window (design §3.4). */
+    static final Duration AUTOMATION_VERIFIED_FRESHNESS = Duration.ofHours(2);
 
     @Autowired
     public K8sCapabilitiesService(K8sAutomationAccessService accessService,
@@ -86,7 +90,23 @@ public class K8sCapabilitiesService {
                                   AgentEventRepository agentEventRepository,
                                   EksAutoscalingService autoscalingService,
                                   K8sAutomationReadinessProperties readiness,
-                                  Environment environment) {
+                                  Environment environment,
+                                  com.xammer.cloud.service.onboarding.OnboardingStateDeriver onboardingStateDeriver) {
+        this(accessService, agentDataCacheRepository, agentEventRepository, autoscalingService, readiness,
+                environment, Clock.systemUTC(), onboardingStateDeriver);
+    }
+
+    /**
+     * Backward-compatible convenience constructor (no injected deriver/clock). Retained so existing
+     * tests that build the service with six collaborators keep compiling; it uses a system clock and
+     * a deriver on the same clock.
+     */
+    public K8sCapabilitiesService(K8sAutomationAccessService accessService,
+                           AgentDataCacheRepository agentDataCacheRepository,
+                           AgentEventRepository agentEventRepository,
+                           EksAutoscalingService autoscalingService,
+                           K8sAutomationReadinessProperties readiness,
+                           Environment environment) {
         this(accessService, agentDataCacheRepository, agentEventRepository, autoscalingService, readiness,
                 environment, Clock.systemUTC());
     }
@@ -99,6 +119,19 @@ public class K8sCapabilitiesService {
                            K8sAutomationReadinessProperties readiness,
                            Environment environment,
                            Clock clock) {
+        this(accessService, agentDataCacheRepository, agentEventRepository, autoscalingService, readiness,
+                environment, clock, new com.xammer.cloud.service.onboarding.OnboardingStateDeriver(clock));
+    }
+
+    /** Test constructor with a fixed clock and an explicit deriver. */
+    K8sCapabilitiesService(K8sAutomationAccessService accessService,
+                           AgentDataCacheRepository agentDataCacheRepository,
+                           AgentEventRepository agentEventRepository,
+                           EksAutoscalingService autoscalingService,
+                           K8sAutomationReadinessProperties readiness,
+                           Environment environment,
+                           Clock clock,
+                           com.xammer.cloud.service.onboarding.OnboardingStateDeriver onboardingStateDeriver) {
         this.accessService = accessService;
         this.agentDataCacheRepository = agentDataCacheRepository;
         this.agentEventRepository = agentEventRepository;
@@ -106,6 +139,7 @@ public class K8sCapabilitiesService {
         this.readiness = readiness;
         this.environment = environment;
         this.clock = clock;
+        this.onboardingStateDeriver = onboardingStateDeriver;
     }
 
     /**
@@ -182,8 +216,38 @@ public class K8sCapabilitiesService {
                     "UNKNOWN", EksAutoscalingService.EFFECTIVE_UNKNOWN);
         }
 
+        K8sCapabilitiesDto.Onboarding onboarding = onboardingStateDeriver.derive(
+                config, agent, automationAgent, nodeAutomation,
+                automationVerified(config, now),
+                keyMeta(config.getAgentApiKey(), config.getAgentKeyIssuedAt(), config.getAgentKeyLastUsedAt()),
+                keyMeta(config.getAutomationAgentApiKey(), config.getAutomationKeyIssuedAt(),
+                        config.getAutomationKeyLastUsedAt()));
+
         return new Cluster(config.getClusterName(), true, connection(gateRows), writeGate(gate),
-                config.getDataSourceMode(), agent, automationAgent, nodeAutomation, dataSources);
+                config.getDataSourceMode(), agent, automationAgent, nodeAutomation, dataSources, onboarding);
+    }
+
+    /**
+     * Conservative verification signal for the onboarding row (design §3.4): a matching automation
+     * identity was seen within the freshness window. The per-cluster gate relaxation (BP-9 / OQ-6)
+     * refines this later; here it is read from stored facts only, never fabricated.
+     */
+    private boolean automationVerified(KubernetesClusterConfig config, Instant now) {
+        Instant verifiedAt = config.getAutomationVerifiedAt();
+        Instant seenAt = config.getAutomationIdentitySeenAt();
+        Instant freshest = seenAt != null ? seenAt : verifiedAt;
+        return freshest != null && freshest.isAfter(now.minus(AUTOMATION_VERIFIED_FRESHNESS));
+    }
+
+    /** Log/UI-safe key metadata, or null when there is no key. */
+    private static K8sCapabilitiesDto.KeyMeta keyMeta(String key, Instant issuedAt, Instant lastUsedAt) {
+        if (key == null || key.isEmpty()) {
+            return null;
+        }
+        String prefix = key.substring(0, Math.min(12, key.length()));
+        return new K8sCapabilitiesDto.KeyMeta(prefix,
+                issuedAt == null ? null : issuedAt.toString(),
+                lastUsedAt == null ? null : lastUsedAt.toString());
     }
 
     private Map<Long, List<TypeTimestamp>> loadRows(List<KubernetesClusterConfig> configs) {
@@ -223,9 +287,22 @@ public class K8sCapabilitiesService {
      * a cache row it pushed (stale, with that time), else not installed. Never lastAgentCheckin,
      * which every agent's heartbeat refreshes (E25).
      */
+    /** Grace window after Disable automation before evidence is trusted again (design §3.1a). */
+    static final Duration AUTOMATION_DISABLED_GRACE = Duration.ofMinutes(5);
+
     private AutomationAgent automationAgent(KubernetesClusterConfig config, List<TypeTimestamp> rows, Instant now) {
+        // §3.1a cut-off: after Disable automation, ignore any automation-agent evidence from before
+        // automation_disabled_at + 5 min, so a revoked agent's in-flight/stale pushes don't keep the
+        // cluster reading AUTOMATION_ENABLED. cutoff is an Instant (automation_disabled_at is TIMESTAMPTZ).
+        Instant cutoff = config.getAutomationDisabledAt() == null
+                ? null
+                : config.getAutomationDisabledAt().plus(AUTOMATION_DISABLED_GRACE);
         try {
-            LocalDateTime since = LocalDateTime.ofInstant(now.minus(AUTOMATION_AGENT_LOOKBACK), ZoneId.systemDefault());
+            Instant sinceInstant = now.minus(AUTOMATION_AGENT_LOOKBACK);
+            if (cutoff != null && cutoff.isAfter(sinceInstant)) {
+                sinceInstant = cutoff;
+            }
+            LocalDateTime since = LocalDateTime.ofInstant(sinceInstant, ZoneId.systemDefault());
             Optional<AgentEvent> event = agentEventRepository
                     .findFirstByClusterConfigIdAndAgentVersionEndingWithAndCreatedAtAfterOrderByCreatedAtDesc(
                             config.getId(), AUTOMATION_AGENT_SUFFIX, since);
@@ -239,9 +316,12 @@ public class K8sCapabilitiesService {
                     e.getClass().getSimpleName());
             return new AutomationAgent("UNKNOWN", null, null);
         }
+        final Instant rowCutoff = cutoff;
         return rows.stream()
                 .filter(r -> r.getAgentVersion() != null && r.getAgentVersion().endsWith(AUTOMATION_AGENT_SUFFIX)
                         && r.getCollectedAt() != null)
+                .filter(r -> rowCutoff == null
+                        || r.getCollectedAt().atOffset(ZoneOffset.UTC).toInstant().isAfter(rowCutoff))
                 .max(Comparator.comparing(TypeTimestamp::getCollectedAt))
                 .map(r -> new AutomationAgent("STALE", utcFromAgent(r.getCollectedAt()), r.getAgentVersion()))
                 .orElse(new AutomationAgent("NOT_INSTALLED", null, null));
