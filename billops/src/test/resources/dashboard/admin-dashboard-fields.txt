@@ -15,6 +15,10 @@
 # marketplaceHoldingCostPercent to InvoiceDto, so recentInvoices[] grew by that one field
 # and no others.
 #
+# Re-captured again since: "Upload draft" added uploadedFileName to InvoiceDto, and
+# single-charge private rates added lineItemId to its privatePricing[] entries, so
+# recentInvoices[] grew by those two fields and no others.
+#
 # LineItemDto.privatelyPriced and PrivatePricingDto.margin are deliberately absent: both
 # are derived from fields already here and have no setter, so serializing them broke the
 # detail bill's JSON round trip. They are @JsonIgnore'd -- see DetailBillDtoRoundTripTest.
@@ -74,6 +78,7 @@ recentInvoices[].privatePricing[].description
 recentInvoices[].privatePricing[].excludeFromOverallDiscount
 recentInvoices[].privatePricing[].id
 recentInvoices[].privatePricing[].lineCount
+recentInvoices[].privatePricing[].lineItemId
 recentInvoices[].privatePricing[].originalAmount
 recentInvoices[].privatePricing[].pricedAmount
 recentInvoices[].privatePricing[].rateUnit
@@ -87,6 +92,7 @@ recentInvoices[].provider
 recentInvoices[].provisional
 recentInvoices[].status
 recentInvoices[].taxAmount
+recentInvoices[].uploadedFileName
 recentTickets[].accountId
 recentTickets[].accountName
 recentTickets[].assignedToId

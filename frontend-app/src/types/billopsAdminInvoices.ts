@@ -22,7 +22,57 @@ export interface AdminInvoiceItem {
   dataSource?: InvoiceDataSource | null;
   /** Built from a month that had not closed — an estimate of the bill, not the bill. */
   provisional?: boolean;
+  /** File name of the AWS bill PDF the draft was created from; null when generated. */
+  uploadedFileName?: string | null;
 }
+
+/** What the server read from an uploaded AWS bill PDF, before any draft exists. */
+export interface UploadDraftPreview {
+  fileName: string;
+  pageCount: number;
+  /** The 12-digit account ID printed on the bill, if one was found. */
+  accountId: string | null;
+  /** The BillOps account that ID resolved to; null when not set up or not accessible. */
+  account: { id: number; name: string; identifier: string; provider: string } | null;
+  /** The bill's account isn't in BillOps; creating the draft adds it. */
+  accountWillBeCreated: boolean;
+  suggestedAccountName: string | null;
+  billingPeriod: string | null;
+  year: number | null;
+  month: number | null;
+  datePrinted: string | null;
+  estimated: boolean;
+  grandTotal: number | null;
+  preTaxTotal: number | null;
+  taxTotal: number | null;
+  marketplaceTotal: number | null;
+  lineItemTotal: number;
+  lineItemCount: number;
+  /** Lines added so every subtotal on the draft matches the bill's printed one. */
+  roundingLineCount: number;
+  roundingTotal: number;
+  services: { serviceName: string; total: number; lineCount: number }[];
+  warnings: string[];
+}
+
+/** The admin's confirmed choices for a draft built from an uploaded bill. */
+export interface UploadDraftParams {
+  /** An existing account's identifier, or the bill's own account ID to add it. */
+  accountId: string;
+  year: number;
+  month: number;
+  includeIrn: boolean;
+  /** Only used when the account is being added: its name, and the client it goes under. */
+  newAccount?: { accountName: string; clientId: number | null; clientName: string };
+}
+
+export interface ClientOption {
+  id: number;
+  name: string;
+}
+
+/** A call that either succeeded or carries a message to show as-is. */
+export type UploadResult<T> = { ok: true; value: T } | { ok: false; message: string };
 
 /** CUR is the customer's Cost and Usage Report; COST_EXPLORER only ever on an admin's request. */
 export type InvoiceDataSource = 'CUR' | 'COST_EXPLORER';
@@ -105,6 +155,12 @@ export interface UseBillOpsAdminInvoicesReturn {
   /** Repeats the refused request against Cost Explorer. The only path that reaches it. */
   generateFromCostExplorer: () => Promise<number | null>;
   dismissCurUnavailable: () => void;
+  /** Reads an AWS bill PDF and reports what a draft from it would hold. Creates nothing. */
+  previewUploadedDraft: (file: File) => Promise<UploadResult<UploadDraftPreview>>;
+  /** Creates a draft from an AWS bill PDF. Resolves to the new invoice's id. */
+  createDraftFromUpload: (file: File, params: UploadDraftParams) => Promise<UploadResult<number>>;
+  /** Clients a new account from an uploaded bill can be added under. */
+  fetchClients: () => Promise<ClientOption[]>;
   setSelectedIds: React.Dispatch<React.SetStateAction<string[]>>;
   setFilterIds: React.Dispatch<React.SetStateAction<string[]>>;
   setGeneration: React.Dispatch<React.SetStateAction<GenerationParams>>;

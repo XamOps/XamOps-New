@@ -131,6 +131,17 @@ public class Invoice {
     @Column(name = "exchange_rate")
     private Double exchangeRate;
 
+    /**
+     * File name of the AWS bill PDF this draft was created from, when an admin uploaded one
+     * instead of generating it. Null on every generated invoice.
+     *
+     * <p>Its own nullable column rather than a third {@link DataSource} value: PostgreSQL
+     * tables Hibernate created carry a check constraint listing the enum's values, and
+     * {@code ddl-auto=update} never widens it, so a new value would fail every insert.
+     */
+    @Column(name = "uploaded_file_name")
+    private String uploadedFileName;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "cloud_account_id", nullable = false)
     private CloudAccount cloudAccount;
@@ -209,6 +220,8 @@ public class Invoice {
     public void setProvisional(boolean provisional) { this.provisional = provisional; }
     public Double getExchangeRate() { return exchangeRate; }
     public void setExchangeRate(Double exchangeRate) { this.exchangeRate = exchangeRate; }
+    public String getUploadedFileName() { return uploadedFileName; }
+    public void setUploadedFileName(String uploadedFileName) { this.uploadedFileName = uploadedFileName; }
     public CloudAccount getCloudAccount() { return cloudAccount; }
     public void setCloudAccount(CloudAccount cloudAccount) { this.cloudAccount = cloudAccount; }
     public List<InvoiceLineItem> getLineItems() { return lineItems; }

@@ -6,6 +6,7 @@ import com.xammer.billops.security.CustomAuthenticationSuccessHandler;
 import com.xammer.billops.security.CustomUserDetailsService;
 import com.xammer.billops.security.TrialEnforcementFilter;
 import com.xammer.billops.service.InvoiceManagementService;
+import com.xammer.billops.service.upload.UploadedBillDraftService;
 import com.xammer.cloud.domain.Invoice;
 import com.xammer.cloud.security.ClientUserDetails;
 import org.junit.jupiter.api.BeforeEach;
@@ -76,6 +77,9 @@ class AdminInvoiceControllerHoldingCostTest {
     private StringRedisTemplate redisTemplate;
     @MockitoBean
     private InvoiceManagementService invoiceManagementService;
+    /** Another collaborator of the controller; the upload endpoints aren't exercised here. */
+    @MockitoBean
+    private UploadedBillDraftService uploadedBillDraftService;
 
     @Autowired
     private WebApplicationContext context;

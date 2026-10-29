@@ -71,6 +71,26 @@ public class InvoicePrivatePricing {
     private String usageType;
 
     /**
+     * One charge line, when the rate prices a single line rather than a level of the bill.
+     *
+     * <p>A line scope stores only the service beside it; region and usage type stay null,
+     * because the line itself fixes both. That is also what keeps two line rates under one
+     * usage type clear of {@code uk_invoice_private_pricing_scope}: PostgreSQL never treats
+     * rows with NULLs in a unique key as equal, so the constraint can't collide, and
+     * {@link com.xammer.billops.service.InvoiceManagementService} refuses overlapping
+     * scopes, line ones included, before anything is saved.
+     *
+     * <p>No foreign key: line items are replaced wholesale when a draft's lines are edited,
+     * and a rate whose line is gone then matches nothing rather than blocking the edit.
+     */
+    @Column(name = "line_item_id")
+    private Long lineItemId;
+
+    /** The priced line's own description, kept for the scope label. */
+    @Column(name = "line_description")
+    private String lineDescription;
+
+    /**
      * Price per unit of usage.
      *
      * <p>Same precision as {@code CloudFrontPrivateRate.privateRate}: real CDN and request
@@ -135,6 +155,9 @@ public class InvoicePrivatePricing {
      * names reach line items from several ingestion paths and have differed in case.
      */
     public boolean matches(String lineService, String lineRegion, String lineUsageType) {
+        if (lineItemId != null) {
+            return false; // A line scope can only be matched with the line's id.
+        }
         if (!equalsIgnoreCaseNullSafe(serviceName, lineService)) {
             return false;
         }
@@ -145,7 +168,19 @@ public class InvoicePrivatePricing {
     }
 
     public boolean matches(InvoiceLineItem item) {
-        return item != null && matches(item.getServiceName(), item.getRegionName(), item.getUsageType());
+        return item != null && matches(item.getId(), item.getServiceName(), item.getRegionName(), item.getUsageType());
+    }
+
+    /** As {@link #matches(String, String, String)}, and for a line scope, only that line. */
+    public boolean matches(Long lineId, String lineService, String lineRegion, String lineUsageType) {
+        if (lineItemId != null) {
+            return lineItemId.equals(lineId) && equalsIgnoreCaseNullSafe(serviceName, lineService);
+        }
+        return matches(lineService, lineRegion, lineUsageType);
+    }
+
+    public boolean isLineScope() {
+        return lineItemId != null;
     }
 
     /**
@@ -161,6 +196,11 @@ public class InvoicePrivatePricing {
         if (other == null || !equalsIgnoreCaseNullSafe(serviceName, other.serviceName)) {
             return false;
         }
+        // A line scope against a broader one needs the line's own region and usage type,
+        // which this record doesn't hold; the service checks that case against the line.
+        if (lineItemId != null || other.lineItemId != null) {
+            return lineItemId != null && lineItemId.equals(other.lineItemId);
+        }
         boolean regionOverlaps = regionName == null || other.regionName == null
                 || equalsIgnoreCaseNullSafe(regionName, other.regionName);
         boolean usageOverlaps = usageType == null || other.usageType == null
@@ -171,6 +211,10 @@ public class InvoicePrivatePricing {
     /** "Amazon CloudFront · US East (N. Virginia) · DataTransfer-Out-Bytes" */
     public String scopeLabel() {
         StringBuilder sb = new StringBuilder(serviceName == null ? "" : serviceName);
+        if (lineItemId != null) {
+            return sb.append(" · ").append(lineDescription != null && !lineDescription.isBlank()
+                    ? lineDescription : "charge #" + lineItemId).toString();
+        }
         if (regionName != null && !regionName.isBlank()) {
             sb.append(" · ").append(regionName);
         }
@@ -195,6 +239,10 @@ public class InvoicePrivatePricing {
     public void setRegionName(String regionName) { this.regionName = regionName; }
     public String getUsageType() { return usageType; }
     public void setUsageType(String usageType) { this.usageType = usageType; }
+    public Long getLineItemId() { return lineItemId; }
+    public void setLineItemId(Long lineItemId) { this.lineItemId = lineItemId; }
+    public String getLineDescription() { return lineDescription; }
+    public void setLineDescription(String lineDescription) { this.lineDescription = lineDescription; }
     public BigDecimal getUnitRate() { return unitRate; }
     public void setUnitRate(BigDecimal unitRate) { this.unitRate = unitRate; }
     public String getRateUnit() { return rateUnit; }

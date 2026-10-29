@@ -1780,6 +1780,63 @@ public class InvoiceManagementService {
     }
 
     /**
+     * Creates a draft from an uploaded AWS bill PDF's "Charges by service".
+     *
+     * <p>Built and totalled exactly like a generated draft -- same invoice number scheme,
+     * same {@link #recalculateTotals}, Marketplace held apart from discounts -- so it is
+     * edited, discounted, priced and finalized like any other. Nothing is read from CUR or
+     * Cost Explorer, and CloudFront is not repriced: the bill's figures are the draft's
+     * figures until the admin changes them.
+     *
+     * <p>AWS's own tax lines were already left out by the parser; GST is added here, as
+     * on every invoice.
+     */
+    @Transactional
+    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
+    public Invoice createDraftFromUploadedBill(CloudAccount cloudAccount, YearMonth period, boolean includeIrn,
+                                               com.xammer.billops.service.upload.ParsedAwsBill bill,
+                                               String fileName) {
+        Invoice invoice = new Invoice();
+        invoice.setCloudAccount(cloudAccount);
+        invoice.setClient(cloudAccount.getClient());
+        invoice.setInvoiceDate(LocalDate.now());
+        invoice.setBillingPeriod(period.format(DateTimeFormatter.ofPattern("yyyy-MM")));
+        invoice.setStatus(Invoice.InvoiceStatus.DRAFT);
+        invoice.setInvoiceNumber(UUID.randomUUID().toString().toUpperCase().substring(0, 12));
+        invoice.setIncludeIrn(includeIrn);
+        invoice.setProvisional(!period.isBefore(YearMonth.now()));
+        invoice.setUploadedFileName(clip(fileName));
+
+        List<InvoiceLineItem> lineItems = new ArrayList<>();
+        for (com.xammer.billops.service.upload.ParsedAwsBill.Line line : bill.getLines()) {
+            InvoiceLineItem item = new InvoiceLineItem();
+            item.setInvoice(invoice);
+            item.setServiceName(clip(line.service()));
+            item.setRegionName(clip(line.region() != null ? line.region() : "Global"));
+            item.setUsageType(clip(line.group()));
+            item.setResourceName(clip(line.description()));
+            item.setUsageQuantity(clip(line.quantity() != null ? line.quantity() : "1"));
+            item.setUnit(clip(line.unit() != null ? line.unit() : "N/A"));
+            item.setCost(line.cost().setScale(4, RoundingMode.HALF_UP));
+            lineItems.add(item);
+        }
+        invoice.setLineItems(lineItems);
+
+        // Part of preDiscountTotal like any line, held apart so no discount reaches it.
+        BigDecimal marketplace = bill.getMarketplaceTotal();
+        if (marketplace != null && marketplace.signum() > 0) {
+            invoice.setMarketplaceCharge(marketplace.setScale(4, RoundingMode.HALF_UP));
+        }
+
+        recalculateTotals(invoice);
+        logger.info("[BillUpload] Draft created from '{}' for account='{}' {}: {} line items, total={}",
+                fileName, cloudAccount.getAwsAccountId(), period, lineItems.size(), invoice.getAmount());
+        Invoice saved = invoiceRepository.save(invoice);
+        evictInvoiceListCache();
+        return saved;
+    }
+
+    /**
      * A rate written the way a bill should read it: {@code $0.044 per Hrs}.
      *
      * <p>A unit already phrased as "Per 10000 Requests" is not prefixed again, since the
@@ -2167,30 +2224,58 @@ public class InvoiceManagementService {
         InvoicePrivatePricing pricing = new InvoicePrivatePricing();
         pricing.setInvoice(invoice);
         pricing.setServiceName(serviceName);
-        pricing.setRegionName(blankToNull(request.getRegionName()));
-        pricing.setUsageType(blankToNull(request.getUsageType()));
         pricing.setUnitRate(unitRate);
         pricing.setRateUnit(blankToNull(request.getRateUnit()));
         pricing.setExcludeFromOverallDiscount(request.isExcludeFromOverallDiscount());
 
+        List<InvoiceLineItem> visibleLines = Optional.ofNullable(invoice.getLineItems())
+                .orElse(Collections.emptyList()).stream()
+                .filter(item -> !item.isHidden())
+                .collect(Collectors.toList());
+
+        if (request.getLineItemId() != null) {
+            // One charge line. Region and usage type stay null on the record -- the line
+            // fixes both -- so it never shares a unique key with a level scope.
+            InvoiceLineItem line = visibleLines.stream()
+                    .filter(item -> request.getLineItemId().equals(item.getId()))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "That charge is no longer on this invoice. Reload the page and try again."));
+            if (!serviceName.equalsIgnoreCase(Optional.ofNullable(line.getServiceName()).orElse(""))) {
+                throw new IllegalArgumentException("That charge doesn't belong to " + serviceName + ".");
+            }
+            pricing.setLineItemId(line.getId());
+            pricing.setLineDescription(clip(line.getResourceName()));
+        } else {
+            pricing.setRegionName(blankToNull(request.getRegionName()));
+            pricing.setUsageType(blankToNull(request.getUsageType()));
+        }
+
         if (invoice.getPrivatePricings() == null) {
             invoice.setPrivatePricings(new ArrayList<>());
         }
-        for (InvoicePrivatePricing existing : invoice.getPrivatePricings()) {
-            if (existing.overlaps(pricing)) {
-                throw new IllegalStateException("These charges are already priced by \""
-                        + existing.scopeLabel() + "\". Remove that rate first.");
-            }
-        }
 
-        List<InvoiceLineItem> inScope = Optional.ofNullable(invoice.getLineItems())
-                .orElse(Collections.emptyList()).stream()
-                .filter(item -> !item.isHidden())
+        List<InvoiceLineItem> inScope = visibleLines.stream()
                 .filter(pricing::matches)
                 .collect(Collectors.toList());
         if (inScope.isEmpty()) {
             throw new IllegalArgumentException(
                     "No charges on this invoice match " + pricing.scopeLabel() + ".");
+        }
+
+        for (InvoicePrivatePricing existing : invoice.getPrivatePricings()) {
+            // Scopes of the same kind compare by their own fields. A line scope against a
+            // level scope compares by the lines: they overlap when the level covers the line.
+            boolean overlaps = existing.isLineScope() == pricing.isLineScope()
+                    ? existing.overlaps(pricing)
+                    : inScope.stream().anyMatch(existing::matches)
+                        || (existing.isLineScope() && visibleLines.stream()
+                            .filter(item -> existing.getLineItemId().equals(item.getId()))
+                            .anyMatch(pricing::matches));
+            if (overlaps) {
+                throw new IllegalStateException("These charges are already priced by \""
+                        + existing.scopeLabel() + "\". Remove that rate first.");
+            }
         }
 
         // One rate, one unit. Placeholder units are left out of the check: the region-only

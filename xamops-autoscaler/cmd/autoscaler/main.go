@@ -383,7 +383,7 @@ func (c *cycleActions) addRightsizer(recs []policy.ActionRecord) {
 // cycleDecisions are all gate decisions of one cycle, computed once.
 type cycleDecisions struct {
 	Rebalancer, Evictor, NodeOptimizer, Cordon, IdleDrain, SpotRatio, Karpenter, Interruption,
-	Rightsizer, RightsizerApply, HPAManager gate.Decision
+	Rightsizer, RightsizerApply, HPAManager, VPAManager gate.Decision
 	// Consolidation is look-only (Off or Analyse); it is not a node action.
 	Consolidation gate.Decision
 	// ConsolidationActions is the acting consolidation gate (Off / Simulate / Live).
@@ -404,6 +404,7 @@ func decide(cfg *config.Config, b policy.PolicyBundle) cycleDecisions {
 		Rightsizer:           gate.RightsizerAnalysis(cfg, b),
 		RightsizerApply:      gate.RightsizerApply(cfg, b),
 		HPAManager:           gate.HPAManager(cfg, b),
+		VPAManager:           gate.VPAManager(cfg, b),
 		Consolidation:        gate.ConsolidationAnalysis(cfg, b),
 		ConsolidationActions: gate.ConsolidationActions(cfg, b),
 	}
@@ -424,6 +425,7 @@ func (d cycleDecisions) byController() map[string]gate.Decision {
 		"rightsizer":            d.Rightsizer,
 		"rightsizer-apply":      d.RightsizerApply,
 		"hpa-manager":           d.HPAManager,
+		"vpa-manager":           d.VPAManager,
 		"consolidation":         d.Consolidation,
 		"consolidation-actions": d.ConsolidationActions,
 	}
@@ -497,9 +499,9 @@ func runCycle(
 
 	// 2. Gate decisions, once per cycle
 	d := decide(cfg, bundle)
-	log.Printf("Gates — rebalancer=%s | evictor=%s | nodeopt=%s cordon=%s idleDrain=%s spotRatio=%s karpenter=%s interruption=%s | rightsizer=%s apply=%s | hpa=%s | consolidation=%s actions=%s",
+	log.Printf("Gates — rebalancer=%s | evictor=%s | nodeopt=%s cordon=%s idleDrain=%s spotRatio=%s karpenter=%s interruption=%s | rightsizer=%s apply=%s | hpa=%s | vpa=%s | consolidation=%s actions=%s",
 		d.Rebalancer, d.Evictor, d.NodeOptimizer, d.Cordon, d.IdleDrain, d.SpotRatio, d.Karpenter, d.Interruption,
-		d.Rightsizer, d.RightsizerApply, d.HPAManager, d.Consolidation, d.ConsolidationActions)
+		d.Rightsizer, d.RightsizerApply, d.HPAManager, d.VPAManager, d.Consolidation, d.ConsolidationActions)
 	// Structured companions of the human 'policy-fetched'/'Gates —' lines above.
 	obslog.Cycle("policy-fetched", slog.String("mode", bundle.AutoscalerMode))
 	for controllerName, dec := range d.byController() {

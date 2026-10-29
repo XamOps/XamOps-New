@@ -58,6 +58,8 @@ interface PrivatePricingDto {
   serviceName: string;
   regionName?: string | null;
   usageType?: string | null;
+  /** Set when the rate prices one charge line on its own; region and usage type are then null. */
+  lineItemId?: number | null;
   scopeLabel: string;
   unitRate: number;
   rateUnit?: string | null;
@@ -98,6 +100,8 @@ interface InvoiceDetail {
   privatePricing?: PrivatePricingDto[];
   dataSource?: 'CUR' | 'COST_EXPLORER' | null;
   provisional?: boolean;
+  /** File name of the AWS bill PDF the draft was created from; null when generated. */
+  uploadedFileName?: string | null;
   /** INR per 1 USD this invoice was finalized at; null until finalized with a chosen rate. */
   exchangeRate?: number | null;
 }
@@ -120,8 +124,22 @@ interface RegionNode {
 }
 interface ServiceNode { service: string; total: number; regions: RegionNode[]; lineCount: number }
 
-/** The part of the bill a private rate applies to, taken from the row the admin clicked. */
-interface PricingScope { service: string; region?: string; usageType?: string }
+/**
+ * The part of the bill a private rate applies to, taken from the row the admin clicked.
+ * A line scope also carries the line's region and usage type, for overlap checks only;
+ * the server stores just the line's id.
+ */
+interface PricingScope { service: string; region?: string; usageType?: string; lineId?: number; lineLabel?: string }
+
+/** Two scopes are the same row of the tree. */
+const sameScope = (a: PricingScope, b: PricingScope): boolean =>
+  a.service === b.service
+  && (a.lineId ?? null) === (b.lineId ?? null)
+  && (a.lineId != null || ((a.region ?? '') === (b.region ?? '') && (a.usageType ?? '') === (b.usageType ?? '')));
+
+/** How deep in the tree a scope sits: service 1, region 2, usage type 3, single charge 4. */
+const scopeDepth = (s: { region?: string | null; usageType?: string | null; lineId?: number | null; lineItemId?: number | null }): number =>
+  (s.lineId ?? s.lineItemId) != null ? 4 : 1 + (s.region ? 1 : 0) + (s.usageType ? 1 : 0);
 
 // ─── Formatting ──────────────────────────────────────────────────────────────
 
@@ -481,28 +499,44 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
    * row that set a rate is the row that shows and removes it.
    */
   const rateForScope = useCallback((scope: PricingScope): PrivatePricingDto | undefined =>
-    privatePricing.find(p =>
-      p.serviceName === scope.service
-      && (p.regionName ?? '') === (scope.region ?? '')
-      && (p.usageType ?? '') === (scope.usageType ?? '')),
-    [privatePricing]);
-
-  /** Whether a rate on a broader or narrower scope already covers these charges. */
-  const overlappingRate = useCallback((scope: PricingScope): PrivatePricingDto | undefined =>
     privatePricing.find(p => {
       if (p.serviceName !== scope.service) return false;
-      const regionOverlaps = !p.regionName || !scope.region || p.regionName === scope.region;
-      const usageOverlaps = !p.usageType || !scope.usageType || p.usageType === scope.usageType;
-      return regionOverlaps && usageOverlaps;
+      if (scope.lineId != null || p.lineItemId != null) return p.lineItemId === scope.lineId;
+      return (p.regionName ?? '') === (scope.region ?? '') && (p.usageType ?? '') === (scope.usageType ?? '');
     }),
     [privatePricing]);
 
   const linesInScope = useCallback((scope: PricingScope): LineItemDto[] =>
-    allLines.filter(l =>
-      (l.serviceName || 'Other') === scope.service
-      && (!scope.region || (l.regionName || '') === scope.region)
-      && (!scope.usageType || l.usageType === scope.usageType)),
+    scope.lineId != null
+      ? allLines.filter(l => l.id === scope.lineId)
+      : allLines.filter(l =>
+        (l.serviceName || 'Other') === scope.service
+        && (!scope.region || (l.regionName || '') === scope.region)
+        && (!scope.usageType || l.usageType === scope.usageType)),
     [allLines]);
+
+  /**
+   * Whether a rate on a broader or narrower scope already covers these charges.
+   *
+   * Level scopes compare by their levels. A single-charge rate compares by the charge:
+   * it overlaps any level that contains that line.
+   */
+  const overlappingRate = useCallback((scope: PricingScope): PrivatePricingDto | undefined => {
+    const scopeLineIds = new Set(linesInScope(scope).map(l => l.id));
+    return privatePricing.find(p => {
+      if (p.serviceName !== scope.service) return false;
+      if (p.lineItemId != null) return scopeLineIds.has(p.lineItemId);
+      if (scope.lineId != null) {
+        const line = allLines.find(l => l.id === scope.lineId);
+        return !!line
+          && (!p.regionName || (line.regionName || '') === p.regionName)
+          && (!p.usageType || line.usageType === p.usageType);
+      }
+      const regionOverlaps = !p.regionName || !scope.region || p.regionName === scope.region;
+      const usageOverlaps = !p.usageType || !scope.usageType || p.usageType === scope.usageType;
+      return regionOverlaps && usageOverlaps;
+    });
+  }, [privatePricing, linesInScope, allLines]);
 
   /** The invoice lines the open editor's scope would price. */
   const priceScopeLines = useMemo(
@@ -561,11 +595,7 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
   const openPricingOn = useCallback((scope: PricingScope) => {
     setPricingError(null);
     setPricingScope(prev => {
-      const same = prev
-        && prev.service === scope.service
-        && (prev.region ?? '') === (scope.region ?? '')
-        && (prev.usageType ?? '') === (scope.usageType ?? '');
-      if (same) return null;
+      if (prev && sameScope(prev, scope)) return null;
 
       const lines = linesInScope(scope).filter(l => pricingSkipReason(l) === null);
       const units = [...new Set(lines
@@ -687,8 +717,10 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
         credentials: 'include',
         body: JSON.stringify({
           serviceName: pricingScope.service,
-          regionName: pricingScope.region || null,
-          usageType: pricingScope.usageType || null,
+          regionName: pricingScope.lineId != null ? null : pricingScope.region || null,
+          usageType: pricingScope.lineId != null ? null : pricingScope.usageType || null,
+          // Only on a single-charge rate, so a level rate posts exactly what it always has.
+          ...(pricingScope.lineId != null ? { lineItemId: pricingScope.lineId } : {}),
           unitRate: parsedRate,
           rateUnit: priceRateUnit.trim() || null,
           excludeFromOverallDiscount: priceShield,
@@ -896,11 +928,7 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
   // pricing happens where the charge is being read rather than in a form somewhere else
   // that restates the same hierarchy.
 
-  const scopeIsOpen = (scope: PricingScope): boolean => Boolean(
-    pricingScope
-    && pricingScope.service === scope.service
-    && (pricingScope.region ?? '') === (scope.region ?? '')
-    && (pricingScope.usageType ?? '') === (scope.usageType ?? ''));
+  const scopeIsOpen = (scope: PricingScope): boolean => Boolean(pricingScope && sameScope(pricingScope, scope));
 
   /**
    * The rate control for one row: the applied rate and its discount checkbox, a note
@@ -958,11 +986,9 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
     // than left to the server to refuse after the admin has typed a rate.
     const covering = overlappingRate(scope);
     if (covering) {
-      const depth = (s: { region?: string | null; usageType?: string | null }) =>
-        1 + (s.region ? 1 : 0) + (s.usageType ? 1 : 0);
       // Which way to point matters: a service row whose usage type carries a rate is
       // priced below it, and telling the admin to look up would send them nowhere.
-      const broader = depth(covering) < depth(scope);
+      const broader = scopeDepth(covering) < scopeDepth(scope);
       return (
         <span
           className="inv-rate-cell__covered"
@@ -989,10 +1015,29 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
     );
   };
 
+  /** The scope for one charge line: the line itself, with its levels kept for overlap checks. */
+  const lineScopeOf = (service: string, line: LineItemDto): PricingScope => ({
+    service,
+    region: line.regionName || undefined,
+    usageType: line.usageType || undefined,
+    lineId: line.id,
+    lineLabel: line.resourceName || undefined,
+  });
+
+  /**
+   * The rate control on a single charge. Credits, Savings Plan lines and lines with no
+   * usage get none: a per-unit rate has nothing to multiply there, and offering the button
+   * would only lead to an editor explaining that.
+   */
+  const linePricingCell = (scope: PricingScope, line: LineItemDto) => {
+    if (!rateForScope(scope) && pricingSkipReason(line) !== null) return null;
+    return pricingCell(scope);
+  };
+
   /** The editor, as a row of the tree directly beneath the charges it prices. */
   const pricingEditorRow = (scope: PricingScope, key: string) => {
     if (!scopeIsOpen(scope)) return null;
-    const label = [scope.service, scope.region ? regionLabel(scope.region) : null, scope.usageType]
+    const label = [scope.service, scope.region ? regionLabel(scope.region) : null, scope.usageType, scope.lineLabel]
       .filter(Boolean).join(' · ');
 
     return (
@@ -1154,6 +1199,9 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
               {invoice.dataSource === 'COST_EXPLORER' && (
                 <span className="inv-pill inv-pill--ce" title="Built from Cost Explorer">Cost Explorer</span>
               )}
+              {invoice.uploadedFileName && (
+                <span className="inv-pill inv-pill--upload" title={invoice.uploadedFileName}>Uploaded</span>
+              )}
               {invoice.provisional && <span className="inv-pill inv-pill--provisional">Provisional</span>}
             </div>
             <p className="inv-desc" style={{ fontSize: 13 }}>
@@ -1269,8 +1317,10 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                 </div>
                 <div>
                   <dt>Figures from</dt>
-                  <dd>
-                    {invoice.dataSource === 'CUR'
+                  <dd title={invoice.uploadedFileName ?? undefined}>
+                    {invoice.uploadedFileName
+                      ? 'Uploaded AWS bill'
+                      : invoice.dataSource === 'CUR'
                       ? 'Cost and Usage Report'
                       : invoice.dataSource === 'COST_EXPLORER'
                         ? 'Cost Explorer'
@@ -1536,8 +1586,11 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                                         <td className="inv-rate-col">{pricingCell(utScope)}</td>
                                       </tr>
                                       {pricingEditorRow(utScope, `${rgn.key}|${ut.usageType}`)}
-                                      {ut.lines.map(line => (
-                                        <tr key={line.id} className="inv-tree-row--line">
+                                      {ut.lines.map(line => {
+                                        const lnScope = lineScopeOf(svc.service, line);
+                                        return (
+                                        <React.Fragment key={line.id}>
+                                        <tr className="inv-tree-row--line">
                                           <td className="inv-tree-cell">
                                             {line.resourceName || '—'}
                                             <PricedBadge line={line} />
@@ -1551,15 +1604,21 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                                             {line.unit && <span className="inv-muted ml-1">{line.unit}</span>}
                                           </td>
                                           <td className="is-num inv-num whitespace-nowrap">{usd(line.cost)}</td>
-                                          <td className="inv-rate-col" />
+                                          <td className="inv-rate-col">{linePricingCell(lnScope, line)}</td>
                                         </tr>
-                                      ))}
+                                        {pricingEditorRow(lnScope, `line|${line.id}`)}
+                                        </React.Fragment>
+                                        );
+                                      })}
                                     </React.Fragment>
                                     );
                                   })}
 
-                                  {rgnOpen && rgn.flat.map(line => (
-                                    <tr key={line.id} className="inv-tree-row--line is-flat">
+                                  {rgnOpen && rgn.flat.map(line => {
+                                    const lnScope = lineScopeOf(svc.service, line);
+                                    return (
+                                    <React.Fragment key={line.id}>
+                                    <tr className="inv-tree-row--line is-flat">
                                       <td className="inv-tree-cell">
                                         {line.resourceName || '—'}
                                         <PricedBadge line={line} />
@@ -1573,9 +1632,12 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                                         {line.unit && line.unit !== 'N/A' && <span className="inv-muted ml-1">{line.unit}</span>}
                                       </td>
                                       <td className="is-num inv-num whitespace-nowrap">{usd(line.cost)}</td>
-                                      <td className="inv-rate-col" />
+                                      <td className="inv-rate-col">{linePricingCell(lnScope, line)}</td>
                                     </tr>
-                                  ))}
+                                    {pricingEditorRow(lnScope, `line|${line.id}`)}
+                                    </React.Fragment>
+                                    );
+                                  })}
                                 </React.Fragment>
                               );
                             })}
@@ -1603,7 +1665,7 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                     Negative amounts are credits, or usage covered by a Savings Plan or Reserved Instance.
                     {invoice.dataSource === 'CUR' && ' Built from the same Cost and Usage Report lines as the cost page’s “Charges by service”.'}
                     {isDraft
-                      ? ' Set a rate on a service, region or usage type to bill it at usage quantity × your'
+                      ? ' Set a rate on a service, region, usage type or single charge to bill it at usage quantity × your'
                         + ' rate instead of the provider’s cost. Credits and Savings Plan lines are never'
                         + ' repriced, and removing a rate restores the provider’s figures exactly.'
                       : ' This invoice is finalized, so its rates can no longer be changed.'}

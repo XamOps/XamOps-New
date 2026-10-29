@@ -46,6 +46,8 @@ public class InvoiceDto {
     private boolean provisional;
     /** INR per 1 USD this invoice was finalized at; null until finalized with a chosen rate. */
     private Double exchangeRate;
+    /** File name of the AWS bill PDF the draft was created from; null when generated. */
+    private String uploadedFileName;
     private long lastUpdated;
     private List<LineItemDto> lineItems;
     private List<DiscountDto> discounts;
@@ -96,6 +98,7 @@ public class InvoiceDto {
         dto.setDataSource(invoice.getDataSource() != null ? invoice.getDataSource().name() : null);
         dto.setProvisional(invoice.isProvisional());
         dto.setExchangeRate(invoice.getExchangeRate());
+        dto.setUploadedFileName(invoice.getUploadedFileName());
 
         // Convert line items (only non-hidden items)
         List<LineItemDto> items = Optional.ofNullable(invoice.getLineItems())
@@ -132,7 +135,8 @@ public class InvoiceDto {
         if (!shields.isEmpty()) {
             for (LineItemDto item : items) {
                 item.setDiscountShielded(item.isPrivatelyPriced() && shields.stream()
-                        .anyMatch(p -> p.matches(item.getServiceName(), item.getRegionName(), item.getUsageType())));
+                        .anyMatch(p -> p.matches(item.getId(), item.getServiceName(), item.getRegionName(),
+                                item.getUsageType())));
             }
         }
 
@@ -330,6 +334,14 @@ public class InvoiceDto {
 
     public boolean isProvisional() {
         return provisional;
+    }
+
+    public String getUploadedFileName() {
+        return uploadedFileName;
+    }
+
+    public void setUploadedFileName(String uploadedFileName) {
+        this.uploadedFileName = uploadedFileName;
     }
 
     public void setProvisional(boolean provisional) {
@@ -591,6 +603,8 @@ public class InvoiceDto {
         private String serviceName;
         private String regionName;
         private String usageType;
+        /** Set when the rate prices one charge line on its own. */
+        private Long lineItemId;
         private String scopeLabel;
         private BigDecimal unitRate;
         private String rateUnit;
@@ -609,6 +623,7 @@ public class InvoiceDto {
             dto.setServiceName(pricing.getServiceName());
             dto.setRegionName(pricing.getRegionName());
             dto.setUsageType(pricing.getUsageType());
+            dto.setLineItemId(pricing.getLineItemId());
             dto.setScopeLabel(pricing.scopeLabel());
             dto.setUnitRate(pricing.getUnitRate());
             dto.setRateUnit(pricing.getRateUnit());
@@ -644,6 +659,8 @@ public class InvoiceDto {
         public void setRegionName(String regionName) { this.regionName = regionName; }
         public String getUsageType() { return usageType; }
         public void setUsageType(String usageType) { this.usageType = usageType; }
+        public Long getLineItemId() { return lineItemId; }
+        public void setLineItemId(Long lineItemId) { this.lineItemId = lineItemId; }
         public String getScopeLabel() { return scopeLabel; }
         public void setScopeLabel(String scopeLabel) { this.scopeLabel = scopeLabel; }
         public BigDecimal getUnitRate() { return unitRate; }

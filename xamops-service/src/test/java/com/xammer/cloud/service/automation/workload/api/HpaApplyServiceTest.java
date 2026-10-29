@@ -143,13 +143,14 @@ class HpaApplyServiceTest {
     }
 
     @Test
-    @DisplayName("the feature off, or no executor, is 403 K8S_CONTROLLER_NOT_READY with the reworded message")
+    @DisplayName("the feature off, the staging flag off, or no executor, is 403 K8S_CONTROLLER_NOT_READY")
     void anUnreadyControllerIsRefused() {
-        // Readiness now derives from the read-write connection and the feature/executor wiring, NOT
-        // the standalone staging flag (ready). Feature off or no executor still refuses.
+        // hpa-apply readiness is the authority: the feature enabled AND the standalone staging flag
+        // (ready) AND an executor AND a read-write connection. Any one missing refuses.
         for (HorizontalAutoscalingProperties gated : List.of(
-                new HorizontalAutoscalingProperties(false, false, true),
-                new HorizontalAutoscalingProperties(true, false, false))) {
+                new HorizontalAutoscalingProperties(false, true, true),
+                new HorizontalAutoscalingProperties(true, false, true),
+                new HorizontalAutoscalingProperties(true, true, false))) {
             VerticalApplyService.ApplyRefusedException refusal = catchRefusal(
                     () -> service(gated).apply(principal(), readWriteAccount(), TARGET, REF, body(true)));
 
@@ -163,18 +164,33 @@ class HpaApplyServiceTest {
     }
 
     @Test
-    @DisplayName("read-write + feature on + executor present reaches the apply path with the staging flag FALSE")
-    void readWriteReachesTheApplyPathWithTheStagingFlagFalse() {
-        // ready == false (the standalone hpa-apply readiness flag is off): readiness derives from
-        // the read-write connection, so the gate passes and the apply path is reached.
-        HorizontalAutoscalingProperties stagingFlagOff =
-                new HorizontalAutoscalingProperties(true, false, true);
+    @DisplayName("read-write + feature on + staging flag on + executor present reaches the apply path")
+    void readWriteAndStagingFlagOnReachesTheApplyPath() {
+        // hpa-apply readiness is the authority: the staging flag (ready) must be on as well as the
+        // read-write connection, feature switch and executor, and then the apply path is reached.
+        HorizontalAutoscalingProperties ready =
+                new HorizontalAutoscalingProperties(true, true, true);
 
-        HpaApplyResponseDto response = service(stagingFlagOff)
+        HpaApplyResponseDto response = service(ready)
                 .apply(principal(), readWriteAccount(), TARGET, REF, body(true));
 
         assertThat(response.state()).isEqualTo("ACCEPTED");
         verify(executor).submit(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("the staging flag FALSE is 403 K8S_CONTROLLER_NOT_READY even on a read-write account")
+    void theStagingFlagFalseIsRefusedEvenReadWrite() {
+        // hpa-apply readiness ANDs the standalone staging flag (ready): a read-write account on an
+        // enabled feature with an executor is still refused while the flag is false.
+        HorizontalAutoscalingProperties stagingFlagOff =
+                new HorizontalAutoscalingProperties(true, false, true);
+
+        VerticalApplyService.ApplyRefusedException refusal = catchRefusal(
+                () -> service(stagingFlagOff).apply(principal(), readWriteAccount(), TARGET, REF, body(true)));
+
+        assertThat(refusal.code()).isEqualTo("K8S_CONTROLLER_NOT_READY");
+        verifyNoInteractions(inventory, executor, patchClient);
     }
 
     @Test
@@ -359,6 +375,64 @@ class HpaApplyServiceTest {
                 refuse(principal(), readWriteAccount(), new HpaApplyRequestDto(null, null, 69, true));
 
         assertThat(refusal.code()).isEqualTo("K8S_INVALID_POLICY");
+        assertThat(refusal.detail()).isEqualTo("CLAMP_BOUND");
+        verifyNoInteractions(executor);
+    }
+
+    // ---------------------------------------------------------------- the D3b retune guard (test 6a)
+
+    @Test
+    @DisplayName("a standalone CPU-target retune off the sub-flag is refused TARGET_RETUNE_DISABLED, never clamped")
+    void aStandaloneRetuneOffTheSubFlagIsRefused() {
+        // Default service: target-retune.enabled is false. The live CPU target is 50; a submitted 69
+        // differs, so the retune is refused outright (not clamped) and nothing reaches the executor.
+        VerticalApplyService.ApplyRefusedException refusal =
+                refuse(principal(), readWriteAccount(), new HpaApplyRequestDto(null, null, 69, true));
+
+        assertThat(refusal.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(refusal.code()).isEqualTo("K8S_INVALID_POLICY");
+        assertThat(refusal.detail()).isEqualTo("TARGET_RETUNE_DISABLED");
+        assertThat(refusal.field()).isEqualTo("targetUtilizationPct");
+        verifyNoInteractions(executor);
+    }
+
+    @Test
+    @DisplayName("a submitted target equal to the live CPU target is a no-op even with the sub-flag off")
+    void aSubmittedTargetEqualToTheLiveTargetIsANoOp() {
+        // The live CPU target is 50; submitting 50 changes nothing, so it passes the retune guard
+        // and reaches the executor even while target-retune.enabled is false.
+        HpaApplyResponseDto response = service().apply(principal(), readWriteAccount(), TARGET, REF,
+                new HpaApplyRequestDto(null, null, 50, true));
+
+        assertThat(response.state()).isEqualTo("ACCEPTED");
+        verify(executor).submit(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("with target-retune.enabled the differing target passes to the executor (the UAT posture)")
+    void withTheSubFlagOnADifferingTargetIsApplied() {
+        HorizontalAutoscalingProperties retuneOn =
+                new HorizontalAutoscalingProperties(true, true, true, true);
+
+        HpaApplyResponseDto response = service(retuneOn).apply(principal(), readWriteAccount(), TARGET, REF,
+                new HpaApplyRequestDto(null, null, 69, true));
+
+        assertThat(response.state()).isEqualTo("ACCEPTED");
+        ArgumentCaptor<HpaActionCommand> command = ArgumentCaptor.forClass(HpaActionCommand.class);
+        verify(executor).submit(command.capture(), any(), any());
+        assertThat(command.getValue().targetUtilizationPct()).isEqualTo(69);
+    }
+
+    @Test
+    @DisplayName("the missing-CPU-metric CLAMP_BOUND refusal fires before the retune guard, independently")
+    void theMissingCpuMetricClampBoundStillFiresIndependently() {
+        // No Resource: cpu metric: revalidate's CLAMP_BOUND refusal must fire first even though the
+        // retune sub-flag is off, so a target move is CLAMP_BOUND rather than TARGET_RETUNE_DISABLED.
+        when(patchClient.currentHpa(any(), anyString(), anyString())).thenReturn(memOnlyHpa());
+
+        VerticalApplyService.ApplyRefusedException refusal =
+                refuse(principal(), readWriteAccount(), new HpaApplyRequestDto(null, null, 69, true));
+
         assertThat(refusal.detail()).isEqualTo("CLAMP_BOUND");
         verifyNoInteractions(executor);
     }

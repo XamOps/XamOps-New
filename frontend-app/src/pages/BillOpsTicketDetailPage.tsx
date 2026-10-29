@@ -261,13 +261,17 @@ const BillOpsTicketDetailPage: React.FC = () => {
     }
   }, [transferTarget, transferTargetLabel, transferToAccountBilling, transferToTechnical]);
 
+  // Technical and Account & Billing lists both open this detail page, so return the
+  // user to the list that matches the ticket's category.
   const goBackToTickets = useCallback(() => {
     if (isAdmin) {
       navigate('/billops-admin-tickets');
+    } else if (ticket?.category === 'Technical') {
+      navigate('/tickets');
     } else {
       navigate('/billops-tickets');
     }
-  }, [navigate, isAdmin]);
+  }, [navigate, isAdmin, ticket?.category]);
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(event.target.files || []);

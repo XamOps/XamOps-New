@@ -194,6 +194,24 @@ func HPAManager(cfg *config.Config, b policy.PolicyBundle) Decision {
 	return Decision{Mode: Analyse, Reason: "analysis only (the HPA manager never mutates)"}
 }
 
+// VPAManager: ENABLE_VPA_MANAGER ∧ vpaManagerPolicy.enabled ∧ mode∈{full,scoped}.
+// The VPA manager is analysis-only: it is never Simulate or Live. The control loop
+// only calls CollectRecommendations; VPAManager.Apply (the restart-capable write)
+// has no caller, so this gate caps at Analyse by construction.
+func VPAManager(cfg *config.Config, b policy.PolicyBundle) Decision {
+	switch {
+	case modeDisabled(b):
+		return off("autoscalerMode=disabled")
+	case !cfg.EnableVPAManager:
+		return off("ENABLE_VPA_MANAGER=false")
+	case !b.VPAManagerPolicy.Enabled:
+		return off("vpaManagerPolicy.enabled=false")
+	case !fullOrScoped(b):
+		return off("autoscalerMode=%q (VPA manager needs full or scoped)", b.AutoscalerMode)
+	}
+	return Decision{Mode: Analyse, Reason: "analysis only (the VPA manager never mutates)"}
+}
+
 // ConsolidationActions: ENABLE_CONSOLIDATION ∧ consolidationPolicy.enabled ∧
 // mode=full; DRY_RUN → Simulate. This is the acting gate for the consolidation
 // controller (EMPTY/DRAIN + the controller-owned ASG terminate), mirroring
