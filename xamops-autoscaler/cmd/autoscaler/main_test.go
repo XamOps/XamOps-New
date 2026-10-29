@@ -3,7 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,6 +33,7 @@ import (
 
 	"github.com/xamops/automation/internal/config"
 	"github.com/xamops/automation/internal/controller"
+	"github.com/xamops/automation/internal/gate"
 	"github.com/xamops/automation/internal/metrics"
 	"github.com/xamops/automation/internal/policy"
 	"github.com/xamops/automation/internal/pusher"
@@ -1023,4 +1028,146 @@ func TestRunCycleInterruptionNoticesAreObservationOnly(t *testing.T) {
 	if r.InterruptionHandling == nil || r.InterruptionHandling.Mode != "simulate" || r.InterruptionHandling.Reason == "" {
 		t.Errorf("interruptionHandling = %+v\n%s", r.InterruptionHandling, reports[0])
 	}
+}
+
+// decide() populates VPAManager and byController() exposes it under "vpa-manager",
+// so the xamops_gate_decision gauge gains a vpa-manager series.
+func TestDecideWiresVPAManager(t *testing.T) {
+	cfg := &config.Config{EnableVPAManager: true}
+	b := policy.DefaultBundle()
+	b.AutoscalerMode = "full"
+	b.VPAManagerPolicy.Enabled = true
+
+	d := decide(cfg, b)
+	if d.VPAManager.Mode != gate.Analyse {
+		t.Errorf("decide VPAManager = %s, want analyse", d.VPAManager)
+	}
+
+	m := d.byController()
+	got, ok := m["vpa-manager"]
+	if !ok {
+		t.Fatalf("byController() has no \"vpa-manager\" key: %v", keys(m))
+	}
+	if got != d.VPAManager {
+		t.Errorf("byController()[\"vpa-manager\"] = %s, want %s", got, d.VPAManager)
+	}
+	// It must be the same gauge-feeding series name used elsewhere; hpa-manager is its sibling.
+	if _, ok := m["hpa-manager"]; !ok {
+		t.Error("byController() lost the hpa-manager key")
+	}
+}
+
+// The VPA manager never acts: for every ENABLE_VPA_MANAGER × enabled × DRY_RUN × mode
+// the decision wired into the cycle is Off or Analyse — never Simulate or Live.
+func TestDecideVPAManagerNeverActs(t *testing.T) {
+	for _, env := range []bool{false, true} {
+		for _, enabled := range []bool{false, true} {
+			for _, dry := range []bool{false, true} {
+				for _, mode := range []string{"full", "scoped", "disabled"} {
+					cfg := &config.Config{EnableVPAManager: env, DryRun: dry}
+					b := policy.DefaultBundle()
+					b.AutoscalerMode = mode
+					b.VPAManagerPolicy.Enabled = enabled
+					got := decide(cfg, b).VPAManager
+					if got.Mode == gate.Simulate || got.Mode == gate.Live {
+						t.Errorf("env=%v enabled=%v dry=%v mode=%s: VPA wired as %s (must be Off/Analyse)", env, enabled, dry, mode, got)
+					}
+					if env && enabled && (mode == "full" || mode == "scoped") {
+						if got.Mode != gate.Analyse {
+							t.Errorf("env=%v enabled=%v dry=%v mode=%s: want analyse, got %s", env, enabled, dry, mode, got)
+						}
+					} else if got.Mode != gate.Off {
+						t.Errorf("env=%v enabled=%v dry=%v mode=%s: want off, got %s", env, enabled, dry, mode, got)
+					}
+				}
+			}
+		}
+	}
+}
+
+// Under DRY_RUN every gate wired into the cycle is at most Simulate/Analyse: no gate
+// is Live. Combined with TestDecideVPAManagerNeverActs this pins "DRY_RUN → nothing
+// acts live" at the decision layer.
+func TestDecideDryRunNeverLive(t *testing.T) {
+	cfg := &config.Config{
+		DryRun:                true,
+		EnableEvictor:         true,
+		EnableRightsizer:      true,
+		EnableRightsizerApply: true,
+		EnableRebalancer:      true,
+		EnableHPAManager:      true,
+		EnableVPAManager:      true,
+		EnableNodeOptimizer:   true,
+		EnableConsolidation:   true,
+	}
+	b := policy.DefaultBundle()
+	b.AutoscalerMode = "full"
+	b.Rebalancer.Enabled, b.Rebalancer.Status = true, "running"
+	b.EvictorPolicy.Enabled = true
+	b.WorkloadRightsizerPolicy.Enabled = true
+	b.WorkloadRightsizerPolicy.ApplyMode = "immediate"
+	b.HPAManagerPolicy.Enabled = true
+	b.VPAManagerPolicy.Enabled = true
+	b.NodeOptimizerPolicy.Enabled = true
+	b.NodeOptimizerPolicy.AutoDrainIdleNodes = true
+	b.ConsolidationPolicy.Enabled = true
+
+	for name, dec := range decide(cfg, b).byController() {
+		if dec.Mode == gate.Live {
+			t.Errorf("under DRY_RUN controller %q is Live (%s) — nothing may act live", name, dec)
+		}
+	}
+}
+
+// The VPA control loop is read-only: VPAManager.Apply (the restart-capable write) has
+// no caller anywhere in cmd/autoscaler or internal. This is the static guarantee that
+// ENABLE_VPA_MANAGER has no path to Apply. Guards against a future accidental wire-up.
+func TestVPAManagerApplyHasNoCaller(t *testing.T) {
+	fset := token.NewFileSet()
+	roots := []string{".", filepath.Join("..", "..", "internal")}
+	for _, root := range roots {
+		err := filepath.WalkDir(root, func(path string, dEntry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if dEntry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			// Skip the definition site itself (the method declaration is not a call).
+			src, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			f, err := parser.ParseFile(fset, path, src, 0)
+			if err != nil {
+				return err
+			}
+			ast.Inspect(f, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if ok && sel.Sel.Name == "Apply" {
+					if id, ok := sel.X.(*ast.Ident); ok && id.Name == "vpaMgr" {
+						t.Errorf("%s:%d: vpaMgr.Apply has a caller — the VPA path must stay read-only",
+							path, fset.Position(call.Pos()).Line)
+					}
+				}
+				return true
+			})
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", root, err)
+		}
+	}
+}
+
+func keys(m map[string]gate.Decision) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }

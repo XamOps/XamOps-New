@@ -215,6 +215,55 @@ func TestHPAManagerNeverLive(t *testing.T) {
 	}
 }
 
+// The VPA manager is analysis-only: no input combination makes it Live or Simulate.
+// Cross product of ENABLE_VPA_MANAGER × vpaManagerPolicy.enabled × DRY_RUN × mode;
+// the result is Off (with a non-empty first-failing reason) or Analyse only.
+func TestVPAManagerNeverLive(t *testing.T) {
+	rows := 0
+	for _, env := range []bool{false, true} {
+		for _, enabled := range []bool{false, true} {
+			for _, dry := range []bool{false, true} {
+				for _, mode := range modes {
+					rows++
+					cfg := &config.Config{EnableVPAManager: env, DryRun: dry}
+					b := bundle(mode)
+					b.VPAManagerPolicy.Enabled = enabled
+					got := VPAManager(cfg, b)
+					want := Off
+					if env && enabled && (mode == "full" || mode == "scoped") {
+						want = Analyse
+					}
+					if got.Mode != want {
+						t.Errorf("env=%v enabled=%v dry=%v mode=%s: got %s, want %s", env, enabled, dry, mode, got, want)
+					}
+					if got.Mode == Simulate || got.Mode == Live {
+						t.Errorf("env=%v enabled=%v dry=%v mode=%s: VPA manager must never be Simulate/Live, got %s", env, enabled, dry, mode, got)
+					}
+					if got.Reason == "" {
+						t.Errorf("env=%v enabled=%v dry=%v mode=%s: empty reason", env, enabled, dry, mode)
+					}
+				}
+			}
+		}
+	}
+	if rows != 2*2*2*3 {
+		t.Fatalf("cross product has %d rows, want %d", rows, 2*2*2*3)
+	}
+
+	// The first-failing condition is named in the reason, in gate order.
+	if got := VPAManager(&config.Config{}, bundle("disabled")); got.Reason != "autoscalerMode=disabled" {
+		t.Errorf("disabled reason = %q", got.Reason)
+	}
+	if got := VPAManager(&config.Config{EnableVPAManager: false}, bundle("full")); got.Reason != "ENABLE_VPA_MANAGER=false" {
+		t.Errorf("env-off reason = %q", got.Reason)
+	}
+	full := bundle("full")
+	full.VPAManagerPolicy.Enabled = false
+	if got := VPAManager(&config.Config{EnableVPAManager: true}, full); got.Reason != "vpaManagerPolicy.enabled=false" {
+		t.Errorf("policy-off reason = %q", got.Reason)
+	}
+}
+
 // Consolidation analysis is look-only: over every combination of the 7 ENABLE_*
 // flags, DRY_RUN and the autoscaler mode it is Off or Analyse, Analyse exactly for
 // full and scoped.
@@ -307,17 +356,18 @@ func TestConsolidationActionsCrossProduct(t *testing.T) {
 
 func TestUnknownModeFailsClosed(t *testing.T) {
 	cfg := &config.Config{EnableRebalancer: true, EnableEvictor: true, EnableNodeOptimizer: true,
-		EnableRightsizer: true, EnableHPAManager: true}
+		EnableRightsizer: true, EnableHPAManager: true, EnableVPAManager: true}
 	b := bundle("")
 	b.Rebalancer.Enabled, b.Rebalancer.Status = true, "running"
 	b.EvictorPolicy.Enabled, b.EvictorPolicy.AnalyseOnly = true, false
 	b.NodeOptimizerPolicy.Enabled = true
 	b.WorkloadRightsizerPolicy.Enabled = true
 	b.HPAManagerPolicy.Enabled = true
+	b.VPAManagerPolicy.Enabled = true
 	for name, d := range map[string]Decision{
 		"rebalancer": Rebalancer(cfg, b), "evictor": Evictor(cfg, b),
 		"nodeopt": NodeOptimizerAnalysis(cfg, b), "rightsizer": RightsizerAnalysis(cfg, b),
-		"hpa": HPAManager(cfg, b),
+		"hpa": HPAManager(cfg, b), "vpa": VPAManager(cfg, b),
 	} {
 		if d.Mode != Off {
 			t.Errorf("%s with empty mode: got %s, want off", name, d)
