@@ -107,24 +107,26 @@ func sdbKept(p Plan) []string {
 	return out
 }
 
-// Plan blockers per stateful node under the stateful/zone engine. Every DB pod
-// carries a non-Memory emptyDir, so the simulate.go Refused verdict is db-emptydir;
-// the analyzer's own local-storage-no-replica check (emptyDir + replicas < 2) adds
-// a second blocker for the single-replica DBs (mysql-0, pg-cnpg-*, pg-unsafe-0).
-// The DB-specific db-emptydir code replaces the pre-engine generic pvc/affinity
-// codes, and no blocker is ever dropped by relaxing the policy toggles.
+// Plan blockers per stateful node under the stateful/zone engine. The PVC-backed
+// DBs resolve by role (pg-cnpg-1 db-primary, pg-cnpg-2 db-lag-unknown, mongo-*
+// and mysql-0 db-role-unknown); only pg-unsafe-0, an emptyDir-only DB with no PVC,
+// is db-emptydir. The analyzer's own local-storage-no-replica check (emptyDir +
+// replicas < 2) is independent of the db verdict (analyze.go keys off
+// emptyDir+replicas), so it still adds a second blocker for the single-replica DBs
+// (mysql-0, pg-cnpg-*, pg-unsafe-0). No blocker is dropped by relaxing the policy
+// toggles.
 var (
 	sdbNode1 = []string{ // 1c
-		"mongo-2 db-emptydir",
-		"pg-cnpg-1 db-emptydir", "pg-cnpg-1 local-storage-no-replica",
+		"mongo-2 db-role-unknown",
+		"pg-cnpg-1 db-primary", "pg-cnpg-1 local-storage-no-replica",
 	}
 	sdbNode2 = []string{ // 1b
-		"mongo-1 db-emptydir",
-		"mysql-0 db-emptydir", "mysql-0 local-storage-no-replica",
-		"pg-cnpg-2 db-emptydir", "pg-cnpg-2 local-storage-no-replica",
+		"mongo-1 db-role-unknown",
+		"mysql-0 db-role-unknown", "mysql-0 local-storage-no-replica",
+		"pg-cnpg-2 db-lag-unknown", "pg-cnpg-2 local-storage-no-replica",
 	}
 	sdbNode3 = []string{ // 1a
-		"mongo-0 db-emptydir",
+		"mongo-0 db-role-unknown",
 		"pg-unsafe-0 db-emptydir", "pg-unsafe-0 local-storage-no-replica",
 	}
 )
@@ -140,9 +142,10 @@ func TestStatefulDBTodayConsolidationPlan(t *testing.T) {
 	}{
 		{
 			// 0 EMPTY, 0 DRAIN; all 3 stateful nodes blocked. Every DB pod is refused
-			// db-emptydir — a DB-specific code, never a primary/sync-standby name
-			// leak — and the single-replica DBs also carry local-storage-no-replica.
-			name:        "live guards: every stateful node blocked, DB pods refused db-emptydir",
+			// with a role-aware DB-specific code (db-primary/db-lag-unknown/
+			// db-role-unknown, or db-emptydir for the emptyDir-only pg-unsafe-0) — and
+			// the single-replica DBs also carry local-storage-no-replica.
+			name:        "live guards: every stateful node blocked, DB pods refused by role",
 			opts:        testOptions(),
 			wantSummary: Summary{NodesEvaluated: 4, Blocked: 3, Kept: 1},
 			wantBlocked: map[string][]string{"db-node-1": sdbNode1, "db-node-2": sdbNode2, "db-node-3": sdbNode3},
@@ -150,16 +153,16 @@ func TestStatefulDBTodayConsolidationPlan(t *testing.T) {
 		},
 		{
 			// With its OTel emptyDirs removed, mysql-0 no longer has a non-Memory
-			// emptyDir: the stateful layer can no longer call it an emptyDir DB, so
-			// it detects it as a database of unknown role (db-role-unknown), and its
-			// local-storage-no-replica blocker disappears.
-			name:        "OTel injection removed from mysql-0: emptyDir DB becomes role-unknown",
+			// emptyDir. It was already db-role-unknown (PVC-backed, no role label),
+			// so the verdict is unchanged, but its local-storage-no-replica blocker
+			// disappears (that check keys off emptyDir+replicas).
+			name:        "OTel injection removed from mysql-0: local-storage-no-replica blocker drops",
 			mutate:      func(o *objects) { sdbStripOTel(o, "mysql-0") },
 			opts:        testOptions(),
 			wantSummary: Summary{NodesEvaluated: 4, Blocked: 3, Kept: 1},
 			wantBlocked: map[string][]string{"db-node-1": sdbNode1, "db-node-3": sdbNode3, "db-node-2": {
-				"mongo-1 db-emptydir", "mysql-0 db-role-unknown",
-				"pg-cnpg-2 db-emptydir", "pg-cnpg-2 local-storage-no-replica",
+				"mongo-1 db-role-unknown", "mysql-0 db-role-unknown",
+				"pg-cnpg-2 db-lag-unknown", "pg-cnpg-2 local-storage-no-replica",
 			}},
 			wantMoves: map[string][]string{},
 		},

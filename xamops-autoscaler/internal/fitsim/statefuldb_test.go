@@ -429,19 +429,21 @@ func TestStatefulDBTodaySnapshotView(t *testing.T) {
 		verdict    string
 		unmodelled []string
 	}{
-		// Every DB pod carries a non-Memory emptyDir (the OTel-injected volumes, the
-		// CNPG scratch-data volume, or pg-unsafe's own data volume), so the detected
-		// database is refused db-emptydir — the verdict that wins over role and
-		// replica count (stateful-db-fixtures report §5). The zonal PVs now model,
-		// so the PVC refusal narrows to pvc-volume-unmodelled only where a term the
-		// simulator cannot represent remains (here: none — every PV carries one zone
-		// term). The CNPG pods' owner kind Cluster is not in the replica map.
-		{"pg-cnpg-1", "Cluster", nil, CodeDBEmptyDir, []string{ReasonPodAntiAffinity}},
-		{"pg-cnpg-2", "Cluster", nil, CodeDBEmptyDir, []string{ReasonPodAntiAffinity}},
-		{"mongo-0", "StatefulSet", &three, CodeDBEmptyDir, []string{ReasonTopologySpread}},
-		{"mongo-1", "StatefulSet", &three, CodeDBEmptyDir, []string{ReasonTopologySpread}},
-		{"mongo-2", "StatefulSet", &three, CodeDBEmptyDir, []string{ReasonTopologySpread}},
-		{"mysql-0", "StatefulSet", &one, CodeDBEmptyDir, nil},
+		// The PVC-backed DBs (CNPG pg-cnpg-*, mysql-0, mongo-*) also mount a
+		// scratch/OTel emptyDir, but their real data lives on the PVC, so the
+		// emptyDir gate no longer masks the role: each resolves by role — pg-cnpg-1
+		// is the CNPG primary by label (db-primary), pg-cnpg-2 an async replica with
+		// no v1 lag source (db-lag-unknown), and the role-less mongo-*/mysql-0 fail
+		// closed on db-role-unknown. Only pg-unsafe-0, an emptyDir-only DB with no
+		// PVC, stays db-emptydir. The zonal PVs now model, so the PVC refusal
+		// narrows to the unmodelled anti-affinity/topology term only. The CNPG pods'
+		// owner kind Cluster is not in the replica map.
+		{"pg-cnpg-1", "Cluster", nil, "db-primary", []string{ReasonPodAntiAffinity}},
+		{"pg-cnpg-2", "Cluster", nil, "db-lag-unknown", []string{ReasonPodAntiAffinity}},
+		{"mongo-0", "StatefulSet", &three, "db-role-unknown", []string{ReasonTopologySpread}},
+		{"mongo-1", "StatefulSet", &three, "db-role-unknown", []string{ReasonTopologySpread}},
+		{"mongo-2", "StatefulSet", &three, "db-role-unknown", []string{ReasonTopologySpread}},
+		{"mysql-0", "StatefulSet", &one, "db-role-unknown", nil},
 		{"pg-unsafe-0", "StatefulSet", &one, CodeDBEmptyDir, nil},
 	}
 	for _, c := range cases {
@@ -485,7 +487,9 @@ func TestStatefulDBDrainPlans(t *testing.T) {
 	noMongo0 := full.WithoutPods(map[string]bool{podUID(dbNS, "mongo-0"): true})
 	k := func(n string) string { return dbNS + "/" + n }
 	mongoPDB := PDBCheck{PDB: k("mongo"), MatchedInSet: 1, DisruptionsAllowed: 1}
-	emptyDirRefusal := func(n string) Finding { return Finding{Pod: k(n), Reason: CodeDBEmptyDir} }
+	// Per-pod role-aware refusal codes. Only pg-unsafe-0 (emptyDir-only, no PVC)
+	// stays db-emptydir; the PVC-backed DBs resolve by role.
+	refusal := func(n, reason string) Finding { return Finding{Pod: k(n), Reason: reason} }
 
 	cases := []struct {
 		name    string
@@ -496,17 +500,17 @@ func TestStatefulDBDrainPlans(t *testing.T) {
 		summary string
 	}{
 		{
-			name: "1a live guards: mongo-0 and the emptyDir DB pg-unsafe-0 both refused db-emptydir",
+			name: "1a live guards: mongo-0 (role-unknown) and the emptyDir DB pg-unsafe-0 both refused",
 			snap: full, nodes: []string{statefulDBFixtureNodeA}, opts: liveGuards(),
 			want: expectation{excluded: 6,
-				refused:   []Finding{emptyDirRefusal("mongo-0"), emptyDirRefusal("pg-unsafe-0")},
+				refused:   []Finding{refusal("mongo-0", "db-role-unknown"), refusal("pg-unsafe-0", CodeDBEmptyDir)},
 				pdbChecks: []PDBCheck{mongoPDB}},
 		},
 		{
-			name: "1a relaxed guards: unchanged — the emptyDir refusal is guard-independent",
+			name: "1a relaxed guards: unchanged — the db-* refusal is guard-independent",
 			snap: full, nodes: []string{statefulDBFixtureNodeA}, opts: relaxedGuards(),
 			want: expectation{excluded: 6,
-				refused:   []Finding{emptyDirRefusal("mongo-0"), emptyDirRefusal("pg-unsafe-0")},
+				refused:   []Finding{refusal("mongo-0", "db-role-unknown"), refusal("pg-unsafe-0", CodeDBEmptyDir)},
 				pdbChecks: []PDBCheck{mongoPDB}},
 		},
 		{
@@ -515,45 +519,45 @@ func TestStatefulDBDrainPlans(t *testing.T) {
 			// it. No PDB selects pg-unsafe-0, so there is no PDB check left.
 			name: "1a without mongo-0, relaxed guards: emptyDir DB still refused, node not drainable",
 			snap: noMongo0, nodes: []string{statefulDBFixtureNodeA}, opts: relaxedGuards(),
-			want:    expectation{excluded: 6, refused: []Finding{emptyDirRefusal("pg-unsafe-0")}},
+			want:    expectation{excluded: 6, refused: []Finding{refusal("pg-unsafe-0", CodeDBEmptyDir)}},
 			summary: "not drainable: refused db-fixtures/pg-unsafe-0 (db-emptydir)",
 		},
 		{
 			// pg-cnpg-primary allows 0 disruptions but the Refused pod skips every
 			// Blocked check: the PDB is counted in PDBChecks, never a blocker.
-			name: "1c live guards: CNPG primary refused db-emptydir, its 0-allowed PDB never blocks",
+			name: "1c live guards: CNPG primary refused db-primary, its 0-allowed PDB never blocks",
 			snap: full, nodes: []string{statefulDBFixtureNodeC}, opts: liveGuards(),
-			want: expectation{excluded: 6, refused: []Finding{emptyDirRefusal("mongo-2"), emptyDirRefusal("pg-cnpg-1")},
+			want: expectation{excluded: 6, refused: []Finding{refusal("mongo-2", "db-role-unknown"), refusal("pg-cnpg-1", "db-primary")},
 				pdbChecks: []PDBCheck{mongoPDB, {PDB: k("pg-cnpg-primary"), MatchedInSet: 1, DisruptionsAllowed: 0}}},
 		},
 		{
 			name: "1c relaxed guards: unchanged (refusal is guard-independent)",
 			snap: full, nodes: []string{statefulDBFixtureNodeC}, opts: relaxedGuards(),
-			want: expectation{excluded: 6, refused: []Finding{emptyDirRefusal("mongo-2"), emptyDirRefusal("pg-cnpg-1")},
+			want: expectation{excluded: 6, refused: []Finding{refusal("mongo-2", "db-role-unknown"), refusal("pg-cnpg-1", "db-primary")},
 				pdbChecks: []PDBCheck{mongoPDB, {PDB: k("pg-cnpg-primary"), MatchedInSet: 1, DisruptionsAllowed: 0}}},
 		},
 		{
-			name: "1b live guards: mysql-0 and the sync standby refused db-emptydir",
+			name: "1b live guards: mysql-0 (role-unknown) and the replica (lag-unknown) refused",
 			snap: full, nodes: []string{statefulDBFixtureNodeB}, opts: liveGuards(),
 			want: expectation{excluded: 6,
-				refused:   []Finding{emptyDirRefusal("mongo-1"), emptyDirRefusal("mysql-0"), emptyDirRefusal("pg-cnpg-2")},
+				refused:   []Finding{refusal("mongo-1", "db-role-unknown"), refusal("mysql-0", "db-role-unknown"), refusal("pg-cnpg-2", "db-lag-unknown")},
 				pdbChecks: []PDBCheck{mongoPDB}},
 		},
 		{
 			name: "1b relaxed guards: unchanged",
 			snap: full, nodes: []string{statefulDBFixtureNodeB}, opts: relaxedGuards(),
 			want: expectation{excluded: 6,
-				refused:   []Finding{emptyDirRefusal("mongo-1"), emptyDirRefusal("mysql-0"), emptyDirRefusal("pg-cnpg-2")},
+				refused:   []Finding{refusal("mongo-1", "db-role-unknown"), refusal("mysql-0", "db-role-unknown"), refusal("pg-cnpg-2", "db-lag-unknown")},
 				pdbChecks: []PDBCheck{mongoPDB}},
 		},
 		{
 			// Whole stateful pool: every DB pod is refused db-emptydir, so nothing is
 			// ever placed and nothing strands.
-			name: "whole stateful pool, live guards: every DB pod refused db-emptydir",
+			name: "whole stateful pool, live guards: every DB pod refused (role-aware)",
 			snap: full, nodes: []string{statefulDBFixtureNodeC, statefulDBFixtureNodeB, statefulDBFixtureNodeA}, opts: liveGuards(),
 			want: expectation{excluded: 18,
-				refused: []Finding{emptyDirRefusal("mongo-0"), emptyDirRefusal("mongo-1"), emptyDirRefusal("mongo-2"),
-					emptyDirRefusal("mysql-0"), emptyDirRefusal("pg-cnpg-1"), emptyDirRefusal("pg-cnpg-2"), emptyDirRefusal("pg-unsafe-0")},
+				refused: []Finding{refusal("mongo-0", "db-role-unknown"), refusal("mongo-1", "db-role-unknown"), refusal("mongo-2", "db-role-unknown"),
+					refusal("mysql-0", "db-role-unknown"), refusal("pg-cnpg-1", "db-primary"), refusal("pg-cnpg-2", "db-lag-unknown"), refusal("pg-unsafe-0", CodeDBEmptyDir)},
 				pdbChecks: []PDBCheck{{PDB: k("mongo"), MatchedInSet: 3, DisruptionsAllowed: 1}, {PDB: k("pg-cnpg-primary"), MatchedInSet: 1, DisruptionsAllowed: 0}}},
 		},
 	}

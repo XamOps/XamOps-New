@@ -95,9 +95,11 @@ func Classify(pod PodFacts, cr *OperatorCR, now time.Time) Verdict {
 		return allowed
 	}
 
-	// emptyDir DB: data loss on drain, refused regardless of role or replica count,
-	// and non-overridable. Checked first so it always wins.
-	if pod.HasEmptyDirAtDataPath {
+	// emptyDir-only DB: data loss on drain, refused regardless of role or replica
+	// count, and non-overridable. Gated on !HasPVC so it fires only for a genuine
+	// emptyDir-only DB; a PVC-backed DB that also mounts a scratch/OTel emptyDir
+	// keeps its real data on the PVC and falls through to role resolution below.
+	if pod.HasEmptyDirAtDataPath && !pod.HasPVC {
 		return refuse(CodeDBEmptyDir, "database with an emptyDir at its data path (drain = data loss)")
 	}
 

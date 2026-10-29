@@ -89,10 +89,10 @@ func TestStatefulDBFitPlannerEvictions(t *testing.T) {
 		wantEvictions []evictionPair
 	}{
 		{
-			name: "1a live guards: both DB pods refused db-emptydir, nothing evicted",
+			name: "1a live guards: both DB pods refused (role-aware), nothing evicted",
 			node: "db-node-3", protect: true,
 			wantReasons: []string{
-				"refused db-fixtures/mongo-0: db-emptydir",
+				"refused db-fixtures/mongo-0: db-role-unknown",
 				"refused db-fixtures/pg-unsafe-0: db-emptydir",
 			},
 			wantEvictions: []evictionPair{},
@@ -115,21 +115,21 @@ func TestStatefulDBFitPlannerEvictions(t *testing.T) {
 		{
 			// The CNPG primary's PDB (0 allowed) never shows: Refused skips it, so
 			// the plan is not even Retryable.
-			name: "1c relaxed guards: CNPG primary and Mongo refused db-emptydir",
+			name: "1c relaxed guards: CNPG primary and Mongo refused (role-aware)",
 			node: "db-node-1", protect: false,
 			wantReasons: []string{
-				"refused db-fixtures/mongo-2: db-emptydir",
-				"refused db-fixtures/pg-cnpg-1: db-emptydir",
+				"refused db-fixtures/mongo-2: db-role-unknown",
+				"refused db-fixtures/pg-cnpg-1: db-primary",
 			},
 			wantEvictions: []evictionPair{},
 		},
 		{
-			name: "1b relaxed guards: mysql-0 and the sync standby refused db-emptydir",
+			name: "1b relaxed guards: mysql-0 and the sync standby refused (role-aware)",
 			node: "db-node-2", protect: false,
 			wantReasons: []string{
-				"refused db-fixtures/mongo-1: db-emptydir",
-				"refused db-fixtures/mysql-0: db-emptydir",
-				"refused db-fixtures/pg-cnpg-2: db-emptydir",
+				"refused db-fixtures/mongo-1: db-role-unknown",
+				"refused db-fixtures/mysql-0: db-role-unknown",
+				"refused db-fixtures/pg-cnpg-2: db-lag-unknown",
 			},
 			wantEvictions: []evictionPair{},
 		},
