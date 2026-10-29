@@ -799,6 +799,14 @@
             <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Architecture rules for the AutoSpotting program (plan-phase-03.md task 3.4,
+             design-ux-ops.md §9.1). Version pinned exactly. -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>1.5.1</version>
+            <scope>test</scope>
+        </dependency>
         <!-- Strips scripts/handlers from user-authored ticket HTML before it is stored -->
         <dependency>
             <groupId>com.googlecode.owasp-java-html-sanitizer</groupId>
