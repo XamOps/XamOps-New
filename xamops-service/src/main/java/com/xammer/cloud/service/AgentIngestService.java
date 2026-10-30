@@ -1,6 +1,7 @@
 package com.xammer.cloud.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.xammer.cloud.domain.AgentDataCache;
@@ -114,6 +115,17 @@ public class AgentIngestService {
 
     /** Null when constructed without it (tests): usage capture is then skipped. */
     private final UsageSampleCapture usageSampleCapture;
+
+    /**
+     * BP-10 (design §6.3): optional so the four-collaborator test constructors keep working. When
+     * both are present, a successful {@code k8s-resources} push runs node-scaler detection and
+     * persists a changed value with a {@code NODE_SCALER_CHANGED} audit.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.xammer.cloud.service.onboarding.NodeScalerDetector nodeScalerDetector;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.xammer.cloud.service.onboarding.OnboardingAuditService onboardingAuditService;
 
     public AgentIngestService(
             KubernetesClusterConfigRepository clusterConfigRepository,
@@ -464,6 +476,7 @@ public class AgentIngestService {
                         totalItemsReceived += result.getItemsProcessed();
                         if (K8S_RESOURCES.equals(batch.getCollector())) {
                             captureUsageSafely(clusterConfig, batch);
+                            detectNodeScalerSafely(clusterConfig, batch);
                         }
                     }
                 } catch (Exception e) {
@@ -506,6 +519,49 @@ public class AgentIngestService {
         } catch (RuntimeException e) {
             logger.warn("Usage rollup capture could not be scheduled for cluster config {}: {}",
                     clusterConfig.getId(), e.toString());
+        }
+    }
+
+    /**
+     * BP-10 (design §6.3): detect the node scaler from a k8s-resources snapshot and persist it if it
+     * changed, auditing {@code NODE_SCALER_CHANGED}. Only the detector and PF-COMPUTE write
+     * {@code config.node_scaler}. A detector failure is logged at WARN; ingest still succeeds and the
+     * value is left as it was. An {@code EKS_AUTO_MODE} value set by the server preflight is never
+     * overwritten by deployment-based detection.
+     */
+    private void detectNodeScalerSafely(KubernetesClusterConfig config, DataBatch batch) {
+        if (nodeScalerDetector == null) {
+            return;
+        }
+        try {
+            if (batch.getItems() == null || batch.getItems().isEmpty()) {
+                return;
+            }
+            JsonNode snapshot = objectMapper.valueToTree(batch.getItems().get(0));
+            String detected = nodeScalerDetector.detect(snapshot);
+            if (detected == null
+                    || com.xammer.cloud.service.onboarding.NodeScalerDetector.UNKNOWN.equals(detected)) {
+                return; // never downgrade a known value to UNKNOWN from a bad payload
+            }
+            String current = config.getNodeScaler();
+            if ("EKS_AUTO_MODE".equals(current)) {
+                return; // server preflight (PF-COMPUTE) owns this value; don't clobber it
+            }
+            if (detected.equals(current)) {
+                return;
+            }
+            config.setNodeScaler(detected);
+            config.setNodeScalerDetectedAt(Instant.now());
+            clusterConfigRepository.save(config);
+            if (onboardingAuditService != null) {
+                onboardingAuditService.record(null, config.getCloudAccountId(), config.getClusterName(),
+                        config.getId(), "NODE_SCALER_CHANGED",
+                        com.xammer.cloud.service.onboarding.OnboardingAuditService.ACTOR_AGENT, null,
+                        "{\"from\":\"" + (current == null ? "null" : current) + "\",\"to\":\"" + detected + "\"}");
+            }
+        } catch (RuntimeException e) {
+            logger.warn("Node-scaler detection failed for cluster config {}: {}",
+                    config.getId(), e.toString());
         }
     }
 
