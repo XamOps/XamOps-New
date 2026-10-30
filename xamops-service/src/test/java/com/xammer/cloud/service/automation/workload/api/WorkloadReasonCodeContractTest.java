@@ -124,7 +124,8 @@ class WorkloadReasonCodeContractTest {
                 .containsExactly("AT_MAX_UNMET_DEMAND", "MAX_ABOVE_OBSERVED_PEAK", "TARGET_COADJUSTED",
                         "TARGET_RETUNED", "HPA_RECOMMENDED_NEW", "WITHIN_REPLICA_HYSTERESIS", "COOLDOWN",
                         "GITOPS_MANAGED", "PDB_FLOOR_BINDS", "USER_MAX_RESPECTED", "BELOW_OBSERVED_NEED",
-                        "CLAMP_BOUND", "VPA_MANAGED", "HPA_NOT_READABLE", "VPA_NOT_READABLE");
+                        "CLAMP_BOUND", "VPA_MANAGED", "HPA_NOT_READABLE", "VPA_NOT_READABLE",
+                        "TARGET_RETUNE_DISABLED");
 
         // And the shared gate set stays exactly nine: the HPA codes did not leak into it.
         assertThat(ReasonCode.values()).hasSize(9);

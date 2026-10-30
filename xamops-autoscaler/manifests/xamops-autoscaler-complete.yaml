@@ -121,6 +121,12 @@ rules:
     verbs: ["create"]
 
   # Patch Deployment resource requests (rightsizer)
+  # DORMANT RESTART-CAPABLE GRANT: patching a Deployment template rolls its pods
+  # (an effective restart). This write verb is gated in code (ENABLE_RIGHTSIZER_APPLY
+  # + applyMode=immediate + DRY_RUN=false) and is only exercised by the rightsizer
+  # apply path. The VPA manager's restart-capable write (VPAManager.Apply) is
+  # currently CALLERLESS — the control loop only collects recommendations — so this
+  # grant stays dormant for VPA pending the owner restart decision. Grant unchanged.
   - apiGroups: ["apps"]
     resources:
       - deployments
@@ -146,6 +152,12 @@ rules:
 
   # ── VPA Manager: create/update/delete VerticalPodAutoscalers ───────────────
   # Only needed when ENABLE_VPA_MANAGER=true and VPA CRD is installed.
+  # DORMANT RESTART-CAPABLE GRANT: the create/update/patch/delete verbs here back
+  # VPAManager.Apply, which (with a VPA updateMode of Auto/Recreate/InPlaceOrRecreate)
+  # can restart workload pods. That method is CALLERLESS today — the gate.VPAManager
+  # decision caps at Analyse and the control loop only calls CollectRecommendations
+  # (read-only: get/list/watch). These write verbs therefore remain dormant pending
+  # the owner restart decision. Grant unchanged.
   - apiGroups: ["autoscaling.k8s.io"]
     resources:
       - verticalpodautoscalers

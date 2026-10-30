@@ -184,6 +184,11 @@ class K8sAutomationPolicyNormalizerTest {
     void aCreatedSectionStartsOff_aStoredOneKeepsItsValue() {
         // Review S1: an agent image older than 03481bb4f gates the evictor on enabled alone, so a
         // section the normalizer adds must not switch a controller on.
+        // The VPA manager's stored enabled is kept only once vpa-apply is ready: while it is not
+        // ready the serve-time coercion forces enabled:false (FEAT-001's inert posture), which the
+        // vpaApplyRow test pins. Here the concern is that fillMissing keeps a stored value, so the
+        // readiness key is set to isolate that from the coercion.
+        ready(K8sReadinessKey.VPA_APPLY);
         String storedEvictorOnly = "{\"autoscalerMode\":\"full\",\"evictorPolicy\":{\"enabled\":true,\"analyseOnly\":true},"
                 + "\"vpaManagerPolicy\":{\"enabled\":true,\"analyseOnly\":true,\"updateMode\":\"Off\"}}";
         for (AutomationPolicyBundle b : bothPaths(storedEvictorOnly)) {
@@ -260,12 +265,39 @@ class K8sAutomationPolicyNormalizerTest {
 
     @Test
     void vpaApplyRow() throws Exception {
+        // The enabled:false assertion is the load-bearing one for FEAT-001: VpaManagerPolicyDto
+        // defaults enabled=true, so the serve path must coerce it false while vpa-apply isn't ready.
         assertRow(b -> {
+                    b.getVpaManagerPolicy().setEnabled(true);
                     b.getVpaManagerPolicy().setAnalyseOnly(false);
                     b.getVpaManagerPolicy().setUpdateMode("Auto");
                 },
-                b -> b.getVpaManagerPolicy().isAnalyseOnly() + "/" + b.getVpaManagerPolicy().getUpdateMode(),
-                "true/Off", "false/Auto", K8sReadinessKey.VPA_APPLY);
+                b -> b.getVpaManagerPolicy().isEnabled() + "/" + b.getVpaManagerPolicy().isAnalyseOnly()
+                        + "/" + b.getVpaManagerPolicy().getUpdateMode(),
+                "false/true/Off", "true/false/Auto", K8sReadinessKey.VPA_APPLY);
+    }
+
+    @Test
+    void vpaApplyServedDisabledRoundTripsSoRunRecordsDeserialize() throws Exception {
+        // A stored bundle with the VPA manager fully live (enabled:true, analyseOnly:false,
+        // updateMode:Auto) is served inert while vpa-apply isn't ready, and the served bundle must
+        // still serialize/deserialize so run records built from it round-trip.
+        String json = stored(b -> {
+            b.getVpaManagerPolicy().setEnabled(true);
+            b.getVpaManagerPolicy().setAnalyseOnly(false);
+            b.getVpaManagerPolicy().setUpdateMode("Auto");
+        });
+        for (AutomationPolicyBundle served : bothPaths(json)) {
+            assertThat(served.getVpaManagerPolicy().isEnabled()).as("served enabled:false").isFalse();
+            assertThat(served.getVpaManagerPolicy().isAnalyseOnly()).isTrue();
+            assertThat(served.getVpaManagerPolicy().getUpdateMode()).isEqualTo("Off");
+
+            String roundTrip = normalizer.toJson(served);
+            AutomationPolicyBundle back = RAW.readValue(roundTrip, AutomationPolicyBundle.class);
+            assertThat(back.getVpaManagerPolicy().isEnabled()).isFalse();
+            assertThat(back.getVpaManagerPolicy().isAnalyseOnly()).isTrue();
+            assertThat(back.getVpaManagerPolicy().getUpdateMode()).isEqualTo("Off");
+        }
     }
 
     @Test

@@ -230,6 +230,7 @@ public class HpaApplyService {
                     metricsProperties.defaultsPolicy());
 
             revalidate(submitted, workload, hpa);
+            requireTargetRetunePermitted(submitted, hpa);
             requireCooldownElapsed(policy, workload.ref());
 
             boolean dryRun = Boolean.TRUE.equals(request.dryRun());
@@ -404,14 +405,15 @@ public class HpaApplyService {
     }
 
     /**
-     * HPA-apply readiness derives from the read-write connection, not the standalone
-     * {@code xamops.k8s.automation.readiness.hpa-apply} staging flag: a read-write account on a
-     * feature that is on with an executor wired is ready. The {@link K8sAutomationAccessService#isReadWrite(CloudAccount)}
+     * HPA-apply readiness is the authority for the apply path: the feature is enabled, the
+     * standalone {@code xamops.k8s.automation.readiness.hpa-apply} staging flag
+     * ({@link HorizontalAutoscalingProperties#isReady()}) is set, an executor is wired, and the
+     * connection is read-write. The {@link K8sAutomationAccessService#isReadWrite(CloudAccount)}
      * check is belt-and-braces — {@link #requireWriteConnection(CloudAccount)} already ran — so the
      * readiness gate can never pass on a read-only connection.
      */
     private void requireControllerReady(CloudAccount account) {
-        if (!(properties.isEnabled() && properties.isExecutorPresent()
+        if (!(properties.isEnabled() && properties.isReady() && properties.isExecutorPresent()
                 && K8sAutomationAccessService.isReadWrite(account))) {
             throw new VerticalApplyService.ApplyRefusedException(HttpStatus.FORBIDDEN,
                     ReasonCode.CONTROLLER_NOT_READY.refusalCode(), null,
@@ -539,6 +541,37 @@ public class HpaApplyService {
             throw refusal(HpaReason.CLAMP_BOUND, "targetUtilizationPct", ref.describe()
                     + "'s HPA has no Resource: cpu metric, so its CPU target cannot be co-adjusted.");
         }
+    }
+
+    /**
+     * A standalone CPU-target retune behind the D3b sub-flag: when
+     * {@link HorizontalAutoscalingProperties#isTargetRetuneEnabled()} is off, a submitted
+     * {@code targetUtilizationPct} that differs from the live CPU target is refused outright
+     * ({@link HpaReason#TARGET_RETUNE_DISABLED}), never clamped. A submitted target equal to the live
+     * target is a no-op that passes through. Runs after {@link #revalidate} so the missing-CPU-metric
+     * {@link HpaReason#CLAMP_BOUND} refusal still fires first and independently.
+     *
+     * <p>Per design-review NIT 1 the comparison is submitted-side first
+     * ({@code submitted.target().equals(current)}): a null live target reads as "differs" and is
+     * refused (fail-safe), never NPEs.
+     */
+    private void requireTargetRetunePermitted(Submitted submitted, HorizontalPodAutoscaler hpa) {
+        if (submitted.target() == null || properties.isTargetRetuneEnabled()) {
+            return;
+        }
+        Integer current = currentTargetPct(hpa);
+        if (!submitted.target().equals(current)) {
+            throw refusal(HpaReason.TARGET_RETUNE_DISABLED, "targetUtilizationPct",
+                    "A standalone CPU-target retune to " + submitted.target() + "%"
+                            + (current == null ? "" : " from " + current + "%")
+                            + " is a deliberately gated capability that is off here, so it is refused"
+                            + " rather than applied. It is not driven by a vertical request move.");
+        }
+    }
+
+    /** The live {@code Resource: cpu} averageUtilization, or null when no such metric is readable. */
+    private static Integer currentTargetPct(HorizontalPodAutoscaler hpa) {
+        return liveBounds(hpa).targetUtilizationPct();
     }
 
     private static boolean cpuResourceMetricPresent(HorizontalPodAutoscaler hpa) {

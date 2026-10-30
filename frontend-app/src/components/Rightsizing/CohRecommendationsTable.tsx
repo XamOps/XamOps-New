@@ -45,6 +45,9 @@ const EFFORT_META: Record<string, { label: string; className: string }> = {
   veryhigh: { label: 'Very High', className: 'bg-rose-50 text-rose-700 border-rose-200' },
 };
 
+/** Normalize an effort value to its EFFORT_META key form. */
+const normalizeEffort = (effort: string): string => effort.toLowerCase().replace(/[^a-z]/g, '');
+
 const EffortBadge: React.FC<{ effort: string | null }> = ({ effort }) => {
   if (!effort) return <span className="text-[rgba(0,0,0,0.3)]">—</span>;
   const meta = EFFORT_META[effort.toLowerCase().replace(/[^a-z]/g, '')] ?? {
@@ -68,15 +71,100 @@ const CohRecommendationsTable: React.FC<CohRecommendationsTableProps> = ({
   const [detail, setDetail] = useState<CohRecommendationDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  // Filter state (all client-side, over the `recommendations` prop).
+  const [actionFilter, setActionFilter] = useState('');
+  const [resourceFilter, setResourceFilter] = useState('');
+  const [regionFilter, setRegionFilter] = useState('');
+  const [minSavings, setMinSavings] = useState('');
+  const [minSavingsPct, setMinSavingsPct] = useState('');
+  const [effortFilter, setEffortFilter] = useState('');
+
+  // Distinct dropdown option lists derived from the data.
+  const actionOptions = useMemo(() => {
+    const set = new Set<string>();
+    recommendations.forEach((r) => { if (r.actionType) set.add(r.actionType); });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [recommendations]);
+
+  const regionOptions = useMemo(() => {
+    const set = new Set<string>();
+    recommendations.forEach((r) => { if (r.region) set.add(r.region); });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [recommendations]);
+
+  const effortOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    recommendations.forEach((r) => {
+      if (r.implementationEffort) {
+        const key = normalizeEffort(r.implementationEffort);
+        if (!seen.has(key)) {
+          seen.set(key, EFFORT_META[key]?.label ?? r.implementationEffort);
+        }
+      }
+    });
+    return Array.from(seen.entries()).map(([key, label]) => ({ key, label }));
+  }, [recommendations]);
+
+  const hasActiveFilter =
+    actionFilter !== '' ||
+    resourceFilter !== '' ||
+    regionFilter !== '' ||
+    minSavings !== '' ||
+    minSavingsPct !== '' ||
+    effortFilter !== '';
+
+  const clearFilters = useCallback(() => {
+    setActionFilter('');
+    setResourceFilter('');
+    setRegionFilter('');
+    setMinSavings('');
+    setMinSavingsPct('');
+    setEffortFilter('');
+  }, []);
+
+  const filtered = useMemo(() => {
+    const resourceQuery = resourceFilter.trim().toLowerCase();
+    const minSavingsNum = minSavings.trim() === '' ? null : Number(minSavings);
+    const minSavingsPctNum = minSavingsPct.trim() === '' ? null : Number(minSavingsPct);
+
+    return recommendations.filter((r) => {
+      if (actionFilter && r.actionType !== actionFilter) return false;
+
+      if (resourceQuery) {
+        const haystack = [r.currentResourceType, r.resourceId, r.resourceArn]
+          .filter((v): v is string => !!v)
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(resourceQuery)) return false;
+      }
+
+      if (regionFilter && r.region !== regionFilter) return false;
+
+      if (minSavingsNum !== null && !Number.isNaN(minSavingsNum)) {
+        if ((r.estimatedMonthlySavings ?? 0) < minSavingsNum) return false;
+      }
+
+      if (minSavingsPctNum !== null && !Number.isNaN(minSavingsPctNum)) {
+        if ((r.estimatedSavingsPercentage ?? 0) < minSavingsPctNum) return false;
+      }
+
+      if (effortFilter) {
+        if (!r.implementationEffort || normalizeEffort(r.implementationEffort) !== effortFilter) return false;
+      }
+
+      return true;
+    });
+  }, [recommendations, actionFilter, resourceFilter, regionFilter, minSavings, minSavingsPct, effortFilter]);
+
   const sorted = useMemo(() => {
-    const rows = [...recommendations];
+    const rows = [...filtered];
     rows.sort((a, b) => {
       const av = a.estimatedMonthlySavings ?? -Infinity;
       const bv = b.estimatedMonthlySavings ?? -Infinity;
       return sortDir === 'desc' ? bv - av : av - bv;
     });
     return rows;
-  }, [recommendations, sortDir]);
+  }, [filtered, sortDir]);
 
   const openDetail = useCallback(async (rec: CohRecommendation) => {
     setSelected(rec);
@@ -130,8 +218,95 @@ const CohRecommendationsTable: React.FC<CohRecommendationsTableProps> = ({
             Cross-service recommendations from AWS Cost Optimization Hub — click a row for detail
           </span>
           <span className="ml-auto text-[11px] font-semibold text-[rgba(0,0,0,0.4)]">
-            {recommendations.length} item{recommendations.length !== 1 ? 's' : ''}
+            {filtered.length} item{filtered.length !== 1 ? 's' : ''}
           </span>
+        </div>
+
+        {/* Filter bar */}
+        <div className="flex items-center flex-wrap gap-2 px-5 py-2.5 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)]">
+          {/* Action */}
+          <select
+            aria-label="Filter by action"
+            value={actionFilter}
+            onChange={(e) => setActionFilter(e.target.value)}
+            className="h-7 px-2 text-[12px] rounded-md border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.75)] focus:outline-none focus:border-[rgba(0,0,0,0.3)]"
+          >
+            <option value="">All actions</option>
+            {actionOptions.map((a) => (
+              <option key={a} value={a}>{a}</option>
+            ))}
+          </select>
+
+          {/* Resource */}
+          <input
+            type="text"
+            aria-label="Filter by resource"
+            placeholder="Resource…"
+            value={resourceFilter}
+            onChange={(e) => setResourceFilter(e.target.value)}
+            className="h-7 px-2 text-[12px] rounded-md border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.75)] placeholder:text-[rgba(0,0,0,0.3)] focus:outline-none focus:border-[rgba(0,0,0,0.3)] w-40"
+          />
+
+          {/* Region */}
+          <select
+            aria-label="Filter by region"
+            value={regionFilter}
+            onChange={(e) => setRegionFilter(e.target.value)}
+            className="h-7 px-2 text-[12px] rounded-md border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.75)] focus:outline-none focus:border-[rgba(0,0,0,0.3)]"
+          >
+            <option value="">All regions</option>
+            {regionOptions.map((r) => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+
+          {/* Savings / mo (min) */}
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.35)]">Min $/mo</span>
+            <input
+              type="number"
+              aria-label="Minimum savings per month"
+              placeholder="0"
+              value={minSavings}
+              onChange={(e) => setMinSavings(e.target.value)}
+              className="h-7 px-2 text-[12px] rounded-md border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.75)] placeholder:text-[rgba(0,0,0,0.3)] focus:outline-none focus:border-[rgba(0,0,0,0.3)] w-20"
+            />
+          </div>
+
+          {/* Savings % (min) */}
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.35)]">Min %</span>
+            <input
+              type="number"
+              aria-label="Minimum savings percentage"
+              placeholder="0"
+              value={minSavingsPct}
+              onChange={(e) => setMinSavingsPct(e.target.value)}
+              className="h-7 px-2 text-[12px] rounded-md border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.75)] placeholder:text-[rgba(0,0,0,0.3)] focus:outline-none focus:border-[rgba(0,0,0,0.3)] w-16"
+            />
+          </div>
+
+          {/* Effort */}
+          <select
+            aria-label="Filter by effort"
+            value={effortFilter}
+            onChange={(e) => setEffortFilter(e.target.value)}
+            className="h-7 px-2 text-[12px] rounded-md border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.75)] focus:outline-none focus:border-[rgba(0,0,0,0.3)]"
+          >
+            <option value="">All efforts</option>
+            {effortOptions.map((e) => (
+              <option key={e.key} value={e.key}>{e.label}</option>
+            ))}
+          </select>
+
+          {hasActiveFilter && (
+            <button
+              onClick={clearFilters}
+              className="ml-auto text-[11px] font-semibold text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.8)] transition-colors"
+            >
+              Clear filters
+            </button>
+          )}
         </div>
 
         {/* Column headers */}
@@ -150,6 +325,13 @@ const CohRecommendationsTable: React.FC<CohRecommendationsTableProps> = ({
           <div className="col-span-1 text-right">Savings %</div>
           <div className="col-span-2 text-right">Effort</div>
         </div>
+
+        {/* Empty state */}
+        {sorted.length === 0 && (
+          <div className="px-5 py-10 text-center text-[13px] text-[rgba(0,0,0,0.4)]">
+            No recommendations match the current filters.
+          </div>
+        )}
 
         {/* Rows */}
         {sorted.map((rec, idx) => (

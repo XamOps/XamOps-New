@@ -115,4 +115,28 @@ class K8sAutomationReadinessPropertiesTest {
             }
         }
     }
+
+    @Test
+    void vpaApplyIsAbsentOrFalseInEveryProfileIncludingUat() throws Exception {
+        // Design-review NIT 3: the VPA apply path ships inert this task — vpa-apply is false even in
+        // UAT (unlike hpa-apply/vertical-rightsizing/spot-interruption-actions, which UAT turns on).
+        // This is STRICTER than onlyUatMayOverrideSpotInterruptionActions: NO profile, UAT included,
+        // may declare vpa-apply=true. The test fails if any profile sets it true.
+        String key = PREFIX + ".vpa-apply";
+        java.nio.file.Path dir = java.nio.file.Path.of("src/main/resources");
+        List<java.nio.file.Path> files;
+        try (java.util.stream.Stream<java.nio.file.Path> s = java.nio.file.Files.list(dir)) {
+            files = s.filter(f -> f.getFileName().toString().matches("application.*\\.properties")).toList();
+        }
+        assertThat(files).contains(dir.resolve("application.properties"), dir.resolve("application-uat.properties"));
+        for (java.nio.file.Path f : files) {
+            Properties props = new Properties();
+            try (InputStream in = java.nio.file.Files.newInputStream(f)) {
+                props.load(in);
+            }
+            if (props.containsKey(key)) {
+                assertThat(props.getProperty(key)).as(f + " must keep vpa-apply false").isEqualTo("false");
+            }
+        }
+    }
 }
