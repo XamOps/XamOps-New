@@ -230,6 +230,20 @@ public class AccountManagerController {
     }
 
     /**
+     * Whether the one-time stack-updater grant is in place yet.
+     *
+     * <p>Polled by the Update modal after it shows the grant link, so the moment the customer
+     * approves it in AWS the preview runs on its own — the grant becomes a step inside a single
+     * press rather than a reason to come back and press Update again. Read-only; the service
+     * swallows every error and answers {@code present:false}, so this never 409s on a denial.
+     */
+    @GetMapping("/stack-update/{accountId}/updater-status")
+    public ResponseEntity<?> updaterStatus(@PathVariable String accountId) {
+        return withAwsAccount(accountId, account ->
+                ResponseEntity.ok(Map.of("present", stackUpdateService.updaterPresent(account))));
+    }
+
+    /**
      * Turns a missing-permission refusal into a link that fixes it in one click.
      *
      * <p>Only accounts connected before onboarding embedded the updater role reach this —

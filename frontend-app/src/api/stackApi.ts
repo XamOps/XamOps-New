@@ -235,3 +235,22 @@ export const fetchStackProgress = async (accountId: string): Promise<StackUpdate
   if (!res.ok) return parse(res);
   return (await res.json()) as StackUpdateProgress;
 };
+
+/**
+ * Whether the one-time stack-updater grant is in place yet.
+ *
+ * Read-only and forgiving: any non-OK response or network error reads as "not present yet", so
+ * the modal simply keeps waiting rather than tearing down. It lets the modal pick up a grant the
+ * moment the customer approves it in AWS, turning the approval into a step inside one press.
+ */
+export const fetchUpdaterStatus = async (accountId: string): Promise<{ present: boolean }> => {
+  try {
+    const res = await apiFetch(
+      `/api/xamops/account-manager/stack-update/${encodeURIComponent(accountId)}/updater-status`,
+    );
+    if (!res.ok) return { present: false };
+    return (await res.json()) as { present: boolean };
+  } catch {
+    return { present: false };
+  }
+};
