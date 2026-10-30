@@ -600,7 +600,9 @@ describe('BUG-2 — malformed capabilities payload degrades to Unknown', () => {
     expect(screen.queryByText('Something went wrong')).toBeNull();
 
     // The Access card degrades Connection and Permission to the honest Unknown state.
-    expect(accessRow('Connection')).toHaveTextContent('Unknown');
+    // The table renders while capabilities are still loading, and until they resolve the Access
+    // card shows "Checking automation access…" with no rows, so wait for the rows to appear.
+    await waitFor(() => expect(accessRow('Connection')).toHaveTextContent('Unknown'), { timeout: 4000 });
     expect(accessRow('Your permission')).toHaveTextContent('Unknown');
   });
 });
