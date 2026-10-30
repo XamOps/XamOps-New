@@ -24,4 +24,15 @@ public interface AutoSpottingSwitchRepository extends JpaRepository<AutoSpotting
      */
     @Query("select s.scopeKey from AutoSpottingSwitch s where s.engaged = true")
     List<String> findEngagedScopeKeys();
+
+    /**
+     * The engaged rows whose scope key is one of {@code scopeKeys}, with their {@code changed_at}.
+     * The reconciler's switch-pause step (design-core.md §6.4) clamps the pause transition's
+     * {@code effective_at} to {@code GREATEST(switch.changed_at, latest transition)}, so billing
+     * stops when the switch was engaged, not at the sweep (GR-06, ledger §6.2). Read inside the
+     * caller's transaction so the engaged set and the fenced transition write agree.
+     */
+    @Query("select s from AutoSpottingSwitch s where s.engaged = true and s.scopeKey in :scopeKeys")
+    List<AutoSpottingSwitch> findEngagedByScopeKeys(
+            @org.springframework.data.repository.query.Param("scopeKeys") List<String> scopeKeys);
 }

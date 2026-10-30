@@ -49,11 +49,15 @@ class GcpAutoSpottingControllerTest {
 
     private GcpAutoSpottingService gcpService;
     private CloudAccountAccessService accessService;
+    private com.xammer.cloud.service.autospotting.core.LegacyDisableGuard legacyDisableGuard;
 
     @BeforeEach
     void setUp() {
         gcpService = mock(GcpAutoSpottingService.class);
         accessService = mock(CloudAccountAccessService.class);
+        legacyDisableGuard = mock(com.xammer.cloud.service.autospotting.core.LegacyDisableGuard.class);
+        when(legacyDisableGuard.beforeDisable(any(), any(), any(), any()))
+                .thenReturn(com.xammer.cloud.service.autospotting.core.LegacyDisableGuard.Guard.noLease());
         CloudAccount account = new CloudAccount();
         account.setId(3L);
         account.setProvider("GCP");
@@ -75,7 +79,7 @@ class GcpAutoSpottingControllerTest {
 
     private MockMvc mvc(boolean gcpConversionsEnabled) {
         GcpAutoSpottingController controller = new GcpAutoSpottingController(gcpService, accessService,
-                new AutoSpottingFeatureFlags(false, gcpConversionsEnabled, false, false));
+                new AutoSpottingFeatureFlags(false, gcpConversionsEnabled, false, false), legacyDisableGuard);
         return MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
@@ -163,5 +167,51 @@ class GcpAutoSpottingControllerTest {
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").doesNotExist());
+    }
+
+    // ── the Phase A disable rule (A-02, AC-PLN-07, plan-phase-08.md task 8.4) ──
+
+    @Test
+    void disable_v2StateRow_returnsPlanRequired_andNoServiceCall() throws Exception {
+        when(legacyDisableGuard.beforeDisable(eq(com.xammer.cloud.domain.autospotting.Provider.GCP),
+                eq(3L), eq(PROJECT + "/us-central1/web"), any()))
+                .thenThrow(AutoSpottingBlockedException.planRequired("/autospotting/gcp/" + PROJECT + "/x/revert"));
+
+        mvc(false).perform(post(BASE + "/disable?accountId=" + PROJECT + MIG))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(AutoSpottingBlockedException.PLAN_REQUIRED))
+                .andExpect(jsonPath("$.planUrl").isNotEmpty());
+        verify(gcpService, org.mockito.Mockito.never()).disableAutoSpotting(any(), any(), any());
+    }
+
+    @Test
+    void disable_noRow_phaseABehaviourUnchanged() throws Exception {
+        // Default guard stub returns Guard.noLease(): the legacy disable proceeds (FR-CMP-05).
+        mvc(false).perform(post(BASE + "/disable?accountId=" + PROJECT + MIG))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+        verify(gcpService).disableAutoSpotting(PROJECT, "us-central1", "web");
+    }
+
+    @Test
+    void disable_leaseHeld_returnsGroupBusy() throws Exception {
+        when(legacyDisableGuard.beforeDisable(any(), any(), any(), any()))
+                .thenThrow(AutoSpottingBlockedException.groupBusy());
+
+        mvc(false).perform(post(BASE + "/disable?accountId=" + PROJECT + MIG))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(AutoSpottingBlockedException.AS_GROUP_BUSY));
+        verify(gcpService, org.mockito.Mockito.never()).disableAutoSpotting(any(), any(), any());
+    }
+
+    @Test
+    void disable_v2MutationsEnabled_everyGroupPlanRequired() throws Exception {
+        when(legacyDisableGuard.beforeDisable(any(), any(), any(), any()))
+                .thenThrow(AutoSpottingBlockedException.planRequired("/plan"));
+
+        mvc(false).perform(post(BASE + "/disable?accountId=" + PROJECT + MIG))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(AutoSpottingBlockedException.PLAN_REQUIRED));
+        verify(gcpService, org.mockito.Mockito.never()).disableAutoSpotting(any(), any(), any());
     }
 }

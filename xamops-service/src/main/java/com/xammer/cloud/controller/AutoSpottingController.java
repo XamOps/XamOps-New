@@ -48,6 +48,7 @@ public class AutoSpottingController {
     private final AutoSpottingService autoSpottingService;
     private final CloudAccountAccessService accountAccessService;
     private final AutoSpottingFeatureFlags featureFlags;
+    private final com.xammer.cloud.service.autospotting.core.LegacyDisableGuard legacyDisableGuard;
 
     /**
      * Local, so it wins over the catch-all {@code @ExceptionHandler(Exception.class)} in
@@ -56,10 +57,14 @@ public class AutoSpottingController {
     @ExceptionHandler(AutoSpottingBlockedException.class)
     public ResponseEntity<Map<String, Object>> handleBlocked(AutoSpottingBlockedException e) {
         log.info("AutoSpotting action refused: {}", e.getCode());
-        return ResponseEntity.status(e.getStatus()).body(Map.of(
-                "success", false,
-                "code", e.getCode(),
-                "error", e.getMessage()));
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("success", false);
+        body.put("code", e.getCode());
+        body.put("error", e.getMessage());
+        if (e.getPlanUrl() != null) {
+            body.put("planUrl", e.getPlanUrl());
+        }
+        return ResponseEntity.status(e.getStatus()).body(body);
     }
 
     /**
@@ -546,7 +551,15 @@ public class AutoSpottingController {
         log.info("AutoSpottingController.disableAutoSpotting called with accountId={}, region={}, asgName={}",
                 accountId, region, asgName);
 
-        try {
+        // The Phase A disable rule (A-02, AC-PLN-07): a v2-managed group, or a cloud with
+        // v2-mutations-enabled, routes to the v2 Revert flow with PLAN_REQUIRED; a group with no v2
+        // row keeps working while the flag is off, with the group lease held for the call (§7.4).
+        String groupKey = region + "/" + asgName;
+        String planUrl = "/autospotting/aws/" + accountId + "/groups/" + java.net.URLEncoder.encode(
+                groupKey, java.nio.charset.StandardCharsets.UTF_8) + "/revert";
+        try (com.xammer.cloud.service.autospotting.core.LegacyDisableGuard.Guard guard =
+                     legacyDisableGuard.beforeDisable(
+                             com.xammer.cloud.domain.autospotting.Provider.AWS, account.getId(), groupKey, planUrl)) {
             autoSpottingService.disableAutoSpotting(account, region, asgName);
             return ResponseEntity.ok(Map.of(
                     "success", true,
