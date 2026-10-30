@@ -21,6 +21,10 @@ import {
   AgentIndexUsage, AgentTableActivity,
   fetchHealthHistory, DbHealthSnapshotDto,
 } from '../../hooks/useDbOpsData';
+import {
+  DBOPS_IDLE_UI_ENABLED, DBOPS_RIGHTSIZING_UI_ENABLED, DBOPS_HEALTH_UI_ENABLED,
+  DBOPS_MONGO_UI_ENABLED, DBOPS_REDIS_UI_ENABLED,
+} from '../../constants/dbOpsFeatureFlags';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -2691,9 +2695,6 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
   const restoreCmd = (s: DbSnapshot) =>
     `aws rds restore-db-instance-from-db-snapshot \\\n  --db-instance-identifier ${instanceId}-restored \\\n  --db-snapshot-identifier ${s.snapshotId} \\\n  --region ${s.region}`;
 
-  const deleteCmd = (s: DbSnapshot) =>
-    `aws rds delete-db-snapshot \\\n  --db-snapshot-identifier ${s.snapshotId} \\\n  --region ${s.region}`;
-
   const takeSnapshotCmd =
     `aws rds create-db-snapshot \\\n  --db-instance-identifier ${instanceId} \\\n  --db-snapshot-identifier ${instanceId}-manual-$(date +%Y%m%d%H%M%S) \\\n  --region ${rd?.region ?? 'us-east-1'}`;
 
@@ -2994,7 +2995,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
                 )}
 
                 {/* Age dot */}
-                <Tip text={s.ageDays > 90 ? 'Old snapshot (>90 days) — red dot. Consider deleting if no longer needed.' : s.ageDays > 30 ? 'Aging snapshot (>30 days) — orange dot. Review if still required.' : 'Recent snapshot (<30 days) — green dot. Likely still relevant.'} wide>
+                <Tip text={s.ageDays > 90 ? 'Old snapshot (>90 days) — red dot. Review if still required.' : s.ageDays > 30 ? 'Aging snapshot (>30 days) — orange dot. Review if still required.' : 'Recent snapshot (<30 days) — green dot. Likely still relevant.'} wide>
                   <div className="relative shrink-0">
                     <span className={`w-2.5 h-2.5 rounded-full block ${t.dot}`} />
                   </div>
@@ -3004,7 +3005,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <code className="text-[11px] font-medium text-[#0b8f5a] truncate">{s.snapshotId}</code>
-                    <Tip text={auto ? 'Automatically created by RDS automated backup or AWS Backup. Cannot be manually deleted while retention policy is active.' : 'Manually created snapshot. You have full control — safe to delete when no longer needed.'} wide>
+                    <Tip text={auto ? 'Automatically created by RDS automated backup or AWS Backup. Cannot be manually deleted while retention policy is active.' : 'Manually created snapshot. Review retention before deleting.'} wide>
                       <span className={`shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold border ${auto ? 'bg-sky-50 text-sky-600 border-sky-200/50' : 'bg-[rgba(0,0,0,0.03)] text-[rgba(0,0,0,0.7)] border-[rgba(0,0,0,0.1)]'}`}>
                         {auto ? <Icon icon="mdi:robot-outline" width={11} className="inline" /> : <Icon icon="mdi:hand-wave-outline" width={11} className="inline" />}
                         {auto ? 'Auto' : 'Manual'}
@@ -3037,7 +3038,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
 
                 {/* Cost */}
                 <div className="text-center shrink-0">
-                  <Tip text="Estimated monthly cost to store this snapshot (size × $0.095/GB). Delete old unneeded snapshots to save on storage costs.">
+                  <Tip text="Estimated monthly cost to store this snapshot (size × $0.095/GB). Snapshot storage is billed per GB-month.">
                     <div className="text-[9px] text-[rgba(0,0,0,0.4)] mb-0.5">Cost/mo</div>
                   </Tip>
                   <span className="text-xs font-semibold text-[rgba(0,0,0,0.7)] tabular-nums">{fmt$(s.estimatedMonthlyCost)}</span>
@@ -3052,15 +3053,6 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
                     >
                       {copied === copyKey('restore') ? <Icon icon="mdi:check" width={11} /> : <Icon icon="mdi:history" width={11} />}
                       {copied === copyKey('restore') ? 'Copied' : 'Restore'}
-                    </button>
-                  </Tip>
-                  <Tip text={`Copy: aws rds delete-db-snapshot --db-snapshot-identifier ${s.snapshotId}`} wide>
-                    <button
-                      onClick={() => copyCmd(deleteCmd(s), copyKey('delete'))}
-                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-medium border transition-all duration-200 ${copied === copyKey('delete') ? 'bg-emerald-100 text-emerald-700 border-emerald-300/50' : 'bg-red-50 text-red-500 border-red-200/50 hover:bg-red-100'}`}
-                    >
-                      {copied === copyKey('delete') ? <Icon icon="mdi:check" width={11} /> : <Icon icon="mdi:trash-can-outline" width={11} />}
-                      {copied === copyKey('delete') ? 'Copied' : 'Delete'}
                     </button>
                   </Tip>
                 </div>
@@ -3794,7 +3786,7 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
           )}
 
           {/* Idle detection result */}
-          {instanceIdle ? (
+          {DBOPS_IDLE_UI_ENABLED && (instanceIdle ? (
             <div className="relative overflow-hidden rounded-xl border border-amber-200 bg-amber-50 p-4">
               <div className="flex items-start gap-3 mb-3">
                 <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
@@ -3844,10 +3836,10 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
                 </p>
               </div>
             </div>
-          )}
+          ))}
 
           {/* Right-sizing result */}
-          {instanceRightsizing ? (
+          {DBOPS_RIGHTSIZING_UI_ENABLED && (instanceRightsizing ? (
             <div className="relative overflow-hidden rounded-xl border border-pink-200 bg-pink-50 p-4">
               <div className="flex items-start gap-3 mb-3">
                 <div className="w-8 h-8 rounded-lg bg-pink-100 flex items-center justify-center shrink-0">
@@ -3898,7 +3890,7 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
                 </p>
               </div>
             </div>
-          )}
+          ))}
         </div>
       )}
 
@@ -4511,7 +4503,7 @@ export default function DbInstanceDetailDrawer({
 
   // Notify parent (topbar) whenever health score changes
   useEffect(() => {
-    onHealthChange?.(healthScore);
+    if (DBOPS_HEALTH_UI_ENABLED) onHealthChange?.(healthScore);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [healthScore.score, healthScore.status, healthScore.issues.join(',')]);
 
@@ -4567,11 +4559,11 @@ export default function DbInstanceDetailDrawer({
       badgeCount: instanceSnapshots.length > 0 ? instanceSnapshots.length : undefined,
       badgeColor: 'bg-[rgba(0,0,0,0.05)] text-[rgba(0,0,0,0.7)]',
     },
-    ...(isMongo ? [
+    ...(isMongo && DBOPS_MONGO_UI_ENABLED ? [
       { id: 'mongo-ops' as const, label: 'Slow Ops', icon: 'fa-bolt' },
       { id: 'mongo-index' as const, label: 'Indexes', icon: 'fa-list-tree' },
     ] : []),
-    ...(isRedis ? [
+    ...(isRedis && DBOPS_REDIS_UI_ENABLED ? [
       { id: 'redis-keyspace' as const, label: 'Keyspace', icon: 'fa-database' },
       { id: 'redis-slowlog' as const, label: 'Slow Log', icon: 'fa-stopwatch' },
     ] : []),
@@ -4744,7 +4736,7 @@ export default function DbInstanceDetailDrawer({
             })()}
 
             {/* ── Health Score Widget ── */}
-            {(metrics || agentMetrics) && (
+            {(metrics || agentMetrics) && DBOPS_HEALTH_UI_ENABLED && (
               <div className={`rounded-xl p-4 border flex items-center gap-4 ${healthScore.status === 'healthy' ? 'bg-emerald-50 border-emerald-100' :
                 healthScore.status === 'warning' ? 'bg-amber-50 border-amber-100' :
                   'bg-red-50 border-red-100'
@@ -5113,7 +5105,7 @@ export default function DbInstanceDetailDrawer({
             )}
 
             {/* MongoDB overview */}
-            {isMongo && mongoMetrics[0] && (() => {
+            {isMongo && DBOPS_MONGO_UI_ENABLED && mongoMetrics[0] && (() => {
               const m = mongoMetrics[0];
               const totalOps = m.opsInsert + m.opsQuery + m.opsUpdate + m.opsDelete + m.opsCommand;
               return (
@@ -5148,7 +5140,7 @@ export default function DbInstanceDetailDrawer({
             })()}
 
             {/* Redis overview */}
-            {isRedis && redisMetrics[0] && (() => {
+            {isRedis && DBOPS_REDIS_UI_ENABLED && redisMetrics[0] && (() => {
               const m = redisMetrics[0];
               const hitColor = m.hitRatioPct >= 95 ? 'text-emerald-600 dark:text-emerald-400'
                 : m.hitRatioPct >= 80 ? 'text-amber-600 dark:text-amber-400'

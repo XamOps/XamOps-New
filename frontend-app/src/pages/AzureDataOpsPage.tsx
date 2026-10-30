@@ -8,6 +8,7 @@ import {
   DbInstance, DbSavingsSummary, AgentQueryStat, AgentInstanceMetrics,
 } from '../hooks/useAzureDbOpsData';
 import DbInstanceDetailPage, { DrawerInstance } from '../components/DbOps/DbInstanceDetailDrawer';
+import { DBOPS_IDLE_UI_ENABLED, DBOPS_RIGHTSIZING_UI_ENABLED } from '../constants/dbOpsFeatureFlags';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -27,8 +28,8 @@ function SummaryCards({ s }: { s: DbSavingsSummary }) {
     { label: 'Monthly DB Spend',       value: fmt$(s.totalDbMonthlyCost) },
     { label: 'Savings Potential',      value: fmt$(s.totalPotentialSavings) },
     { label: 'Total Instances',        value: String(s.totalInstances) },
-    { label: 'Idle Instances',         value: `${s.idleInstances}`, sub: fmt$(s.idleSavingsPotential) + ' savings' },
-    { label: 'Right-sizing Candidates',value: `${s.rightsizingCandidates}`, sub: fmt$(s.rightsizingSavingsPotential) + ' savings' },
+    ...(DBOPS_IDLE_UI_ENABLED ? [{ label: 'Idle Instances', value: `${s.idleInstances}`, sub: fmt$(s.idleSavingsPotential) + ' savings' }] : []),
+    ...(DBOPS_RIGHTSIZING_UI_ENABLED ? [{ label: 'Right-sizing Candidates', value: `${s.rightsizingCandidates}`, sub: fmt$(s.rightsizingSavingsPotential) + ' savings' }] : []),
     { label: 'Backup Waste',           value: fmt$(s.snapshotWasteCost) },
   ];
   return (
@@ -327,14 +328,14 @@ const AzureDataOpsPage: React.FC = () => {
               </span>
             )}
 
-            {instanceIdle && (
+            {DBOPS_IDLE_UI_ENABLED && instanceIdle && (
               <span className="px-1.5 py-px text-[9px] rounded font-semibold bg-amber-100 text-amber-700">
                 <Icon icon="mdi:moon-waning-crescent" width={10} className="inline mr-0.5" />Idle
               </span>
             )}
           </div>
 
-          {/* ── Health gauge ── */}
+          {/* ── Health gauge ── disabled: onHealthChange is gated by DBOPS_HEALTH_UI_ENABLED, so instanceHealth stays null and this never renders */}
           {h && (
             <div
               className={`flex items-center gap-2 h-9 px-3 rounded-xl
