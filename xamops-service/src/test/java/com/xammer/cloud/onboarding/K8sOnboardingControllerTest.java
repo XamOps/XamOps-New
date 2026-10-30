@@ -148,6 +148,31 @@ class K8sOnboardingControllerTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void permissions_hidesTierByDefault_oq1() {
+        // show-tiers defaults false (not set in setUp): no feature carries a tier/price/free-paid badge.
+        ResponseEntity<Map<String, Object>> resp = controller.permissions(user, "111111111111", "prod-eks",
+                "ap-south-1", "AUTOMATION", true, "NODE_CONSOLIDATION");
+        List<Map<String, Object>> features = (List<Map<String, Object>>) resp.getBody().get("features");
+        assertThat(features).isNotEmpty();
+        assertThat(features).allSatisfy(f -> {
+            assertThat(f).doesNotContainKey("tier");   // OQ-1: tier suppressed while the flag is off
+            assertThat(f).containsKeys("id", "label", "available"); // plumbing + name still served
+        });
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void permissions_showsTierWhenFlagOn() {
+        ReflectionTestUtils.setField(controller, "showTiers", true);
+        ResponseEntity<Map<String, Object>> resp = controller.permissions(user, "111111111111", "prod-eks",
+                "ap-south-1", "AUTOMATION", true, "NODE_CONSOLIDATION");
+        List<Map<String, Object>> features = (List<Map<String, Object>>) resp.getBody().get("features");
+        assertThat(features).isNotEmpty();
+        assertThat(features).allSatisfy(f -> assertThat(f).containsKey("tier"));
+    }
+
+    @Test
     void disabled_whenFlagOff_is404() {
         ReflectionTestUtils.setField(controller, "onboardingEnabled", false);
         assertThatThrownBy(() -> controller.status(user, "prod-eks", "111111111111"))

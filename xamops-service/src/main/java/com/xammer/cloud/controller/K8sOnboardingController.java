@@ -65,6 +65,16 @@ public class K8sOnboardingController {
     @Value("${xamops.k8s.onboarding.enabled:true}")
     private boolean onboardingEnabled;
 
+    /**
+     * OQ-1 is undecided: tier names, prices, and whether a paid feature is selectable without a plan
+     * are not settled. The catalog still carries a placeholder {@code tier} per feature, but the API
+     * does NOT surface it to the UI until a commercial model exists. Default false in every profile;
+     * flip to true once real tier data is in place. Display-only: a feature's selectability is driven
+     * by {@code availability}, never by this flag.
+     */
+    @Value("${xamops.onboarding.show-tiers:false}")
+    private boolean showTiers;
+
     public K8sOnboardingController(K8sAutomationAccessService accessService,
                                    KubernetesClusterConfigRepository clusterConfigRepository,
                                    ClusterOffboardingTombstoneRepository tombstoneRepository,
@@ -417,7 +427,12 @@ public class K8sOnboardingController {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", info.id());
             m.put("label", info.label());
-            m.put("tier", info.tier().name());
+            // OQ-1: suppress the placeholder tier until a commercial model is decided. The catalog
+            // plumbing stays intact (info.tier() is still here); only its DISPLAY is gated. When
+            // xamops.onboarding.show-tiers is true, the real tier name rides along for the UI.
+            if (showTiers) {
+                m.put("tier", info.tier().name());
+            }
             m.put("phase", info.phase());
             m.put("available", av.available());
             m.put("reason", av.reason());
