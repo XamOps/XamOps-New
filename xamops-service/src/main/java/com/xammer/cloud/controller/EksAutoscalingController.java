@@ -7,6 +7,8 @@ import com.xammer.cloud.dto.autoscaling.ConsolidationPlanResponse;
 import com.xammer.cloud.dto.autoscaling.ConsolidationPolicyDto;
 import com.xammer.cloud.dto.autoscaling.ConsolidationRunResponse;
 import com.xammer.cloud.dto.autoscaling.NodeOptimizerPolicyDto;
+import com.xammer.cloud.dto.autoscaling.VpaManagerPolicyDto;
+import com.xammer.cloud.dto.autoscaling.VpaRunResponse;
 import com.xammer.cloud.dto.autoscaling.WorkloadRightsizingDto;
 import com.xammer.cloud.dto.k8s.K8sRefusalBody;
 import com.xammer.cloud.dto.spot.SpotInterruptionsDto;
@@ -136,6 +138,13 @@ public class EksAutoscalingController {
     public ResponseEntity<ConsolidationRunResponse> getConsolidationRuns(
             @RequestAttribute(K8sAutomationRequestContext.ATTRIBUTE) K8sAutomationRequestContext ctx) {
         return ResponseEntity.ok(consolidationRunService.getRuns(config(ctx), ctx.primaryAccount()));
+    }
+
+    /** GET /api/eks/autoscaling/{clusterName}/vpa-runs?accountId=xxx — VPA resize run history, never acts */
+    @GetMapping("/{clusterName}/vpa-runs")
+    public ResponseEntity<VpaRunResponse> vpaRuns(
+            @RequestAttribute(K8sAutomationRequestContext.ATTRIBUTE) K8sAutomationRequestContext ctx) {
+        return ResponseEntity.ok(autoscalingService.readVpaRuns(config(ctx)));
     }
 
     /**
@@ -270,6 +279,20 @@ public class EksAutoscalingController {
         normalizer.validate(Section.CONSOLIDATION, policy);
         autoscalingService.saveConsolidationPolicy(config(ctx), policy, actor(ctx));
         return ResponseEntity.ok(ok("Consolidation policy saved"));
+    }
+
+    /**
+     * PUT …/vpa-manager: an acting policy (enabled && !analyseOnly && an acting updateMode) is
+     * refused while {@code vpa-apply} isn't ready; a stored acting policy is still served inert by
+     * the coercion until the key flips. Mirrors {@link #saveEvictorPolicy}.
+     */
+    @PutMapping("/{clusterName}/vpa-manager")
+    public ResponseEntity<Map<String, Object>> saveVpaManagerPolicy(
+            @RequestAttribute(K8sAutomationRequestContext.ATTRIBUTE) K8sAutomationRequestContext ctx,
+            @RequestBody VpaManagerPolicyDto policy) {
+        normalizer.validate(Section.VPA_MANAGER, policy);
+        autoscalingService.saveVpaManagerPolicy(config(ctx), policy, actor(ctx));
+        return ResponseEntity.ok(ok("VPA manager policy saved"));
     }
 
     /** PUT …/node-templates/{templateId}: refused while {@code node-templates} isn't ready. */

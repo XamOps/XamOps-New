@@ -15,6 +15,9 @@ import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.*;
 import com.xammer.cloud.dto.autoscaling.ConsolidationPolicyDto;
 import com.xammer.cloud.dto.autoscaling.NodeOptimizerPolicyDto;
+import com.xammer.cloud.dto.autoscaling.VpaManagerPolicyDto;
+import com.xammer.cloud.dto.autoscaling.VpaRunDto;
+import com.xammer.cloud.dto.autoscaling.VpaRunResponse;
 import com.xammer.cloud.dto.autoscaling.WorkloadRightsizingDto;
 import com.xammer.cloud.dto.autoscaling.WorkloadRightsizingDto.WorkloadRecommendation;
 import com.xammer.cloud.dto.k8s.EksCompleteDashboardDto;
@@ -87,6 +90,7 @@ public class EksAutoscalingService {
     public static final String DT_EVICTOR_CANDIDATES = "autoscaling-evictor-candidates";
     public static final String DT_CONSOLIDATION_PLAN = "autoscaling-consolidation-plan";
     public static final String DT_CONSOLIDATION_RUNS = "autoscaling-consolidation-runs";
+    public static final String DT_VPA_RUNS           = "autoscaling-vpa-runs";
 
     /** Event-type prefix of configuration changes XamOps records. */
     public static final String CHANGE_EVENT_PREFIX = "autoscaling_";
@@ -99,6 +103,7 @@ public class EksAutoscalingService {
             Section.NODE_OPTIMIZER, "Node optimizer policy",
             Section.REBALANCER, "Rebalancer config",
             Section.CONSOLIDATION, "Consolidation policy",
+            Section.VPA_MANAGER, "VPA manager policy",
             Section.MODE, "Node automation scope");
 
     /**
@@ -373,6 +378,46 @@ public class EksAutoscalingService {
         // enabled=true is refused by validateConsolidation unless the consolidation-actions readiness
         // key is ready; the coercion table still serves enabled=false to the agent until then.
         saveSection(config, Section.CONSOLIDATION, policy, username);
+    }
+
+    @Transactional
+    public void saveVpaManagerPolicy(KubernetesClusterConfig config, VpaManagerPolicyDto policy, String username) {
+        // An acting policy (enabled && !analyseOnly && acting updateMode) is refused by
+        // validateVpaManager unless the vpa-apply readiness key is ready; even when stored, the
+        // coercion table still serves it inert (enabled=false, analyseOnly=true, updateMode=Off)
+        // until the key flips.
+        saveSection(config, Section.VPA_MANAGER, policy, username);
+    }
+
+    /**
+     * The VPA manager's stored run history (the LIST collector {@link #DT_VPA_RUNS}), newest first.
+     * Honest empty state: no cache is {@code NO_RUNS}, an unparseable payload is {@code UNREADABLE};
+     * nothing is fabricated. Mirrors the {@code DT_CONSOLIDATION_RUNS} read path.
+     */
+    public VpaRunResponse readVpaRuns(KubernetesClusterConfig config) {
+        if (config == null) {
+            return VpaRunResponse.noRuns();
+        }
+        Optional<AgentDataCache> cacheOpt =
+                agentDataCacheRepository.findByClusterConfigIdAndDataType(config.getId(), DT_VPA_RUNS);
+        if (cacheOpt.isEmpty() || cacheOpt.get().getDataJson() == null) {
+            return VpaRunResponse.noRuns();
+        }
+        List<VpaRunDto> runs;
+        try {
+            runs = objectMapper.readValue(cacheOpt.get().getDataJson(),
+                    objectMapper.getTypeFactory().constructCollectionType(List.class, VpaRunDto.class));
+        } catch (Exception e) {
+            // The message is logged, never the stored JSON, and nothing of it is returned.
+            logger.warn("VPA runs for cluster config {} couldn't be parsed: {}", config.getId(), e.getMessage());
+            return VpaRunResponse.unreadable();
+        }
+        if (runs == null) {
+            return VpaRunResponse.unreadable();
+        }
+        List<VpaRunDto> history = new ArrayList<>(runs);
+        java.util.Collections.reverse(history); // the agent appends oldest-first; serve newest-first
+        return VpaRunResponse.ok(history);
     }
 
     @Transactional

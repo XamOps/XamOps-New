@@ -1006,4 +1006,77 @@ describe('Automation › Overview: the activity log, its summary and the usage f
       expect(within(cell).queryByText(/None interrupted/)).toBeNull();
     });
   });
+
+  // FEAT-002: the VPA-apply (vpa-baseline) row is an acting capability. Its Apply reads the
+  // vpa-apply readiness key AND the honest effectiveActing tri-state, exactly like the acting node
+  // rows: not available (Blocked + server message) while the key is false, "Ready to enable" once
+  // the key is ready but the controller is not acting, and "Available" only when it is ACTING.
+  describe('VPA-apply row Apply follows vpa-apply readiness and the effectiveActing tri-state', () => {
+    const VPA_MESSAGE = DEMO_READINESS_MESSAGES['vpa-apply'];
+    const setVpaReady = (ready: boolean) => (dto: CapabilitiesDto) => {
+      dto.readiness['vpa-apply'] = ready
+        ? { ready: true, reason: null, message: null }
+        : { ready: false, reason: 'CONTROLLER_NOT_READY', message: VPA_MESSAGE };
+    };
+    const setActing = (state: 'ACTING' | 'NOT_ACTING') => (dto: CapabilitiesDto) => {
+      const cluster = dto.clusters?.find((c) => c.clusterName === 'prod-eks-cluster') ?? dto.clusters?.[0];
+      if (cluster?.nodeAutomation) cluster.nodeAutomation.effectiveActing = state;
+    };
+
+    it('reads not available (Blocked + em-dash analysis + server message) while vpa-apply is false — every profile today', async () => {
+      const table = await renderPanel(fixture('demo-aws-001', setVpaReady(false)), 'prod-eks-cluster', { demo: false });
+      const row = rowOf(table, 'vpa-baseline');
+      await waitFor(() => expect(row.querySelector('[data-gated-lock]')).not.toBeNull());
+      expect(row).toHaveTextContent('Blocked');
+      expect(row).not.toHaveTextContent('Available');
+      expect(row).not.toHaveTextContent('Ready to enable');
+      expect(row.querySelector('[data-tone="off"]')).not.toBeNull();
+      const dialog = await openDrawer(table, 'vpa-baseline');
+      expect(dialog).toHaveTextContent('Blocked');
+      expect(dialog).toHaveTextContent(VPA_MESSAGE);
+      expect(dialog).not.toHaveTextContent('Available — XamOps may make this change on the cluster.');
+    });
+
+    it('reads "Ready to enable" once the key is ready but the controller is not acting (NOT_ACTING)', async () => {
+      const table = await renderPanel(
+        fixture('demo-aws-001', (dto) => { setVpaReady(true)(dto); setActing('NOT_ACTING')(dto); }),
+        'prod-eks-cluster',
+        { demo: false },
+      );
+      const row = rowOf(table, 'vpa-baseline');
+      await waitFor(() => expect(row).toHaveTextContent('Ready to enable'));
+      expect(row).not.toHaveTextContent('Available');
+      expect(row.querySelector('[data-tone="warn"]')).not.toBeNull();
+      const dialog = await openDrawer(table, 'vpa-baseline');
+      expect(dialog).toHaveTextContent('Ready to enable');
+    });
+
+    it('reads "Available" only when the key is ready and the effective gate is ACTING', async () => {
+      const table = await renderPanel(
+        fixture('demo-aws-001', (dto) => { setVpaReady(true)(dto); setActing('ACTING')(dto); }),
+        'prod-eks-cluster',
+        { demo: false },
+      );
+      const row = rowOf(table, 'vpa-baseline');
+      await waitFor(() => expect(row).toHaveTextContent('Available'));
+      expect(row).not.toHaveTextContent('Ready to enable');
+      expect(row.querySelector('[data-tone="good"]')).not.toBeNull();
+      expect(row.querySelector('[data-gated-lock]')).toBeNull();
+    });
+
+    it('keeps "Available" on an older backend that omits effectiveActing (UNKNOWN), never downgrading', async () => {
+      const table = await renderPanel(
+        fixture('demo-aws-001', (dto) => {
+          setVpaReady(true)(dto);
+          const cluster = dto.clusters?.find((c) => c.clusterName === 'prod-eks-cluster') ?? dto.clusters?.[0];
+          if (cluster?.nodeAutomation) delete (cluster.nodeAutomation as Record<string, unknown>).effectiveActing;
+        }),
+        'prod-eks-cluster',
+        { demo: false },
+      );
+      const row = rowOf(table, 'vpa-baseline');
+      await waitFor(() => expect(row).toHaveTextContent('Available'));
+      expect(row).not.toHaveTextContent('Ready to enable');
+    });
+  });
 });

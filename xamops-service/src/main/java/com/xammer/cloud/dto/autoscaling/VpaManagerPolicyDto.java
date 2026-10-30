@@ -10,7 +10,7 @@ public class VpaManagerPolicyDto {
 
     private boolean enabled = true;
     private boolean analyseOnly = true;
-    /** Off | Initial | Recreate | Auto */
+    /** Off | Initial | Recreate | Auto | InPlaceOrRecreate */
     private String updateMode = "Off";
 
     public boolean isEnabled() { return enabled; }

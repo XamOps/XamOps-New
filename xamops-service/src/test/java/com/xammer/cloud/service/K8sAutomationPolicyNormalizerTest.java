@@ -30,6 +30,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -818,5 +819,201 @@ class K8sAutomationPolicyNormalizerTest {
         assertThat(normalizer.forAgent(storedJson, CONFIG, true).getConsolidationPolicy().isEnabled())
                 .as("the agent is served consolidationPolicy.enabled=true once consolidation-actions is ready")
                 .isTrue();
+    }
+
+    // ── VPA manager (FEAT-002) ────────────────────────────────────────────
+
+    @Test
+    void vpaManagerActingWriteIsRefusedWhileNotReady_thenInvalidMode_thenAllowedOnceReady() {
+        // An acting policy (enabled && !analyseOnly && an acting updateMode) is refused on `enabled`
+        // while vpa-apply isn't ready, mirroring validateConsolidation.
+        VpaManagerPolicyDto acting = new VpaManagerPolicyDto();
+        acting.setEnabled(true);
+        acting.setAnalyseOnly(false);
+        acting.setUpdateMode("Auto");
+        K8sAutomationRefusedException e = refusal(() -> normalizer.validate(Section.VPA_MANAGER, acting));
+        assertThat(e.getReason()).isEqualTo(K8sAutomationReason.CONTROLLER_NOT_READY);
+        assertThat(e.getField()).isEqualTo("enabled");
+        assertThat(e.getMessage()).isEqualTo(K8sReadinessKey.VPA_APPLY.message());
+
+        // An unknown updateMode is an INVALID_POLICY refusal on `updateMode`, regardless of readiness.
+        VpaManagerPolicyDto badMode = new VpaManagerPolicyDto();
+        badMode.setUpdateMode("Turbo");
+        K8sAutomationRefusedException m = refusal(() -> normalizer.validate(Section.VPA_MANAGER, badMode));
+        assertThat(m.getReason()).isEqualTo(K8sAutomationReason.INVALID_POLICY);
+        assertThat(m.getField()).isEqualTo("updateMode");
+
+        // analyseOnly or a non-acting updateMode never needs the key.
+        VpaManagerPolicyDto analyse = new VpaManagerPolicyDto();
+        analyse.setEnabled(true);
+        analyse.setAnalyseOnly(true);
+        analyse.setUpdateMode("Auto");
+        assertThatCode(() -> normalizer.validate(Section.VPA_MANAGER, analyse)).doesNotThrowAnyException();
+        VpaManagerPolicyDto nonActing = new VpaManagerPolicyDto();
+        nonActing.setEnabled(true);
+        nonActing.setAnalyseOnly(false);
+        nonActing.setUpdateMode("Initial");
+        assertThatCode(() -> normalizer.validate(Section.VPA_MANAGER, nonActing)).doesNotThrowAnyException();
+
+        // Once vpa-apply is ready the acting policy passes.
+        ready(K8sReadinessKey.VPA_APPLY);
+        assertThatCode(() -> normalizer.validate(Section.VPA_MANAGER, acting)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void saveVpaManagerPolicyPersistsAndServesInert() throws Exception {
+        // A VPA_MANAGER write of an acting policy is actually stored by replaceSection (not silently
+        // dropped by a missing switch case), then served inert while vpa-apply isn't ready.
+        ready(K8sReadinessKey.VPA_APPLY); // so validate+replace keep the acting value we write
+        AutomationPolicyBundle current = normalizer.forUi("{\"autoscalerMode\":\"full\"}", CONFIG, null).bundle();
+
+        VpaManagerPolicyDto acting = new VpaManagerPolicyDto();
+        acting.setEnabled(true);
+        acting.setAnalyseOnly(false);
+        acting.setUpdateMode("Auto");
+        AutomationPolicyBundle next = normalizer.replaceSection(current, Section.VPA_MANAGER, acting);
+        assertThat(next.getVpaManagerPolicy()).isNotNull();
+        assertThat(next.getVpaManagerPolicy().isEnabled())
+                .as("replaceSection must persist the VPA manager section").isTrue();
+        assertThat(next.getVpaManagerPolicy().getUpdateMode()).isEqualTo("Auto");
+
+        // The stored bundle survives a round-trip; served inert while vpa-apply is NOT ready.
+        String storedJson = normalizer.toJson(next);
+        K8sAutomationReadinessProperties notReady = new K8sAutomationReadinessProperties();
+        K8sAutomationPolicyNormalizer inertServe = new K8sAutomationPolicyNormalizer(notReady);
+        AutomationPolicyBundle served = inertServe.forAgent(storedJson, CONFIG, true);
+        assertThat(served.getVpaManagerPolicy().isEnabled()).as("served inert: enabled=false").isFalse();
+        assertThat(served.getVpaManagerPolicy().isAnalyseOnly()).as("served inert: analyseOnly=true").isTrue();
+        assertThat(served.getVpaManagerPolicy().getUpdateMode()).as("served inert: updateMode=Off").isEqualTo("Off");
+    }
+
+    @Test
+    void replaceSectionCoversEverySection() {
+        // Exhaustiveness guard: replaceSection() is a no-default arrow switch, so a missing enum case
+        // compiles and silently saves nothing. Loop every Section and assert each produces a bundle
+        // that actually differs from the stored one for a representative body — a future missing case
+        // fails the build here.
+        ready(K8sReadinessKey.values()); // so any coercion doesn't mask the write; this is replaceSection, not serve
+        AutomationPolicyBundle start = normalizer.readForWrite("{\"autoscalerMode\":\"full\"}", CONFIG);
+
+        for (Section section : Section.values()) {
+            Object body = representativeBody(section, start);
+            AutomationPolicyBundle next = normalizer.replaceSection(start, section, body);
+            assertThat(sectionChanged(section, start, next))
+                    .as("replaceSection must handle Section." + section + " (missing case saves nothing)")
+                    .isTrue();
+        }
+    }
+
+    /** A body that, when applied, visibly changes {@code start}'s section. */
+    private static Object representativeBody(Section section, AutomationPolicyBundle start) {
+        switch (section) {
+            case SCALE_OUT -> {
+                ScaleOutPolicyDto p = new ScaleOutPolicyDto();
+                p.setHeadroomCpuPercent(start.getScaleOutPolicy().getHeadroomCpuPercent() + 5);
+                return p;
+            }
+            case EVICTOR -> {
+                EvictorPolicyDto p = new EvictorPolicyDto();
+                p.setTargetUtilizationCpu(start.getEvictorPolicy().getTargetUtilizationCpu() + 1);
+                return p;
+            }
+            case WORKLOAD_RIGHTSIZER -> {
+                WorkloadRightsizerPolicyDto p = new WorkloadRightsizerPolicyDto();
+                p.setApplyMode("immediate");
+                return p;
+            }
+            case SAFETY_GUARDS -> {
+                SafetyGuardsDto p = new SafetyGuardsDto();
+                p.setCriticalNamespaces(new ArrayList<>(List.of("payments")));
+                return p;
+            }
+            case NODE_OPTIMIZER -> {
+                NodeOptimizerPolicyDto p = new NodeOptimizerPolicyDto();
+                p.setIdleCpuThresholdPct(start.getNodeOptimizerPolicy().getIdleCpuThresholdPct() + 1);
+                return p;
+            }
+            case REBALANCER -> {
+                RebalancerConfigDto p = new RebalancerConfigDto();
+                p.setDrainTimeoutMinutes(start.getRebalancer().getDrainTimeoutMinutes() + 1);
+                return p;
+            }
+            case CONSOLIDATION -> {
+                ConsolidationPolicyDto p = new ConsolidationPolicyDto();
+                p.setEnabled(!start.getConsolidationPolicy().isEnabled());
+                return p;
+            }
+            case VPA_MANAGER -> {
+                VpaManagerPolicyDto p = new VpaManagerPolicyDto();
+                p.setUpdateMode("Auto");
+                return p;
+            }
+            case MODE -> {
+                return "scoped";
+            }
+        }
+        throw new AssertionError("no representative body for Section." + section);
+    }
+
+    private static boolean sectionChanged(Section section, AutomationPolicyBundle before,
+                                          AutomationPolicyBundle after) {
+        switch (section) {
+            case SCALE_OUT -> {
+                return before.getScaleOutPolicy().getHeadroomCpuPercent()
+                        != after.getScaleOutPolicy().getHeadroomCpuPercent();
+            }
+            case EVICTOR -> {
+                return before.getEvictorPolicy().getTargetUtilizationCpu()
+                        != after.getEvictorPolicy().getTargetUtilizationCpu();
+            }
+            case WORKLOAD_RIGHTSIZER -> {
+                return !java.util.Objects.equals(before.getWorkloadRightsizerPolicy().getApplyMode(),
+                        after.getWorkloadRightsizerPolicy().getApplyMode());
+            }
+            case SAFETY_GUARDS -> {
+                return !java.util.Objects.equals(before.getSafetyGuards().getCriticalNamespaces(),
+                        after.getSafetyGuards().getCriticalNamespaces());
+            }
+            case NODE_OPTIMIZER -> {
+                return before.getNodeOptimizerPolicy().getIdleCpuThresholdPct()
+                        != after.getNodeOptimizerPolicy().getIdleCpuThresholdPct();
+            }
+            case REBALANCER -> {
+                return before.getRebalancer().getDrainTimeoutMinutes()
+                        != after.getRebalancer().getDrainTimeoutMinutes();
+            }
+            case CONSOLIDATION -> {
+                return before.getConsolidationPolicy().isEnabled() != after.getConsolidationPolicy().isEnabled();
+            }
+            case VPA_MANAGER -> {
+                return !java.util.Objects.equals(before.getVpaManagerPolicy().getUpdateMode(),
+                        after.getVpaManagerPolicy().getUpdateMode());
+            }
+            case MODE -> {
+                return !java.util.Objects.equals(before.getAutoscalerMode(), after.getAutoscalerMode());
+            }
+        }
+        throw new AssertionError("no change check for Section." + section);
+    }
+
+    @Test
+    void vpaActingUpdateModeSetMatchesGo() {
+        // The update-mode string sets MUST stay byte-identical to the Go gate.isActingUpdateMode acting
+        // set and the policy.VPAManagerPolicy.UpdateMode enum (design §6.2). Reflect the private sets.
+        assertThat(updateModeSet("VALID_UPDATE_MODES"))
+                .containsExactlyInAnyOrder("Off", "Initial", "Recreate", "Auto", "InPlaceOrRecreate");
+        assertThat(updateModeSet("ACTING_UPDATE_MODES"))
+                .containsExactlyInAnyOrder("Recreate", "Auto", "InPlaceOrRecreate");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Set<String> updateModeSet(String fieldName) {
+        try {
+            java.lang.reflect.Field f = K8sAutomationPolicyNormalizer.class.getDeclaredField(fieldName);
+            f.setAccessible(true);
+            return (Set<String>) f.get(null);
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError("missing field " + fieldName, e);
+        }
     }
 }
