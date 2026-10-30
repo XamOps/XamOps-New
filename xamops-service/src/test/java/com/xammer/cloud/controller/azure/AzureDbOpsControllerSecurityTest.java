@@ -1,5 +1,6 @@
 package com.xammer.cloud.controller.azure;
 
+import com.xammer.cloud.config.DbOpsFeatureFlags;
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.User;
@@ -85,7 +86,8 @@ class AzureDbOpsControllerSecurityTest {
         CloudAccountAccessService accessService = new CloudAccountAccessService(
                 userRepository, userAccessRepository, cloudAccountRepository);
 
-        AzureDbOpsController controller = new AzureDbOpsController(azureService, accessService);
+        AzureDbOpsController controller = new AzureDbOpsController(azureService, accessService,
+                new DbOpsFeatureFlags(false));
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())

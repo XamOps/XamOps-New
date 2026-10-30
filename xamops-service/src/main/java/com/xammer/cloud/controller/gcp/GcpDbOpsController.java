@@ -1,5 +1,6 @@
 package com.xammer.cloud.controller.gcp;
 
+import com.xammer.cloud.config.DbOpsFeatureFlags;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.dbops.*;
 import com.xammer.cloud.security.ClientUserDetails;
@@ -13,6 +14,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -35,11 +37,14 @@ public class GcpDbOpsController {
 
     private final GcpDbOpsService gcpDbOpsService;
     private final CloudAccountAccessService accountAccessService;
+    private final DbOpsFeatureFlags dbOpsFeatureFlags;
 
     public GcpDbOpsController(GcpDbOpsService gcpDbOpsService,
-            CloudAccountAccessService accountAccessService) {
+            CloudAccountAccessService accountAccessService,
+            DbOpsFeatureFlags dbOpsFeatureFlags) {
         this.gcpDbOpsService = gcpDbOpsService;
         this.accountAccessService = accountAccessService;
+        this.dbOpsFeatureFlags = dbOpsFeatureFlags;
     }
 
     // ── Authorization (SEC-1) ───────────────────────────────────────────────
@@ -97,6 +102,10 @@ public class GcpDbOpsController {
             @AuthenticationPrincipal ClientUserDetails userDetails) {
 
         requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
+        // Phase 1a: fail closed when idle detection is disabled — no data leaves the server.
+        if (!dbOpsFeatureFlags.isIdleEnabled()) {
+            return CompletableFuture.completedFuture(ResponseEntity.ok(Collections.emptyList()));
+        }
         logger.info("💤 [GcpDbOps] Idle instances request — project: {}", projectId);
         return gcpDbOpsService.getIdleInstances(projectId, forceRefresh)
                 .thenApply(data -> {
@@ -122,6 +131,10 @@ public class GcpDbOpsController {
             @AuthenticationPrincipal ClientUserDetails userDetails) {
 
         requireGcpAccount(userDetails, projectId); // SEC-1 (synchronous-first)
+        // Phase 1a: fail closed when right-sizing is disabled — no data leaves the server.
+        if (!dbOpsFeatureFlags.isRightsizingEnabled()) {
+            return CompletableFuture.completedFuture(ResponseEntity.ok(Collections.emptyList()));
+        }
         logger.info("📐 [GcpDbOps] Right-sizing request — project: {}", projectId);
         return gcpDbOpsService.getRightsizingRecommendations(projectId, forceRefresh)
                 .thenApply(data -> {
