@@ -127,6 +127,10 @@ public class AgentIngestService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.xammer.cloud.service.onboarding.OnboardingAuditService onboardingAuditService;
 
+    /** BP-13: optional tombstone guard; when present, blocks ingest from recreating offboarded rows. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.xammer.cloud.service.onboarding.ClusterTombstoneGuard clusterTombstoneGuard;
+
     public AgentIngestService(
             KubernetesClusterConfigRepository clusterConfigRepository,
             AgentDataCacheRepository agentDataCacheRepository,
@@ -365,13 +369,35 @@ public class AgentIngestService {
      * @return the existing or newly created config, or null if the account is unknown
      *         or belongs to a provider that registers before pushing
      */
+    /**
+     * BP-13: true when the tombstone guard is wired and (account, cluster) is tombstoned. Audits
+     * {@code TOMBSTONE_BLOCKED} (throttled). When no guard is wired (older tests), never blocks.
+     */
+    private boolean tombstoneGuardBlocks(Long cloudAccountPk, String clusterName) {
+        if (clusterTombstoneGuard == null || !clusterTombstoneGuard.blocked(cloudAccountPk, clusterName)) {
+            return false;
+        }
+        if (onboardingAuditService != null && clusterTombstoneGuard.shouldAudit(cloudAccountPk, clusterName)) {
+            onboardingAuditService.record(null, cloudAccountPk, clusterName, null, "TOMBSTONE_BLOCKED",
+                    com.xammer.cloud.service.onboarding.OnboardingAuditService.ACTOR_AGENT, null,
+                    "{\"blocked\":true}");
+        }
+        return true;
+    }
+
+    /** Take the per-(account, cluster) advisory lock when the repository supports it (design §2.2). */
+    private void lockAccountCluster(Long cloudAccountPk, String clusterName) {
+        try {
+            clusterConfigRepository.lockAccountCluster(cloudAccountPk, clusterName);
+        } catch (RuntimeException e) {
+            // H2/other test DBs may not support pg_advisory_xact_lock; the lock is a Postgres
+            // serialisation aid, not a correctness gate for a single-threaded test.
+            logger.debug("advisory lock skipped ({})", e.getClass().getSimpleName());
+        }
+    }
+
     @Transactional
     public KubernetesClusterConfig findOrAutoRegisterClusterConfig(String clusterName, String cloudAccountId) {
-        KubernetesClusterConfig existing = findClusterConfig(clusterName, cloudAccountId);
-        if (existing != null) {
-            return existing;
-        }
-
         CloudAccount account = null;
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(cloudAccountId);
         if (!accounts.isEmpty()) {
@@ -384,6 +410,19 @@ public class AgentIngestService {
         if (account == null) {
             logger.warn("Auto-register skipped: no cloud account for id {}", cloudAccountId);
             return null;
+        }
+
+        // BP-13 (design §2.2, §4.3, F-14/F-15): guard BEFORE the existing-row lookup so a row recreated
+        // after offboarding by any path is never written to until a new connect token clears the
+        // tombstone. Take the advisory lock to serialise concurrent creators for this (account, cluster).
+        if (tombstoneGuardBlocks(account.getId(), clusterName)) {
+            return null;
+        }
+        lockAccountCluster(account.getId(), clusterName);
+
+        KubernetesClusterConfig existing = findClusterConfig(clusterName, cloudAccountId);
+        if (existing != null) {
+            return existing;
         }
 
         String provider = account.getProvider();
@@ -430,6 +469,13 @@ public class AgentIngestService {
             logger.warn("findOrCreateDbOnly: cloud account {} not found", awsAccountId);
             return null;
         }
+
+        // BP-13 (design §2.2, §4.3, F-14/F-15): guard + advisory lock before the existing-row lookup,
+        // so the DB-agent creator is tombstone-blocked and serialised just like the k8s-agent creator.
+        if (tombstoneGuardBlocks(account.getId(), clusterName)) {
+            return null;
+        }
+        lockAccountCluster(account.getId(), clusterName);
 
         // Try normal lookup first
         Optional<KubernetesClusterConfig> existing = clusterConfigRepository

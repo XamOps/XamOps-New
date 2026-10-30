@@ -36,9 +36,17 @@ public class AgentDataCleanupScheduler {
     @Value("${xamops.agent.data.retention-days:14}")
     private int retentionDays;
 
+    /** BP-13 (design §2.1, F-26): onboarding audit events are kept for a year's audit by default. */
+    @Value("${xamops.k8s.onboarding.event-retention-days:400}")
+    private int onboardingEventRetentionDays;
+
     private final AgentIngestService agentIngestService;
     private final SchedulingEnvironmentConfig envConfig;
     private final SpotInterruptionTracker spotInterruptionTracker;
+
+    /** Optional so tests that build the scheduler without the onboarding layer keep working. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.xammer.cloud.repository.ClusterOnboardingEventRepository onboardingEventRepository;
 
     public AgentDataCleanupScheduler(AgentIngestService agentIngestService,
                                      SchedulingEnvironmentConfig envConfig,
@@ -72,6 +80,31 @@ public class AgentDataCleanupScheduler {
             spotInterruptionTracker.purgeExpired();
         } catch (Exception e) {
             log.error("❌ Spot interruption history purge failed", e);
+        }
+        // BP-13 (F-26): prune onboarding audit events past the long (default 400-day) retention.
+        purgeOldOnboardingEvents();
+    }
+
+    /**
+     * BP-13 (design §2.1, F-26): delete {@code cluster_onboarding_event} rows older than the
+     * retention window. Its own try/catch so it never breaks the scheduler thread. The
+     * server-owned {@code autoscaling-policy} agent-cache row is excluded from the cache retention
+     * above by {@link AgentIngestService#cleanupStaleData(int)} (BP-19); this step only prunes the
+     * audit log.
+     */
+    void purgeOldOnboardingEvents() {
+        if (onboardingEventRepository == null) {
+            return;
+        }
+        try {
+            java.time.Instant cutoff = java.time.Instant.now()
+                    .minus(java.time.Duration.ofDays(onboardingEventRetentionDays));
+            int deleted = onboardingEventRepository.deleteOlderThan(cutoff);
+            if (deleted > 0) {
+                log.info("✅ Pruned {} onboarding event(s) older than {}d", deleted, onboardingEventRetentionDays);
+            }
+        } catch (Exception e) {
+            log.error("❌ Onboarding event retention purge failed", e);
         }
     }
 }

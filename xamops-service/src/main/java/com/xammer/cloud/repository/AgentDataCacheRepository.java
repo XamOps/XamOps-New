@@ -89,8 +89,11 @@ public interface AgentDataCacheRepository extends JpaRepository<AgentDataCache, 
      */
     @Modifying
     @Transactional // one short transaction per batch — the caller loops without holding one
+    // BP-19 (design §2.1): never prune the server-owned 'autoscaling-policy' row — it is the
+    // operator's saved automation settings that onboarding leads to, not agent-pushed cache data.
     @Query(value = "DELETE FROM agent_data_cache WHERE id IN ("
-            + "SELECT id FROM agent_data_cache WHERE collected_at < :cutoff LIMIT :batchSize)",
+            + "SELECT id FROM agent_data_cache WHERE collected_at < :cutoff "
+            + "AND data_type <> 'autoscaling-policy' LIMIT :batchSize)",
             nativeQuery = true)
     int deleteStaleDataBatch(@Param("cutoff") LocalDateTime cutoff,
                              @Param("batchSize") int batchSize);
