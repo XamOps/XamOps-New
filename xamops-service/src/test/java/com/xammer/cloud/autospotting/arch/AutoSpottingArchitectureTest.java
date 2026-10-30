@@ -68,11 +68,14 @@ class AutoSpottingArchitectureTest {
 
     @Test
     void onlyTheSpineAndCoreServicesDependOnTheSpineRepositories() {
+        // Phase 09 adds ..controller.autospotting.. to the allowed dependers: the v2 read endpoints
+        // and the operator API read the spine op store directly (design-core.md §11, §6.6).
         ArchRule rule = noClasses()
-                .that().resideOutsideOfPackages("..repository.autospotting..", "..service.autospotting.core..")
+                .that().resideOutsideOfPackages("..repository.autospotting..", "..service.autospotting.core..",
+                        "..controller.autospotting..")
                 .should().dependOnClassesThat().resideInAPackage("..repository.autospotting..")
-                .because("the spine repositories are driven only by the core services "
-                        + "(design-ux-ops.md §9.1)");
+                .because("the spine repositories are driven only by the core services and the "
+                        + "AutoSpotting controllers (design-ux-ops.md §9.1, design-core.md §11)");
         rule.check(classes);
     }
 
@@ -113,6 +116,21 @@ class AutoSpottingArchitectureTest {
                 .should(notBeNamedLikeAMutation())
                 .because("a ReadOnlyCloudView exposes only reads, so a mutating call can't compile in "
                         + "planning (design-core.md §7.2, AC-PLN-01)");
+        rule.allowEmptyShould(true).check(classes);
+    }
+
+    @Test
+    void noAutoSpottingControllerMethodReturnsAJpaEntity() {
+        // plan-phase-09.md task 9.2, design-core.md §11 "DTOs only", FR-SEC-02, AC-SEC-04: a v2 or
+        // operator controller method must never return a JPA entity — responses are DTO records in
+        // dto.autospotting. The rule inspects the raw return type and the generic type arguments of
+        // a ResponseEntity/collection return, so ResponseEntity<SpotGroup> is caught too.
+        ArchRule rule = methods()
+                .that().areDeclaredInClassesThat().resideInAPackage("..controller.autospotting..")
+                .and().arePublic()
+                .should(notReturnAJpaEntity())
+                .because("an AutoSpotting controller returns DTOs, never JPA entities "
+                        + "(design-core.md §11, FR-SEC-02, AC-SEC-04)");
         rule.allowEmptyShould(true).check(classes);
     }
 
@@ -185,6 +203,31 @@ class AutoSpottingArchitectureTest {
                 boolean mutationShaped = MUTATION_PREFIXES.stream().anyMatch(name::startsWith);
                 events.add(new SimpleConditionEvent(method, !mutationShaped,
                         method.getFullName() + (mutationShaped ? " is named like a mutation" : " is read-shaped")));
+            }
+        };
+    }
+
+    /** True when a type is (or is annotated with) a JPA {@code @Entity}. */
+    private static boolean isJpaEntity(com.tngtech.archunit.core.domain.JavaClass type) {
+        return type.isAnnotatedWith(jakarta.persistence.Entity.class);
+    }
+
+    private static ArchCondition<JavaMethod> notReturnAJpaEntity() {
+        return new ArchCondition<>("not return a JPA entity") {
+            @Override
+            public void check(JavaMethod method, ConditionEvents events) {
+                java.util.List<com.tngtech.archunit.core.domain.JavaClass> candidates = new java.util.ArrayList<>();
+                candidates.add(method.getRawReturnType());
+                // Generic arguments of e.g. ResponseEntity<Foo>, List<Foo>.
+                method.getReturnType().getAllInvolvedRawTypes().forEach(candidates::add);
+                com.tngtech.archunit.core.domain.JavaClass offender = candidates.stream()
+                        .filter(AutoSpottingArchitectureTest::isJpaEntity)
+                        .findFirst()
+                        .orElse(null);
+                events.add(new SimpleConditionEvent(method, offender == null,
+                        method.getFullName() + (offender == null
+                                ? " returns no JPA entity"
+                                : " returns JPA entity " + offender.getName())));
             }
         };
     }

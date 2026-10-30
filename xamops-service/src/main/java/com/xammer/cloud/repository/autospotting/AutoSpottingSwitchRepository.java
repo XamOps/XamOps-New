@@ -35,4 +35,31 @@ public interface AutoSpottingSwitchRepository extends JpaRepository<AutoSpotting
     @Query("select s from AutoSpottingSwitch s where s.engaged = true and s.scopeKey in :scopeKeys")
     List<AutoSpottingSwitch> findEngagedByScopeKeys(
             @org.springframework.data.repository.query.Param("scopeKeys") List<String> scopeKeys);
+
+    /**
+     * Every switch row, newest change first — the operator {@code GET /switches} read (design-core.md
+     * §6.6). The property value and the effective value are computed in the service layer; this
+     * returns the stored DB half ({@code engaged}, {@code reason}, {@code changed_by/at},
+     * {@code version}).
+     */
+    @Query("select s from AutoSpottingSwitch s order by s.changedAt desc, s.scopeKey asc")
+    List<AutoSpottingSwitch> findAllByOrderByChangedAtDesc();
+
+    /**
+     * Guarded update of an existing switch row for the operator {@code PUT /switches/{scopeKey}}
+     * (design-core.md §6.6). Sets {@code engaged}, {@code reason}, {@code changed_by/at} and bumps
+     * {@code version}, but only when the stored {@code version} matches {@code expectedVersion}, so
+     * two racing operators can't both win (409 {@code SWITCH_VERSION_MISMATCH}). Returns rows updated
+     * (1 on success, 0 on a version mismatch).
+     */
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("update AutoSpottingSwitch s set s.engaged = :engaged, s.reason = :reason,"
+            + " s.changedBy = :changedBy, s.changedAt = :changedAt, s.version = s.version + 1"
+            + " where s.scopeKey = :scopeKey and s.version = :expectedVersion")
+    int updateGuarded(@org.springframework.data.repository.query.Param("scopeKey") String scopeKey,
+                      @org.springframework.data.repository.query.Param("engaged") boolean engaged,
+                      @org.springframework.data.repository.query.Param("reason") String reason,
+                      @org.springframework.data.repository.query.Param("changedBy") String changedBy,
+                      @org.springframework.data.repository.query.Param("changedAt") java.time.Instant changedAt,
+                      @org.springframework.data.repository.query.Param("expectedVersion") long expectedVersion);
 }

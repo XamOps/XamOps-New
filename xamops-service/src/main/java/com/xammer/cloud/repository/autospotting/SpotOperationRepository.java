@@ -244,4 +244,31 @@ public interface SpotOperationRepository extends JpaRepository<SpotOperation, UU
             + "   AND NOT compensate_requested",
             nativeQuery = true)
     int requestCompensation(@Param("id") UUID id, @Param("reason") String reason, @Param("now") Instant now);
+
+    // ── operator API (plan-phase-09.md task 9.4, design-core.md §6.6) ───────────
+
+    /**
+     * The operator {@code GET /operations?waitReason=&provider=} list (design-core.md §6.6): stuck
+     * and long-waiting ops. When {@code waitReason} is null it returns every non-terminal op
+     * (RUNNING/WAITING); when set it filters to that {@code wait_reason} (e.g. {@code STUCK}). When
+     * {@code provider} is null it spans both clouds; when set it joins {@code spot_group} and keeps
+     * ops of that provider. Paginated (the controller caps the page size at 200), oldest deadline
+     * first so the most pressing surface at the top.
+     */
+    @Query(value = "SELECT o.* FROM spot_operation o"
+            + " JOIN spot_group g ON g.id = o.group_id"
+            + " WHERE o.status IN ('RUNNING','WAITING')"
+            + "   AND (:waitReason IS NULL OR o.wait_reason = :waitReason)"
+            + "   AND (:provider IS NULL OR g.provider = :provider)"
+            + " ORDER BY o.deadline_at ASC, o.created_at ASC",
+            countQuery = "SELECT count(*) FROM spot_operation o"
+            + " JOIN spot_group g ON g.id = o.group_id"
+            + " WHERE o.status IN ('RUNNING','WAITING')"
+            + "   AND (:waitReason IS NULL OR o.wait_reason = :waitReason)"
+            + "   AND (:provider IS NULL OR g.provider = :provider)",
+            nativeQuery = true)
+    org.springframework.data.domain.Page<SpotOperation> findOperatorOps(
+            @Param("waitReason") String waitReason,
+            @Param("provider") String provider,
+            org.springframework.data.domain.Pageable pageable);
 }
