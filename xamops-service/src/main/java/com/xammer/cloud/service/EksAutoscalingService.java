@@ -223,7 +223,8 @@ public class EksAutoscalingService {
                 || b.getNodeOptimizerPolicy().isAutoDrainIdleNodes()
                 || b.getNodeOptimizerPolicy().getSpotRatioTargetPct() != 0
                 || b.getRebalancer().isEnabled()
-                || b.getRebalancer().isScheduleEnabled()) {
+                || b.getRebalancer().isScheduleEnabled()
+                || b.getConsolidationPolicy().isEnabled()) {
             derived = "AUTOMATED";
         } else {
             derived = "ANALYSIS";

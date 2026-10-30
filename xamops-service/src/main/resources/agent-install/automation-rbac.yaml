@@ -1,0 +1,198 @@
+# ── ServiceAccount ────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: xamops-automation
+  namespace: xamops-system
+  labels:
+    app: xamops-automation
+    app.kubernetes.io/component: automation
+
+---
+# ── ClusterRole — Write RBAC ──────────────────────────────────────────────────
+# Separate from xamops-agent's read-only ClusterRole.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: xamops-automation
+  labels:
+    app: xamops-automation
+rules:
+  # ── Read access (needed to make safe decisions) ──────────────────────────
+  # PersistentVolumeClaims and PersistentVolumes feed the stateful/zone protection
+  # (FEAT-005 / stateful-db-fixtures report §5): the fit simulator resolves each
+  # pod's PVC → PV → topology.kubernetes.io/zone node-affinity so a zonal volume is
+  # placed same-AZ only. PVs are cluster-scoped, hence listed here, not in the Role.
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - pods
+      - namespaces
+      - replicationcontrollers
+      - services
+      - persistentvolumeclaims
+      - persistentvolumes
+    verbs: ["get", "list", "watch"]
+
+  # ── Operator Custom Resources for database-role detection (FEAT-005) ───────
+  # The stateful protection layer reads operator CR status (never DB credentials) to
+  # tell a primary from a sync standby — currently the allow-listed CloudNativePG
+  # Cluster (postgresql.cnpg.io). Read-only; a cluster without the CRD installed is
+  # treated as zero CRs. Extend the allow-list here when more operators are added.
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources:
+      - clusters
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - replicasets
+      - statefulsets
+      - daemonsets
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["policy"]
+    resources:
+      - poddisruptionbudgets
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["metrics.k8s.io"]
+    resources:
+      - nodes
+      - pods
+    verbs: ["get", "list"]
+
+  # ── Write access (core autoscaling actions) ────────────────────────────────
+  # Cordon / uncordon nodes
+  - apiGroups: [""]
+    resources:
+      - nodes
+    verbs: ["patch", "update"]
+
+  # Evict pods — the only way pods leave a node (Eviction API honours PDBs).
+  # There is deliberately no pods "delete" grant.
+  - apiGroups: [""]
+    resources:
+      - pods/eviction
+    verbs: ["create"]
+
+  # Patch Deployment resource requests (rightsizer)
+  # DORMANT RESTART-CAPABLE GRANT: patching a Deployment template rolls its pods
+  # (an effective restart). This write verb is gated in code (ENABLE_RIGHTSIZER_APPLY
+  # + applyMode=immediate + DRY_RUN=false) and is only exercised by the rightsizer
+  # apply path. The VPA manager's restart-capable write (VPAManager.Apply) is
+  # currently CALLERLESS — the control loop only collects recommendations — so this
+  # grant stays dormant for VPA pending the owner restart decision. Grant unchanged.
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+    verbs: ["patch", "update"]
+
+  # Patch StatefulSet resource requests (rightsizer, when protectStatefulSets=false)
+  - apiGroups: ["apps"]
+    resources:
+      - statefulsets
+    verbs: ["patch", "update"]
+
+  # Events — write autoscaler events into the cluster
+  - apiGroups: [""]
+    resources:
+      - events
+    verbs: ["create", "patch", "update"]
+
+  # ── HPA Manager: create/update/delete HorizontalPodAutoscalers ─────────────
+  - apiGroups: ["autoscaling"]
+    resources:
+      - horizontalpodautoscalers
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # ── VPA Manager: create/update/delete VerticalPodAutoscalers ───────────────
+  # Only needed when ENABLE_VPA_MANAGER=true and VPA CRD is installed.
+  # DORMANT RESTART-CAPABLE GRANT: the create/update/patch/delete verbs here back
+  # VPAManager.Apply, which (with a VPA updateMode of Auto/Recreate/InPlaceOrRecreate)
+  # can restart workload pods. That method is CALLERLESS today — the gate.VPAManager
+  # decision caps at Analyse and the control loop only calls CollectRecommendations
+  # (read-only: get/list/watch). These write verbs therefore remain dormant pending
+  # the owner restart decision. Grant unchanged.
+  - apiGroups: ["autoscaling.k8s.io"]
+    resources:
+      - verticalpodautoscalers
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # ── Node Optimizer: read node metrics, read PDB ────────────────────────────
+  - apiGroups: ["policy"]
+    resources:
+      - poddisruptionbudgets
+    verbs: ["get", "list", "watch"]
+
+---
+# ── ClusterRoleBinding ────────────────────────────────────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: xamops-automation
+  labels:
+    app: xamops-automation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: xamops-automation
+subjects:
+  - kind: ServiceAccount
+    name: xamops-automation
+    namespace: xamops-system
+---
+# ── Role + RoleBinding — operation ledger (namespaced) ────────────────────────
+# The rebalancer records each operation's live outcome in ConfigMap
+# xamops-automation-state so an operation never runs twice (across cycles and
+# restarts). DRY_RUN=true never writes it. get/update/patch are limited to that one
+# ConfigMap; create cannot be restricted by resourceNames, so it is namespace-wide.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: xamops-automation-state
+  namespace: xamops-system
+  labels:
+    app: xamops-automation
+rules:
+  - apiGroups: [""]
+    resources:
+      - configmaps
+    resourceNames: ["xamops-automation-state"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: [""]
+    resources:
+      - configmaps
+    verbs: ["create"]
+  # ── Leader election (FEAT-002 / agent-ha-design.md CHOICE B) ───────────────
+  # A multi-replica Deployment runs exactly one active apply/drain loop by holding a
+  # coordination.k8s.io Lease in this namespace. Namespaced only — no cluster-wide
+  # grant. "list" is omitted deliberately (leaderelection only needs get/create/update/
+  # watch on its single lease).
+  - apiGroups: ["coordination.k8s.io"]
+    resources:
+      - leases
+    verbs: ["get", "create", "update", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: xamops-automation-state
+  namespace: xamops-system
+  labels:
+    app: xamops-automation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: xamops-automation-state
+subjects:
+  - kind: ServiceAccount
+    name: xamops-automation
+    namespace: xamops-system

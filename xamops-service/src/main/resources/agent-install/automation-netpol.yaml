@@ -1,0 +1,73 @@
+# ── NetworkPolicy ─────────────────────────────────────────────────────────────
+# The autoscaler only needs:
+#   EGRESS: XamOps backend (HTTPS), Prometheus (9090), k8s API server (443/6443)
+# No INGRESS required (push-only architecture).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: xamops-automation-netpol
+  namespace: xamops-system
+  labels:
+    app: xamops-automation
+spec:
+  podSelector:
+    matchLabels:
+      app: xamops-automation
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Health probe from kubelet (node-local)
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 8081
+
+  egress:
+    # XamOps backend — HTTPS
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+
+    # Kubernetes API server — in-cluster (varies by provider)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 6443
+        - protocol: TCP
+          port: 443
+
+    # Prometheus — monitoring namespace
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 9090
+
+    # DNS resolution
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # EKS Pod Identity Agent — credential endpoint (link-local, IPv4 + IPv6)
+    - to:
+        - ipBlock:
+            cidr: 169.254.170.23/32
+        - ipBlock:
+            cidr: fd00:ec2::23/128
+      ports:
+        - protocol: TCP
+          port: 80
+

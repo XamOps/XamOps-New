@@ -46,6 +46,29 @@ STACK_VERSION="1.0.0"
 
 AGENT_IMAGE="docker.io/xamops/agent:v2.1.0"
 
+# The automation (consolidation) agent image. Pinned alongside AGENT_IMAGE and substituted from
+# xamops.k8s.onboarding.automation-image when the script is served; the phase-2 flow deploys this
+# image INERT (DRY_RUN=true, ENABLE_CONSOLIDATION=false) so onboarding never mutates a live cluster.
+AUTOMATION_IMAGE="${AUTOMATION_IMAGE:-__AUTOMATION_IMAGE__}"
+DEFAULT_AUTOMATION_IMAGE="docker.io/xamops/automation:v2.1.0"
+
+# The automation RBAC and NetworkPolicy manifests are substituted here when the script is served,
+# from the single source of truth in xamops-autoscaler/manifests/xamops-autoscaler-complete.yaml
+# (see AgentInstallScriptController + setup-guide-validation.yml, which assert the served copies
+# match that manifest). A quoted heredoc is used so the manifest body — which contains YAML
+# punctuation and apostrophes in comments — is captured verbatim with no shell interpretation. The
+# literal marker line is what a standalone (unsubstituted) run sees; the phase-2 flow refuses to
+# install automation when it is still present, exactly as the server URL / API key placeholders are
+# refused in preflight.
+AUTOMATION_RBAC_MANIFEST="$(cat <<'XAMOPS_AUTOMATION_RBAC_EOF'
+__AUTOMATION_RBAC__
+XAMOPS_AUTOMATION_RBAC_EOF
+)"
+AUTOMATION_NETPOL_MANIFEST="$(cat <<'XAMOPS_AUTOMATION_NETPOL_EOF'
+__AUTOMATION_NETPOL__
+XAMOPS_AUTOMATION_NETPOL_EOF
+)"
+
 # Substituted when the script is served from the backend, so a customer never copies a URL or
 # key by hand. Overridable by flag for standalone use.
 XAMOPS_SERVER_URL="${XAMOPS_SERVER_URL:-__XAMOPS_SERVER_URL__}"
@@ -91,6 +114,21 @@ SKIP_VERIFY=false
 # unattended execution is not consenting to editing your IAM.
 SETUP_EBS_CSI=false
 
+# ─── Phase 2 (automation / connect-token) ───────────────────────────────────────────────────
+# Phase 2 is a separate, opt-in flow: a one-time connect token (issued by XamOps "Enable
+# automation") is exchanged for a cluster-scoped automation key, the per-cluster IAM roles are
+# deployed from the served CloudFormation template, and the automation agent is installed INERT
+# (DRY_RUN=true, ENABLE_CONSOLIDATION=false). It NEVER restarts or touches the phase-1 data agent.
+CONNECT_TOKEN=""
+ROTATE_KEY=false
+UNINSTALL_AUTOMATION=false
+# Resolved from the exchange response. PodIdentity on EKS unless the exchange says IRSA. Folded
+# into the data agent's config-revision so a mode change rolls the pod.
+IDENTITY_MODE=""
+# Turned on when the automation path is active, so the data agent also collects the read-only
+# nodegroup scaling facts the preflight/NodeGroups panel need. Folded into config-revision too.
+COLLECTOR_CLOUD_NODEGROUPS="false"
+
 usage() {
   cat <<'USAGE'
 XamOps Kubernetes onboarding (AKS / EKS / GKE)
@@ -114,6 +152,14 @@ XamOps Kubernetes onboarding (AKS / EKS / GKE)
   --project PROJECT_ID      GCP project id (default: current gcloud project)
   --location LOC            Cluster zone (us-central1-a) or region (us-central1). Resolved from
                             the cluster name when omitted.
+
+  Phase 2 (automation, EKS only; opt-in):
+  --connect-token TOKEN     One-time token from XamOps "Enable automation". Runs the phase-2 flow
+                            instead of a phase-1 install: exchange the token, deploy the per-cluster
+                            IAM roles, and install the automation agent INERT (DRY_RUN, consolidation
+                            off). Never restarts the data agent.
+  --rotate-key              With --connect-token: rotate the automation key only (no IAM change).
+  --uninstall               With --connect-token: remove the automation agent and its IAM stack.
 
   --server-url URL          XamOps backend base URL
   --api-key KEY             XamOps agent API key
@@ -141,6 +187,9 @@ while [ $# -gt 0 ]; do
     --subscription)   SUBSCRIPTION_ID="${2:-}"; shift 2 ;;
     --region)         REGION="${2:-}"; shift 2 ;;
     --setup-ebs-csi)  SETUP_EBS_CSI=true; shift ;;
+    --connect-token)  CONNECT_TOKEN="${2:-}"; shift 2 ;;
+    --rotate-key)     ROTATE_KEY=true; shift ;;
+    --uninstall)      UNINSTALL_AUTOMATION=true; shift ;;
     --project)        PROJECT_ID="${2:-}"; shift 2 ;;
     --location)       LOCATION="${2:-}"; shift 2 ;;
     --server-url)     XAMOPS_SERVER_URL="${2:-}"; shift 2 ;;
@@ -184,6 +233,16 @@ ok()    { printf '   %s✔%s %s\n' "$C_GREEN" "$C_RESET" "$*"; }
 warn()  { printf '   %s!%s %s\n' "$C_YELLOW" "$C_RESET" "$*"; printf '%s%s\n' "$(note_prefix)" "$*" >> "$WARN_FILE"; }
 fail()  { printf '   %s✘%s %s\n' "$C_RED" "$C_RESET" "$*"; printf '%s%s\n' "$(note_prefix)" "$*" >> "$FAIL_FILE"; }
 die()   { printf '\n%s✘ %s%s\n\n' "$C_RED$C_BOLD" "$*" "$C_RESET" >&2; printf '%s%s\n' "$(note_prefix)" "$*" >> "$FAIL_FILE"; exit 1; }
+
+# Phase-2 failures carry a machine-readable exit code so the XamOps UI can map a Cloud Shell run
+# to a specific remediation (die itself keeps exiting 1 for every phase-1 path). Codes:
+#   2 token/exchange refused   3 IAM template or deploy failed   4 identity not verified in-cluster
+die_code() {
+  local code="$1"; shift
+  printf '\n%s✘ %s%s\n\n' "$C_RED$C_BOLD" "$*" "$C_RESET" >&2
+  printf '%s%s\n' "$(note_prefix)" "$*" >> "$FAIL_FILE"
+  exit "$code"
+}
 
 # Runs a command, or prints it under --dry-run. Never used for anything reading stdin.
 #
@@ -1143,6 +1202,7 @@ data:
   COLLECTOR_KUBESCAPE: "true"
   COLLECTOR_OPENCOST: "true"
   COLLECTOR_KARPENTER: "$collect_karpenter"
+  COLLECTOR_CLOUD_NODEGROUPS: "$COLLECTOR_CLOUD_NODEGROUPS"
 EOF
   then
     fail "agent ConfigMap could not be applied"
@@ -1191,7 +1251,7 @@ spec:
       annotations:
         # Forces a rollout when only the ConfigMap changed, which a Deployment would otherwise
         # ignore, leaving the agent running with stale settings.
-        xamops.io/config-revision: "$(printf '%s|%s|%s|%s' "$XAMOPS_SERVER_URL" "$CLUSTER_NAME" "$CLOUD_ACCOUNT_ID" "$STACK_VERSION" | cksum | cut -d' ' -f1)"
+        xamops.io/config-revision: "$(printf '%s|%s|%s|%s|%s|%s' "$XAMOPS_SERVER_URL" "$CLUSTER_NAME" "$CLOUD_ACCOUNT_ID" "$STACK_VERSION" "$IDENTITY_MODE" "$COLLECTOR_CLOUD_NODEGROUPS" | cksum | cut -d' ' -f1)"
     spec:
       serviceAccountName: xamops-agent-sa
       containers:
@@ -1309,6 +1369,403 @@ verify() {
   fi
 }
 
+# ─── Phase 2: automation (connect-token) ────────────────────────────────────────────────────
+# A single HTTP helper for the connect protocol. Prints the response body on stdout and the HTTP
+# code on stderr's last line so callers can branch on it without a second request. curl is a hard
+# requirement here (it is in every Cloud Shell), unlike the phase-1 flow which avoids it.
+EXCHANGE_FILE=""
+IAM_TEMPLATE_FILE=""
+AUTOMATION_KEY=""
+READ_ROLE_ARN=""
+WRITE_ROLE_ARN=""
+TEMPLATE_SHA256=""
+IAM_STACK_NAME=""
+
+phase2_http_code() {
+  # $1 method, $2 path, $3 bearer, $4 body-file (may be empty), $5 out-file
+  local method="$1" path="$2" bearer="$3" body_file="$4" out_file="$5"
+  local args=(-sS -o "$out_file" -w '%{http_code}' -X "$method" \
+    -H 'Content-Type: application/json' -H "Authorization: Bearer $bearer")
+  if [ -n "$body_file" ]; then
+    args+=(--data-binary "@$body_file")
+  fi
+  curl "${args[@]}" "$XAMOPS_SERVER_URL$path" 2>/dev/null
+}
+
+# Exchange the connect token for the automation key and IAM instructions (design §4.3). The agent
+# key is written to a file, never echoed, so it stays out of terminal scrollback and CI logs.
+exchange_connect_token() {
+  step "Exchanging connect token"
+  have curl || die_code 2 "curl is required for the automation flow but is not installed"
+  have jq   || die_code 2 "jq is required for the automation flow but is not installed"
+
+  local phase="AUTOMATION" detected_scaler
+  # The node scaler the backend compares against its consent snapshot (NODE_SCALER_CHANGED guard).
+  detected_scaler="$(detect_node_scaler)"
+
+  local req; req="$(mktemp)"
+  EXCHANGE_FILE="$(mktemp)"
+  jq -n --arg c "$CLUSTER_NAME" --arg a "$CLOUD_ACCOUNT_ID" --arg p "$phase" --arg ns "$detected_scaler" \
+    '{clusterName:$c, cloudAccountId:$a, phase:$p, detected:{nodeScaler:$ns}}' > "$req"
+
+  if [ "$DRY_RUN" = true ]; then
+    dim "dry-run: would POST /api/v1/agent/connect/exchange for $CLUSTER_NAME"
+    rm -f "$req"
+    # Seed the values the rest of the dry-run flow prints, without contacting the backend.
+    AUTOMATION_KEY="(dry-run)"
+    IDENTITY_MODE="PodIdentity"
+    IAM_STACK_NAME="xamops-cluster-$CLUSTER_NAME"
+    return 0
+  fi
+
+  local code
+  code="$(phase2_http_code POST /api/v1/agent/connect/exchange "$CONNECT_TOKEN" "$req" "$EXCHANGE_FILE")"
+  rm -f "$req"
+  case "$code" in
+    200) : ;;
+    401) die_code 2 "Connect token rejected (TOKEN_INVALID). Issue a fresh token from XamOps and re-run." ;;
+    409) die_code 2 "Connect token refused ($(jq -r '.error // "CONFLICT"' "$EXCHANGE_FILE")): $(jq -r '.message // ""' "$EXCHANGE_FILE")" ;;
+    410) die_code 2 "Connect token is expired or revoked. Issue a fresh token and re-run." ;;
+    *)   die_code 2 "Exchange failed (HTTP $code). The token was NOT consumed if this was a transport error; retry or issue a new token." ;;
+  esac
+
+  AUTOMATION_KEY="$(jq -r '.agentKey // empty' "$EXCHANGE_FILE")"
+  [ -n "$AUTOMATION_KEY" ] || die_code 2 "Exchange succeeded but returned no automation key"
+  IDENTITY_MODE="$(jq -r '.iam.parameters.IdentityMode // "PodIdentity"' "$EXCHANGE_FILE")"
+  TEMPLATE_SHA256="$(jq -r '.iam.templateSha256 // empty' "$EXCHANGE_FILE")"
+  IAM_STACK_NAME="$(jq -r '.iam.stackName // empty' "$EXCHANGE_FILE")"
+  [ -n "$IAM_STACK_NAME" ] || IAM_STACK_NAME="xamops-cluster-$CLUSTER_NAME"
+  ok "token exchanged — automation key issued (kept out of logs)"
+}
+
+# Best-effort read-only detection of the node scaler installed in the cluster, mirroring the
+# backend's NodeScalerDetector categories. Never fatal.
+detect_node_scaler() {
+  if [ "$DRY_RUN" = true ]; then printf 'UNKNOWN'; return 0; fi
+  if kubectl get deploy -n karpenter -l app.kubernetes.io/name=karpenter >/dev/null 2>&1 \
+     && [ "$(kubectl get deploy -n karpenter --no-headers 2>/dev/null | wc -l | tr -d ' ')" != "0" ]; then
+    printf 'KARPENTER'; return 0
+  fi
+  if kubectl get deploy -n kube-system cluster-autoscaler >/dev/null 2>&1; then
+    printf 'CLUSTER_AUTOSCALER'; return 0
+  fi
+  printf 'MANAGED_NODEGROUP'
+}
+
+# Fetch the served CFN template and verify its SHA-256 against the value the exchange stamped, so a
+# tampered template can never reach CloudFormation (design §4.3, §5.2).
+fetch_iam_template() {
+  step "Fetching IAM template"
+  IAM_TEMPLATE_FILE="$(mktemp)"
+  if [ "$DRY_RUN" = true ]; then
+    dim "dry-run: would GET /api/v1/agent/install/eks-cluster-roles.yml and verify X-Content-SHA256"
+    printf '# dry-run placeholder template\n' > "$IAM_TEMPLATE_FILE"
+    return 0
+  fi
+
+  local hdr; hdr="$(mktemp)"
+  local code
+  code="$(curl -sS -D "$hdr" -o "$IAM_TEMPLATE_FILE" -w '%{http_code}' \
+          "$XAMOPS_SERVER_URL/api/v1/agent/install/eks-cluster-roles.yml" 2>/dev/null)"
+  [ "$code" = "200" ] || { rm -f "$hdr"; die_code 3 "Could not fetch the IAM template (HTTP $code)"; }
+
+  # The served hash. tr strips CR so the comparison survives CRLF headers.
+  local served_sha
+  served_sha="$(grep -i '^X-Content-SHA256:' "$hdr" | head -1 | cut -d: -f2 | tr -d ' \r')"
+  rm -f "$hdr"
+
+  local local_sha
+  local_sha="$(sha256_of "$IAM_TEMPLATE_FILE")"
+  # The exchange's templateSha256 is the authority; the header must equal it and the body must hash
+  # to it. Any mismatch is fail-closed.
+  if [ -n "$TEMPLATE_SHA256" ] && [ "$served_sha" != "$TEMPLATE_SHA256" ]; then
+    die_code 3 "Served template hash does not match the exchange (expected $TEMPLATE_SHA256, header $served_sha)"
+  fi
+  if [ -n "$served_sha" ] && [ "$local_sha" != "$served_sha" ]; then
+    die_code 3 "Downloaded IAM template failed its integrity check (header $served_sha, body $local_sha)"
+  fi
+  ok "IAM template verified${local_sha:+ (sha256 ${local_sha%"${local_sha#??????????}"}…)}"
+}
+
+sha256_of() {
+  if have sha256sum; then sha256sum "$1" | cut -d' ' -f1
+  elif have shasum; then shasum -a 256 "$1" | cut -d' ' -f1
+  else printf ''; fi
+}
+
+# Deploy (create or update) the per-cluster IAM roles with CloudFormation. Idempotent: an
+# unchanged stack is "No updates are to be performed" and treated as success.
+deploy_iam() {
+  step "Deploying per-cluster IAM roles"
+  if [ "$DRY_RUN" = true ]; then
+    dim "dry-run: would aws cloudformation deploy --stack-name $IAM_STACK_NAME (IdentityMode=$IDENTITY_MODE)"
+    return 0
+  fi
+  local removal="false"
+  [ "$UNINSTALL_AUTOMATION" = true ] && removal="false"
+
+  : > "$RUN_LOG"
+  if aws cloudformation deploy \
+      --region "$REGION" \
+      --stack-name "$IAM_STACK_NAME" \
+      --template-file "$IAM_TEMPLATE_FILE" \
+      --capabilities CAPABILITY_NAMED_IAM CAPABILITY_IAM \
+      --no-fail-on-empty-changeset \
+      --parameter-overrides \
+        "ClusterName=$CLUSTER_NAME" \
+        "IdentityMode=${IDENTITY_MODE:-PodIdentity}" \
+        "CreateReadRole=true" \
+        "EnableAutomation=true" \
+        "NodeRemoval=$removal" \
+        "PermissionManifestHash=$(jq -r '.iam.parameters.PermissionManifestHash // empty' "$EXCHANGE_FILE" 2>/dev/null)" \
+      >"$RUN_LOG" 2>&1; then
+    READ_ROLE_ARN="$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$IAM_STACK_NAME" \
+      --query "Stacks[0].Outputs[?OutputKey=='ReadRoleArn'].OutputValue" --output text 2>/dev/null)"
+    WRITE_ROLE_ARN="$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$IAM_STACK_NAME" \
+      --query "Stacks[0].Outputs[?OutputKey=='WriteRoleArn'].OutputValue" --output text 2>/dev/null)"
+    ok "IAM stack $IAM_STACK_NAME deployed"
+  else
+    run_tail
+    die_code 3 "CloudFormation deploy of $IAM_STACK_NAME failed"
+  fi
+}
+
+# Persist the onboarding facts locally so a re-run (or --uninstall) can find the stack without a
+# fresh token. No secrets: the automation key is never written here.
+save_onboarding_state() {
+  local dir="$HOME/.xamops"
+  [ "$DRY_RUN" = true ] && { dim "dry-run: would save onboarding state under $dir"; return 0; }
+  mkdir -p "$dir"
+  local state="$dir/onboarding-$CLUSTER_NAME.env"
+  {
+    printf 'CLUSTER_NAME=%s\n' "$CLUSTER_NAME"
+    printf 'CLOUD_ACCOUNT_ID=%s\n' "$CLOUD_ACCOUNT_ID"
+    printf 'REGION=%s\n' "$REGION"
+    printf 'IDENTITY_MODE=%s\n' "$IDENTITY_MODE"
+    printf 'IAM_STACK_NAME=%s\n' "$IAM_STACK_NAME"
+  } > "$state"
+  chmod 600 "$state" 2>/dev/null || true
+  ok "onboarding state saved"
+}
+
+# Install the automation agent INERT: the generated RBAC marker, the Pod Identity NetworkPolicy
+# marker, the pinned automation image, DRY_RUN=true and ENABLE_CONSOLIDATION=false. The data agent
+# is NOT touched.
+install_automation() {
+  step "Installing automation agent (inert: DRY_RUN=true, consolidation off)"
+  # The sentinels are assembled from pieces so the server's literal marker substitution never
+  # rewrites these guards — only the heredoc bodies above carry the bare marker.
+  local rbac_marker netpol_marker image_marker
+  rbac_marker="__AUTOMATION""_RBAC__"
+  netpol_marker="__AUTOMATION""_NETPOL__"
+  image_marker="__AUTOMATION""_IMAGE__"
+  case "$AUTOMATION_RBAC_MANIFEST" in
+    *"$rbac_marker"*) die_code 3 "Automation RBAC was not substituted — run the script served from XamOps, not a bare copy" ;;
+  esac
+  case "$AUTOMATION_NETPOL_MANIFEST" in
+    *"$netpol_marker"*) die_code 3 "Automation NetworkPolicy was not substituted — run the script served from XamOps" ;;
+  esac
+  local image="$AUTOMATION_IMAGE"
+  case "$image" in
+    *"$image_marker"*) image="$DEFAULT_AUTOMATION_IMAGE" ;;
+  esac
+
+  apply_manifest "xamops-automation-rbac" <<EOF
+$AUTOMATION_RBAC_MANIFEST
+EOF
+  apply_manifest "xamops-automation-netpol" <<EOF
+$AUTOMATION_NETPOL_MANIFEST
+EOF
+
+  apply_manifest "xamops-automation-config" <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xamops-automation-config
+  namespace: xamops-system
+data:
+  CLUSTER_NAME: "$CLUSTER_NAME"
+  CLOUD_ACCOUNT_ID: "$CLOUD_ACCOUNT_ID"
+  XAMOPS_SERVER_URL: "$XAMOPS_SERVER_URL"
+  DRY_RUN: "true"
+  ENABLE_CONSOLIDATION: "false"
+  IDENTITY_MODE: "${IDENTITY_MODE:-PodIdentity}"
+EOF
+
+  if [ "$DRY_RUN" != true ]; then
+    printf '%s\n' "apiVersion: v1
+kind: Secret
+metadata:
+  name: xamops-automation-secret
+  namespace: xamops-system
+type: Opaque
+stringData:
+  XAMOPS_API_KEY: \"$AUTOMATION_KEY\"" | kubectl apply -f - >/dev/null
+  else
+    printf '   %s$ kubectl apply -f -   # xamops-automation-secret (automation key redacted)%s\n' "$C_DIM" "$C_RESET"
+  fi
+
+  apply_manifest "xamops-automation-deployment" <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xamops-automation
+  namespace: xamops-system
+  labels:
+    app: xamops-automation
+    xamops.io/stack-version: "$STACK_VERSION"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: xamops-automation
+  template:
+    metadata:
+      labels:
+        app: xamops-automation
+    spec:
+      serviceAccountName: xamops-automation
+      containers:
+        - name: xamops-automation
+          image: $image
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: xamops-automation-config
+            - secretRef:
+                name: xamops-automation-secret
+EOF
+  ok "automation agent applied (image $image)"
+}
+
+# Verify the automation agent proved its cloud identity. The data agent is NOT restarted and is not
+# consulted here. A missing 'aws identity:' log line within 60s is die_code 4 with credentials
+# remediation.
+verify_automation() {
+  step "Verifying automation identity"
+  if [ "$DRY_RUN" = true ]; then dim "skipped under --dry-run"; return 0; fi
+  if [ "$SKIP_VERIFY" = true ]; then dim "skipped (--skip-verify)"; return 0; fi
+
+  kubectl -n xamops-system rollout status deploy/xamops-automation --timeout=120s >/dev/null 2>&1 || true
+
+  local waited=0 line=""
+  while [ "$waited" -lt 60 ]; do
+    line="$(kubectl -n xamops-system logs -l app=xamops-automation --tail=200 2>/dev/null \
+            | grep -m1 'aws identity:')"
+    [ -n "$line" ] && break
+    sleep 5
+    waited=$((waited + 5))
+  done
+
+  if [ -z "$line" ]; then
+    printf '\n   %sThe automation pod never logged a verified cloud identity.%s\n' "$C_BOLD" "$C_RESET"
+    printf '   Check that the Pod Identity association (or IRSA role) is attached and that the\n'
+    printf '   stack %s finished creating, then re-run. Common cause: the EKS Pod Identity Agent\n' "$IAM_STACK_NAME"
+    printf '   addon is not installed on this cluster.\n'
+    die_code 4 "Automation identity not verified within 60s"
+  fi
+  ok "automation identity verified"
+}
+
+# Report the IAM/identity outcome to XamOps using the freshly issued automation key, then mark the
+# token consumed-and-used on our side. report is best-effort for a transient failure (the key works
+# regardless); a 2xx is logged.
+resume_used_token() {
+  step "Reporting onboarding result"
+  if [ "$DRY_RUN" = true ]; then dim "dry-run: would POST /api/v1/agent/connect/report"; return 0; fi
+
+  local body; body="$(mktemp)"
+  jq -n --arg c "$CLUSTER_NAME" --arg a "$CLOUD_ACCOUNT_ID" \
+        --arg rr "$READ_ROLE_ARN" --arg wr "$WRITE_ROLE_ARN" \
+        --arg sn "$IAM_STACK_NAME" --arg im "${IDENTITY_MODE:-PodIdentity}" \
+    '{clusterName:$c, cloudAccountId:$a, result:"SUCCEEDED",
+      iam:{stackName:$sn, identityMode:$im,
+           readRoleArn:(if $rr=="" then null else $rr end),
+           writeRoleArn:(if $wr=="" then null else $wr end)}}' > "$body"
+
+  local code
+  code="$(phase2_http_code POST /api/v1/agent/connect/report "$AUTOMATION_KEY" "$body" /dev/null)"
+  rm -f "$body"
+  case "$code" in
+    200) ok "reported to XamOps" ;;
+    *)   warn "Could not report the result to XamOps (HTTP $code); the automation agent is installed and will heartbeat regardless." ;;
+  esac
+}
+
+# Rotate the automation key only — no IAM change, no new agent install. The exchange with a
+# rotate-purpose token returns a fresh key; swap it into the Secret and roll the pod.
+rotate_automation_key() {
+  step "Rotating automation key"
+  exchange_connect_token
+  if [ "$DRY_RUN" = true ]; then dim "dry-run: would patch xamops-automation-secret and roll the pod"; return 0; fi
+  printf '%s\n' "apiVersion: v1
+kind: Secret
+metadata:
+  name: xamops-automation-secret
+  namespace: xamops-system
+type: Opaque
+stringData:
+  XAMOPS_API_KEY: \"$AUTOMATION_KEY\"" | kubectl apply -f - >/dev/null
+  kubectl -n xamops-system rollout restart deploy/xamops-automation >/dev/null 2>&1 || true
+  resume_used_token
+  ok "automation key rotated"
+}
+
+# Remove the automation agent and its IAM stack (the read-only disable/removal path). Only touches
+# automation objects; the data agent and its RBAC are untouched.
+disable_automation_cluster() {
+  step "Removing automation agent and IAM stack"
+  if [ "$DRY_RUN" = true ]; then
+    dim "dry-run: would delete the xamops-automation Deployment/Secret/ConfigMap and stack $IAM_STACK_NAME"
+    return 0
+  fi
+  run kubectl -n xamops-system delete deployment/xamops-automation \
+    configmap/xamops-automation-config secret/xamops-automation-secret \
+    networkpolicy/xamops-automation-netpol --ignore-not-found || true
+  run kubectl delete clusterrole/xamops-automation clusterrolebinding/xamops-automation \
+    --ignore-not-found || true
+  run kubectl -n xamops-system delete serviceaccount/xamops-automation --ignore-not-found || true
+  if [ -n "$IAM_STACK_NAME" ]; then
+    run aws cloudformation delete-stack --region "$REGION" --stack-name "$IAM_STACK_NAME" || true
+  fi
+  ok "automation removed"
+}
+
+# The phase-2 entry point, run instead of onboard_cluster when --connect-token is given.
+run_phase2() {
+  [ "$PROVIDER" = "eks" ] || die "The automation flow is EKS-only (--provider eks)"
+  [ -n "$CLUSTER_NAME" ] || die "--cluster is required with --connect-token"
+  [ -n "$CONNECT_TOKEN" ] || die "--connect-token is required for the automation flow"
+  COLLECTOR_CLOUD_NODEGROUPS="true"
+
+  connect_cluster "$CLUSTER_NAME" ""
+
+  if [ "$UNINSTALL_AUTOMATION" = true ]; then
+    # Learn the stack name from saved state when present, else derive it.
+    local state="$HOME/.xamops/onboarding-$CLUSTER_NAME.env"
+    # shellcheck disable=SC1090
+    [ -f "$state" ] && . "$state"
+    [ -n "$IAM_STACK_NAME" ] || IAM_STACK_NAME="xamops-cluster-$CLUSTER_NAME"
+    disable_automation_cluster
+    return 0
+  fi
+
+  if [ "$ROTATE_KEY" = true ]; then
+    rotate_automation_key
+    return 0
+  fi
+
+  # §7.2 happy-path sequence.
+  exchange_connect_token
+  fetch_iam_template
+  deploy_iam
+  save_onboarding_state
+  install_automation
+  verify_automation
+  resume_used_token
+  ok "automation onboarding complete for $CLUSTER_NAME (inert — consolidation stays off until enabled in XamOps)"
+}
+
 # ─── Per-cluster orchestration ────────────────────────────────────────────────────────────
 onboard_cluster() {
   CLUSTER_NAME="$1"
@@ -1361,6 +1818,18 @@ main() {
   [ "$DRY_RUN" = true ] && printf '%sDRY RUN — nothing will be changed%s\n' "$C_YELLOW" "$C_RESET"
 
   preflight
+
+  # Phase 2 (automation) is a distinct flow selected by --connect-token: it does not install the
+  # phase-1 stack and does not iterate clusters. It exits on its own.
+  if [ -n "$CONNECT_TOKEN" ]; then
+    run_phase2
+    report_context
+    local n2fail
+    n2fail="$(wc -l < "$FAIL_FILE" | tr -d ' ')"
+    [ "$n2fail" -gt 0 ] && exit 1
+    printf '\n   %sDone.%s\n\n' "$C_GREEN" "$C_RESET"
+    exit 0
+  fi
 
   local -a targets=()
 

@@ -1,6 +1,7 @@
 package com.xammer.cloud.controller;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -53,6 +54,23 @@ public class AgentInstallScriptController {
      * unsubstituted file.
      */
     private static final String PROVIDER_TOKEN = "${PROVIDER:-__PROVIDER__}";
+
+    /**
+     * Phase-2 automation markers. The installer ships inert copies ({@code __AUTOMATION_RBAC__},
+     * {@code __AUTOMATION_NETPOL__}, {@code __AUTOMATION_IMAGE__}); the phase-2 flow refuses to run
+     * until they are substituted. The RBAC and NetworkPolicy bodies are the byte-exact slices of the
+     * autoscaler manifest extracted into these resources, so there is one source of truth and
+     * {@code setup-guide-validation.yml} asserts the served copies match that manifest.
+     */
+    private static final String AUTOMATION_RBAC_TOKEN = "__AUTOMATION_RBAC__";
+    private static final String AUTOMATION_NETPOL_TOKEN = "__AUTOMATION_NETPOL__";
+    private static final String AUTOMATION_IMAGE_TOKEN = "${AUTOMATION_IMAGE:-__AUTOMATION_IMAGE__}";
+    private static final String AUTOMATION_RBAC_RESOURCE = "agent-install/automation-rbac.yaml";
+    private static final String AUTOMATION_NETPOL_RESOURCE = "agent-install/automation-netpol.yaml";
+
+    /** Pinned automation (consolidation) agent image, substituted into the installer. */
+    @Value("${xamops.k8s.onboarding.automation-image:docker.io/xamops/automation:v2.1.0}")
+    private String automationImage;
 
     /** GET /api/v1/agent/install/aks.sh */
     @GetMapping(value = {"/aks.sh", "/aks"}, produces = MediaType.TEXT_PLAIN_VALUE)
@@ -154,6 +172,31 @@ public class AgentInstallScriptController {
      * in a {@code curl} URL, and the bare form guards against any future change to suffix-pattern
      * handling silently 404ing the documented one.
      */
+    /**
+     * Replace a marker line with a classpath resource body. The marker is left untouched (and a
+     * warning logged) if the resource is missing, so a standalone run still fails closed rather than
+     * the server emitting a half-substituted script. The body's trailing newline is trimmed so it
+     * sits on the marker's own line inside the installer's quoted heredoc.
+     */
+    private String substituteMarker(String body, String token, String resource, String provider) {
+        if (!body.contains(token)) {
+            return body;
+        }
+        try {
+            ClassPathResource res = new ClassPathResource(resource);
+            try (InputStream in = res.getInputStream()) {
+                String content = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                while (content.endsWith("\n")) {
+                    content = content.substring(0, content.length() - 1);
+                }
+                return body.replace(token, content);
+            }
+        } catch (IOException e) {
+            log.error("Could not load {} to substitute {} for provider {}", resource, token, provider, e);
+            return body;
+        }
+    }
+
     private ResponseEntity<String> serve(String provider, String filename) {
         ClassPathResource resource = new ClassPathResource(SCRIPT);
         if (!resource.exists()) {
@@ -181,6 +224,14 @@ public class AgentInstallScriptController {
                                 + provider + ".\nexit 1\n");
             }
             body = body.replace(PROVIDER_TOKEN, "${PROVIDER:-" + provider + "}");
+
+            // Phase-2 markers. Substituted for every provider so the served file is internally
+            // consistent; the phase-2 flow itself is gated to EKS in the script. The manifest
+            // bodies are trimmed of a trailing newline so they drop cleanly onto the marker line
+            // inside the quoted heredoc.
+            body = body.replace(AUTOMATION_IMAGE_TOKEN, "${AUTOMATION_IMAGE:-" + automationImage + "}");
+            body = substituteMarker(body, AUTOMATION_RBAC_TOKEN, AUTOMATION_RBAC_RESOURCE, provider);
+            body = substituteMarker(body, AUTOMATION_NETPOL_TOKEN, AUTOMATION_NETPOL_RESOURCE, provider);
 
             return ResponseEntity.ok()
                     .contentType(MediaType.TEXT_PLAIN)

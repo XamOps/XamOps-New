@@ -42,6 +42,8 @@ export const DEMO_READINESS_MESSAGES: Record<ReadinessKey, string> = {
   'node-templates': "Not available: the automation agent doesn't use node templates yet.",
   'spot-interruption-actions':
     'Automatic spot interruption handling is disabled until the node optimizer passes spot interruption validation.',
+  'consolidation-actions':
+    'Live node consolidation (drain and terminate) is disabled until the consolidation controller passes safety validation.',
 };
 
 /** Demo accounts the fixture answers for; anything else is refused like an account that isn't yours. */

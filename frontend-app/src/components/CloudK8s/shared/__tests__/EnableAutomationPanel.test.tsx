@@ -99,7 +99,7 @@ describe('EnableAutomationPanel', () => {
     expect(row(panel, 'permission')).toHaveTextContent('Ask your XamOps administrator to allow automation changes for your user.');
     expect(within(row(panel, 'automation-agent')).getByRole('link', { name: 'Install the node automation agent' }))
       .toHaveAttribute('href', '/?tab=data-sources&sub=install#automation-agent');
-    expect(row(panel, 'controllers')).toHaveTextContent("9 of 9 controllers haven't passed safety validation yet, so their live changes stay off.");
+    expect(row(panel, 'controllers')).toHaveTextContent("10 of 10 controllers haven't passed safety validation yet, so their live changes stay off.");
     expect(within(row(panel, 'controllers')).getByRole('button', { name: 'Why?' })).toBeInTheDocument();
   });
 
