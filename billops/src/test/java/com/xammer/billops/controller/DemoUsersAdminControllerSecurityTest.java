@@ -119,10 +119,6 @@ class DemoUsersAdminControllerSecurityTest {
                         LocalDateTime.of(2026, 1, 1, 9, 0),
                         LocalDateTime.of(2026, 1, 3, 9, 0),
                         "GOOGLE", 3L)));
-        com.xammer.cloud.domain.UserActivityEvent lastLogin = new com.xammer.cloud.domain.UserActivityEvent();
-        lastLogin.setIpAddress("203.0.113.9");
-        when(eventRepository.findFirstByUserIdAndActionOrderByCreatedAtDesc(1L, "LOGIN"))
-                .thenReturn(java.util.Optional.of(lastLogin));
 
         mvc.perform(get(PATH).with(sessionUser(role)))
                 .andExpect(status().isOk())
@@ -132,7 +128,7 @@ class DemoUsersAdminControllerSecurityTest {
                 .andExpect(jsonPath("$[0].displayName").value("alice@example.com"))
                 .andExpect(jsonPath("$[0].authProvider").value("GOOGLE"))
                 .andExpect(jsonPath("$[0].loginCount").value(3))
-                .andExpect(jsonPath("$[0].lastIp").value("203.0.113.9"))
+                .andExpect(jsonPath("$[0].lastIp").doesNotExist())
                 // user with no LOGIN rows -> null/0 contract
                 .andExpect(jsonPath("$[1].email").value("bob@example.com"))
                 .andExpect(jsonPath("$[1].displayName").value("bob@example.com"))

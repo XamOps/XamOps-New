@@ -9,7 +9,6 @@ import org.springframework.stereotype.Repository;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * From BillOps this is still write-only on the write side: the one writer is
@@ -40,13 +39,4 @@ public interface UserActivityEventRepository extends JpaRepository<UserActivityE
             group by e.userId
             """)
     List<DemoUserLoginAgg> aggregateLoginsByUserIds(@Param("userIds") Collection<Long> userIds);
-
-    /**
-     * The most-recent row of {@code action} for a user, used to read the last LOGIN row's
-     * {@code ip_address}. Called once per listed demo user (the set is small).
-     * @param userId the user id.
-     * @param action the action literal (pass {@code "LOGIN"}).
-     * @return the latest matching row, or empty when none.
-     */
-    Optional<UserActivityEvent> findFirstByUserIdAndActionOrderByCreatedAtDesc(Long userId, String action);
 }

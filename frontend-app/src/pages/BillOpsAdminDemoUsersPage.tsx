@@ -17,7 +17,7 @@ import '../styles/billopsAdminDashboard.css';
 
 /**
  * One demo user, mirroring billops {@code DemoUserDto}. authProvider / firstSeen /
- * lastLogin / lastIp are omitted from the JSON when there is no LOGIN row, so they
+ * lastLogin are omitted from the JSON when there is no LOGIN row, so they
  * arrive as undefined and must render as an em-dash. loginCount is always present
  * (0 when the user has never logged in).
  */
@@ -28,7 +28,6 @@ interface DemoUser {
     firstSeen?: string | null;
     lastLogin?: string | null;
     loginCount: number;
-    lastIp?: string | null;
 }
 
 /** em-dash for any null/absent/blank value. */
@@ -142,7 +141,6 @@ const BillOpsAdminDemoUsersPage: React.FC = () => {
                                 <TH>First Seen</TH>
                                 <TH>Last Login</TH>
                                 <TH align="right">Login Count</TH>
-                                <TH>Last IP</TH>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
@@ -156,7 +154,6 @@ const BillOpsAdminDemoUsersPage: React.FC = () => {
                                     <td className="px-4 py-3.5 text-sm text-gray-600">{formatDateTime(u.firstSeen)}</td>
                                     <td className="px-4 py-3.5 text-sm text-gray-600">{formatDateTime(u.lastLogin)}</td>
                                     <td className="px-4 py-3.5 text-sm text-gray-900 text-right tabular-nums">{u.loginCount ?? 0}</td>
-                                    <td className="px-4 py-3.5 text-sm text-gray-600 font-mono">{text(u.lastIp)}</td>
                                 </tr>
                             ))}
                         </tbody>
