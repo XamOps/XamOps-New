@@ -13,8 +13,12 @@ import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.repository.UserTabAccessRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -41,6 +45,16 @@ import java.util.stream.Stream;
  *       never the username), {@code NO_USER_PERMISSION} for an impersonated session, a role that
  *       can't change automation, or a missing grant, then {@code READ_ONLY_CONNECTION} and
  *       {@code CONNECTION_NOT_VERIFIED}.</li>
+ *   <li>{@link #writeDecision(ClientUserDetails, List, KubernetesClusterConfig, GateScope)}: the
+ *       per-cluster relaxation of {@code READ_ONLY_CONNECTION} for the node-automation scope
+ *       (BP-9 / OQ-6 / Gate O). It only makes the node-automation write path <em>reachable</em>
+ *       once a cluster has <em>completed Enable-automation</em> (its automation agent key is
+ *       present) and its automation identity has been seen within the freshness window
+ *       ({@link #clusterAutomationVerified}). It never enables or acts on anything by itself, it
+ *       is strictly per-cluster (a cluster still in the read-only phase stays fully gated), it
+ *       relaxes <em>only</em> {@code READ_ONLY_CONNECTION} and <em>only</em> for
+ *       {@link GateScope#NODE_AUTOMATION}, and it weakens no other gate. The {@code ACCOUNT} scope
+ *       (workload rightsizing / HPA apply paths) is never relaxed.</li>
  * </ul>
  *
  * <p>
@@ -72,25 +86,62 @@ public class K8sAutomationAccessService {
 
     private static final Pattern AWS_ACCOUNT_ID = Pattern.compile("^[0-9]{1,12}$");
 
+    /**
+     * An automation identity is "verified" for the per-cluster relaxation when a matching identity
+     * was seen within this window (design §3.4). Mirrors
+     * {@code K8sCapabilitiesService.AUTOMATION_VERIFIED_FRESHNESS}.
+     */
+    static final Duration AUTOMATION_VERIFIED_FRESHNESS = Duration.ofHours(2);
+
     private final CloudAccountAccessService cloudAccountAccessService;
     private final CloudAccountRepository cloudAccountRepository;
     private final KubernetesClusterConfigRepository clusterConfigRepository;
     private final UserRepository userRepository;
     private final UserTabAccessRepository userTabAccessRepository;
     private final DemoClientMembership demoClientMembership;
+    private final Clock clock;
 
+    @Autowired
     public K8sAutomationAccessService(CloudAccountAccessService cloudAccountAccessService,
                                       CloudAccountRepository cloudAccountRepository,
                                       KubernetesClusterConfigRepository clusterConfigRepository,
                                       UserRepository userRepository,
                                       UserTabAccessRepository userTabAccessRepository,
-                                      DemoClientMembership demoClientMembership) {
+                                      DemoClientMembership demoClientMembership,
+                                      Clock clock) {
         this.cloudAccountAccessService = cloudAccountAccessService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.clusterConfigRepository = clusterConfigRepository;
         this.userRepository = userRepository;
         this.userTabAccessRepository = userTabAccessRepository;
         this.demoClientMembership = demoClientMembership;
+        this.clock = clock;
+    }
+
+    /**
+     * Backward-compatible convenience constructor (no injected clock). Retained so existing tests
+     * that build the service with six collaborators keep compiling; it uses a system UTC clock.
+     */
+    public K8sAutomationAccessService(CloudAccountAccessService cloudAccountAccessService,
+                                      CloudAccountRepository cloudAccountRepository,
+                                      KubernetesClusterConfigRepository clusterConfigRepository,
+                                      UserRepository userRepository,
+                                      UserTabAccessRepository userTabAccessRepository,
+                                      DemoClientMembership demoClientMembership) {
+        this(cloudAccountAccessService, cloudAccountRepository, clusterConfigRepository, userRepository,
+                userTabAccessRepository, demoClientMembership, Clock.systemUTC());
+    }
+
+    /**
+     * The gate scope of a write (BP-9 / OQ-6). {@code NODE_AUTOMATION} is the per-cluster node
+     * automation path ({@code /api/eks/autoscaling/**} and the agent's served policy), the only
+     * scope the per-cluster {@code READ_ONLY_CONNECTION} relaxation ever applies to.
+     * {@code ACCOUNT} is every other automation write (workload rightsizing, HPA apply) and is
+     * never relaxed.
+     */
+    public enum GateScope {
+        ACCOUNT,
+        NODE_AUTOMATION
     }
 
     // ── Decisions ─────────────────────────────────────────────────────────
@@ -323,6 +374,61 @@ public class K8sAutomationAccessService {
         return new WriteDecision(reasons, userPart.detail());
     }
 
+    /**
+     * Every failing write gate for this user over these account rows, scope-aware (BP-9 / OQ-6).
+     *
+     * <p>
+     * For {@link GateScope#NODE_AUTOMATION} on a cluster that has <em>completed Enable-automation</em>
+     * and is <em>verified fresh</em> ({@link #clusterAutomationVerified}), the account
+     * {@code READ_ONLY_CONNECTION} gate is dropped — and <em>only</em> that gate. Every other gate
+     * (the user gates, {@code CONNECTION_NOT_VERIFIED}) and the four-layer feature gate that sits
+     * beyond this method (readiness key + per-cluster mode + agent {@code ENABLE_*} + {@code DRY_RUN})
+     * stay fully in force, so reachability alone enables and acts on nothing. A cluster still in the
+     * read-only phase (no automation key, or a stale/absent identity) is <em>not</em> relaxed and is
+     * refused like any read-only connection. {@link GateScope#ACCOUNT} is never relaxed.
+     */
+    public WriteDecision writeDecision(ClientUserDetails user, List<CloudAccount> accounts,
+                                       KubernetesClusterConfig config, GateScope scope) {
+        UserDecision userPart = userDecision(user);
+        List<K8sAutomationReason> reasons = new ArrayList<>(userPart.reasons());
+        List<K8sAutomationReason> accountReasons = new ArrayList<>(accountReasons(accounts));
+        if (scope == GateScope.NODE_AUTOMATION && nodeAutomationReadOnlyRelaxed(config)) {
+            accountReasons.remove(K8sAutomationReason.READ_ONLY_CONNECTION);
+        }
+        reasons.addAll(accountReasons);
+        return new WriteDecision(reasons, userPart.detail());
+    }
+
+    /**
+     * Whether a cluster has completed Enable-automation and currently holds a fresh matching
+     * automation identity (design §3.4). The per-cluster {@code READ_ONLY_CONNECTION} relaxation is
+     * gated on this; read from stored facts only, never fabricated.
+     */
+    public boolean clusterAutomationVerified(KubernetesClusterConfig config, Instant now) {
+        if (config == null) {
+            return false;
+        }
+        Instant seenAt = config.getAutomationIdentitySeenAt();
+        Instant verifiedAt = config.getAutomationVerifiedAt();
+        Instant freshest = seenAt != null ? seenAt : verifiedAt;
+        return freshest != null && freshest.isAfter(now.minus(AUTOMATION_VERIFIED_FRESHNESS));
+    }
+
+    /**
+     * True when the node-automation {@code READ_ONLY_CONNECTION} gate may be relaxed for this
+     * cluster: it has an automation agent key (Enable-automation was completed, not merely a
+     * read-only connection) <em>and</em> its identity is verified fresh. The disable cut-off is
+     * honoured — a cluster whose identity hasn't been seen since it was disabled is not fresh.
+     */
+    private boolean nodeAutomationReadOnlyRelaxed(KubernetesClusterConfig config) {
+        if (config == null) {
+            return false;
+        }
+        String automationKey = config.getAutomationAgentApiKey();
+        boolean enableAutomationCompleted = automationKey != null && !automationKey.isEmpty();
+        return enableAutomationCompleted && clusterAutomationVerified(config, clock.instant());
+    }
+
     /** {@code READ_ONLY_CONNECTION} and/or {@code CONNECTION_NOT_VERIFIED}, stricter row wins. */
     public static List<K8sAutomationReason> accountReasons(List<CloudAccount> accounts) {
         List<K8sAutomationReason> reasons = new ArrayList<>();
@@ -351,7 +457,16 @@ public class K8sAutomationAccessService {
         if (owner.isEmpty()) {
             return K8sAutomationReason.CONNECTION_NOT_VERIFIED;
         }
-        return accountBlock(owner.get());
+        K8sAutomationReason block = accountBlock(owner.get());
+        // BP-9 / OQ-6: the automation agent serves the NODE_AUTOMATION scope, so an owning account
+        // that is read-only but whose cluster completed Enable-automation and is verified fresh is
+        // no longer blocked on READ_ONLY_CONNECTION. CONNECTION_NOT_VERIFIED and every other block
+        // stand, and a cluster with a stale/absent identity is not relaxed.
+        if (block == K8sAutomationReason.READ_ONLY_CONNECTION && nodeAutomationReadOnlyRelaxed(config)) {
+            CloudAccount ownerAccount = owner.get();
+            return isConnected(ownerAccount) ? null : K8sAutomationReason.CONNECTION_NOT_VERIFIED;
+        }
+        return block;
     }
 
     /** The first account gate that blocks this row, or {@code null} when it allows automation. */

@@ -126,6 +126,46 @@ export function isVerticalAction(id: ActionId): id is VerticalActionId {
   return id.startsWith('vertical.');
 }
 
+/**
+ * The gate scope of each action (BP-9 / OQ-6), partitioning the 17 `ACTION_IDS` into 12 + 5.
+ *
+ * `NODE_AGENT_SCOPE_ACTIONS` are the controls the node-automation agent owns; they read a cluster's
+ * `nodeAutomationWriteGate`, so once that cluster has completed Enable-automation and is verified
+ * fresh they become reachable even on a read-only connection (the server relaxes only
+ * `READ_ONLY_CONNECTION`, only for this scope, and only then). `ACCOUNT_SCOPE_ACTIONS` — the four
+ * `vertical.*` workload-rightsizing actions and `hpa.apply` — stay on the account `writeGate` and
+ * are never relaxed.
+ */
+export const NODE_AGENT_SCOPE_ACTIONS = [
+  'automation.enable',
+  'automation.scope',
+  'agentRightsizer.edit',
+  'evictor.settings',
+  'evictor.live',
+  'nodeOptimizer.settings',
+  'nodeOptimizer.actions',
+  'scaleOut.settings',
+  'nodeTemplates.edit',
+  'rebalance.trigger',
+  'rebalance.schedule',
+  'guardrails.edit',
+] as const satisfies readonly ActionId[];
+
+export const ACCOUNT_SCOPE_ACTIONS = [
+  'vertical.policy.recommend',
+  'vertical.policy.auto',
+  'vertical.method.persist',
+  'vertical.apply',
+  'hpa.apply',
+] as const satisfies readonly ActionId[];
+
+const NODE_AGENT_SCOPE_SET: ReadonlySet<ActionId> = new Set<ActionId>(NODE_AGENT_SCOPE_ACTIONS);
+
+/** True for a node-automation-scope action (the 12 that read `nodeAutomationWriteGate`). */
+export function isNodeAgentScopeAction(id: ActionId): boolean {
+  return NODE_AGENT_SCOPE_SET.has(id);
+}
+
 /** Controller readiness keys (§6.7), in property order. */
 export const READINESS_KEYS = [
   'vertical-rightsizing',
@@ -172,6 +212,13 @@ export interface CapabilitiesCluster {
   registered: boolean;
   connection: CapabilitiesConnection;
   writeGate: CapabilitiesWriteGate;
+  /**
+   * The node-automation-scope write gate (BP-9 / OQ-6): identical to `writeGate` except that
+   * `READ_ONLY_CONNECTION` is dropped once this cluster has completed Enable-automation and is
+   * verified fresh. Optional so an older backend (which omits it) falls back to `writeGate` and the
+   * UI stays exactly as strict as before.
+   */
+  nodeAutomationWriteGate?: CapabilitiesWriteGate;
   dataSourceMode: string | null;
   agent: { status: AgentStatus; lastDataAt: string | null; version: string | null };
   automationAgent: { status: AgentStatus; lastSeenAt: string | null; version: string | null };

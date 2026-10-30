@@ -6,7 +6,7 @@
  * Rows come from capabilities only: the connection (read-write, verified), the user's permission,
  * the XamOps agent and the node automation agent on the cluster, and controller safety validation.
  */
-import type { CapabilitiesDto, Gate } from '../../../types/k8sAutomation';
+import { stripCodePrefix, type CapabilitiesDto, type Gate } from '../../../types/k8sAutomation';
 import { findCluster } from '../../../hooks/useK8sCapabilities';
 import { StatusMark } from './StatusMark';
 import { ReadWriteHelp, Remedies } from './ReasonText';
@@ -29,16 +29,28 @@ export function automationChecklist(data: CapabilitiesDto, clusterName: string |
   const connection = cluster?.connection ?? data.connection;
   const rows: ChecklistRow[] = [];
 
+  // BP-9 / OQ-6: "Write access" (the node-automation path) reads nodeAutomationWriteGate when the
+  // backend supplies it, so a read-only cluster that has completed Enable-automation and is verified
+  // fresh is shown as met — the server relaxed READ_ONLY_CONNECTION for this scope. An older backend
+  // (no nodeAutomationWriteGate) falls back to the connection's access level, exactly as before.
+  const nodeGate = cluster?.nodeAutomationWriteGate;
+  const writeAccessMet = nodeGate
+    ? !nodeGate.reasons.map(stripCodePrefix).includes('READ_ONLY_CONNECTION')
+    : connection.accessLevel === 'READ_WRITE';
+  const verifiedMet = nodeGate
+    ? !nodeGate.reasons.map(stripCodePrefix).includes('CONNECTION_NOT_VERIFIED')
+    : (connection.status ?? '').toUpperCase() === 'CONNECTED';
+
   rows.push({
     id: 'read-write',
-    label: 'Read-write connection',
-    met: connection.accessLevel === 'READ_WRITE',
+    label: 'Write access',
+    met: writeAccessMet,
     gate: { reason: 'READ_ONLY_CONNECTION' },
   });
   rows.push({
     id: 'verified',
     label: 'Verified connection',
-    met: (connection.status ?? '').toUpperCase() === 'CONNECTED',
+    met: verifiedMet,
     gate: { reason: 'CONNECTION_NOT_VERIFIED' },
   });
 

@@ -384,6 +384,12 @@ public class AgentController {
         // BP-3 (design §4.3): record which key authenticated and stamp its last-used time,
         // throttled to one write per 5 min so a per-second heartbeat does not thrash the row.
         applyKeyUsage(clusterConfig, principal, agentVersion);
+        // BP-9 (design §3.4): on every automation-agent heartbeat, record the identity — the key's
+        // account + role prove who it is; stamp automation_identity_seen_at and cache the ARN the
+        // body carries (if any). This is what makes K8sAutomationAccessService.clusterAutomationVerified
+        // fresh, so the per-cluster READ_ONLY_CONNECTION relaxation only ever follows a real, recent
+        // identity. Nothing here acts on the cluster.
+        applyAutomationIdentity(clusterConfig, principal, agentVersion, body);
         clusterConfigRepository.save(clusterConfig);
 
         AgentEvent event = new AgentEvent(clusterConfig.getId(), "checkin");
@@ -802,6 +808,31 @@ public class AgentController {
     /** True when the last-used stamp is null or older than the 5-minute throttle window. */
     private static boolean throttled(java.time.Instant last, java.time.Instant now) {
         return last == null || last.isBefore(now.minusSeconds(300));
+    }
+
+    /**
+     * BP-9 (design §3.4): when the authenticating principal is the automation agent (a CLUSTER key
+     * with the AUTOMATION role, or the {@code -autoscaler} version suffix as a fallback), stamp the
+     * identity it just proved — {@code automation_identity_seen_at = now} and, when the body carries
+     * one, the cached {@code automation_identity_arn}. The principal's account + role are the
+     * identity; the ARN is an optional, log/UI-safe hint (never a key). The verification freshness
+     * window ({@code K8sAutomationAccessService.AUTOMATION_VERIFIED_FRESHNESS}) then decides whether
+     * the per-cluster relaxation applies, so a lapsed agent naturally ages out.
+     */
+    private void applyAutomationIdentity(KubernetesClusterConfig config, AgentPrincipal principal,
+                                         String agentVersion, Map<String, Object> body) {
+        boolean automation =
+                (principal.getScope() == AgentPrincipal.Scope.CLUSTER
+                        && principal.getRole() == AgentPrincipal.AgentRole.AUTOMATION)
+                || (agentVersion != null && agentVersion.endsWith("-autoscaler"));
+        if (!automation) {
+            return;
+        }
+        config.setAutomationIdentitySeenAt(java.time.Instant.now());
+        Object arn = body == null ? null : body.get("identityArn");
+        if (arn instanceof String s && !s.isBlank()) {
+            config.setAutomationIdentityArn(s.trim());
+        }
     }
 
     /**

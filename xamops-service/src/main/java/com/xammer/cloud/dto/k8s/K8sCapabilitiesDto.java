@@ -94,6 +94,14 @@ public record K8sCapabilitiesDto(
     public record KeyMeta(String prefix, String issuedAt, String lastUsedAt) {
     }
 
+    /**
+     * @param writeGate the account-scope write gate (workload rightsizing / HPA apply paths),
+     *        unchanged by the per-cluster relaxation
+     * @param nodeAutomationWriteGate the node-automation-scope write gate (BP-9 / OQ-6): identical
+     *        to {@code writeGate} except that {@code READ_ONLY_CONNECTION} is dropped once the
+     *        cluster has completed Enable-automation and is verified fresh. ADDITIVE and last in the
+     *        record: an older payload/consumer that omits it falls back to {@code writeGate}.
+     */
     public record Cluster(
             String clusterName,
             boolean registered,
@@ -104,6 +112,7 @@ public record K8sCapabilitiesDto(
             AutomationAgent automationAgent,
             NodeAutomation nodeAutomation,
             List<DataSource> dataSources,
-            Onboarding onboarding) {
+            Onboarding onboarding,
+            WriteGate nodeAutomationWriteGate) {
     }
 }

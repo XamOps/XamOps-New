@@ -134,7 +134,12 @@ public class K8sAutomationGuardInterceptor implements HandlerInterceptor {
 
         Optional<K8sAutomationRefusedException> refusal;
         try {
-            refusal = accessService.writeDecision(user, context.gateAccounts()).firstRefusal();
+            // Every /api/eks/autoscaling/** mutation is a node-automation write (BP-9 / OQ-6): the
+            // guard evaluates the write decision in the NODE_AUTOMATION scope so a cluster that has
+            // completed Enable-automation and is verified fresh may reach the path on a read-only
+            // connection, while a still-read-only cluster is refused exactly as before.
+            refusal = accessService.writeDecision(user, context.gateAccounts(), context.config(),
+                    K8sAutomationAccessService.GateScope.NODE_AUTOMATION).firstRefusal();
         } catch (RuntimeException e) {
             log.error("K8s automation guard: write decision failed for user {} on cluster {}", user.getId(), cluster, e);
             refusal = Optional.of(K8sAutomationRefusedException.of(

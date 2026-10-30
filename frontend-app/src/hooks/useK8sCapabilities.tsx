@@ -13,6 +13,7 @@ import { getCapabilities, isK8sApiError, type K8sApiError } from '../api/k8sAuto
 import { verticalGates, type VerticalGateInput } from '../api/verticalRecommendationsAdapter';
 import { isDemoMode } from '../demo/demoConfig';
 import {
+  isNodeAgentScopeAction,
   isNoUserPermissionDetail,
   isReasonCode,
   stripCodePrefix,
@@ -171,7 +172,15 @@ export function computeCapability(input: CapabilityInput): Capability {
 
   if (status === 'ready' && data) {
     const cluster = findCluster(data, input.cluster);
-    const writeGate = cluster?.writeGate ?? data.writeGate;
+    // BP-9 / OQ-6: a node-automation-scope action reads the cluster's nodeAutomationWriteGate when
+    // the backend supplies one (READ_ONLY_CONNECTION relaxed once the cluster completed
+    // Enable-automation and is verified fresh). Account-scope actions (vertical.*, hpa.apply) and
+    // an older backend that omits the field both fall back to the account writeGate, so the UI is
+    // never looser than the server.
+    const accountWriteGate = cluster?.writeGate ?? data.writeGate;
+    const writeGate = isNodeAgentScopeAction(actionId) && cluster?.nodeAutomationWriteGate
+      ? cluster.nodeAutomationWriteGate
+      : accountWriteGate;
     for (const name of writeGate?.reasons ?? []) gates.push(serverGate(name, data));
 
     if (actionId === 'agentRightsizer.edit') {

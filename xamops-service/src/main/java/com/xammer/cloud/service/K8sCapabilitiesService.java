@@ -81,9 +81,6 @@ public class K8sCapabilitiesService {
     private final com.xammer.cloud.service.onboarding.OnboardingStateDeriver onboardingStateDeriver;
     private final AtomicBoolean warnedUnparseableEngineFlag = new AtomicBoolean();
 
-    /** Automation is "verified" when a matching identity was seen within this window (design §3.4). */
-    static final Duration AUTOMATION_VERIFIED_FRESHNESS = Duration.ofHours(2);
-
     @Autowired
     public K8sCapabilitiesService(K8sAutomationAccessService accessService,
                                   AgentDataCacheRepository agentDataCacheRepository,
@@ -184,6 +181,11 @@ public class K8sCapabilitiesService {
                 .map(List::of)
                 .orElse(accounts);
         WriteDecision gate = accessService.writeDecision(user, gateRows);
+        // BP-9 / OQ-6: the node-automation scope gate relaxes READ_ONLY_CONNECTION once this cluster
+        // has completed Enable-automation and is verified fresh. The UI reads this for node-agent
+        // controls; the account-scope writeGate above is unchanged.
+        WriteDecision nodeAutomationGate = accessService.writeDecision(user, gateRows, config,
+                K8sAutomationAccessService.GateScope.NODE_AUTOMATION);
 
         XamopsAgent agent;
         AutomationAgent automationAgent;
@@ -224,7 +226,8 @@ public class K8sCapabilitiesService {
                         config.getAutomationKeyLastUsedAt()));
 
         return new Cluster(config.getClusterName(), true, connection(gateRows), writeGate(gate),
-                config.getDataSourceMode(), agent, automationAgent, nodeAutomation, dataSources, onboarding);
+                config.getDataSourceMode(), agent, automationAgent, nodeAutomation, dataSources, onboarding,
+                writeGate(nodeAutomationGate));
     }
 
     /**
@@ -233,10 +236,8 @@ public class K8sCapabilitiesService {
      * refines this later; here it is read from stored facts only, never fabricated.
      */
     private boolean automationVerified(KubernetesClusterConfig config, Instant now) {
-        Instant verifiedAt = config.getAutomationVerifiedAt();
-        Instant seenAt = config.getAutomationIdentitySeenAt();
-        Instant freshest = seenAt != null ? seenAt : verifiedAt;
-        return freshest != null && freshest.isAfter(now.minus(AUTOMATION_VERIFIED_FRESHNESS));
+        // Single source of truth with the BP-9 gate relaxation (design §3.4).
+        return accessService.clusterAutomationVerified(config, now);
     }
 
     /** Log/UI-safe key metadata, or null when there is no key. */

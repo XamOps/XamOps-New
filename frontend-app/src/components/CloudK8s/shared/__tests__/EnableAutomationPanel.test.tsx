@@ -80,7 +80,7 @@ describe('EnableAutomationPanel', () => {
   it('holds the read-write explainer with Contact support and Account Manager, never Add Account', () => {
     const panel = renderPanel(caps({ accessLevel: 'READ_ONLY' }));
     const readWrite = row(panel, 'read-write');
-    expect(readWrite).toHaveTextContent('Read-write connection');
+    expect(readWrite).toHaveTextContent('Write access');
     expect(readWrite).toHaveTextContent('Read-only connection. Automation changes need read-write access.');
     expect(readWrite).toHaveTextContent("XamOps can't switch a read-only connection to read-write in place.");
     expect(within(readWrite).getByRole('link', { name: 'Contact support' })).toHaveAttribute('href', '/tickets');
