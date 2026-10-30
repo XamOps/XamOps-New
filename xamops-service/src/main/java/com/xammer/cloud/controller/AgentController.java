@@ -201,12 +201,20 @@ public class AgentController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(AgentIngestResponse.error(denied));
         }
 
-        // 3a. Handle disk-usage batches — store in Redis keyed by instanceId, no cluster config needed
+        // 3a. Handle disk-usage batches — store in Redis keyed by instanceId, no cluster config needed.
+        // COR-14: a mixed payload may carry db-*/sre-alerts/cluster batches alongside disk-usage.
+        // Handle the disk batches here, but only short-circuit when the payload is disk-ONLY; otherwise
+        // fall through so the remaining batches still persist. handleDiskAgentPush already skips
+        // non-disk batches and the DB path keys cache rows by collector, so nothing is double-handled.
         boolean isDiskPush = payload.getBatches() != null && payload.getBatches().stream()
                 .anyMatch(b -> "disk-usage".equals(b.getCollector()));
         if (isDiskPush) {
             handleDiskAgentPush(payload);
-            return ResponseEntity.ok(AgentIngestResponse.success());
+            boolean diskOnly = payload.getBatches().stream()
+                    .noneMatch(b -> !"disk-usage".equals(b.getCollector()));
+            if (diskOnly) {
+                return ResponseEntity.ok(AgentIngestResponse.success());
+            }
         }
 
         // 3b-sre. Handle sre-alerts batches — auto-trigger investigations for detected anomalies

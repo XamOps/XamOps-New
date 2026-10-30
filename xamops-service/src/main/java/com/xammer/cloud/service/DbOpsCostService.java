@@ -91,6 +91,9 @@ public class DbOpsCostService {
     private static final int    SNAPSHOT_WASTE_AGE_DAYS    = 30;    // days
     private static final double SNAPSHOT_COST_PER_GB       = 0.095; // $/GB/month
 
+    // CloudWatch GetMetricData accepts at most 500 MetricDataQuery per call; stay comfortably under.
+    private static final int    MAX_METRIC_QUERIES_PER_CALL = 450;
+
     // ── Regions to scan ──────────────────────────────────────────────────────
     private static final List<String> SCAN_REGIONS = List.of(
             "us-east-1", "us-east-2", "us-west-1", "us-west-2",
@@ -211,6 +214,27 @@ public class DbOpsCostService {
      * API cost: 1 × describeDBInstances per region (cached 24h).
      * Security checks, right-sizing, and idle detection all derive from this result.
      */
+    /**
+     * Enumerate the AWS regions this account has actually enabled, rather than a fixed list.
+     * Mirrors {@code AwsInventoryReconciler}: DescribeRegions, then drop regions whose opt-in
+     * status is {@code not-opted-in}. Falls back to {@link #SCAN_REGIONS} on any failure (or an
+     * empty result) so a DescribeRegions outage can never shrink coverage below the old behaviour.
+     */
+    private List<String> resolveScanRegions(CloudAccount account) {
+        try {
+            List<String> enabled = awsClientProvider.getEc2Client(account, "us-east-1")
+                    .describeRegions().regions().stream()
+                    .filter(r -> !"not-opted-in".equals(r.optInStatus()))
+                    .map(r -> r.regionName())
+                    .collect(Collectors.toList());
+            return enabled.isEmpty() ? SCAN_REGIONS : enabled;
+        } catch (Exception e) {
+            logger.debug("[DbOps] describeRegions failed for account {}; falling back to default scan regions: {}",
+                    account.getAwsAccountId(), e.getMessage());
+            return SCAN_REGIONS;
+        }
+    }
+
     @Async("awsTaskExecutor")
     public CompletableFuture<List<DbInstanceDto>> getDbInventory(String accountId, boolean forceRefresh) {
         String cacheKey = "dbops:aws:inventory:" + accountId;
@@ -230,33 +254,42 @@ public class DbOpsCostService {
         }
 
         return CompletableFuture.supplyAsync(() -> {
-            try {
-                CloudAccount account = getAccount(accountId);
-                List<DbInstanceDto> instances = new ArrayList<>();
+            // Account/client setup failures propagate (complete the future exceptionally) and are
+            // never cached — see the failure-vs-empty contract below.
+            CloudAccount account = getAccount(accountId);
+            List<DbInstanceDto> instances = new ArrayList<>();
 
-                for (String region : SCAN_REGIONS) {
-                    try {
-                        RdsClient rds = awsClientProvider.getRdsClient(account, region);
-                        // Paginator — single logical call per region, handles multiple pages
-                        for (DescribeDbInstancesResponse page :
-                                rds.describeDBInstancesPaginator(DescribeDbInstancesRequest.builder().build())) {
-                            for (DBInstance db : page.dbInstances()) {
-                                instances.add(toInstanceDto(db, region));
-                            }
+            List<String> regions = resolveScanRegions(account);
+            int regionSuccesses = 0;
+            for (String region : regions) {
+                try {
+                    RdsClient rds = awsClientProvider.getRdsClient(account, region);
+                    // Paginator — single logical call per region, handles multiple pages
+                    for (DescribeDbInstancesResponse page :
+                            rds.describeDBInstancesPaginator(DescribeDbInstancesRequest.builder().build())) {
+                        for (DBInstance db : page.dbInstances()) {
+                            instances.add(toInstanceDto(db, region));
                         }
-                    } catch (Exception e) {
-                        logger.debug("[DbOps] No RDS access in region {} (account {}): {}", region, accountId, e.getMessage());
                     }
+                    regionSuccesses++;
+                } catch (Exception e) {
+                    logger.debug("[DbOps] No RDS access in region {} (account {}): {}", region, accountId, e.getMessage());
                 }
-
-                redisCache.put(cacheKey, instances, INVENTORY_TTL);
-                saveToDb(cacheKey, instances);
-                logger.info("✅ [DbOps] Inventory fetched: {} instances for account {}", instances.size(), accountId);
-                return instances;
-            } catch (Exception e) {
-                logger.error("❌ [DbOps] Inventory error for account {}: {}", accountId, e.getMessage());
-                return Collections.emptyList();
             }
+
+            // Failure-vs-empty contract (COR-13): a wholly-failed scan — no region could be
+            // scanned — must NOT be cached as an empty "no databases" result. It completes
+            // EXCEPTIONALLY so the async controller returns a non-2xx and the frontend can show an
+            // error banner. A scan that succeeded with zero rows is a genuine empty and IS cached.
+            if (regionSuccesses == 0 && !regions.isEmpty()) {
+                throw new IllegalStateException(
+                        "DbOps inventory scan failed for account " + accountId + ": no region could be scanned");
+            }
+
+            redisCache.put(cacheKey, instances, INVENTORY_TTL);
+            saveToDb(cacheKey, instances);
+            logger.info("✅ [DbOps] Inventory fetched: {} instances for account {}", instances.size(), accountId);
+            return instances;
         });
     }
 
@@ -305,49 +338,56 @@ public class DbOpsCostService {
                     String region = entry.getKey();
                     List<DbInstanceDto> regionInstances = entry.getValue();
 
-                    // Build one batch of MetricDataQuery for all instances in this region
-                    // CloudWatch allows up to 500 queries per call; 5 metrics × instance << 500
-                    List<MetricDataQuery> queries = new ArrayList<>();
-                    for (DbInstanceDto inst : regionInstances) {
-                        String sid = sanitizeId(inst.getInstanceId());
-                        String dbId = inst.getInstanceId();
-                        // One-day period average over 7 days → 7 data points per metric
-                        queries.add(buildMetricQuery("cpu_"   + sid, "AWS/RDS", "CPUUtilization",            dbId, 86400));
-                        queries.add(buildMetricQuery("conn_"  + sid, "AWS/RDS", "DatabaseConnections",        dbId, 86400));
-                        queries.add(buildMetricQuery("mem_"   + sid, "AWS/RDS", "FreeableMemory",             dbId, 86400));
-                        queries.add(buildMetricQuery("riops_" + sid, "AWS/RDS", "ReadIOPS",                   dbId, 86400));
-                        queries.add(buildMetricQuery("wiops_" + sid, "AWS/RDS", "WriteIOPS",                  dbId, 86400));
-                        // Datadog-equivalent metrics
-                        queries.add(buildMetricQuery("rlat_"  + sid, "AWS/RDS", "ReadLatency",                dbId, 86400));
-                        queries.add(buildMetricQuery("wlat_"  + sid, "AWS/RDS", "WriteLatency",               dbId, 86400));
-                        queries.add(buildMetricQuery("dq_"    + sid, "AWS/RDS", "DiskQueueDepth",             dbId, 86400));
-                        queries.add(buildMetricQuery("fs_"    + sid, "AWS/RDS", "FreeStorageSpace",           dbId, 86400));
-                        queries.add(buildMetricQuery("rl_"    + sid, "AWS/RDS", "ReplicaLag",                 dbId, 86400));
-                        queries.add(buildMetricQuery("nrx_"   + sid, "AWS/RDS", "NetworkReceiveThroughput",   dbId, 86400));
-                        queries.add(buildMetricQuery("ntx_"   + sid, "AWS/RDS", "NetworkTransmitThroughput",  dbId, 86400));
-                        queries.add(buildMetricQuery("swap_"  + sid, "AWS/RDS", "SwapUsage",                  dbId, 86400));
-                        queries.add(buildMetricQuery("burst_" + sid, "AWS/RDS", "BurstBalance",               dbId, 86400));
-                    }
+                    // Per-region isolation: one region's CloudWatch failure must not blank out the
+                    // metrics of every other region (the old single outer try returned an empty map
+                    // for ALL regions on any failure). Each region logs and continues on its own.
+                    try {
+                        // Build one batch of MetricDataQuery for all instances in this region (14
+                        // queries per instance). CloudWatch caps GetMetricData at 500 queries/call,
+                        // so >35 instances in a region exceeds the cap — we chunk below.
+                        List<MetricDataQuery> queries = new ArrayList<>();
+                        for (DbInstanceDto inst : regionInstances) {
+                            String sid = sanitizeId(inst.getInstanceId());
+                            String dbId = inst.getInstanceId();
+                            // One-day period average over 7 days → 7 data points per metric
+                            queries.add(buildMetricQuery("cpu_"   + sid, "AWS/RDS", "CPUUtilization",            dbId, 86400));
+                            queries.add(buildMetricQuery("conn_"  + sid, "AWS/RDS", "DatabaseConnections",        dbId, 86400));
+                            queries.add(buildMetricQuery("mem_"   + sid, "AWS/RDS", "FreeableMemory",             dbId, 86400));
+                            queries.add(buildMetricQuery("riops_" + sid, "AWS/RDS", "ReadIOPS",                   dbId, 86400));
+                            queries.add(buildMetricQuery("wiops_" + sid, "AWS/RDS", "WriteIOPS",                  dbId, 86400));
+                            // Datadog-equivalent metrics
+                            queries.add(buildMetricQuery("rlat_"  + sid, "AWS/RDS", "ReadLatency",                dbId, 86400));
+                            queries.add(buildMetricQuery("wlat_"  + sid, "AWS/RDS", "WriteLatency",               dbId, 86400));
+                            queries.add(buildMetricQuery("dq_"    + sid, "AWS/RDS", "DiskQueueDepth",             dbId, 86400));
+                            queries.add(buildMetricQuery("fs_"    + sid, "AWS/RDS", "FreeStorageSpace",           dbId, 86400));
+                            queries.add(buildMetricQuery("rl_"    + sid, "AWS/RDS", "ReplicaLag",                 dbId, 86400));
+                            queries.add(buildMetricQuery("nrx_"   + sid, "AWS/RDS", "NetworkReceiveThroughput",   dbId, 86400));
+                            queries.add(buildMetricQuery("ntx_"   + sid, "AWS/RDS", "NetworkTransmitThroughput",  dbId, 86400));
+                            queries.add(buildMetricQuery("swap_"  + sid, "AWS/RDS", "SwapUsage",                  dbId, 86400));
+                            queries.add(buildMetricQuery("burst_" + sid, "AWS/RDS", "BurstBalance",               dbId, 86400));
+                        }
 
-                    // Single API call covers all instances in this region
-                    CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, region);
-                    Map<String, Double> valueMap = new HashMap<>();
+                        CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, region);
+                        Map<String, Double> valueMap = new HashMap<>();
 
-                    GetMetricDataRequest req = GetMetricDataRequest.builder()
-                            .startTime(startTime)
-                            .endTime(endTime)
-                            .metricDataQueries(queries)
-                            .build();
+                        // Chunk under the 500-query cap (≤450/call), one GetMetricData call per chunk.
+                        for (List<MetricDataQuery> chunk : partition(queries, MAX_METRIC_QUERIES_PER_CALL)) {
+                            GetMetricDataRequest req = GetMetricDataRequest.builder()
+                                    .startTime(startTime)
+                                    .endTime(endTime)
+                                    .metricDataQueries(chunk)
+                                    .build();
 
-                    // Handle CloudWatch pagination (rare for DB counts, but correct)
-                    GetMetricDataResponse resp = cw.getMetricData(req);
-                    collectMetricValues(resp, valueMap);
-                    while (resp.nextToken() != null && !resp.nextToken().isEmpty()) {
-                        resp = cw.getMetricData(req.toBuilder().nextToken(resp.nextToken()).build());
-                        collectMetricValues(resp, valueMap);
-                    }
+                            // Handle CloudWatch pagination (rare for DB counts, but correct)
+                            GetMetricDataResponse resp = cw.getMetricData(req);
+                            collectMetricValues(resp, valueMap);
+                            while (resp.nextToken() != null && !resp.nextToken().isEmpty()) {
+                                resp = cw.getMetricData(req.toBuilder().nextToken(resp.nextToken()).build());
+                                collectMetricValues(resp, valueMap);
+                            }
+                        }
 
-                    for (DbInstanceDto inst : regionInstances) {
+                        for (DbInstanceDto inst : regionInstances) {
                         String sid = sanitizeId(inst.getInstanceId());
                         DbMetricsDto dto = new DbMetricsDto();
                         dto.setInstanceId(inst.getInstanceId());
@@ -372,6 +412,10 @@ public class DbOpsCostService {
                         dto.setAvgSwapUsageMb(round2(valueMap.getOrDefault("swap_"  + sid, 0.0) / (1024.0 * 1024.0)));
                         dto.setBurstBalance(round2(valueMap.getOrDefault("burst_" + sid, 0.0)));
                         metricsMap.put(inst.getInstanceId(), dto);
+                        }
+                    } catch (Exception e) {
+                        logger.warn("[DbOps] Metrics fetch failed for region {} (account {}): {}",
+                                region, accountId, e.getMessage());
                     }
                 }
 
@@ -508,7 +552,7 @@ public class DbOpsCostService {
                 List<DbSnapshotWasteDto> wasteList = new ArrayList<>();
                 Instant cutoff = Instant.now().minus(SNAPSHOT_WASTE_AGE_DAYS, ChronoUnit.DAYS);
 
-                for (String region : SCAN_REGIONS) {
+                for (String region : resolveScanRegions(account)) {
                     try {
                         RdsClient rds = awsClientProvider.getRdsClient(account, region);
                         DescribeDbSnapshotsRequest req = DescribeDbSnapshotsRequest.builder()
@@ -951,6 +995,15 @@ public class DbOpsCostService {
         return s.length() > 120 ? s.substring(0, 120) : s;
     }
 
+    /** Split a list into consecutive sublists of at most {@code size} elements (views, read-only). */
+    private static <T> List<List<T>> partition(List<T> items, int size) {
+        List<List<T>> chunks = new ArrayList<>();
+        for (int i = 0; i < items.size(); i += size) {
+            chunks.add(items.subList(i, Math.min(i + size, items.size())));
+        }
+        return chunks;
+    }
+
     private MetricDataQuery buildMetricQuery(String id, String namespace, String metricName,
                                               String dbInstanceId, int periodSeconds) {
         return MetricDataQuery.builder()
@@ -1100,7 +1153,7 @@ public class DbOpsCostService {
                 // Flush previous query
                 if (sqlBuilder.length() > 0 && queryTime > 0) {
                     queries.add(new SlowQueryDto(instanceId, region, round2(queryTime), round2(lockTime),
-                            rowsExamined, rowsSent, truncateSql(sqlBuilder.toString()), timestamp));
+                            rowsExamined, rowsSent, truncateSql(maskSqlLiterals(sqlBuilder.toString())), timestamp));
                 }
                 timestamp = line.substring(7).trim();
                 sqlBuilder = new StringBuilder();
@@ -1118,7 +1171,7 @@ public class DbOpsCostService {
         // Flush last
         if (sqlBuilder.length() > 0 && queryTime > 0) {
             queries.add(new SlowQueryDto(instanceId, region, round2(queryTime), round2(lockTime),
-                    rowsExamined, rowsSent, truncateSql(sqlBuilder.toString()), timestamp));
+                    rowsExamined, rowsSent, truncateSql(maskSqlLiterals(sqlBuilder.toString())), timestamp));
         }
         return queries;
     }
@@ -1140,7 +1193,7 @@ public class DbOpsCostService {
 
                 String ts  = msg.length() > 23 ? msg.substring(0, 23) : "";
                 queries.add(new SlowQueryDto(instanceId, region, round2(ms / 1000.0), 0, 0, 0,
-                        truncateSql(sql), ts));
+                        truncateSql(maskSqlLiterals(sql)), ts));
             } catch (Exception ignored) {}
         }
         return queries;
@@ -1158,6 +1211,23 @@ public class DbOpsCostService {
     private String truncateSql(String sql) {
         sql = sql.trim();
         return sql.length() > 300 ? sql.substring(0, 297) + "..." : sql;
+    }
+
+    /**
+     * SEC-8: normalise query text parsed from CloudWatch slow logs so stored/displayed queries carry
+     * no literal values (PII, secrets). Mirrors the agent's pg_stat_statements normalisation:
+     *   single-quoted string literals → {@code ?}, standalone numeric literals → {@code ?},
+     *   and {@code IN (?, ?, …)} collapsed to {@code IN (?)}.
+     */
+    private String maskSqlLiterals(String sql) {
+        if (sql == null || sql.isEmpty()) return sql;
+        // Single-quoted string literals (handles doubled '' escapes) → ?
+        String masked = sql.replaceAll("'(?:[^']|'')*'", "?");
+        // Standalone numeric literals (not part of an identifier) → ?
+        masked = masked.replaceAll("(?<![A-Za-z0-9_.])\\d+(?:\\.\\d+)?", "?");
+        // Collapse an IN-list of placeholders → IN (?)
+        masked = masked.replaceAll("(?i)\\bIN\\s*\\(\\s*\\?(?:\\s*,\\s*\\?)*\\s*\\)", "IN (?)");
+        return masked;
     }
 
     /** Persist data to DB cache as JSON (fallback when Redis is cold). */
@@ -1288,7 +1358,8 @@ public class DbOpsCostService {
                 List<DbAgentConfig> agents = dbAgentConfigRepository.findByCloudAccountId(internalAccountId);
                 if (agents.isEmpty()) return List.of();
 
-                LocalDateTime since = LocalDateTime.now().minusHours(hours);
+                // Agent rows are stamped UTC (time.Now().UTC()); the cutoff must be UTC too.
+                LocalDateTime since = LocalDateTime.now(java.time.ZoneOffset.UTC).minusHours(hours);
                 List<AgentTimeseriesDto> result = new ArrayList<>();
 
                 for (DbAgentConfig agent : agents) {
