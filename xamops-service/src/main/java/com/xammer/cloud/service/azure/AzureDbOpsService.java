@@ -146,29 +146,43 @@ public class AzureDbOpsService {
         }
 
         return CompletableFuture.supplyAsync(() -> {
+            // COR-13 failure-vs-empty contract (mirrors AWS DbOpsCostService#getDbInventory):
+            // a scan that could not run at all must error so the caller does not cache a
+            // misleading "no databases", while a scan that ran and found nothing is cached.
             List<DbInstanceDto> instances = new ArrayList<>();
+
+            final AzureResourceManager azure;
+            final String token;
             try {
-                AzureResourceManager azure = azureClientProvider.getAzureClient(subscriptionId);
-                String token = getBearerToken(subscriptionId);
-
-                // 1. Azure SQL Databases (via SDK)
-                collectSqlDatabases(azure, instances);
-
-                // 2. Azure SQL Managed Instances (via REST API)
-                collectSqlManagedInstances(subscriptionId, token, instances);
-
-                // 3. PostgreSQL Flexible Servers (via REST API)
-                collectPostgresFlexibleServers(subscriptionId, token, instances);
-
-                // 4. MySQL Flexible Servers (via REST API)
-                collectMysqlFlexibleServers(subscriptionId, token, instances);
-
-                redisCache.put(cacheKey, instances, INVENTORY_TTL);
-                saveToDb(cacheKey, instances);
-                log.info("[AzureDbOps] Inventory fetched: {} instances for subscription {}", instances.size(), subscriptionId);
+                azure = azureClientProvider.getAzureClient(subscriptionId);
+                token = getBearerToken(subscriptionId);
             } catch (Exception e) {
-                log.error("[AzureDbOps] Inventory error for subscription {}: {}", subscriptionId, e.getMessage());
+                // Credential/client setup failed — nothing about this subscription loaded.
+                log.error("[AzureDbOps] Inventory setup failed for subscription {}: {}", subscriptionId, e.getMessage());
+                throw new IllegalStateException(
+                        "Azure DB inventory setup failed for subscription " + subscriptionId, e);
             }
+
+            int sourceSuccesses = 0;
+            // 1. Azure SQL Databases (via SDK)
+            if (collectSqlDatabases(azure, instances)) sourceSuccesses++;
+            // 2. Azure SQL Managed Instances (via REST API)
+            if (collectSqlManagedInstances(subscriptionId, token, instances)) sourceSuccesses++;
+            // 3. PostgreSQL Flexible Servers (via REST API)
+            if (collectPostgresFlexibleServers(subscriptionId, token, instances)) sourceSuccesses++;
+            // 4. MySQL Flexible Servers (via REST API)
+            if (collectMysqlFlexibleServers(subscriptionId, token, instances)) sourceSuccesses++;
+
+            if (sourceSuccesses == 0) {
+                // Every source errored — treat as a failed scan, not an empty one; do NOT cache.
+                log.error("[AzureDbOps] Inventory scan failed for subscription {} — every source errored; not caching", subscriptionId);
+                throw new IllegalStateException(
+                        "Azure DB inventory scan failed for subscription " + subscriptionId + " — every source errored");
+            }
+
+            redisCache.put(cacheKey, instances, INVENTORY_TTL);
+            saveToDb(cacheKey, instances);
+            log.info("[AzureDbOps] Inventory fetched: {} instances for subscription {}", instances.size(), subscriptionId);
             return instances;
         });
     }
@@ -219,7 +233,8 @@ public class AzureDbOpsService {
                     try {
                         String resourceId = resolveResourceId(inst, subscriptionId, azure, token);
                         if (resourceId == null) continue;
-                        fetchAzureMonitorMetrics(resourceId, token, metricsMap.get(inst.getInstanceId()), inst.getEngine());
+                        fetchAzureMonitorMetrics(resourceId, token, metricsMap.get(inst.getInstanceId()),
+                                inst.getEngine(), inst.getAllocatedStorage());
                     } catch (Exception ex) {
                         log.debug("[AzureDbOps] Metrics fetch skipped for {}: {}", inst.getInstanceId(), ex.getMessage());
                     }
@@ -591,7 +606,8 @@ public class AzureDbOpsService {
             AzureResourceManager azure = azureClientProvider.getAzureClient(subscriptionId);
             String resourceId = resolveFullResourceId(subscriptionId, instanceId, azure, token);
             if (resourceId != null) {
-                fetchTimeseriesFromMonitor(resourceId, token, dto, engineFromInstanceId(instanceId));
+                int allocatedGb = resolveAllocatedStorageGb(subscriptionId, instanceId);
+                fetchTimeseriesFromMonitor(resourceId, token, dto, engineFromInstanceId(instanceId), allocatedGb);
             }
         } catch (Exception e) {
             log.warn("[AzureDbOps] Timeseries failed for {}: {}", instanceId, e.getMessage());
@@ -690,8 +706,25 @@ public class AzureDbOpsService {
         return d;
     }
 
+    /**
+     * Looks up the instance's provisioned storage (GB) from inventory so a used-storage metric
+     * can be turned into free = allocated − used. Returns 0 (unknown) if it cannot be resolved.
+     */
+    private int resolveAllocatedStorageGb(String subscriptionId, String instanceId) {
+        try {
+            for (DbInstanceDto inst : getDbInventory(subscriptionId, false).join()) {
+                if (instanceId != null && instanceId.equals(inst.getInstanceId())) {
+                    return inst.getAllocatedStorage();
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[AzureDbOps] Could not resolve allocated storage for {}: {}", instanceId, e.getMessage());
+        }
+        return 0;
+    }
+
     private void fetchTimeseriesFromMonitor(String resourceId, String token,
-                                             DbInstanceTimeseriesDto dto, String engine) {
+                                             DbInstanceTimeseriesDto dto, String engine, int allocatedGb) {
         try {
             String metricNames = resolveMetricNames(engine);
             String url = ARM_BASE + resourceId
@@ -721,7 +754,7 @@ public class AzureDbOpsService {
                     long epochMs = java.time.Instant.parse(tsStr).toEpochMilli();
                     points.add(new DbInstanceTimeseriesDto.Point(epochMs, round2(avg.asDouble())));
                 }
-                applyTimeseriesMetric(dto, metricName, points);
+                applyTimeseriesMetric(dto, metricName, points, allocatedGb);
             }
         } catch (Exception e) {
             log.debug("[AzureDbOps] fetchTimeseriesFromMonitor error for {}: {}", resourceId, e.getMessage());
@@ -729,7 +762,7 @@ public class AzureDbOpsService {
     }
 
     private void applyTimeseriesMetric(DbInstanceTimeseriesDto dto, String metricName,
-                                        List<DbInstanceTimeseriesDto.Point> points) {
+                                        List<DbInstanceTimeseriesDto.Point> points, int allocatedGb) {
         switch (metricName) {
             case "cpu_percent":
                 dto.setCpu(points);
@@ -740,11 +773,12 @@ public class AzureDbOpsService {
                 break;
             case "storage_used":
             case "storage":
-                // bytes → GB
+                // COR-9: bytes USED → free GB = allocated − used (was storing used-as-free).
                 List<DbInstanceTimeseriesDto.Point> storageGb = new ArrayList<>();
                 for (DbInstanceTimeseriesDto.Point p : points) {
-                    storageGb.add(new DbInstanceTimeseriesDto.Point(p.getTs(),
-                            round2(p.getV() / (1024.0 * 1024.0 * 1024.0))));
+                    double usedGb = p.getV() / (1024.0 * 1024.0 * 1024.0);
+                    double freeGb = allocatedGb > 0 ? Math.max(0.0, allocatedGb - usedGb) : 0.0;
+                    storageGb.add(new DbInstanceTimeseriesDto.Point(p.getTs(), round2(freeGb)));
                 }
                 dto.setFreeStorageGb(storageGb);
                 break;
@@ -762,11 +796,10 @@ public class AzureDbOpsService {
                 }
                 dto.setNetworkTransmitMbps(tx);
                 break;
-            case "physical_data_read_percent":
+            case "iops":
+                // COR-9: real Flexible-server IOPS series. SQL DB/MI request no IOPS metric, so
+                // their read/write IOPS stay empty rather than holding percentages.
                 dto.setReadIops(points);
-                break;
-            case "log_write_percent":
-                dto.setWriteIops(points);
                 break;
             default:
                 break;
@@ -875,7 +908,7 @@ public class AzureDbOpsService {
                 List<DbAgentConfig> agents = dbAgentConfigRepository.findByCloudAccountId(account.getId());
                 if (agents.isEmpty()) return Collections.emptyList();
 
-                java.time.LocalDateTime since = java.time.LocalDateTime.now().minusHours(hours);
+                java.time.LocalDateTime since = java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).minusHours(hours);
                 List<AgentTimeseriesDto> result = new ArrayList<>();
 
                 for (DbAgentConfig agent : agents) {
@@ -937,7 +970,7 @@ public class AzureDbOpsService {
     // PRIVATE — AZURE SDK COLLECTION HELPERS
     // =========================================================================
 
-    private void collectSqlDatabases(AzureResourceManager azure, List<DbInstanceDto> instances) {
+    private boolean collectSqlDatabases(AzureResourceManager azure, List<DbInstanceDto> instances) {
         try {
             azure.sqlServers().list().forEach(server -> {
                 try {
@@ -954,8 +987,10 @@ public class AzureDbOpsService {
                     log.debug("[AzureDbOps] SQL DB list error for server {}: {}", server.name(), ex.getMessage());
                 }
             });
+            return true;
         } catch (Exception e) {
             log.warn("[AzureDbOps] collectSqlDatabases error: {}", e.getMessage());
+            return false;
         }
     }
 
@@ -993,12 +1028,14 @@ public class AzureDbOpsService {
         }
     }
 
-    private void collectSqlManagedInstances(String subscriptionId, String token, List<DbInstanceDto> instances) {
+    private boolean collectSqlManagedInstances(String subscriptionId, String token, List<DbInstanceDto> instances) {
         try {
             String url = ARM_BASE + "/subscriptions/" + subscriptionId
                     + "/providers/Microsoft.Sql/managedInstances?api-version=2021-11-01-preview";
             String body = armGet(url, token);
-            if (body == null) return;
+            // A list endpoint answers 200 with {"value":[]} even when empty, so a null body
+            // means the call failed (auth/throttle/server) — report that as a source failure.
+            if (body == null) return false;
             JsonNode root = objectMapper.readTree(body);
             for (JsonNode node : root.path("value")) {
                 try {
@@ -1032,22 +1069,25 @@ public class AzureDbOpsService {
                     log.debug("[AzureDbOps] SQL MI dto error: {}", ex.getMessage());
                 }
             }
+            return true;
         } catch (Exception e) {
             log.warn("[AzureDbOps] collectSqlManagedInstances error: {}", e.getMessage());
+            return false;
         }
     }
 
-    private void collectPostgresFlexibleServers(String subscriptionId, String token,
+    private boolean collectPostgresFlexibleServers(String subscriptionId, String token,
             List<DbInstanceDto> instances) {
         try {
             String url = ARM_BASE + "/subscriptions/" + subscriptionId
                     + "/providers/Microsoft.DBforPostgreSQL/flexibleServers?api-version=2023-06-01-preview";
             String responseBody = armGet(url, token);
-            if (responseBody == null) return;
+            // null body on a list endpoint => the call failed, not "no servers".
+            if (responseBody == null) return false;
 
             JsonNode root = objectMapper.readTree(responseBody);
             JsonNode valueArr = root.path("value");
-            if (!valueArr.isArray()) return;
+            if (!valueArr.isArray()) return true;
 
             for (JsonNode node : valueArr) {
                 try {
@@ -1082,22 +1122,25 @@ public class AzureDbOpsService {
                     log.debug("[AzureDbOps] Postgres flexible server dto error: {}", ex.getMessage());
                 }
             }
+            return true;
         } catch (Exception e) {
             log.warn("[AzureDbOps] collectPostgresFlexibleServers error: {}", e.getMessage());
+            return false;
         }
     }
 
-    private void collectMysqlFlexibleServers(String subscriptionId, String token,
+    private boolean collectMysqlFlexibleServers(String subscriptionId, String token,
             List<DbInstanceDto> instances) {
         try {
             String url = ARM_BASE + "/subscriptions/" + subscriptionId
                     + "/providers/Microsoft.DBforMySQL/flexibleServers?api-version=2023-06-30";
             String responseBody = armGet(url, token);
-            if (responseBody == null) return;
+            // null body on a list endpoint => the call failed, not "no servers".
+            if (responseBody == null) return false;
 
             JsonNode root = objectMapper.readTree(responseBody);
             JsonNode valueArr = root.path("value");
-            if (!valueArr.isArray()) return;
+            if (!valueArr.isArray()) return true;
 
             for (JsonNode node : valueArr) {
                 try {
@@ -1131,8 +1174,10 @@ public class AzureDbOpsService {
                     log.debug("[AzureDbOps] MySQL flexible server dto error: {}", ex.getMessage());
                 }
             }
+            return true;
         } catch (Exception e) {
             log.warn("[AzureDbOps] collectMysqlFlexibleServers error: {}", e.getMessage());
+            return false;
         }
     }
 
@@ -1140,7 +1185,8 @@ public class AzureDbOpsService {
     // PRIVATE — AZURE MONITOR METRICS
     // =========================================================================
 
-    private void fetchAzureMonitorMetrics(String resourceId, String token, DbMetricsDto dto, String engine) {
+    private void fetchAzureMonitorMetrics(String resourceId, String token, DbMetricsDto dto,
+                                          String engine, int allocatedGb) {
         try {
             String metricNames = resolveMetricNames(engine);
             String timespan = "P7D";
@@ -1178,7 +1224,7 @@ public class AzureDbOpsService {
                     }
                 }
                 double avgValue = count > 0 ? sum / count : 0.0;
-                applyAzureMetric(dto, metricName, avgValue);
+                applyAzureMetric(dto, metricName, avgValue, allocatedGb);
             }
         } catch (Exception e) {
             log.debug("[AzureDbOps] Azure Monitor metrics error for resource {}: {}", resourceId, e.getMessage());
@@ -1187,13 +1233,15 @@ public class AzureDbOpsService {
 
     private String resolveMetricNames(String engine) {
         if ("postgres".equals(engine) || "mysql".equals(engine)) {
-            return "cpu_percent,active_connections,storage_used,network_bytes_ingress,network_bytes_egress";
+            // Flexible servers expose a real aggregate IOPS counter.
+            return "cpu_percent,active_connections,storage_used,network_bytes_ingress,network_bytes_egress,iops";
         }
-        // SQL Server / MI
-        return "cpu_percent,connection_successful,storage,physical_data_read_percent,log_write_percent";
+        // SQL Server / MI — Azure exposes read/write as PERCENTAGES, not IOPS, so no honest IOPS
+        // metric exists here; request none rather than mislabel a percentage as IOPS.
+        return "cpu_percent,connection_successful,storage";
     }
 
-    private void applyAzureMetric(DbMetricsDto dto, String metricName, double value) {
+    void applyAzureMetric(DbMetricsDto dto, String metricName, double value, int allocatedGb) {
         switch (metricName) {
             case "cpu_percent":
                 dto.setAvgCpuPercent(round2(value));
@@ -1204,8 +1252,12 @@ public class AzureDbOpsService {
                 break;
             case "storage_used":
             case "storage":
-                // storage in bytes → GB free (estimate based on allocated)
-                dto.setFreeStorageSpaceGb(round2(value / (1024.0 * 1024.0 * 1024.0)));
+                // COR-9: Azure reports bytes USED. Free space = allocated − used; the previous
+                // code stored used-as-free. When allocated is unknown (0) leave free at 0 rather
+                // than reporting the used figure as free.
+                double usedGb = value / (1024.0 * 1024.0 * 1024.0);
+                double freeGb = allocatedGb > 0 ? Math.max(0.0, allocatedGb - usedGb) : 0.0;
+                dto.setFreeStorageSpaceGb(round2(freeGb));
                 break;
             case "network_bytes_ingress":
                 dto.setAvgNetworkReceiveMbps(round2(value / (1024.0 * 1024.0)));
@@ -1213,11 +1265,10 @@ public class AzureDbOpsService {
             case "network_bytes_egress":
                 dto.setAvgNetworkTransmitMbps(round2(value / (1024.0 * 1024.0)));
                 break;
-            case "physical_data_read_percent":
+            case "iops":
+                // COR-9: real Flexible-server IOPS. SQL DB/MI never reach here (not requested),
+                // so their IOPS stays unset instead of holding a percentage.
                 dto.setAvgReadIops(round2(value));
-                break;
-            case "log_write_percent":
-                dto.setAvgWriteIops(round2(value));
                 break;
             default:
                 break;
@@ -1228,7 +1279,7 @@ public class AzureDbOpsService {
      * Resolve the ARM resource ID for a given DbInstanceDto.
      * Returns null if the resource ID cannot be determined.
      */
-    private String resolveResourceId(DbInstanceDto inst, String subscriptionId, AzureResourceManager azure, String token) {
+    String resolveResourceId(DbInstanceDto inst, String subscriptionId, AzureResourceManager azure, String token) {
         String id = inst.getInstanceId();
         if (id == null) return null;
 
@@ -1236,8 +1287,16 @@ public class AzureDbOpsService {
             return findManagedInstanceResourceId(subscriptionId, token, id.substring(3));
         }
 
-        if (id.startsWith("pg/") || id.startsWith("mysql/")) {
-            return null;
+        // COR-4: PostgreSQL / MySQL Flexible servers — resolve the ARM resource ID via the list
+        // API (mirroring resolveFullResourceId) instead of returning null, which previously left
+        // every Flexible server without metrics.
+        if (id.startsWith("pg/")) {
+            return findFlexibleServerResourceId(subscriptionId, token, id.substring(3),
+                    "Microsoft.DBforPostgreSQL", "flexibleServers", "2023-06-01-preview");
+        }
+        if (id.startsWith("mysql/")) {
+            return findFlexibleServerResourceId(subscriptionId, token, id.substring(6),
+                    "Microsoft.DBforMySQL", "flexibleServers", "2023-06-30");
         }
 
         // Azure SQL Database: serverName/dbName
