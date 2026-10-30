@@ -214,8 +214,6 @@ const OverviewTab: React.FC = () => (
 │   ├── node-exporter (DaemonSet)← node_cpu, node_memory
 │   ├── falco + falcosidekick    ← security events → Prometheus
 │   └── opencost                 ← cost allocation
-├── default namespace
-│   └── cost-exporter            ← GCP machine pricing metrics
 ├── xamops-system namespace
 │   └── xamops-agent             ← reads K8s API + queries Prometheus
 │       │                           PUSH → live.xamops.com:443
@@ -235,7 +233,7 @@ const OverviewTab: React.FC = () => (
       </h4>
       <div className="space-y-3">
         {[
-          { n: '1', color: 'bg-blue-500',   text: 'Prometheus scrapes KSM, node-exporter, cadvisor, Falco, OpenCost, and the GCP cost-exporter — all inside the cluster.' },
+          { n: '1', color: 'bg-blue-500',   text: 'Prometheus scrapes KSM, node-exporter, cadvisor, Falco, and OpenCost — all inside the cluster.' },
           { n: '2', color: 'bg-green-500',  text: 'XamOps Agent queries Prometheus in-cluster and reads the Kubernetes API (nodes, pods, deployments, HPAs, PVCs, events…).' },
           { n: '3', color: 'bg-purple-500', text: 'Agent POSTs a JSON payload to live.xamops.com/api/v1/agent/ingest (HTTPS, outbound port 443).' },
           { n: '4', color: 'bg-orange-500', text: 'XamOps backend stores data in the agent_data_cache table keyed by cluster. Dashboard reads from cache — no direct cluster access needed.' },
@@ -282,7 +280,7 @@ const OverviewTab: React.FC = () => (
     {/* 4-step overview cards */}
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       {[
-        { part: 'Part 1', color: 'blue',   icon: 'fas fa-chart-line',   title: 'Monitoring Stack',  desc: 'Prometheus + KSM + Metrics Server + Falco + Cost Exporter + OpenCost (all in-cluster)' },
+        { part: 'Part 1', color: 'blue',   icon: 'fas fa-chart-line',   title: 'Monitoring Stack',  desc: 'Prometheus + KSM + Metrics Server + Falco + OpenCost (all in-cluster)' },
         { part: 'Part 2', color: 'purple', icon: 'fas fa-shield-alt',   title: 'Security Tools',    desc: 'Trivy (image vuln scanning) + Kubescape (compliance)' },
         { part: 'Part 3', color: 'green',  icon: 'fas fa-robot',        title: 'XamOps Agent',      desc: 'Read-only observability agent — pushes cluster data to XamOps every 5 min' },
         { part: 'Part 4', color: 'teal',   icon: 'fas fa-check-circle', title: 'Verification',      desc: 'Confirm all pods are running and data appears in XamOps dashboard' },
@@ -321,7 +319,7 @@ const Part1Tab: React.FC = () => (
     <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg text-sm text-blue-800">
       <i className="fas fa-info-circle mr-2"></i>
       All monitoring tools run inside your cluster in the <code className="bg-blue-100 px-1 rounded">monitoring</code> namespace.
-      Prometheus scrapes metrics from KSM, node-exporter (cadvisor), Falco, OpenCost, and the GCP cost-exporter.
+      Prometheus scrapes metrics from KSM, node-exporter (cadvisor), Falco, and OpenCost.
       The XamOps Agent queries this Prometheus at{' '}
       <code className="bg-blue-100 px-1 rounded">http://prometheus-server.monitoring.svc.cluster.local:9090</code>.
     </div>
@@ -376,7 +374,7 @@ EOF`} />
     <CollapsibleSection title="Step 1.3: Install Prometheus (in-cluster)" icon="fas fa-fire" iconColor="text-orange-500">
       <p className="text-sm text-gray-600 mb-3">
         Installs Prometheus with node-exporter (DaemonSet) and kube-state-metrics subchart.
-        Extra scrape configs cover Falco, OpenCost, and the GCP cost-exporter.
+        Extra scrape configs cover Falco and OpenCost.
       </p>
       <CodeBlock code={`helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update`} />
@@ -406,7 +404,7 @@ nodeExporter:
 kube-state-metrics:
   enabled: true
 
-# Extra scrape jobs for Falco, OpenCost, and GCP cost-exporter
+# Extra scrape jobs for Falco and OpenCost
 extraScrapeConfigs: |
   - job_name: falco-sidekick
     scrape_interval: 30s
@@ -416,14 +414,6 @@ extraScrapeConfigs: |
     scrape_interval: 60s
     static_configs:
       - targets: ['opencost.opencost.svc.cluster.local:9003']
-  - job_name: cost-exporter
-    scrape_interval: 60s
-    static_configs:
-      - targets: ['cost-exporter.default.svc.cluster.local:8080']
-    metric_relabel_configs:
-      - source_labels: [__name__]
-        regex: 'xamops_gke_.*'
-        action: keep
 EOF`}
       />
 
@@ -500,117 +490,7 @@ kubectl run -it --rm debug --image=curlimages/curl:latest --restart=Never -- \\
   curl -s http://falco-falcosidekick.falco.svc.cluster.local:2801/metrics | grep falco_events | head -5`} />
     </CollapsibleSection>
 
-    <CollapsibleSection title="Step 1.6: Install GCP Cost Exporter" icon="fas fa-dollar-sign" iconColor="text-green-500">
-      <p className="text-sm text-gray-600 mb-3">
-        Runs a Deployment that exports GCP machine-type pricing as <code>xamops_gke_*</code> Prometheus metrics.
-        Uses the GCP Cloud Billing pricing API to report per-node costs based on machine type and region.
-      </p>
-      <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800 mb-4">
-        <i className="fas fa-shield-alt mr-2"></i>
-        <strong>Workload Identity (recommended):</strong> GKE nodes can access GCP APIs via Workload Identity.
-        The cost-exporter only needs read-only access to the Cloud Billing API to fetch machine pricing.
-        If your cluster has Workload Identity enabled, annotate the ServiceAccount as shown below.
-        For clusters without Workload Identity, node service account access is used automatically.
-      </div>
-      <VariableNote variables={['<CLUSTER_NAME>', '<GCP_PROJECT_ID>', '<GCP_REGION>']} />
-
-      <CodeBlock
-        title="Step 1: (Optional) Create Workload Identity binding for Cloud Billing read access"
-        code={`PROJECT_ID="<GCP_PROJECT_ID>"
-CLUSTER_NAME="<CLUSTER_NAME>"
-REGION="<GCP_REGION>"
-
-# Create a GCP service account for cost-exporter
-gcloud iam service-accounts create xamops-cost-exporter \\
-  --display-name="XamOps Cost Exporter" \\
-  --project=$PROJECT_ID
-
-# Grant billing viewer role
-gcloud projects add-iam-policy-binding $PROJECT_ID \\
-  --member="serviceAccount:xamops-cost-exporter@$PROJECT_ID.iam.gserviceaccount.com" \\
-  --role="roles/billing.viewer"
-
-# Allow the K8s ServiceAccount to impersonate the GCP SA via Workload Identity
-gcloud iam service-accounts add-iam-policy-binding \\
-  xamops-cost-exporter@$PROJECT_ID.iam.gserviceaccount.com \\
-  --role=roles/iam.workloadIdentityUser \\
-  --member="serviceAccount:$PROJECT_ID.svc.id.goog[default/cost-exporter-sa]"`}
-      />
-
-      <CodeBlock
-        title="Step 2: Deploy cost-exporter"
-        code={`kubectl apply -f - << 'EOF'
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: cost-exporter-sa
-  namespace: default
-  annotations:
-    # Remove this annotation if Workload Identity is not enabled on your cluster
-    iam.gke.io/gcp-service-account: xamops-cost-exporter@<GCP_PROJECT_ID>.iam.gserviceaccount.com
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: cost-exporter
-  namespace: default
-  labels:
-    app: cost-exporter
-spec:
-  selector:
-    app: cost-exporter
-  ports:
-    - port: 8080
-      targetPort: 8080
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: cost-exporter
-  namespace: default
-  labels:
-    app: cost-exporter
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: cost-exporter
-  template:
-    metadata:
-      labels:
-        app: cost-exporter
-    spec:
-      serviceAccountName: cost-exporter-sa
-      containers:
-        - name: cost-exporter
-          image: docker.io/xamops/cost-exporter-gcp:latest
-          ports:
-            - containerPort: 8080
-          env:
-            - name: CLUSTER_NAME
-              value: "<CLUSTER_NAME>"
-            - name: GCP_PROJECT_ID
-              value: "<GCP_PROJECT_ID>"
-            - name: REGION
-              value: "<GCP_REGION>"
-            - name: CLOUD_PROVIDER
-              value: "GCP"
-            - name: PORT
-              value: "8080"
-            - name: REFRESH_INTERVAL
-              value: "900"
-          resources:
-            requests:
-              cpu: 10m
-              memory: 32Mi
-            limits:
-              cpu: 100m
-              memory: 128Mi
-EOF`}
-      />
-    </CollapsibleSection>
-
-    <CollapsibleSection title="Step 1.7: Install OpenCost" icon="fas fa-coins" iconColor="text-yellow-500">
+    <CollapsibleSection title="Step 1.6: Install OpenCost" icon="fas fa-coins" iconColor="text-yellow-500">
       <p className="text-sm text-gray-600 mb-3">
         OpenCost provides namespace-level and workload-level cost allocation.
         It reads Prometheus in-cluster for efficiency data and supports GCP pricing natively.
@@ -1004,7 +884,7 @@ kubectl get pods -n xamops-system`} />
           { metric: 'kube_node_status_capacity',             source: 'kube-state-metrics', desc: 'Node capacity' },
           { metric: 'kube_pod_container_status_restarts_total', source: 'kube-state-metrics', desc: 'Pod restart counts' },
           { metric: 'falco_events_total',                    source: 'falco-sidekick',     desc: 'Falco security events' },
-          { metric: 'xamops_gke_node_hourly_cost',           source: 'cost-exporter',      desc: 'GCP node cost metrics' },
+          { metric: 'node_total_hourly_cost',                source: 'opencost',           desc: 'GCP node cost metrics' },
         ].map(({ metric, source, desc }) => (
           <div key={metric} className="flex items-center gap-3 bg-gray-50 rounded p-2 text-sm">
             <input type="checkbox" className="rounded flex-shrink-0" readOnly />
@@ -1042,12 +922,12 @@ kubectl logs -n xamops-system -l app=xamops-agent --tail=100 | grep -i "push\\|i
           <li className="flex items-center gap-2"><input type="checkbox" className="rounded" readOnly /> <strong>Node Pools tab</strong> — GKE node pools with autoscaling configuration</li>
           <li className="flex items-center gap-2"><input type="checkbox" className="rounded" readOnly /> <strong>Pods tab</strong> — Pod list with status, restarts, resource usage</li>
           <li className="flex items-center gap-2"><input type="checkbox" className="rounded" readOnly /> <strong>Security tab</strong> — Trivy vulnerability reports + Kubescape compliance + Falco runtime events</li>
-          <li className="flex items-center gap-2"><input type="checkbox" className="rounded" readOnly /> <strong>Cost tab</strong> — GCP node cost, namespace cost allocation (OpenCost), cluster total</li>
+          <li className="flex items-center gap-2"><input type="checkbox" className="rounded" readOnly /> <strong>Cost tab</strong> — node cost and namespace cost allocation (OpenCost), cluster total</li>
         </ul>
         <div className="bg-indigo-100 rounded p-2 mt-3 text-xs text-indigo-800">
           <i className="fas fa-clock mr-1"></i>
           First data appears within ~5 minutes of deploying the agent (PUSH_INTERVAL=300s).
-          Cost data may take 15–20 minutes for the cost-exporter to complete its first fetch.
+          Cost data may take 15–20 minutes for OpenCost to complete its first pricing fetch.
         </div>
       </div>
     </CollapsibleSection>
@@ -1076,16 +956,7 @@ kubectl logs -n xamops-system -l app=xamops-agent --tail=100 | grep -i "push\\|i
           </div>
           <div>
             <h6 className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
-              <i className="fas fa-dollar-sign text-green-500"></i> Cost Exporter (Part 1, Step 1.6)
-            </h6>
-            <ul className="list-disc list-inside space-y-1 text-gray-700 text-sm ml-4">
-              <li><code className="bg-gray-100 px-1 rounded">cost-exporter deployment</code>: <span className="text-amber-600 font-medium">&lt;CLUSTER_NAME&gt;</span>, <span className="text-amber-600 font-medium">&lt;GCP_PROJECT_ID&gt;</span>, <span className="text-amber-600 font-medium">&lt;GCP_REGION&gt;</span></li>
-              <li><code className="bg-gray-100 px-1 rounded">Workload Identity binding</code>: <span className="text-amber-600 font-medium">&lt;GCP_PROJECT_ID&gt;</span></li>
-            </ul>
-          </div>
-          <div>
-            <h6 className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
-              <i className="fas fa-coins text-yellow-500"></i> OpenCost (Part 1, Step 1.7)
+              <i className="fas fa-coins text-yellow-500"></i> OpenCost (Part 1, Step 1.6)
             </h6>
             <ul className="list-disc list-inside space-y-1 text-gray-700 text-sm ml-4">
               <li><code className="bg-gray-100 px-1 rounded">opencost-values.yaml</code>: <span className="text-amber-600 font-medium">&lt;GCP_PROJECT_ID&gt;</span></li>
