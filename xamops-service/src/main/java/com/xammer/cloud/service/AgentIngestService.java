@@ -90,7 +90,8 @@ public class AgentIngestService {
             "k8s-resources",
             "prometheus-metrics",
             "node-optimizer-report",
-            "autoscaling-consolidation-plan"
+            "autoscaling-consolidation-plan",
+            "cloud-nodegroups" // BP-16 (design §8.1): single EKS nodegroup-scaling object
     );
 
     private final KubernetesClusterConfigRepository clusterConfigRepository;
