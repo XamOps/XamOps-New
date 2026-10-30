@@ -146,6 +146,10 @@ public class DbOpsController {
             @AuthenticationPrincipal ClientUserDetails userDetails) {
 
         cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
+        // Phase 1a: fail closed when idle detection is disabled — no data leaves the server.
+        if (!dbOpsFeatureFlags.isIdleEnabled()) {
+            return CompletableFuture.completedFuture(ResponseEntity.ok(Collections.emptyList()));
+        }
         logger.info("💤 [DbOps] Idle instances request — account: {}", accountId);
         return dbOpsCostService.getIdleInstances(accountId, forceRefresh)
                 .thenApply(data -> {
@@ -172,6 +176,10 @@ public class DbOpsController {
             @AuthenticationPrincipal ClientUserDetails userDetails) {
 
         cloudAccountAccessService.requireAwsAccess(userDetails, accountId); // SEC-1 (synchronous-first)
+        // Phase 1a: fail closed when right-sizing is disabled — no data leaves the server.
+        if (!dbOpsFeatureFlags.isRightsizingEnabled()) {
+            return CompletableFuture.completedFuture(ResponseEntity.ok(Collections.emptyList()));
+        }
         logger.info("📐 [DbOps] Right-sizing request — account: {}", accountId);
         return dbOpsCostService.getRightsizingRecommendations(accountId, forceRefresh)
                 .thenApply(data -> {
@@ -697,6 +705,10 @@ public class DbOpsController {
         // SEC-1 (provider-shared): guard BEFORE the try so a denied request is a 403, not
         // swallowed into an empty 200 by the catch below.
         cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId);
+        // Phase 1a: fail closed when health is disabled.
+        if (!dbOpsFeatureFlags.isHealthEnabled()) {
+            return ResponseEntity.ok(Collections.emptyList());
+        }
         try {
             com.xammer.cloud.domain.CloudAccount account = getAccount(accountId);
             java.time.LocalDateTime since = java.time.LocalDateTime.now().minusHours(hours);
@@ -727,6 +739,10 @@ public class DbOpsController {
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         // SEC-1: guard BEFORE the try so a denied request is a 403, not swallowed into 200.
         cloudAccountAccessService.requireAwsAccess(userDetails, accountId);
+        // Phase 1a: fail closed when health is disabled.
+        if (!dbOpsFeatureFlags.isHealthEnabled()) {
+            return ResponseEntity.ok(Collections.emptyList());
+        }
         try {
             com.xammer.cloud.domain.CloudAccount account = getAccount(accountId);
             List<DbHealthSnapshot> snaps = dbHealthSnapshotRepository.findLatestPerInstance(account.getId());
@@ -754,6 +770,10 @@ public class DbOpsController {
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         // SEC-1: guard BEFORE the try so a denied request is a 403, not swallowed into 200.
         cloudAccountAccessService.requireAwsAccess(userDetails, accountId);
+        // Phase 1a: fail closed when health is disabled.
+        if (!dbOpsFeatureFlags.isHealthEnabled()) {
+            return ResponseEntity.ok(Collections.emptyList());
+        }
         try {
             com.xammer.cloud.domain.CloudAccount account = getAccount(accountId);
             java.time.LocalDateTime since = java.time.LocalDateTime.now().minusHours(24);
@@ -773,6 +793,9 @@ public class DbOpsController {
     public ResponseEntity<List<MongoInstanceMetricsDto>> getMongoMetrics(@PathVariable String accountId,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1 (provider-shared)
+        if (!dbOpsFeatureFlags.isMongoEnabled()) { // Phase 1a: fail closed when Mongo is disabled.
+            return ResponseEntity.ok(Collections.emptyList());
+        }
         return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "mongo-instance-metrics:",
                 new TypeReference<List<MongoInstanceMetricsDto>>() {}));
     }
@@ -781,6 +804,9 @@ public class DbOpsController {
     public ResponseEntity<List<MongoSlowOpDto>> getMongoSlowOps(@PathVariable String accountId,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1 (provider-shared)
+        if (!dbOpsFeatureFlags.isMongoEnabled()) { // Phase 1a: fail closed when Mongo is disabled.
+            return ResponseEntity.ok(Collections.emptyList());
+        }
         return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "mongo-slow-ops:",
                 new TypeReference<List<MongoSlowOpDto>>() {}));
     }
@@ -789,6 +815,9 @@ public class DbOpsController {
     public ResponseEntity<List<MongoIndexStatDto>> getMongoIndexStats(@PathVariable String accountId,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1 (provider-shared)
+        if (!dbOpsFeatureFlags.isMongoEnabled()) { // Phase 1a: fail closed when Mongo is disabled.
+            return ResponseEntity.ok(Collections.emptyList());
+        }
         return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "mongo-index-stats:",
                 new TypeReference<List<MongoIndexStatDto>>() {}));
     }
@@ -799,6 +828,9 @@ public class DbOpsController {
     public ResponseEntity<List<RedisInstanceMetricsDto>> getRedisMetrics(@PathVariable String accountId,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1 (provider-shared)
+        if (!dbOpsFeatureFlags.isRedisEnabled()) { // Phase 1a: fail closed when Redis is disabled.
+            return ResponseEntity.ok(Collections.emptyList());
+        }
         return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "redis-instance-metrics:",
                 new TypeReference<List<RedisInstanceMetricsDto>>() {}));
     }
@@ -807,6 +839,9 @@ public class DbOpsController {
     public ResponseEntity<List<RedisSlowLogDto>> getRedisSlowLog(@PathVariable String accountId,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1 (provider-shared)
+        if (!dbOpsFeatureFlags.isRedisEnabled()) { // Phase 1a: fail closed when Redis is disabled.
+            return ResponseEntity.ok(Collections.emptyList());
+        }
         return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "redis-slow-log:",
                 new TypeReference<List<RedisSlowLogDto>>() {}));
     }
@@ -815,6 +850,9 @@ public class DbOpsController {
     public ResponseEntity<List<RedisKeyspaceDto>> getRedisKeyspace(@PathVariable String accountId,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1 (provider-shared)
+        if (!dbOpsFeatureFlags.isRedisEnabled()) { // Phase 1a: fail closed when Redis is disabled.
+            return ResponseEntity.ok(Collections.emptyList());
+        }
         return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "redis-keyspace:",
                 new TypeReference<List<RedisKeyspaceDto>>() {}));
     }

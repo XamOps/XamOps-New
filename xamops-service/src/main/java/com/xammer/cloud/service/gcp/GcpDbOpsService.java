@@ -19,6 +19,7 @@ import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.DbAgentConfig;
 import com.xammer.cloud.domain.DbAgentMetricsHistory;
+import com.xammer.cloud.config.DbOpsFeatureFlags;
 import com.xammer.cloud.dto.dbops.*;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
@@ -101,6 +102,7 @@ public class GcpDbOpsService {
     private final DbAgentConfigRepository dbAgentConfigRepository;
     private final DbAgentDataCacheRepository dbAgentDataCacheRepository;
     private final DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository;
+    private final DbOpsFeatureFlags dbOpsFeatureFlags;
 
     public GcpDbOpsService(
             GcpClientProvider gcpClientProvider,
@@ -110,7 +112,8 @@ public class GcpDbOpsService {
             ObjectMapper objectMapper,
             DbAgentConfigRepository dbAgentConfigRepository,
             DbAgentDataCacheRepository dbAgentDataCacheRepository,
-            DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository) {
+            DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository,
+            DbOpsFeatureFlags dbOpsFeatureFlags) {
         this.gcpClientProvider = gcpClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.redisCache = redisCache;
@@ -119,6 +122,7 @@ public class GcpDbOpsService {
         this.dbAgentConfigRepository = dbAgentConfigRepository;
         this.dbAgentDataCacheRepository = dbAgentDataCacheRepository;
         this.dbAgentMetricsHistoryRepository = dbAgentMetricsHistoryRepository;
+        this.dbOpsFeatureFlags = dbOpsFeatureFlags;
     }
 
     // =========================================================================
@@ -421,7 +425,7 @@ public class GcpDbOpsService {
                             dto.setSizeGb(sizeGb);
                             dto.setEstimatedMonthlyCost(round2(sizeGb * BACKUP_COST_PER_GB));
                             dto.setRecommendation(ageDays > 90
-                                    ? "Safe to delete — on-demand backup over 90 days old"
+                                    ? "Review retention before deleting — on-demand backup over 90 days old"
                                     : "Review — on-demand backup created " + ageDays + " days ago");
                             wasteList.add(dto);
                         }
@@ -569,8 +573,14 @@ public class GcpDbOpsService {
     @Async("awsTaskExecutor")
     public CompletableFuture<DbSavingsSummaryDto> getSavingsSummary(String projectId, boolean forceRefresh) {
         CompletableFuture<List<DbInstanceDto>> invFuture = getDbInventory(projectId, forceRefresh);
-        CompletableFuture<List<DbIdleInstanceDto>> idleFuture = getIdleInstances(projectId, forceRefresh);
-        CompletableFuture<List<DbRightsizingDto>> rightFuture = getRightsizingRecommendations(projectId, forceRefresh);
+        // Phase 1a: a disabled pillar contributes an empty list, so its count/savings are 0 and it
+        // never enters the savings total — the summary omits it rather than faking a value.
+        CompletableFuture<List<DbIdleInstanceDto>> idleFuture = dbOpsFeatureFlags.isIdleEnabled()
+                ? getIdleInstances(projectId, forceRefresh)
+                : CompletableFuture.completedFuture(Collections.emptyList());
+        CompletableFuture<List<DbRightsizingDto>> rightFuture = dbOpsFeatureFlags.isRightsizingEnabled()
+                ? getRightsizingRecommendations(projectId, forceRefresh)
+                : CompletableFuture.completedFuture(Collections.emptyList());
         CompletableFuture<List<DbSnapshotWasteDto>> snapFuture = getDbSnapshots(projectId, false);
 
         return CompletableFuture.allOf(invFuture, idleFuture, rightFuture, snapFuture).thenApply(v -> {

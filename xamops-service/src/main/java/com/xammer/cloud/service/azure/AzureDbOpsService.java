@@ -12,6 +12,7 @@ import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.DbAgentConfig;
 import com.xammer.cloud.domain.DbAgentMetricsHistory;
+import com.xammer.cloud.config.DbOpsFeatureFlags;
 import com.xammer.cloud.dto.dbops.*;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
@@ -92,6 +93,7 @@ public class AzureDbOpsService {
     private final DbAgentDataCacheRepository dbAgentDataCacheRepository;
     private final DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository;
     private final AzureArmClient armClient;
+    private final DbOpsFeatureFlags dbOpsFeatureFlags;
 
     public AzureDbOpsService(
             AzureClientProvider azureClientProvider,
@@ -102,7 +104,8 @@ public class AzureDbOpsService {
             DbAgentConfigRepository dbAgentConfigRepository,
             DbAgentDataCacheRepository dbAgentDataCacheRepository,
             DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository,
-            AzureArmClient armClient) {
+            AzureArmClient armClient,
+            DbOpsFeatureFlags dbOpsFeatureFlags) {
         this.azureClientProvider = azureClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.redisCache = redisCache;
@@ -112,6 +115,7 @@ public class AzureDbOpsService {
         this.dbAgentDataCacheRepository = dbAgentDataCacheRepository;
         this.dbAgentMetricsHistoryRepository = dbAgentMetricsHistoryRepository;
         this.armClient = armClient;
+        this.dbOpsFeatureFlags = dbOpsFeatureFlags;
     }
 
     // =========================================================================
@@ -360,7 +364,7 @@ public class AzureDbOpsService {
                                             dto.setSizeGb(sizeGb);
                                             dto.setEstimatedMonthlyCost(round2(sizeGb * BACKUP_COST_PER_GB));
                                             dto.setRecommendation(ageDays > 90
-                                                    ? "Safe to delete — restore point over 90 days old"
+                                                    ? "Review retention before deleting — restore point over 90 days old"
                                                     : "Review — restore point created " + ageDays + " days ago");
                                             wasteList.add(dto);
                                         } catch (Exception ex) {
@@ -524,8 +528,14 @@ public class AzureDbOpsService {
     @Async("awsTaskExecutor")
     public CompletableFuture<DbSavingsSummaryDto> getSavingsSummary(String subscriptionId, boolean forceRefresh) {
         CompletableFuture<List<DbInstanceDto>>     invFuture   = getDbInventory(subscriptionId, forceRefresh);
-        CompletableFuture<List<DbIdleInstanceDto>> idleFuture  = getIdleInstances(subscriptionId, forceRefresh);
-        CompletableFuture<List<DbRightsizingDto>>  rightFuture = getRightsizingRecommendations(subscriptionId, forceRefresh);
+        // Phase 1a: a disabled pillar contributes an empty list, so its count/savings are 0 and it
+        // never enters the savings total — the summary omits it rather than faking a value.
+        CompletableFuture<List<DbIdleInstanceDto>> idleFuture  = dbOpsFeatureFlags.isIdleEnabled()
+                ? getIdleInstances(subscriptionId, forceRefresh)
+                : CompletableFuture.completedFuture(Collections.emptyList());
+        CompletableFuture<List<DbRightsizingDto>>  rightFuture = dbOpsFeatureFlags.isRightsizingEnabled()
+                ? getRightsizingRecommendations(subscriptionId, forceRefresh)
+                : CompletableFuture.completedFuture(Collections.emptyList());
         CompletableFuture<List<DbSnapshotWasteDto>> snapFuture = getDbSnapshots(subscriptionId, false);
 
         return CompletableFuture.allOf(invFuture, idleFuture, rightFuture, snapFuture).thenApply(v -> {

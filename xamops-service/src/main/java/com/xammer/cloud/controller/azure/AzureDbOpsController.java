@@ -1,5 +1,6 @@
 package com.xammer.cloud.controller.azure;
 
+import com.xammer.cloud.config.DbOpsFeatureFlags;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.dbops.*;
 import com.xammer.cloud.security.ClientUserDetails;
@@ -13,6 +14,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -32,11 +34,14 @@ public class AzureDbOpsController {
 
     private final AzureDbOpsService azureDbOpsService;
     private final CloudAccountAccessService accountAccessService;
+    private final DbOpsFeatureFlags dbOpsFeatureFlags;
 
     public AzureDbOpsController(AzureDbOpsService azureDbOpsService,
-            CloudAccountAccessService accountAccessService) {
+            CloudAccountAccessService accountAccessService,
+            DbOpsFeatureFlags dbOpsFeatureFlags) {
         this.azureDbOpsService = azureDbOpsService;
         this.accountAccessService = accountAccessService;
+        this.dbOpsFeatureFlags = dbOpsFeatureFlags;
     }
 
     // ── Authorization (SEC-1) ───────────────────────────────────────────────
@@ -85,6 +90,10 @@ public class AzureDbOpsController {
             @AuthenticationPrincipal ClientUserDetails userDetails) {
 
         requireAzureAccount(userDetails, subscriptionId); // SEC-1 (synchronous-first)
+        // Phase 1a: fail closed when idle detection is disabled — no data leaves the server.
+        if (!dbOpsFeatureFlags.isIdleEnabled()) {
+            return CompletableFuture.completedFuture(ResponseEntity.ok(Collections.emptyList()));
+        }
         logger.info("💤 [AzureDbOps] Idle instances request — subscription: {}", subscriptionId);
         return azureDbOpsService.getIdleInstances(subscriptionId, forceRefresh)
                 .thenApply(data -> {
@@ -106,6 +115,10 @@ public class AzureDbOpsController {
             @AuthenticationPrincipal ClientUserDetails userDetails) {
 
         requireAzureAccount(userDetails, subscriptionId); // SEC-1 (synchronous-first)
+        // Phase 1a: fail closed when right-sizing is disabled — no data leaves the server.
+        if (!dbOpsFeatureFlags.isRightsizingEnabled()) {
+            return CompletableFuture.completedFuture(ResponseEntity.ok(Collections.emptyList()));
+        }
         logger.info("📐 [AzureDbOps] Right-sizing request — subscription: {}", subscriptionId);
         return azureDbOpsService.getRightsizingRecommendations(subscriptionId, forceRefresh)
                 .thenApply(data -> {
