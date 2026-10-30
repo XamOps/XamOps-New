@@ -10,6 +10,7 @@ import {
 } from '../hooks/useDbOpsData';
 import DbInstanceDetailPage, { DrawerInstance } from '../components/DbOps/DbInstanceDetailDrawer';
 import { DbAlertPanel } from '../components/DbOps/DbAlertPanel';
+import { isAwsMultiAz } from '../components/DbOps/multiAz';
 import {
   DBOPS_IDLE_UI_ENABLED, DBOPS_RIGHTSIZING_UI_ENABLED, DBOPS_HEALTH_UI_ENABLED,
 } from '../constants/dbOpsFeatureFlags';
@@ -200,7 +201,7 @@ function InventoryTab({
                         : <span className="text-red-500 font-medium"><Icon icon="mdi:close" width={12} className="inline mr-1" />Off</span>)
                         : <span className="text-[rgba(0,0,0,0.3)]">—</span>}
                     </td>
-                    <td className="px-4 py-3 text-[rgba(0,0,0,0.7)]">{i?.multiAz != null ? (i.multiAz ? <span className="text-[#0b8f5a]"><Icon icon="mdi:check" width={12} className="inline mr-1" />Yes</span> : <span className="text-[rgba(0,0,0,0.3)]">No</span>) : <span className="text-[rgba(0,0,0,0.3)]">—</span>}</td>
+                    <td className="px-4 py-3 text-[rgba(0,0,0,0.7)]">{i?.multiAz != null ? (isAwsMultiAz(i.multiAz) ? <span className="text-[#0b8f5a]"><Icon icon="mdi:check" width={12} className="inline mr-1" />Yes</span> : <span className="text-[rgba(0,0,0,0.3)]">No</span>) : <span className="text-[rgba(0,0,0,0.3)]">—</span>}</td>
                     <td className="px-4 py-3 font-semibold text-[rgba(0,0,0,0.85)] whitespace-nowrap tabular-nums">
                       {i ? fmt$(i.estimatedMonthlyCost)
                         : (am?.ec2HourlyPrice && am.ec2HourlyPrice > 0
@@ -578,7 +579,7 @@ const DataOpsPage: React.FC = () => {
             </motion.div>
           )}
 
-          {accountId && !loading && !selectedInstance && (
+          {accountId && !loading && !selectedInstance && !error && (
             <motion.div key="inventory" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}>
               {(() => {
                 // Augment backend summary with agent-only instances not in RDS inventory

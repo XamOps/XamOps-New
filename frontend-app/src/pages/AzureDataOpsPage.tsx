@@ -9,6 +9,7 @@ import {
 } from '../hooks/useAzureDbOpsData';
 import DbInstanceDetailPage, { DrawerInstance } from '../components/DbOps/DbInstanceDetailDrawer';
 import { DBOPS_IDLE_UI_ENABLED, DBOPS_RIGHTSIZING_UI_ENABLED } from '../constants/dbOpsFeatureFlags';
+import { isAzureHa } from '../components/DbOps/multiAz';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -140,7 +141,7 @@ function InventoryTab({
                   ? agentInstanceMetrics.find(m => m.dbHost === row.agentHost)
                   : undefined;
                 const dbSizeGb = am?.dbSizeBytes ? (am.dbSizeBytes / 1073741824).toFixed(2) : null;
-                const isHA = i?.multiAz === 'REGIONAL';
+                const isHA = isAzureHa(i?.multiAz);
                 return (
                   <tr
                     key={row.instanceId}
@@ -552,7 +553,7 @@ const AzureDataOpsPage: React.FC = () => {
             </motion.div>
           )}
 
-          {subscriptionId && !loading && !selectedInstance && (
+          {subscriptionId && !loading && !selectedInstance && !error && (
             <motion.div key="inventory" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}>
               {(() => {
                 const agentOnlyHosts = new Set<string>();
