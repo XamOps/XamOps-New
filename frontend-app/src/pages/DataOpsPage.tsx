@@ -10,6 +10,9 @@ import {
 } from '../hooks/useDbOpsData';
 import DbInstanceDetailPage, { DrawerInstance } from '../components/DbOps/DbInstanceDetailDrawer';
 import { DbAlertPanel } from '../components/DbOps/DbAlertPanel';
+import {
+  DBOPS_IDLE_UI_ENABLED, DBOPS_RIGHTSIZING_UI_ENABLED, DBOPS_HEALTH_UI_ENABLED,
+} from '../constants/dbOpsFeatureFlags';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -39,8 +42,8 @@ function SummaryCards({ s }: { s: DbSavingsSummary }) {
     { label: 'Monthly DB Spend', value: fmt$(s.totalDbMonthlyCost) },
     { label: 'Savings Potential', value: fmt$(s.totalPotentialSavings), accent: true },
     { label: 'Total Instances', value: String(s.totalInstances) },
-    { label: 'Idle Instances', value: `${s.idleInstances}`, sub: fmt$(s.idleSavingsPotential) + ' savings' },
-    { label: 'Right-sizing Candidates', value: `${s.rightsizingCandidates}`, sub: fmt$(s.rightsizingSavingsPotential) + ' savings' },
+    ...(DBOPS_IDLE_UI_ENABLED ? [{ label: 'Idle Instances', value: `${s.idleInstances}`, sub: fmt$(s.idleSavingsPotential) + ' savings' }] : []),
+    ...(DBOPS_RIGHTSIZING_UI_ENABLED ? [{ label: 'Right-sizing Candidates', value: `${s.rightsizingCandidates}`, sub: fmt$(s.rightsizingSavingsPotential) + ' savings' }] : []),
     { label: 'Snapshot Waste', value: fmt$(s.snapshotWasteCost) },
   ];
   return (
@@ -129,7 +132,7 @@ function InventoryTab({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[rgba(0,0,0,0.06)]">
-                {['Instance ID', 'Source', 'Engine', 'Class', 'Region', 'Status', 'Storage (GB)', 'Encrypted', 'Backups', 'Multi-AZ', 'Est. Cost/mo', 'Health', ''].map(h => (
+                {['Instance ID', 'Source', 'Engine', 'Class', 'Region', 'Status', 'Storage (GB)', 'Encrypted', 'Backups', 'Multi-AZ', 'Est. Cost/mo', ''].map(h => (
                   <th key={h} className="text-left px-4 py-2.5 text-[11px] font-semibold text-[rgba(0,0,0,0.45)] uppercase tracking-wider whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -137,7 +140,7 @@ function InventoryTab({
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={13}>
+                  <td colSpan={12}>
                     <div className="flex flex-col items-center justify-center py-16 gap-3">
                       <div className="w-12 h-12 rounded-full bg-[rgba(0,0,0,0.03)] flex items-center justify-center">
                         <Icon icon="mdi:database-outline" width={24} color="rgba(0,0,0,0.3)" />
@@ -203,22 +206,6 @@ function InventoryTab({
                         : (am?.ec2HourlyPrice && am.ec2HourlyPrice > 0
                           ? <span title="EC2 on-demand monthly cost">{fmt$(am.ec2HourlyPrice * 730)}</span>
                           : <span className="text-[rgba(0,0,0,0.3)] font-normal">—</span>)}
-                    </td>
-                    <td className="px-4 py-3">
-                      {(() => {
-                        const snap = healthSnapshots.find(s => s.instanceId === row.instanceId);
-                        if (!snap) return <span className="text-[rgba(0,0,0,0.25)] text-xs">—</span>;
-                        const colors: Record<string, string> = {
-                          healthy: 'text-emerald-700 bg-emerald-50',
-                          warning: 'text-amber-700 bg-amber-50',
-                          critical: 'text-red-600 bg-red-50',
-                        };
-                        return (
-                          <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-bold tabular-nums ${colors[snap.status] ?? colors.warning}`}>
-                            {snap.score}
-                          </span>
-                        );
-                      })()}
                     </td>
                     <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
                       {row.source === 'rds' && (
@@ -381,14 +368,14 @@ const DataOpsPage: React.FC = () => {
                 {rd.status}
               </span>
             )}
-            {instanceIdle && (
+            {DBOPS_IDLE_UI_ENABLED && instanceIdle && (
               <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600">
                 <Icon icon="mdi:moon-waning-crescent" width={11} />Idle
               </span>
             )}
           </div>
 
-          {/* ── Health score ── */}
+          {/* ── Health score ── disabled: onHealthChange is gated by DBOPS_HEALTH_UI_ENABLED, so instanceHealth stays null and this never renders */}
           {h && (
             <div
               className={`flex items-center gap-2 h-8 px-2.5 rounded-md border
@@ -517,7 +504,7 @@ const DataOpsPage: React.FC = () => {
             <Icon icon="mdi:flask-outline" width={12} />
             Beta
           </span>
-          <DbAlertPanel alerts={dbAlerts ?? []} />
+          {DBOPS_HEALTH_UI_ENABLED && <DbAlertPanel alerts={dbAlerts ?? []} />}
           <button
             onClick={refresh}
             disabled={loading}
@@ -612,7 +599,7 @@ const DataOpsPage: React.FC = () => {
                     : null;
                 return combinedSummary && <SummaryCards s={combinedSummary} />;
               })()}
-              <HealthSummaryCard snapshots={healthSnapshots} onFilter={setHealthFilter} />
+              {DBOPS_HEALTH_UI_ENABLED && <HealthSummaryCard snapshots={healthSnapshots} onFilter={setHealthFilter} />}
               <InventoryTab inventory={inventory} agentStats={agentQueryStats} agentInstanceMetrics={agentInstanceMetrics} onSelect={setSelectedInstance} onRemove={refresh} healthSnapshots={healthSnapshots} healthFilter={healthFilter} />
             </motion.div>
           )}
