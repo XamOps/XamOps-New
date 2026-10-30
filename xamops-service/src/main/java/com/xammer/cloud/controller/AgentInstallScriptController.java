@@ -72,6 +72,83 @@ public class AgentInstallScriptController {
         return serve("gke", "xamops-install-gke.sh");
     }
 
+    /** The Phase-2 IAM CFN template, served verbatim (design §4.3, §5.2). */
+    private static final String EKS_CLUSTER_ROLES = "agent-install/eks-cluster-roles.yml";
+
+    /**
+     * Cached template body + its SHA-256, computed once on first read. The installer verifies the
+     * body against the {@code templateSha256} returned by the exchange before deploying IAM, so the
+     * hash it reads from {@code X-Content-SHA256} here must match that value exactly.
+     */
+    private volatile String cachedTemplate;
+    private volatile String cachedTemplateSha256;
+
+    /**
+     * GET /api/v1/agent/install/eks-cluster-roles.yml — the Phase-2 IAM template, verbatim, with an
+     * {@code X-Content-SHA256} header the installer checks before applying the stack.
+     */
+    @GetMapping(value = "/eks-cluster-roles.yml", produces = "text/yaml")
+    public ResponseEntity<String> eksClusterRolesTemplate() {
+        String body;
+        String sha;
+        try {
+            body = loadTemplate();
+            sha = cachedTemplateSha256;
+        } catch (IOException e) {
+            log.error("Failed to read {}", EKS_CLUSTER_ROLES, e);
+            return ResponseEntity.status(500)
+                    .contentType(MediaType.TEXT_PLAIN)
+                    .body("# XamOps IAM template is unavailable on this server.\n");
+        }
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, "text/yaml")
+                .header("X-Content-SHA256", sha)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"eks-cluster-roles.yml\"")
+                .header(HttpHeaders.CACHE_CONTROL, "no-cache")
+                .body(body);
+    }
+
+    /** Load and memoise the template body and its SHA-256 (design §4.3 exposes the hash to the exchange). */
+    public String loadTemplate() throws IOException {
+        String body = cachedTemplate;
+        if (body != null) {
+            return body;
+        }
+        ClassPathResource resource = new ClassPathResource(EKS_CLUSTER_ROLES);
+        try (InputStream in = resource.getInputStream()) {
+            body = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        cachedTemplate = body;
+        cachedTemplateSha256 = sha256Hex(body);
+        return body;
+    }
+
+    /** The template's SHA-256, for {@code ConnectExchangeService} to stamp into {@code iam.templateSha256}. */
+    public String templateSha256() {
+        try {
+            loadTemplate();
+        } catch (IOException e) {
+            log.error("Failed to read {} for sha", EKS_CLUSTER_ROLES, e);
+            return null;
+        }
+        return cachedTemplateSha256;
+    }
+
+    private static String sha256Hex(String body) {
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] out = digest.digest(body.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(out.length * 2);
+            for (byte b : out) {
+                sb.append(Character.forDigit((b >> 4) & 0xF, 16));
+                sb.append(Character.forDigit(b & 0xF, 16));
+            }
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
+    }
+
     /**
      * Both the extensioned and bare paths are mapped: the {@code .sh} suffix is what users expect
      * in a {@code curl} URL, and the bare form guards against any future change to suffix-pattern
