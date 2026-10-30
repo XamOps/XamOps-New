@@ -349,14 +349,13 @@ function clearCache(accountId: string) {
   localStorage.removeItem(`dbops_${accountId}`);
 }
 
+// Throws on a non-ok response or a network error so a genuine failure is distinguishable from a
+// successful-but-empty payload. The caller's try/catch sets the `error` state; a succeeded scan
+// with zero rows resolves normally to an empty list (COR-13 / UX-2).
 async function fetchJson<T>(url: string): Promise<T | null> {
-  try {
-    const res = await fetch(url, { credentials: 'include', headers: { Accept: 'application/json' } });
-    if (!res.ok) return null;
-    return res.json() as Promise<T>;
-  } catch {
-    return null;
-  }
+  const res = await fetch(url, { credentials: 'include', headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(`DbOps request failed (${res.status}): ${url}`);
+  return res.json() as Promise<T>;
 }
 
 export function useDbOpsData(accountId: string | null) {
@@ -492,7 +491,7 @@ export function useDbOpsData(accountId: string | null) {
     if (!accountId) return null;
     return fetchJson<DbInstanceTimeseries>(
       `/api/dbops/aws/${accountId}/instance/${encodeURIComponent(instanceId)}/timeseries?hours=${hours}`
-    );
+    ).catch(() => null);
   }, [accountId]);
 
   const fetchAgentTimeseries = useCallback(async (
@@ -501,42 +500,42 @@ export function useDbOpsData(accountId: string | null) {
     if (!accountId) return [];
     return fetchJson<AgentTimeseries[]>(
       `/api/dbops/aws/${accountId}/agent-timeseries?hours=${hours}`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [accountId]);
 
   const fetchAgentTableSizes = useCallback(async (): Promise<AgentTableSize[]> => {
     if (!accountId) return [];
     return fetchJson<AgentTableSize[]>(
       `/api/dbops/aws/${accountId}/agent-table-sizes`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [accountId]);
 
   const fetchAgentIndexUsage = useCallback(async (): Promise<AgentIndexUsage[]> => {
     if (!accountId) return [];
     return fetchJson<AgentIndexUsage[]>(
       `/api/dbops/aws/${accountId}/agent-index-usage`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [accountId]);
 
   const fetchAgentTableActivity = useCallback(async (): Promise<AgentTableActivity[]> => {
     if (!accountId) return [];
     return fetchJson<AgentTableActivity[]>(
       `/api/dbops/aws/${accountId}/agent-table-activity`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [accountId]);
 
   const fetchAgentVacuumStats = useCallback(async (): Promise<AgentVacuumStat[]> => {
     if (!accountId) return [];
     return fetchJson<AgentVacuumStat[]>(
       `/api/dbops/aws/${accountId}/agent-vacuum-stats`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [accountId]);
 
   const fetchAgentUserActivity = useCallback(async (): Promise<AgentUserActivity[]> => {
     if (!accountId) return [];
     return fetchJson<AgentUserActivity[]>(
       `/api/dbops/aws/${accountId}/agent-user-activity`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [accountId]);
 
   return {

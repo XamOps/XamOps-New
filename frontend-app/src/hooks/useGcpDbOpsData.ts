@@ -57,14 +57,13 @@ function clearCache(projectId: string) {
   localStorage.removeItem(`gcp_dbops_${projectId}`);
 }
 
+// Throws on a non-ok response or a network error so a genuine failure is distinguishable from a
+// successful-but-empty payload. The caller's try/catch sets the `error` state; a succeeded scan
+// with zero rows resolves normally to an empty list (COR-13 / UX-2).
 async function fetchJson<T>(url: string): Promise<T | null> {
-  try {
-    const res = await fetch(url, { credentials: 'include', headers: { Accept: 'application/json' } });
-    if (!res.ok) return null;
-    return res.json() as Promise<T>;
-  } catch {
-    return null;
-  }
+  const res = await fetch(url, { credentials: 'include', headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(`DbOps request failed (${res.status}): ${url}`);
+  return res.json() as Promise<T>;
 }
 
 export function useGcpDbOpsData(projectId: string | null) {
@@ -190,42 +189,42 @@ export function useGcpDbOpsData(projectId: string | null) {
     if (!projectId) return [];
     return fetchJson<AgentTimeseries[]>(
       `/api/dbops/gcp/${projectId}/agent-timeseries?hours=${hours}`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [projectId]);
 
   const fetchAgentTableSizes = useCallback(async (): Promise<AgentTableSize[]> => {
     if (!projectId) return [];
     return fetchJson<AgentTableSize[]>(
       `/api/dbops/gcp/${projectId}/agent-table-sizes`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [projectId]);
 
   const fetchAgentIndexUsage = useCallback(async (): Promise<AgentIndexUsage[]> => {
     if (!projectId) return [];
     return fetchJson<AgentIndexUsage[]>(
       `/api/dbops/gcp/${projectId}/agent-index-usage`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [projectId]);
 
   const fetchAgentTableActivity = useCallback(async (): Promise<AgentTableActivity[]> => {
     if (!projectId) return [];
     return fetchJson<AgentTableActivity[]>(
       `/api/dbops/gcp/${projectId}/agent-table-activity`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [projectId]);
 
   const fetchAgentVacuumStats = useCallback(async (): Promise<AgentVacuumStat[]> => {
     if (!projectId) return [];
     return fetchJson<AgentVacuumStat[]>(
       `/api/dbops/gcp/${projectId}/agent-vacuum-stats`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [projectId]);
 
   const fetchAgentUserActivity = useCallback(async (): Promise<AgentUserActivity[]> => {
     if (!projectId) return [];
     return fetchJson<AgentUserActivity[]>(
       `/api/dbops/gcp/${projectId}/agent-user-activity`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [projectId]);
 
   // GCP Cloud SQL does not expose per-instance CloudWatch-style timeseries yet;

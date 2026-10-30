@@ -25,6 +25,7 @@ import {
   DBOPS_IDLE_UI_ENABLED, DBOPS_RIGHTSIZING_UI_ENABLED, DBOPS_HEALTH_UI_ENABLED,
   DBOPS_MONGO_UI_ENABLED, DBOPS_REDIS_UI_ENABLED,
 } from '../../constants/dbOpsFeatureFlags';
+import { computeQueryStatsKpis } from './queryStatsKpis';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1760,11 +1761,7 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint, onExplain }: {
   const collectedAt = stats[0]?.collectedAt;
 
   // ── Aggregate KPIs (over all stats, unaffected by filters) ──
-  const totalCalls = stats.reduce((s, q) => s + q.callCount, 0);
-  const overallAvgMs = stats.length > 0 ? stats.reduce((s, q) => s + q.avgTimeSeconds * 1000, 0) / stats.length : 0;
-  const overallMaxMs = stats.length > 0 ? Math.max(...stats.map(q => q.maxTimeSeconds * 1000)) : 0;
-  const noIndexCount = stats.filter(q => q.noIndexUsed).length;
-  const totalTimeS = stats.reduce((s, q) => s + q.totalTimeSeconds, 0);
+  const { totalCalls, overallAvgMs, overallMaxMs, noIndexCount, noIndexTotalExecS } = computeQueryStatsKpis(stats);
 
   // ── Filter + sort ──
   let filtered = stats;
@@ -1867,7 +1864,7 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint, onExplain }: {
           { icon: 'mdi:layers-outline', label: 'Total Calls', val: totalCalls.toLocaleString(), sub: `${stats.length} digests`, color: 'text-[#0b8f5a]', tip: 'Sum of all query executions across every pattern since stats were last reset.' },
           { icon: 'mdi:speedometer', label: 'Avg Latency', val: `${round2(overallAvgMs)}ms`, sub: 'mean across all queries', color: overallAvgMs >= 500 ? 'text-red-600' : overallAvgMs >= 100 ? 'text-amber-600' : 'text-emerald-600', tip: 'Weighted average execution time across all query patterns. Red ≥ 500 ms, amber ≥ 100 ms.' },
           { icon: 'mdi:trending-up', label: 'Peak Latency', val: `${round2(overallMaxMs)}ms`, sub: 'single-query maximum', color: overallMaxMs >= 1000 ? 'text-red-600' : overallMaxMs >= 500 ? 'text-orange-600' : 'text-[rgba(0,0,0,0.88)]', tip: 'Slowest single query execution recorded across all patterns — the absolute worst-case latency.' },
-          { icon: 'mdi:alert-outline', label: 'No Index', val: noIndexCount.toString(), sub: `${round2(totalTimeS)}s total exec`, color: noIndexCount > 0 ? 'text-red-600' : 'text-emerald-600', tip: 'Number of query patterns running full table scans with no index. The sub-value shows total CPU time wasted on these scans.' },
+          { icon: 'mdi:alert-outline', label: 'No Index', val: noIndexCount.toString(), sub: `${round2(noIndexTotalExecS)}s total exec`, color: noIndexCount > 0 ? 'text-red-600' : 'text-emerald-600', tip: 'Number of query patterns running full table scans with no index. The sub-value shows total CPU time spent on these no-index scans.' },
         ].map(k => (
           <div key={k.label} className="bg-white rounded-xl p-3 border border-[rgba(0,0,0,0.12)] shadow-sm">
             <div className="flex items-center gap-1.5 mb-1">
@@ -3124,7 +3121,9 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
 }
 
 // ── Security Tab ──────────────────────────────────────────────────────────────
-const SECURITY_CATALOGUE_AWS = [
+// The backend (getSecurityChecks) evaluates exactly four checks, so the catalogue reflects only
+// those four — advertising checks that are never evaluated misleads the user (COR-23).
+export const SECURITY_CATALOGUE_AWS = [
   {
     category: 'Access Control',
     icon: 'mdi:key-outline',
@@ -3132,8 +3131,6 @@ const SECURITY_CATALOGUE_AWS = [
     bg: 'bg-rose-50',
     checks: [
       { name: 'Public Accessibility', desc: 'DB reachable from the public internet.' },
-      { name: 'IAM Database Authentication', desc: 'Password-free login via AWS IAM tokens.' },
-      { name: 'Default Port Usage', desc: 'Using default port increases attack surface.' },
     ],
   },
   {
@@ -3143,8 +3140,6 @@ const SECURITY_CATALOGUE_AWS = [
     bg: 'bg-[rgba(0,0,0,0.03)]',
     checks: [
       { name: 'Encryption at Rest', desc: 'Storage encrypted with AWS KMS.' },
-      { name: 'SSL/TLS in Transit', desc: 'Connections require SSL/TLS.' },
-      { name: 'Certificate Rotation', desc: 'SSL certificate is current and unexpired.' },
     ],
   },
   {
@@ -3155,23 +3150,11 @@ const SECURITY_CATALOGUE_AWS = [
     checks: [
       { name: 'Automated Backups', desc: 'Daily snapshots retained ≥7 days.' },
       { name: 'Multi-AZ Deployment', desc: 'Standby replica for failover.' },
-      { name: 'Deletion Protection', desc: 'Guards against accidental instance deletion.' },
-    ],
-  },
-  {
-    category: 'Monitoring',
-    icon: 'mdi:binoculars',
-    color: 'text-emerald-500',
-    bg: 'bg-emerald-50',
-    checks: [
-      { name: 'Enhanced Monitoring', desc: 'OS-level metrics at 60 s intervals.' },
-      { name: 'Performance Insights', desc: 'Query-level performance profiling.' },
-      { name: 'CloudWatch Alarms', desc: 'Alerts on CPU, connections, and storage.' },
     ],
   },
 ];
 
-const SECURITY_CATALOGUE_GCP = [
+export const SECURITY_CATALOGUE_GCP = [
   {
     category: 'Access Control',
     icon: 'mdi:key-outline',
@@ -3179,8 +3162,6 @@ const SECURITY_CATALOGUE_GCP = [
     bg: 'bg-rose-50',
     checks: [
       { name: 'Public Accessibility', desc: 'DB reachable from the public internet.' },
-      { name: 'Cloud IAM Authentication', desc: 'Password-free login via GCP Cloud IAM.' },
-      { name: 'Default Port Usage', desc: 'Using default port increases attack surface.' },
     ],
   },
   {
@@ -3190,8 +3171,6 @@ const SECURITY_CATALOGUE_GCP = [
     bg: 'bg-[rgba(0,0,0,0.03)]',
     checks: [
       { name: 'Encryption at Rest', desc: 'Storage encrypted with Google-managed keys (CMEK optional).' },
-      { name: 'SSL/TLS in Transit', desc: 'Connections require SSL/TLS.' },
-      { name: 'Certificate Rotation', desc: 'SSL certificate is current and unexpired.' },
     ],
   },
   {
@@ -3202,18 +3181,6 @@ const SECURITY_CATALOGUE_GCP = [
     checks: [
       { name: 'Automated Backups', desc: 'Daily snapshots retained ≥7 days.' },
       { name: 'High Availability (HA)', desc: 'Standby replica in another zone for failover.' },
-      { name: 'Deletion Protection', desc: 'Guards against accidental instance deletion.' },
-    ],
-  },
-  {
-    category: 'Monitoring',
-    icon: 'mdi:binoculars',
-    color: 'text-emerald-500',
-    bg: 'bg-emerald-50',
-    checks: [
-      { name: 'Cloud Monitoring', desc: 'OS-level metrics via GCP Cloud Monitoring.' },
-      { name: 'Query Insights', desc: 'Query-level performance profiling.' },
-      { name: 'Cloud Monitoring Alerts', desc: 'Alerts on CPU, connections, and storage.' },
     ],
   },
 ];
@@ -3239,7 +3206,7 @@ function getRemediation(checkName: string): string | null {
   return hit?.fix ?? null;
 }
 
-function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
+export function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
   checks: DbSecurityCheck[];
   instanceSource: 'rds' | 'agent';
   cloudProvider?: 'aws' | 'gcp' | 'azure';
@@ -3314,11 +3281,6 @@ function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
                     : <>Security checks run automatically for <strong>RDS instances</strong> connected to your AWS account. Checks may take a few minutes to populate after initial connection.</>
                 )}
               </p>
-              <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-[rgba(0,0,0,0.88)] text-white hover:bg-black transition-colors shadow-sm">
-                <Icon icon="mdi:cog-outline" width={13} className="inline" />
-                Configure Security Checks
-                <Icon icon="mdi:arrow-right" width={12} className="inline" />
-              </button>
             </div>
           </div>
         </div>
@@ -4837,9 +4799,9 @@ export default function DbInstanceDetailDrawer({
                     tooltip="Average write I/O latency in milliseconds over 7 days. High write latency may indicate I/O saturation, slow commit flush, or storage bottleneck." />
                   <StatCard label="Free Storage" value={metrics.freeStorageSpaceGb} unit="GB"
                     tooltip="Remaining free storage space. Below 10% of total storage triggers a CloudWatch alarm. Running out of storage will cause the instance to become read-only." />
-                  <StatCard label="Network In" value={metrics.avgNetworkReceiveMbps} unit="Mbps"
+                  <StatCard label="Network In" value={metrics.avgNetworkReceiveMbps} unit="MB/s"
                     tooltip="Average inbound network throughput over 7 days. High inbound traffic may indicate large bulk imports or heavy replication." />
-                  <StatCard label="Network Out" value={metrics.avgNetworkTransmitMbps} unit="Mbps"
+                  <StatCard label="Network Out" value={metrics.avgNetworkTransmitMbps} unit="MB/s"
                     tooltip="Average outbound network throughput over 7 days. High outbound traffic may indicate large result sets being returned to clients — consider pagination or projection." />
                   {metrics.avgSwapUsageMb > 0 && (
                     <StatCard label="Swap Usage" value={`${round2(metrics.avgSwapUsageMb)} MB`}
@@ -5297,8 +5259,8 @@ export default function DbInstanceDetailDrawer({
                     <PerfChart title="Write Latency" data={wLatData} color="#ef4444" unit="ms" syncId="rds_perf" />
                     <PerfChart title="Free Storage" data={storData} color="#14b8a6" unit="GB" syncId="rds_perf" />
                     <PerfChart title="Freeable Memory" data={memData} color="#f97316" unit="MB" syncId="rds_perf" />
-                    <PerfChart title="Network In" data={netInData} color="#06b6d4" unit="Mbps" syncId="rds_perf" />
-                    <PerfChart title="Network Out" data={netOutData} color="#a78bfa" unit="Mbps" syncId="rds_perf" />
+                    <PerfChart title="Network In" data={netInData} color="#06b6d4" unit="MB/s" syncId="rds_perf" />
+                    <PerfChart title="Network Out" data={netOutData} color="#a78bfa" unit="MB/s" syncId="rds_perf" />
                     {repData.length > 0 && (
                       <PerfChart title="Replication Lag" data={repData} color="#a855f7" unit="s" syncId="rds_perf" />
                     )}

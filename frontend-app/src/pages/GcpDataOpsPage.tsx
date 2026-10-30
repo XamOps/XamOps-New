@@ -552,7 +552,7 @@ const GcpDataOpsPage: React.FC = () => {
             </motion.div>
           )}
 
-          {projectId && !loading && !selectedInstance && (
+          {projectId && !loading && !selectedInstance && !error && (
             <motion.div key="inventory" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}>
               {(() => {
                 const agentOnlyHosts = new Set<string>();
