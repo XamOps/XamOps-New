@@ -74,17 +74,15 @@ class AwsAccountServiceCurUrlTest {
     }
 
     @Test
-    void curUrl_presentForOwnCur_pinnedToUsEast1WithCurTemplate() throws Exception {
+    void curUrl_absentForOwnCur_becauseCurStackIsAutoCreatedOnConnect() throws Exception {
+        // XamOps creates the CUR stack itself after the connection stack completes, so no
+        // manual launch link is handed to the customer.
         Map<String, Object> result = service.generateCloudFormationUrl(
                 "Acme Prod", "111122223333", "read-only", 1L, "cur-bucket-1", "OWN_CUR");
 
-        assertThat(result).containsKey("curUrl");
-        String curUrl = result.get("curUrl").toString();
-        assertThat(curUrl).contains("region=us-east-1");
-        assertThat(curUrl).contains(CUR_TEMPLATE);
-        assertThat(curUrl).contains("XamOps-CUR-AcmeProd");
-        assertThat(result.get("curStackName")).isEqualTo("XamOps-CUR-AcmeProd");
-        assertThat(result.get("curRegion")).isEqualTo("us-east-1");
+        assertThat(result).doesNotContainKey("curUrl");
+        assertThat(result).doesNotContainKey("curStackName");
+        assertThat(result).doesNotContainKey("curRegion");
     }
 
     @Test

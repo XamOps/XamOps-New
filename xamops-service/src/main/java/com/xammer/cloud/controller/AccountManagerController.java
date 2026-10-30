@@ -110,14 +110,8 @@ public class AccountManagerController {
             stackDetails.put("externalId", result.get("externalId").toString());
             stackDetails.put("eventBridgeEnabled", result.get("eventBridgeEnabled").toString());
             stackDetails.put("roleName", result.get("roleName").toString());
-            // The CUR stack is a second, separate launch in us-east-1, surfaced only for
-            // accounts that own their report. Added additively so clients that ignore these
-            // keys keep working unchanged.
-            if (result.get("curUrl") != null) {
-                stackDetails.put("curUrl", String.valueOf(result.get("curUrl")));
-                stackDetails.put("curStackName", String.valueOf(result.get("curStackName")));
-                stackDetails.put("curRegion", String.valueOf(result.get("curRegion")));
-            }
+            // No CUR launch URL: the CUR stack (us-east-1) is created by XamOps automatically
+            // once the connection stack completes.
             return ResponseEntity.ok(stackDetails);
         } catch (Exception e) {
             return ResponseEntity.badRequest()

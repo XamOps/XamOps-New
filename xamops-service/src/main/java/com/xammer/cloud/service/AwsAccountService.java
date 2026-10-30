@@ -256,32 +256,24 @@ public class AwsAccountService {
         response.put("roleName", roleName);
 
         /*
-         * The CUR report stack: a second, standalone launch pinned to us-east-1, produced only
-         * for accounts that own their report. It carries no XamOps parameters — the report is
-         * self-contained — so the URL names just the template and a deterministic stack name.
+         * The CUR report stack (us-east-1) for accounts that own their report. XamOps creates
+         * it itself once the connection stack completes (triggerCurStackCreationOnConnect), so
+         * no customer-facing launch URL is returned — a manual link would only race the
+         * automatic create or fail on the already-existing stack name.
          *
-         * If no CUR template is configured for this environment the URL is simply omitted; a
-         * missing optional stack must not break onboarding, so this warns rather than throws.
+         * The stack identity is still recorded now, on the account persisted above, because
+         * CurStackService resolves the stack by it. If no CUR template is configured for this
+         * environment there is nothing to create; warn rather than fail onboarding.
          */
         if (createReport) {
             String curStackName = "XamOps-CUR-" + accountName.replaceAll("[^a-zA-Z0-9-]", "");
             if (curTemplateUrl != null && !curTemplateUrl.isBlank()) {
-                String curUrlString = String.format(
-                        "https://console.aws.amazon.com/cloudformation/home?region=%s#/stacks/create/review"
-                                + "?templateURL=%s&stackName=%s",
-                        CUR_REPORT_REGION, curTemplateUrl, curStackName);
-                response.put("curUrl", new URL(curUrlString));
-                response.put("curStackName", curStackName);
-                response.put("curRegion", CUR_REPORT_REGION);
-
-                // Resolution #5: the CUR stack has no callback, so its identity is recorded now,
-                // at URL-generation time, on the account persisted above.
                 newAccount.setCurStackName(curStackName);
                 newAccount.setCurStackRegion(CUR_REPORT_REGION);
                 cloudAccountRepository.save(newAccount);
             } else {
                 logger.warn("CUR template URL is not configured (cloudformation.template.s3.cur.url);"
-                        + " omitting CUR stack URL for account {}.", accountName);
+                        + " no CUR stack will be created for account {}.", accountName);
             }
         }
 

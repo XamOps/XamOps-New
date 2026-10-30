@@ -82,12 +82,14 @@ class AwsAccountServiceOnboardCurTest {
     // ---------- Change 1: onboarding billing-source default ----------
 
     @Test
-    void generateUrl_nullBillingSource_defaultsToOwnCur_andEmitsCurUrl() throws Exception {
+    void generateUrl_nullBillingSource_defaultsToOwnCur_andRecordsCurStack() throws Exception {
         Map<String, Object> result = service.generateCloudFormationUrl(
                 "Acme Prod", "111122223333", "read-only", 1L, "cur-bucket-1", null);
 
-        assertThat(result).containsKey("curUrl");
+        // The CUR stack is auto-created on connect, so no manual launch URL is returned.
+        assertThat(result).doesNotContainKey("curUrl");
         assertThat(savedAccount().getAwsBillingSource()).isEqualTo(AwsBillingSource.OWN_CUR);
+        assertThat(savedAccount().getCurStackName()).isEqualTo("XamOps-CUR-AcmeProd");
     }
 
     @Test
@@ -95,8 +97,9 @@ class AwsAccountServiceOnboardCurTest {
         Map<String, Object> result = service.generateCloudFormationUrl(
                 "Acme Prod", "111122223333", "read-only", 1L, "", "");
 
-        assertThat(result).containsKey("curUrl");
+        assertThat(result).doesNotContainKey("curUrl");
         assertThat(savedAccount().getAwsBillingSource()).isEqualTo(AwsBillingSource.OWN_CUR);
+        assertThat(savedAccount().getCurStackName()).isEqualTo("XamOps-CUR-AcmeProd");
     }
 
     @Test

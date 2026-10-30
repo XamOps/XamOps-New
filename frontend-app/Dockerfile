@@ -56,7 +56,11 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY . .
 
 # Build for production (Vite outputs to dist/)
-RUN npm run build
+# Rollup's chunk-rendering phase over ~6.5k modules exceeds Node's default ~2 GB
+# heap and aborts with "JavaScript heap out of memory". Raise the limit for this
+# step only. Docker Desktop's VM needs more memory than this value (8 GB is fine).
+ARG NODE_HEAP_MB=4096
+RUN NODE_OPTIONS="--max-old-space-size=${NODE_HEAP_MB}" npm run build
 
 # Stage 2: Serve using Nginx for MPA
 FROM nginx:1.25-alpine

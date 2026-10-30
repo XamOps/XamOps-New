@@ -81,11 +81,6 @@ interface UseAddAccountReturn {
   verificationDetails: VerificationDetails;
   /** Where this account's cost data will be read from. */
   curSource: CurSourceSelection;
-  /**
-   * Quick-create URL for the CUR stack (us-east-1), or null when there is none to launch.
-   * Set from the generate-stack-url response and only populated for OWN_CUR accounts.
-   */
-  curStackUrl: string | null;
   azureDetails: AzureDetails;
   jenkinsDetails: JenkinsDetails;
 
@@ -101,8 +96,6 @@ interface UseAddAccountReturn {
 
   // Actions
   launchStack: () => Promise<void>;
-  /** Opens the CUR stack quick-create link in a new tab, when one is available. */
-  launchCurStack: () => void;
   verifyAccount: () => Promise<void>;
   addAzureAccount: () => Promise<void>;
   addJenkinsAccount: () => Promise<void>;
@@ -130,7 +123,6 @@ export function useAddAccount(): UseAddAccountReturn {
   const [curSource, setCurSource] = useState<CurSourceSelection>({
     billingSource: 'OWN_CUR',
   });
-  const [curStackUrl, setCurStackUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [autoConnectStatus, setAutoConnectStatus] = useState<AutoConnectStatus>('idle');
@@ -294,10 +286,8 @@ export function useAddAccount(): UseAddAccountReturn {
 
       const data: StackUrlResponse = await res.json();
 
-      // The CUR stack (us-east-1) is a separate, non-nested stack the customer launches on
-      // its own. The backend only sends curUrl for OWN_CUR accounts, so null here means
-      // there is no second stack to launch and the button stays hidden.
-      setCurStackUrl(data.curUrl ?? null);
+      // Only the connection stack is launched by the customer. For OWN_CUR accounts the CUR
+      // stack (us-east-1) is created by XamOps once this stack completes.
 
       // Open AWS CloudFormation in a new tab
       window.open(data.url, '_blank', 'noopener,noreferrer');
@@ -334,17 +324,6 @@ export function useAddAccount(): UseAddAccountReturn {
       setIsLoading(false);
     }
   }, [accountName, accessType, curSource, setVerificationDetails, stopPolling, startPolling]);
-
-  /**
-   * Launch the CUR stack (us-east-1) in a new tab.
-   *
-   * Separate from launchStack because it is a second, independent stack: the connection
-   * stack opens automatically on generate, while this one is launched on demand from the
-   * Verify step and only when the backend provided a curUrl.
-   */
-  const launchCurStack = useCallback(() => {
-    if (curStackUrl) window.open(curStackUrl, '_blank', 'noopener,noreferrer');
-  }, [curStackUrl]);
 
   /**
    * Verify AWS Account connection
@@ -504,7 +483,6 @@ export function useAddAccount(): UseAddAccountReturn {
     setIsVerifying(false);
     setAutoConnected(false);
     setAutoConnectStatus('idle');
-    setCurStackUrl(null);
     stopPolling();
     setVerificationError('');
     setVerificationDetailsState({
@@ -538,7 +516,6 @@ export function useAddAccount(): UseAddAccountReturn {
     azureDetails,
     jenkinsDetails,
     curSource,
-    curStackUrl,
 
     // Setters
     setProvider,
@@ -552,7 +529,6 @@ export function useAddAccount(): UseAddAccountReturn {
 
     // Actions
     launchStack,
-    launchCurStack,
     verifyAccount,
     addAzureAccount,
     addJenkinsAccount,
