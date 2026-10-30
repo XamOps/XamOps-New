@@ -148,6 +148,50 @@ func TestHandlerServesConsolidationMetrics(t *testing.T) {
 	}
 }
 
+// TestVpaMetricsRegistered (FEAT cloudk8s-vpa-apply) asserts the xamops_vpa_* metrics
+// appear with their frozen names and labels after they are exercised.
+func TestVpaMetricsRegistered(t *testing.T) {
+	s := New()
+	s.IncVpaResized()
+	s.IncVpaRefusedNotEligible("resizePolicy=RestartContainer")
+	s.IncVpaRefusedByClassifier("db-primary")
+	s.IncVpaReverted()
+
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET /metrics: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	out := string(body)
+
+	want := []string{
+		"xamops_vpa_resized_total",
+		"xamops_vpa_refused_not_eligible_total",
+		"xamops_vpa_refused_by_classifier_total",
+		"xamops_vpa_reverted_total",
+	}
+	for _, m := range want {
+		if !strings.Contains(out, m) {
+			t.Errorf("metric %q missing from /metrics output", m)
+		}
+	}
+	if !strings.Contains(out, "xamops_vpa_resized_total 1") {
+		t.Errorf("expected xamops_vpa_resized_total 1, got:\n%s", out)
+	}
+	if !strings.Contains(out, `xamops_vpa_refused_not_eligible_total{reason="resizePolicy=RestartContainer"} 1`) {
+		t.Errorf("expected refused_not_eligible{reason} 1 in output")
+	}
+	if !strings.Contains(out, `xamops_vpa_refused_by_classifier_total{code="db-primary"} 1`) {
+		t.Errorf("expected refused_by_classifier{code=db-primary} 1 in output")
+	}
+	if !strings.Contains(out, "xamops_vpa_reverted_total 1") {
+		t.Errorf("expected xamops_vpa_reverted_total 1 in output")
+	}
+}
+
 // TestNilSetIsSafe ensures the convenience methods are no-ops on a nil set.
 func TestNilSetIsSafe(t *testing.T) {
 	var s *Set
@@ -167,4 +211,8 @@ func TestNilSetIsSafe(t *testing.T) {
 	s.ObserveConsolidationDrain(1)
 	s.IncConsolidationRunAbort("x")
 	s.SetConsolidationActionRate(1)
+	s.IncVpaResized()
+	s.IncVpaRefusedNotEligible("x")
+	s.IncVpaRefusedByClassifier("x")
+	s.IncVpaReverted()
 }

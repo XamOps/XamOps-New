@@ -92,6 +92,7 @@ func main() {
 	rebalancer := controller.NewRebalancer(k8s, cfg.DryRun)
 	hpaMgr := controller.NewHPAManager(k8s, cfg.PrometheusURL, cfg.DryRun)
 	vpaMgr := controller.NewVPAManager(k8s, dc, cfg.DryRun)
+	vpaMgr.SetPrometheusURL(cfg.PrometheusURL)
 	nodeOpt := controller.NewNodeOptimizer(k8s, mc, dc, cfg.PrometheusURL, cfg.DryRun)
 
 	// ── Context ──────────────────────────────────────────────────────────
@@ -627,7 +628,7 @@ func runCycle(
 		}
 	}
 
-	// ── 5. VPA Manager (collect existing VPA recommendations) ────────────────
+	// ── 5. VPA Manager (collect; then resize in place ONLY when the gate acts) ──
 	if cfg.EnableVPAManager && bundle.VPAManagerPolicy.Enabled {
 		recs, err := vpaMgr.CollectRecommendations(ctx)
 		if err != nil {
@@ -639,6 +640,26 @@ func runCycle(
 				Count:       len(recs),
 				CollectedAt: time.Now(),
 			})
+		}
+
+		// Acting path: resize in place ONLY when the gate is Simulate/Live. Simulate
+		// issues ZERO resize calls; the controller applies in place only and refuses
+		// any restart-requiring change. VPAManager.Apply is NOT wired (stays callerless).
+		if d.VPAManager.Mode == gate.Simulate || d.VPAManager.Mode == gate.Live {
+			run, actRecs, err := vpaMgr.ApplyInPlace(ctx,
+				bundle.VPAManagerPolicy, bundle.SafetyGuards, d.VPAManager, budget, mset)
+			if err != nil {
+				log.Printf("ERROR: vpa-manager apply-in-place: %v", err)
+			}
+			acts.add("workload-resize", 0, actRecs...)
+			if run != nil {
+				batches = append(batches, pusher.Batch{
+					Collector:   "autoscaling-vpa-runs",
+					Items:       []interface{}{run},
+					Count:       1,
+					CollectedAt: time.Now(),
+				})
+			}
 		}
 	}
 

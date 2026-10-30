@@ -24,6 +24,9 @@ func TestLoadDefaultsAreSafe(t *testing.T) {
 	if cfg.EnableRightsizerApply {
 		t.Error("ENABLE_RIGHTSIZER_APPLY unset must default to false")
 	}
+	if cfg.EnableVPAManager {
+		t.Error("ENABLE_VPA_MANAGER unset must default to false")
+	}
 	if !cfg.DryRun {
 		t.Error("DRY_RUN unset must default to true")
 	}

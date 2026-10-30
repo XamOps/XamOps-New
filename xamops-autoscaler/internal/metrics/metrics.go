@@ -67,6 +67,19 @@ type Set struct {
 	// ConsolidationActionRate is the number of node removals the latest run acted on
 	// (a gauge the dashboard reads as the per-run action rate).
 	ConsolidationActionRate prometheus.Gauge
+
+	// VpaResizedTotal counts containers resized in place, verified (live only).
+	VpaResizedTotal prometheus.Counter
+	// VpaRefusedNotEligibleTotal counts refusals because the change isn't in-place
+	// eligible (resizePolicy=RestartContainer, QoS change, request>limit, server
+	// reject), by reason.
+	VpaRefusedNotEligibleTotal *prometheus.CounterVec // labels: {"reason"}
+	// VpaRefusedByClassifierTotal counts refusals by the stateful DB classifier, by
+	// db-* code.
+	VpaRefusedByClassifierTotal *prometheus.CounterVec // labels: {"code"}
+	// VpaRevertedTotal counts in-place resizes auto-reverted after an OOM/throttle
+	// regression (live only).
+	VpaRevertedTotal prometheus.Counter
 }
 
 // New builds the metric set, registering all collectors on a fresh registry.
@@ -137,6 +150,22 @@ func New() *Set {
 			Name: "xamops_consolidation_action_rate",
 			Help: "Node removals the latest consolidation run acted on.",
 		}),
+		VpaResizedTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "xamops_vpa_resized_total",
+			Help: "Containers resized in place (verified, live only).",
+		}),
+		VpaRefusedNotEligibleTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "xamops_vpa_refused_not_eligible_total",
+			Help: "In-place resize refusals that are not in-place eligible, by reason.",
+		}, []string{"reason"}),
+		VpaRefusedByClassifierTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "xamops_vpa_refused_by_classifier_total",
+			Help: "In-place resize refusals by the stateful DB classifier, by db-* code.",
+		}, []string{"code"}),
+		VpaRevertedTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "xamops_vpa_reverted_total",
+			Help: "In-place resizes auto-reverted after an OOM/throttle regression (live only).",
+		}),
 	}
 	reg.MustRegister(
 		s.DrainsTotal,
@@ -154,6 +183,10 @@ func New() *Set {
 		s.ConsolidationDrainDurationSeconds,
 		s.ConsolidationRunAbortsTotal,
 		s.ConsolidationActionRate,
+		s.VpaResizedTotal,
+		s.VpaRefusedNotEligibleTotal,
+		s.VpaRefusedByClassifierTotal,
+		s.VpaRevertedTotal,
 	)
 	return s
 }
@@ -299,4 +332,37 @@ func (s *Set) SetConsolidationActionRate(n int) {
 		return
 	}
 	s.ConsolidationActionRate.Set(float64(n))
+}
+
+// IncVpaResized increments the in-place-resize counter (live only).
+func (s *Set) IncVpaResized() {
+	if s == nil {
+		return
+	}
+	s.VpaResizedTotal.Inc()
+}
+
+// IncVpaRefusedNotEligible increments the not-in-place-eligible refusal counter for
+// reason.
+func (s *Set) IncVpaRefusedNotEligible(reason string) {
+	if s == nil {
+		return
+	}
+	s.VpaRefusedNotEligibleTotal.WithLabelValues(reason).Inc()
+}
+
+// IncVpaRefusedByClassifier increments the classifier-refusal counter for a db-* code.
+func (s *Set) IncVpaRefusedByClassifier(code string) {
+	if s == nil {
+		return
+	}
+	s.VpaRefusedByClassifierTotal.WithLabelValues(code).Inc()
+}
+
+// IncVpaReverted increments the auto-revert counter (live only).
+func (s *Set) IncVpaReverted() {
+	if s == nil {
+		return
+	}
+	s.VpaRevertedTotal.Inc()
 }

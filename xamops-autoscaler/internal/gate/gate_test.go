@@ -215,39 +215,64 @@ func TestHPAManagerNeverLive(t *testing.T) {
 	}
 }
 
-// The VPA manager is analysis-only: no input combination makes it Live or Simulate.
-// Cross product of ENABLE_VPA_MANAGER × vpaManagerPolicy.enabled × DRY_RUN × mode;
-// the result is Off (with a non-empty first-failing reason) or Analyse only.
-func TestVPAManagerNeverLive(t *testing.T) {
+// The VPA manager acts behind the four-layer AND plus an acting updateMode. Cross
+// product of ENABLE_VPA_MANAGER × vpaManagerPolicy.enabled × DRY_RUN × mode ×
+// updateMode (with analyseOnly=false): Live only for an acting mode + env + enabled +
+// full/scoped + DRY_RUN=false; Simulate when the same but DRY_RUN=true; Analyse for a
+// non-acting mode (Off/Initial) when env + enabled + full/scoped; Off otherwise.
+func TestVPAManagerGate(t *testing.T) {
+	updateModes := []string{"Off", "Initial", "Recreate", "Auto", "InPlaceOrRecreate"}
+	acting := map[string]bool{"Recreate": true, "Auto": true, "InPlaceOrRecreate": true}
 	rows := 0
 	for _, env := range []bool{false, true} {
 		for _, enabled := range []bool{false, true} {
 			for _, dry := range []bool{false, true} {
 				for _, mode := range modes {
-					rows++
-					cfg := &config.Config{EnableVPAManager: env, DryRun: dry}
-					b := bundle(mode)
-					b.VPAManagerPolicy.Enabled = enabled
-					got := VPAManager(cfg, b)
-					want := Off
-					if env && enabled && (mode == "full" || mode == "scoped") {
-						want = Analyse
-					}
-					if got.Mode != want {
-						t.Errorf("env=%v enabled=%v dry=%v mode=%s: got %s, want %s", env, enabled, dry, mode, got, want)
-					}
-					if got.Mode == Simulate || got.Mode == Live {
-						t.Errorf("env=%v enabled=%v dry=%v mode=%s: VPA manager must never be Simulate/Live, got %s", env, enabled, dry, mode, got)
-					}
-					if got.Reason == "" {
-						t.Errorf("env=%v enabled=%v dry=%v mode=%s: empty reason", env, enabled, dry, mode)
+					for _, um := range updateModes {
+						rows++
+						cfg := &config.Config{EnableVPAManager: env, DryRun: dry}
+						b := bundle(mode)
+						b.VPAManagerPolicy.Enabled = enabled
+						b.VPAManagerPolicy.AnalyseOnly = false
+						b.VPAManagerPolicy.UpdateMode = um
+						got := VPAManager(cfg, b)
+
+						gated := env && enabled && (mode == "full" || mode == "scoped")
+						want := Off
+						if gated {
+							if acting[um] {
+								want = Live
+								if dry {
+									want = Simulate
+								}
+							} else {
+								want = Analyse
+							}
+						}
+						if got.Mode != want {
+							t.Errorf("env=%v enabled=%v dry=%v mode=%s updateMode=%s: got %s, want %s",
+								env, enabled, dry, mode, um, got, want)
+						}
+						if got.Reason == "" {
+							t.Errorf("env=%v enabled=%v dry=%v mode=%s updateMode=%s: empty reason",
+								env, enabled, dry, mode, um)
+						}
 					}
 				}
 			}
 		}
 	}
-	if rows != 2*2*2*3 {
-		t.Fatalf("cross product has %d rows, want %d", rows, 2*2*2*3)
+	if rows != 2*2*2*3*5 {
+		t.Fatalf("cross product has %d rows, want %d", rows, 2*2*2*3*5)
+	}
+
+	// analyseOnly=true forces Analyse even with an acting updateMode and DRY_RUN=false.
+	ao := bundle("full")
+	ao.VPAManagerPolicy.Enabled = true
+	ao.VPAManagerPolicy.AnalyseOnly = true
+	ao.VPAManagerPolicy.UpdateMode = "Auto"
+	if got := VPAManager(&config.Config{EnableVPAManager: true, DryRun: false}, ao); got.Mode != Analyse {
+		t.Errorf("analyseOnly=true with acting mode: got %s, want analyse", got)
 	}
 
 	// The first-failing condition is named in the reason, in gate order.
