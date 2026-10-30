@@ -8,6 +8,7 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.DbAgentConfig;
 import com.xammer.cloud.domain.DbAgentDataCache;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
+import com.xammer.cloud.config.DbOpsFeatureFlags;
 import com.xammer.cloud.dto.dbops.*;
 import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.CachedDataRepository;
@@ -170,6 +171,7 @@ public class DbOpsCostService {
     private final DbAgentDataCacheRepository dbAgentDataCacheRepository;
     private final DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository;
     private final SpotPricingService spotPricingService;
+    private final DbOpsFeatureFlags dbOpsFeatureFlags;
 
     @Autowired
     public DbOpsCostService(
@@ -183,7 +185,8 @@ public class DbOpsCostService {
             DbAgentConfigRepository dbAgentConfigRepository,
             DbAgentDataCacheRepository dbAgentDataCacheRepository,
             DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository,
-            @Lazy SpotPricingService spotPricingService) {
+            @Lazy SpotPricingService spotPricingService,
+            DbOpsFeatureFlags dbOpsFeatureFlags) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.redisCache = redisCache;
@@ -195,6 +198,7 @@ public class DbOpsCostService {
         this.dbAgentDataCacheRepository = dbAgentDataCacheRepository;
         this.dbAgentMetricsHistoryRepository = dbAgentMetricsHistoryRepository;
         this.spotPricingService = spotPricingService;
+        this.dbOpsFeatureFlags = dbOpsFeatureFlags;
         logger.info("DbOpsCostService initialized");
     }
 
@@ -527,7 +531,7 @@ public class DbOpsCostService {
                                 dto.setSizeGb(sizeGb);
                                 dto.setEstimatedMonthlyCost(round2(sizeGb * SNAPSHOT_COST_PER_GB));
                                 dto.setRecommendation(ageDays > 90
-                                        ? "Safe to delete — over 90 days old with no recent access"
+                                        ? "Review retention before deleting — over 90 days old"
                                         : "Review — created " + ageDays + " days ago");
                                 wasteList.add(dto);
                             }
@@ -695,8 +699,14 @@ public class DbOpsCostService {
     @Async("awsTaskExecutor")
     public CompletableFuture<DbSavingsSummaryDto> getSavingsSummary(String accountId, boolean forceRefresh) {
         CompletableFuture<List<DbInstanceDto>>     inventoryFuture    = getDbInventory(accountId, false);
-        CompletableFuture<List<DbIdleInstanceDto>> idleFuture         = getIdleInstances(accountId, forceRefresh);
-        CompletableFuture<List<DbRightsizingDto>>  rightsizingFuture  = getRightsizingRecommendations(accountId, false);
+        // Phase 1a: a disabled pillar contributes an empty list, so its count/savings are 0 and it
+        // never enters the savings total — the summary omits it rather than faking a value.
+        CompletableFuture<List<DbIdleInstanceDto>> idleFuture         = dbOpsFeatureFlags.isIdleEnabled()
+                ? getIdleInstances(accountId, forceRefresh)
+                : CompletableFuture.completedFuture(Collections.emptyList());
+        CompletableFuture<List<DbRightsizingDto>>  rightsizingFuture  = dbOpsFeatureFlags.isRightsizingEnabled()
+                ? getRightsizingRecommendations(accountId, false)
+                : CompletableFuture.completedFuture(Collections.emptyList());
         CompletableFuture<List<DbSnapshotWasteDto>> snapshotsFuture   = getDbSnapshots(accountId, false);
         CompletableFuture<List<DbCostDto>>         costsFuture        = getDbCosts(accountId, false);
 
