@@ -188,6 +188,34 @@ export interface CapabilitiesCluster {
     effectiveActing?: 'ACTING' | 'NOT_ACTING' | 'UNKNOWN';
   };
   dataSources: Array<{ type: string; collectedAt: string | null; items: number | null; displayed: boolean }>;
+  /**
+   * The onboarding view of this cluster (design §3.2), derived server-side by
+   * OnboardingStateDeriver. Optional so an older backend still parses.
+   */
+  onboarding?: CapabilitiesOnboarding;
+}
+
+/** Key metadata — a 12-char prefix only, never the key itself (design §3.2). */
+export interface CapabilitiesKeyMeta {
+  prefix: string;
+  issuedAt: string | null;
+  lastUsedAt: string | null;
+}
+
+/** The additive onboarding block on a cluster's capabilities (design §3.2). */
+export interface CapabilitiesOnboarding {
+  state: 'NOT_INSTALLED' | 'CONNECTED_READ_ONLY' | 'AUTOMATION_ENABLED' | 'UNKNOWN';
+  awaitingAgent: boolean;
+  stale: boolean;
+  automationDisabled: boolean;
+  automationSubState: 'OFF' | 'ANALYSIS' | 'AUTOMATED' | 'UNKNOWN' | null;
+  automationVerified: boolean;
+  identitySeenAt: string | null;
+  identityMode: 'POD_IDENTITY' | 'IRSA' | 'NONE' | null;
+  nodeScaler: string | null;
+  dataKeyScope: 'CLUSTER' | 'ACCOUNT' | 'LEGACY_GLOBAL' | null;
+  dataKey: CapabilitiesKeyMeta | null;
+  automationKey: CapabilitiesKeyMeta | null;
 }
 
 export interface CapabilitiesDto {
