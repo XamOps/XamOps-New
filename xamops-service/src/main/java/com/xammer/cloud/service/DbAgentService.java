@@ -31,6 +31,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -161,7 +162,8 @@ public class DbAgentService {
                 cache.setDataJson(dataJson);
                 cache.setItemCount(itemCount);
                 cache.setAgentVersion(payload.getAgentVersion());
-                cache.setCollectedAt(batch.getCollectedAt() != null ? batch.getCollectedAt() : LocalDateTime.now());
+                // COR-17: agent rows are UTC; a missing collectedAt must fall back to UTC, not local.
+                cache.setCollectedAt(batch.getCollectedAt() != null ? batch.getCollectedAt() : LocalDateTime.now(ZoneOffset.UTC));
                 dbAgentDataCacheRepository.save(cache);
 
                 // Special handling for new batch types
@@ -185,7 +187,8 @@ public class DbAgentService {
                     history.setDataType(batch.getCollector());
                     history.setDataJson(dataJson);
                     history.setItemCount(itemCount);
-                    history.setCollectedAt(batch.getCollectedAt() != null ? batch.getCollectedAt() : LocalDateTime.now());
+                    // COR-17: UTC fallback keeps history timestamps consistent with the UTC read window.
+                    history.setCollectedAt(batch.getCollectedAt() != null ? batch.getCollectedAt() : LocalDateTime.now(ZoneOffset.UTC));
                     dbAgentMetricsHistoryRepository.save(history);
                 }
 
