@@ -57,14 +57,13 @@ function clearCache(subscriptionId: string) {
   localStorage.removeItem(`azure_dbops_${subscriptionId}`);
 }
 
+// Throws on a non-ok response or a network error so a genuine failure is distinguishable from a
+// successful-but-empty payload. The caller's try/catch sets the `error` state; a succeeded scan
+// with zero rows resolves normally to an empty list (COR-13 / UX-2).
 async function fetchJson<T>(url: string): Promise<T | null> {
-  try {
-    const res = await fetch(url, { credentials: 'include', headers: { Accept: 'application/json' } });
-    if (!res.ok) return null;
-    return res.json() as Promise<T>;
-  } catch {
-    return null;
-  }
+  const res = await fetch(url, { credentials: 'include', headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(`DbOps request failed (${res.status}): ${url}`);
+  return res.json() as Promise<T>;
 }
 
 export function useAzureDbOpsData(subscriptionId: string | null) {
@@ -190,42 +189,42 @@ export function useAzureDbOpsData(subscriptionId: string | null) {
     if (!subscriptionId) return [];
     return fetchJson<AgentTimeseries[]>(
       `/api/dbops/azure/${subscriptionId}/agent-timeseries?hours=${hours}`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [subscriptionId]);
 
   const fetchAgentTableSizes = useCallback(async (): Promise<AgentTableSize[]> => {
     if (!subscriptionId) return [];
     return fetchJson<AgentTableSize[]>(
       `/api/dbops/azure/${subscriptionId}/agent-table-sizes`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [subscriptionId]);
 
   const fetchAgentIndexUsage = useCallback(async (): Promise<AgentIndexUsage[]> => {
     if (!subscriptionId) return [];
     return fetchJson<AgentIndexUsage[]>(
       `/api/dbops/azure/${subscriptionId}/agent-index-usage`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [subscriptionId]);
 
   const fetchAgentTableActivity = useCallback(async (): Promise<AgentTableActivity[]> => {
     if (!subscriptionId) return [];
     return fetchJson<AgentTableActivity[]>(
       `/api/dbops/azure/${subscriptionId}/agent-table-activity`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [subscriptionId]);
 
   const fetchAgentVacuumStats = useCallback(async (): Promise<AgentVacuumStat[]> => {
     if (!subscriptionId) return [];
     return fetchJson<AgentVacuumStat[]>(
       `/api/dbops/azure/${subscriptionId}/agent-vacuum-stats`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [subscriptionId]);
 
   const fetchAgentUserActivity = useCallback(async (): Promise<AgentUserActivity[]> => {
     if (!subscriptionId) return [];
     return fetchJson<AgentUserActivity[]>(
       `/api/dbops/azure/${subscriptionId}/agent-user-activity`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [subscriptionId]);
 
   // Azure SQL / PostgreSQL / MySQL does not expose per-instance CloudWatch-style timeseries yet;

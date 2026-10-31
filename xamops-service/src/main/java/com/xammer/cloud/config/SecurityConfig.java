@@ -210,6 +210,16 @@ public class SecurityConfig {
                                                 .requestMatchers(PATH.matcher("/api/health")).permitAll()
                                                 .requestMatchers(PATH.matcher("/api/maintenance/status")).permitAll()
 
+                                                // Dashboard reads under the agent prefix. They take no agent key, so
+                                                // the /api/v1/agent/** permitAll below would leave them open, and each
+                                                // is addressed by a sequential cluster id or an account id. Must stay
+                                                // ahead of that rule: the first match wins. No agent calls them.
+                                                .requestMatchers(
+                                                                PATH.matcher("/api/v1/agent/status"),
+                                                                PATH.matcher("/api/v1/agent/status/*"),
+                                                                PATH.matcher("/api/v1/agent/events/*"))
+                                                .authenticated()
+
                                                 // Public Static Resources & Pages
                                                 .requestMatchers(
                                                                 PATH.matcher("/"),
@@ -292,7 +302,11 @@ public class SecurityConfig {
                                                                 // It is now in the authenticated block below, which is what
                                                                 // populates the principal the handler checks ownership with.
 
-                                                                // XamOps Agent API (authenticates via API key, not session)
+                                                                // XamOps Agent API (authenticates via API key, not session).
+                                                                // Anything the browser calls belongs under /api/xamops/**
+                                                                // instead, e.g. the DbOps wizard's /api/xamops/db-agent/**.
+                                                                // The Login-As JWT chain skips this prefix, so a session-only
+                                                                // rule here would also turn away impersonated users.
                                                                 PATH.matcher("/api/v1/agent/**"),
 
                                                                 // XamOps Metering API — public:
