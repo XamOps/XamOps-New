@@ -9,9 +9,9 @@ import com.xammer.cloud.domain.autospotting.SpotOperation;
 import com.xammer.cloud.repository.autospotting.ReconcilerStore;
 import com.xammer.cloud.repository.autospotting.SpotOperationRepository;
 import com.xammer.cloud.service.autospotting.core.ops.PreemptionService;
+import com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics;
 import com.xammer.cloud.service.autospotting.spi.GroupStatus;
 import com.xammer.cloud.service.autospotting.spi.ReconcileAction;
-import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -50,20 +50,17 @@ public class HealthPass {
 
     private static final Logger log = LoggerFactory.getLogger(HealthPass.class);
 
-    static final String RECONCILE_METRIC = "autospotting.reconcile.groups";
-    static final String ALERT_METRIC = "autospotting.reconcile.alert";
-
     private final SpotOperationRepository operations;
     private final PreemptionService preemption;
     private final ReconcilerStore reconcilerStore;
-    private final MeterRegistry meterRegistry;
+    private final AutoSpottingMetrics metrics;
 
     public HealthPass(SpotOperationRepository operations, PreemptionService preemption,
-                      ReconcilerStore reconcilerStore, MeterRegistry meterRegistry) {
+                      ReconcilerStore reconcilerStore, AutoSpottingMetrics metrics) {
         this.operations = operations;
         this.preemption = preemption;
         this.reconcilerStore = reconcilerStore;
-        this.meterRegistry = meterRegistry;
+        this.metrics = metrics;
     }
 
     /**
@@ -77,7 +74,7 @@ public class HealthPass {
                 status == null ? null : status.healthJson(),
                 status == null ? null : status.capacityJson(), now);
         if (actions == null || actions.isEmpty()) {
-            meterRegistry.counter(RECONCILE_METRIC, "state", group.getState().name(), "drift", "NONE").increment();
+            metrics.reconcileGroup(group.getState().name(), "NONE");
             return;
         }
         for (ReconcileAction action : actions) {
@@ -89,7 +86,7 @@ public class HealthPass {
         switch (action) {
             case ENQUEUE_FALLBACK -> enqueueFallback(group);
             case REQUEST_COMPENSATION -> requestCompensation(group);
-            case ALERT -> meterRegistry.counter(ALERT_METRIC, "state", group.getState().name()).increment();
+            case ALERT -> metrics.reconcileAlert(group.getState().name());
             // Every other action needs the group lease / a lifecycle write and is NOT done in the
             // read-only pass (§5.1): the full sweep applies those under the lease.
             default -> {
@@ -115,7 +112,7 @@ public class HealthPass {
         // The actual op insert + preemption is owned by the reconciler's enqueue path (SpotReconciler),
         // which runs this under the row lock. The health pass records the decision as a hint and the
         // reconciler acts on it; dark until a provider is registered.
-        meterRegistry.counter(RECONCILE_METRIC, "state", group.getState().name(), "drift", "FALLBACK").increment();
+        metrics.reconcileGroup(group.getState().name(), "FALLBACK");
         if (log.isDebugEnabled()) {
             log.debug("health pass: FALLBACK_ENTER decision for group {} (config_mode would be {})",
                     group.getId(), ConfigMode.FALLBACK);

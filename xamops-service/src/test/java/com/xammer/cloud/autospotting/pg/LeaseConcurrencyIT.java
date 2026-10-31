@@ -79,19 +79,27 @@ class LeaseConcurrencyIT {
         }
 
         @Bean
+        com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics autoSpottingMetrics(SimpleMeterRegistry meters) {
+            // Lease-only IT: AutoSpottingMetrics is repository-free; the lease.failures counter lands
+            // on the SimpleMeterRegistry.
+            return new com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics(meters);
+        }
+
+        @Bean
         LeaseProperties leaseProperties() {
             return new LeaseProperties(120, 30, 600, 60, 1800, 60, 300, 10);
         }
 
         @Bean
         LeaseService leaseService(LeaseRepository repo, LeaseRegistry registry, LeaseProperties props,
-                                  SimpleMeterRegistry meters) {
-            return new LeaseService(repo, registry, props, meters);
+                                  com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics) {
+            return new LeaseService(repo, registry, props, metrics);
         }
 
         @Bean
-        FencedTx fencedTx(LeaseRepository repo, SimpleMeterRegistry meters) {
-            return new FencedTx(repo, meters);
+        FencedTx fencedTx(LeaseRepository repo,
+                          com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics) {
+            return new FencedTx(repo, metrics);
         }
 
         @Bean(name = "beanJdbc")

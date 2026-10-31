@@ -1,7 +1,7 @@
 package com.xammer.cloud.service.autospotting.core.lease;
 
 import com.xammer.cloud.repository.autospotting.LeaseRepository;
-import io.micrometer.core.instrument.MeterRegistry;
+import com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.TransactionException;
@@ -30,14 +30,12 @@ import java.util.function.Supplier;
 @Component
 public class FencedTx {
 
-    static final String FAILURES_METRIC = "autospotting.lease.failures";
-
     private final LeaseRepository leases;
-    private final MeterRegistry meterRegistry;
+    private final AutoSpottingMetrics metrics;
 
-    public FencedTx(LeaseRepository leases, MeterRegistry meterRegistry) {
+    public FencedTx(LeaseRepository leases, AutoSpottingMetrics metrics) {
         this.leases = leases;
-        this.meterRegistry = meterRegistry;
+        this.metrics = metrics;
     }
 
     /** Fenced work that returns nothing. */
@@ -72,7 +70,7 @@ public class FencedTx {
         try {
             held = leases.fenceHeld(UUID.fromString(handle.resourceId()), handle.token(), handle.generation());
         } catch (DataAccessException | TransactionException e) {
-            meterRegistry.counter(FAILURES_METRIC, "reason", "store_error").increment();
+            metrics.leaseFailure("store_error");
             throw new LeaseUnavailableException("lease store unreachable during fence check", e);
         }
         if (!held) {

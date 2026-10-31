@@ -20,13 +20,13 @@ import com.xammer.cloud.service.autospotting.core.lifecycle.GroupLifecycleServic
 import com.xammer.cloud.service.autospotting.core.lifecycle.GroupLifecycleService.TransitionRequest;
 import com.xammer.cloud.service.autospotting.core.switches.SwitchService;
 import com.xammer.cloud.service.autospotting.core.switches.SwitchState;
+import com.xammer.cloud.service.autospotting.obs.AutoSpottingMdc;
+import com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics;
 import com.xammer.cloud.service.autospotting.spi.GroupStatus;
 import com.xammer.cloud.service.autospotting.spi.ProviderRegistry;
 import com.xammer.cloud.service.autospotting.spi.ReadOnlyCloudView;
 import com.xammer.cloud.service.autospotting.spi.ReconcileAction;
 import com.xammer.cloud.service.autospotting.spi.SpotProvider;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Tags;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -77,11 +77,6 @@ public class SpotReconciler {
     private static final Logger log = LoggerFactory.getLogger(SpotReconciler.class);
 
     static final String JOB_PREFIX = "reconciler:";
-    static final String STALENESS_GAUGE = "autospotting.reconcile.staleness_seconds";
-    static final String STUCK_GAUGE = "autospotting.ops.stuck";
-    static final String DURATION_METRIC = "autospotting.reconcile.duration";
-    static final String GROUPS_METRIC = "autospotting.reconcile.groups";
-    static final String SKIPPED_METRIC = "autospotting.job.skipped";
 
     private final ProviderRegistry providers;
     private final SpotGroupRepository groups;
@@ -98,7 +93,7 @@ public class SpotReconciler {
     private final LeaseRegistry leaseRegistry;
     private final JobRunner jobRunner;
     private final com.xammer.cloud.service.autospotting.core.lease.LeaseProperties leaseProperties;
-    private final MeterRegistry meterRegistry;
+    private final AutoSpottingMetrics metrics;
     private final Duration stuckThreshold;
 
     /** Per-provider staleness and stuck gauges (updated each sweep, published by Micrometer). */
@@ -112,7 +107,7 @@ public class SpotReconciler {
                           GoneDetector goneDetector, HealthPass healthPass, GroupLifecycleService lifecycle,
                           LeaseService leaseService, LeaseRegistry leaseRegistry, JobRunner jobRunner,
                           com.xammer.cloud.service.autospotting.core.lease.LeaseProperties leaseProperties,
-                          MeterRegistry meterRegistry,
+                          AutoSpottingMetrics metrics,
                           @Value("${autospotting.reconciler.stuck-threshold:2h}") Duration stuckThreshold) {
         this.providers = providers;
         this.groups = groups;
@@ -129,15 +124,18 @@ public class SpotReconciler {
         this.leaseRegistry = leaseRegistry;
         this.jobRunner = jobRunner;
         this.leaseProperties = leaseProperties;
-        this.meterRegistry = meterRegistry;
+        this.metrics = metrics;
         this.stuckThreshold = stuckThreshold;
         for (Provider provider : Provider.values()) {
             AtomicLong stalenessGauge = new AtomicLong(0);
             AtomicInteger stuckGauge = new AtomicInteger(0);
             staleness.put(provider, stalenessGauge);
             stuck.put(provider, stuckGauge);
-            meterRegistry.gauge(STALENESS_GAUGE, Tags.of("provider", provider.name()), stalenessGauge);
-            meterRegistry.gauge(STUCK_GAUGE, Tags.of("provider", provider.name()), stuckGauge);
+            // The reconciler keeps the AtomicLong/AtomicInteger it updates each sweep; the gauges are
+            // created by AutoSpottingMetrics so no meter is ever registered outside that bean (AC-OBS-01).
+            metrics.bindReconcilerGauge(AutoSpottingMetrics.RECONCILE_STALENESS_SECONDS, provider,
+                    stalenessGauge::get);
+            metrics.bindReconcilerGauge(AutoSpottingMetrics.OPS_STUCK, provider, stuckGauge::get);
         }
     }
 
@@ -162,7 +160,8 @@ public class SpotReconciler {
      */
     public void sweepProvider(Provider provider) {
         long startNanos = System.nanoTime();
-        try {
+        try (AutoSpottingMdc.Scope ignored = AutoSpottingMdc.builder()
+                .provider(provider.name().toLowerCase(Locale.ROOT)).open()) {
             List<UUID> order = sweepOrder.forProvider(provider);
             for (UUID groupId : order) {
                 SpotGroup group = groups.findById(groupId).orElse(null);
@@ -179,25 +178,33 @@ public class SpotReconciler {
             }
             updateGauges(provider);
         } finally {
-            meterRegistry.timer(DURATION_METRIC, "provider", provider.name())
-                    .record(Duration.ofNanos(System.nanoTime() - startNanos));
+            metrics.recordReconcileDuration(provider, Duration.ofNanos(System.nanoTime() - startNanos));
         }
     }
 
     private void reconcileGroup(Provider provider, SpotGroup group) {
+        try (AutoSpottingMdc.Scope ignored = AutoSpottingMdc.builder()
+                .groupId(group.getId())
+                .cloudAccountId(group.getCloudAccountId())
+                .open()) {
+            reconcileGroupScoped(provider, group);
+        }
+    }
+
+    private void reconcileGroupScoped(Provider provider, SpotGroup group) {
         Optional<SpotProvider> providerImpl = providers.find(provider);
 
         // Step 1: is the group lease held by an op? LeaseRegistry first, then try to acquire (§5.1).
         if (leaseRegistry.isHeldLocally(group.getId())) {
             runHealthPass(providerImpl.orElse(null), group);
-            meterRegistry.counter(SKIPPED_METRIC, "job", "reconciler", "reason", "lease_held").increment();
+            metrics.jobSkipped("reconciler", "lease_held");
             return;
         }
         Optional<LeaseHandle> lease = leaseService.acquireGroup(group.getId(), LeaseService.Component.RECONCILER);
         if (lease.isEmpty()) {
             // Held elsewhere (an op is driving it on another instance): read-only health pass only.
             runHealthPass(providerImpl.orElse(null), group);
-            meterRegistry.counter(SKIPPED_METRIC, "job", "reconciler", "reason", "lease_held").increment();
+            metrics.jobSkipped("reconciler", "lease_held");
             return;
         }
 
@@ -228,7 +235,7 @@ public class SpotReconciler {
         if (providerImpl == null) {
             // Dark: no provider. Stamp the runtime column (step 7) and return; nothing to classify.
             reconcilerStore.writeRuntime(group.getId(), group.getHealthState(), group.getLastCapacity(), now);
-            meterRegistry.counter(GROUPS_METRIC, "state", group.getState().name(), "drift", "NONE").increment();
+            metrics.reconcileGroup(group.getState().name(), "NONE");
             return;
         }
 
@@ -260,7 +267,7 @@ public class SpotReconciler {
         if (gone == GoneDetector.Verdict.PERMISSION) {
             reconcilerStore.writeError(group.getId(), "PERMISSION", "permission error on getStatus", now);
             reconcilerStore.writeRuntime(group.getId(), status.healthJson(), status.capacityJson(), now);
-            meterRegistry.counter(HealthPass.ALERT_METRIC, "state", group.getState().name()).increment();
+            metrics.reconcileAlert(group.getState().name());
             return;
         }
         // FOUND: clear any stale NOT_FOUND_ONCE/PERMISSION marker.
@@ -295,8 +302,8 @@ public class SpotReconciler {
 
         // Step 7: stamp runtime columns, metrics.
         reconcilerStore.writeRuntime(group.getId(), status.healthJson(), status.capacityJson(), now);
-        meterRegistry.counter(GROUPS_METRIC, "state", group.getState().name(),
-                "drift", group.getDriftStatus() == null ? "NONE" : group.getDriftStatus().name()).increment();
+        metrics.reconcileGroup(group.getState().name(),
+                group.getDriftStatus() == null ? "NONE" : group.getDriftStatus().name());
     }
 
     private void classifyAndRecordDrift(LeaseHandle handle, SpotGroup group, GroupStatus status,
@@ -312,7 +319,7 @@ public class SpotReconciler {
         reconcilerStore.writeDrift(group.getId(), c.materiality(),
                 "{\"code\":\"" + c.code().name() + "\"}", now);
         if (c.alert()) {
-            meterRegistry.counter(HealthPass.ALERT_METRIC, "state", group.getState().name()).increment();
+            metrics.reconcileAlert(group.getState().name());
         }
         if (c.pausesDrift() && isStable(group.getState())) {
             TransitionRequest req = TransitionRequest
@@ -338,8 +345,7 @@ public class SpotReconciler {
                 }
                 case MARK_DEGRADED -> transitionIfAllowed(handle, group, GroupState.DEGRADED, "HEALTH_DEGRADED");
                 case MARK_RECOVERED -> transitionIfAllowed(handle, group, recoveredTarget(group), "HEALTH_RECOVERED");
-                case ALERT -> meterRegistry.counter(HealthPass.ALERT_METRIC, "state", group.getState().name())
-                        .increment();
+                case ALERT -> metrics.reconcileAlert(group.getState().name());
                 // ENQUEUE_FALLBACK / REQUEST_COMPENSATION / UPDATE_PAUSED_FROM / PAUSE / UNPAUSE are the
                 // health-pass / switch-pause responsibilities; left to those paths (dark here).
                 default -> { /* no-op in the dark phase */ }

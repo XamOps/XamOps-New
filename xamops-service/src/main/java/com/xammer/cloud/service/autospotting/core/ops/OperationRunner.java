@@ -21,6 +21,7 @@ import com.xammer.cloud.service.autospotting.core.lifecycle.GroupLifecycleServic
 import com.xammer.cloud.service.autospotting.core.lifecycle.GroupLifecycleService.TransitionRequest;
 import com.xammer.cloud.service.autospotting.core.switches.SwitchService;
 import com.xammer.cloud.service.autospotting.core.switches.SwitchState;
+import com.xammer.cloud.service.autospotting.obs.AutoSpottingMdc;
 import com.xammer.cloud.service.autospotting.spi.OperationContext;
 import com.xammer.cloud.service.autospotting.spi.ProviderRegistry;
 import com.xammer.cloud.service.autospotting.spi.SpotProvider;
@@ -126,6 +127,19 @@ public class OperationRunner {
             store.finishFailed(operationId, "GROUP_MISSING", "group row not found for op");
             return;
         }
+        // Context for every log line of this op, cleared when the scope closes (ux §8.1).
+        try (AutoSpottingMdc.Scope ignored = AutoSpottingMdc.builder()
+                .operationId(op.getId())
+                .groupId(group.getId())
+                .provider(group.getProvider() == null ? null
+                        : group.getProvider().name().toLowerCase(java.util.Locale.ROOT))
+                .cloudAccountId(group.getCloudAccountId())
+                .open()) {
+            runClaimedScoped(handle, operationId, op, group);
+        }
+    }
+
+    private void runClaimedScoped(LeaseHandle handle, UUID operationId, SpotOperation op, SpotGroup group) {
         Optional<SpotProvider> provider = providers.find(group.getProvider());
         if (provider.isEmpty()) {
             // Dark: no provider registered. Leave the op RUNNING→QUEUED-equivalent by parking it so a

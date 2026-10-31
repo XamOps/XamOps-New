@@ -139,7 +139,9 @@ class AutoSpottingExecutorConfigTest {
         when(leaseService.acquireJob(any(), any(), any())).thenReturn(Optional.of(handle));
         when(leaseService.lastRunKey(any())).thenReturn(null);
 
-        JobRunner runner = new JobRunner(jobsExecutor, leaseService, props, meters, true);
+        com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics =
+                new com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics(meters);
+        JobRunner runner = new JobRunner(jobsExecutor, leaseService, props, metrics, true);
         Runnable blocking = () -> {
             started.countDown();
             try {

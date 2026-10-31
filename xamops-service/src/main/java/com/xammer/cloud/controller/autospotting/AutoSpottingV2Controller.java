@@ -13,6 +13,7 @@ import com.xammer.cloud.service.autospotting.core.AutoSpottingApiException;
 import com.xammer.cloud.service.autospotting.core.switches.AutoSpottingSwitchProperties;
 import com.xammer.cloud.service.autospotting.core.switches.SwitchService;
 import com.xammer.cloud.service.autospotting.core.switches.SwitchState;
+import com.xammer.cloud.service.autospotting.obs.AutoSpottingMdc;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -96,12 +97,18 @@ public class AutoSpottingV2Controller {
                                                   @PathVariable UUID operationId,
                                                   @AuthenticationPrincipal ClientUserDetails userDetails) {
         CloudAccount account = accountAccessService.requireAccess(userDetails, accountId);
-        Optional<SpotOperation> found = operations.findById(operationId);
-        SpotOperation op = found
-                .filter(o -> account.getId() != null && account.getId().equals(o.getCloudAccountId()))
-                .orElseThrow(() -> new AutoSpottingApiException(HttpStatus.NOT_FOUND, "NOT_FOUND",
-                        "Operation not found."));
-        return ResponseEntity.ok(OperationDto.from(op));
+        // Context for this read's log lines, cleared when the scope closes (ux §8.1).
+        try (AutoSpottingMdc.Scope ignored = AutoSpottingMdc.builder()
+                .cloudAccountId(account.getId())
+                .operationId(operationId)
+                .open()) {
+            Optional<SpotOperation> found = operations.findById(operationId);
+            SpotOperation op = found
+                    .filter(o -> account.getId() != null && account.getId().equals(o.getCloudAccountId()))
+                    .orElseThrow(() -> new AutoSpottingApiException(HttpStatus.NOT_FOUND, "NOT_FOUND",
+                            "Operation not found."));
+            return ResponseEntity.ok(OperationDto.from(op));
+        }
     }
 
     private ConfigDto.ProviderConfig providerConfig(Provider provider, SwitchState state) {

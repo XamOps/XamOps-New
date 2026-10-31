@@ -6,7 +6,8 @@ import com.xammer.cloud.service.autospotting.core.lease.LeaseHandle;
 import com.xammer.cloud.service.autospotting.core.lease.LeaseRegistry;
 import com.xammer.cloud.service.autospotting.core.lease.LeaseService;
 import com.xammer.cloud.service.autospotting.core.lease.LeaseUnavailableException;
-import io.micrometer.core.instrument.MeterRegistry;
+import com.xammer.cloud.service.autospotting.obs.AutoSpottingMdc;
+import com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.task.TaskRejectedException;
@@ -52,8 +53,6 @@ public class OperationDispatcher {
 
     private static final Logger log = LoggerFactory.getLogger(OperationDispatcher.class);
 
-    static final String DISPATCH_METRIC = "autospotting.dispatch";
-
     private final SpotOperationRepository operations;
     private final OperationStore store;
     private final OperationRunner runner;
@@ -61,7 +60,7 @@ public class OperationDispatcher {
     private final LeaseRegistry leaseRegistry;
     private final ThreadPoolTaskExecutor spotOpsExecutor;
     private final SpotOpsLifecycle opsLifecycle;
-    private final MeterRegistry meterRegistry;
+    private final AutoSpottingMetrics metrics;
 
     /** Counts the dispatcher polls (ux §9.4 dispatcher-isolation assertion observes this advancing). */
     private final AtomicInteger pollCount = new AtomicInteger();
@@ -69,7 +68,7 @@ public class OperationDispatcher {
     public OperationDispatcher(SpotOperationRepository operations, OperationStore store, OperationRunner runner,
                                LeaseService leaseService, LeaseRegistry leaseRegistry,
                                ThreadPoolTaskExecutor spotOpsExecutor, SpotOpsLifecycle opsLifecycle,
-                               MeterRegistry meterRegistry) {
+                               AutoSpottingMetrics metrics) {
         this.operations = operations;
         this.store = store;
         this.runner = runner;
@@ -77,18 +76,19 @@ public class OperationDispatcher {
         this.leaseRegistry = leaseRegistry;
         this.spotOpsExecutor = spotOpsExecutor;
         this.opsLifecycle = opsLifecycle;
-        this.meterRegistry = meterRegistry;
+        this.metrics = metrics;
     }
 
     /** Polls every 5 s on the dedicated dispatch scheduler (§4.1). Never runs on a job thread. */
     @Scheduled(scheduler = "spotDispatchScheduler", fixedDelay = 5000)
     public void poll() {
         pollCount.incrementAndGet();
-        meterRegistry.counter(DISPATCH_METRIC, "event", "poll").increment();
+        metrics.dispatch("poll");
         if (opsLifecycle.isDraining()) {
             return; // draining: stop claiming new work (§4.4)
         }
-        try {
+        // Tag every poll line with the dispatcher job; per-group context is added in dispatchGroup.
+        try (AutoSpottingMdc.Scope ignored = AutoSpottingMdc.builder().job("dispatcher").open()) {
             dispatchDueOps();
         } catch (LeaseUnavailableException storeDown) {
             // The lease store is unreachable; skip this poll. The next one retries (§3.4).
@@ -119,6 +119,12 @@ public class OperationDispatcher {
     }
 
     private void dispatchGroup(UUID groupId, Instant now) {
+        try (AutoSpottingMdc.Scope ignored = AutoSpottingMdc.builder().groupId(groupId).open()) {
+            dispatchGroupScoped(groupId, now);
+        }
+    }
+
+    private void dispatchGroupScoped(UUID groupId, Instant now) {
         List<UUID> dueOps = operations.findDueOpIdsForGroup(groupId, now);
         if (dueOps.isEmpty()) {
             return;
@@ -150,14 +156,14 @@ public class OperationDispatcher {
         boolean releaseAfter = acquiredHere;
         try {
             spotOpsExecutor.execute(() -> runAndRelease(submitHandle, opId, releaseAfter));
-            meterRegistry.counter(DISPATCH_METRIC, "event", "claimed").increment();
+            metrics.dispatch("claimed");
         } catch (TaskRejectedException rejected) {
             // Pool filled after the free-slot check (§4.1): put the op back QUEUED, release the lease.
             store.park(opId, com.xammer.cloud.domain.autospotting.WaitReason.BACKOFF, Instant.now(), 0, null);
             if (acquiredHere) {
                 leaseService.releaseGroup(handle);
             }
-            meterRegistry.counter(DISPATCH_METRIC, "event", "rejected").increment();
+            metrics.dispatch("rejected");
             log.debug("op {} submit rejected: ops executor full; left for another poll", opId);
         }
     }

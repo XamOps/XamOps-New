@@ -12,6 +12,7 @@ import com.xammer.cloud.service.autospotting.core.AutoSpottingApiException;
 import com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter.Actor;
 import com.xammer.cloud.service.autospotting.core.lifecycle.OperatorGroupService;
 import com.xammer.cloud.service.autospotting.core.switches.SwitchOperatorService;
+import com.xammer.cloud.service.autospotting.obs.AutoSpottingMdc;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -127,8 +128,10 @@ public class AutoSpottingOperatorController {
                                                       @AuthenticationPrincipal ClientUserDetails userDetails) {
         requireNotImpersonated();
         requireIdempotencyKey(idempotencyKey);
-        GroupState state = operatorGroupService.pause(groupId, operatorActor(userDetails), body.reason());
-        return ResponseEntity.ok(Map.of("groupId", groupId, "state", state.name()));
+        try (AutoSpottingMdc.Scope ignored = AutoSpottingMdc.builder().groupId(groupId).open()) {
+            GroupState state = operatorGroupService.pause(groupId, operatorActor(userDetails), body.reason());
+            return ResponseEntity.ok(Map.of("groupId", groupId, "state", state.name()));
+        }
     }
 
     @PostMapping("/groups/{groupId}/resume")
@@ -139,8 +142,10 @@ public class AutoSpottingOperatorController {
                                                        @AuthenticationPrincipal ClientUserDetails userDetails) {
         requireNotImpersonated();
         requireIdempotencyKey(idempotencyKey);
-        GroupState state = operatorGroupService.resume(groupId, operatorActor(userDetails), body.reason());
-        return ResponseEntity.ok(Map.of("groupId", groupId, "state", state.name()));
+        try (AutoSpottingMdc.Scope ignored = AutoSpottingMdc.builder().groupId(groupId).open()) {
+            GroupState state = operatorGroupService.resume(groupId, operatorActor(userDetails), body.reason());
+            return ResponseEntity.ok(Map.of("groupId", groupId, "state", state.name()));
+        }
     }
 
     // ── gates shared by every non-GET ───────────────────────────────────────

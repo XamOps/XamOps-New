@@ -3,7 +3,8 @@ package com.xammer.cloud.service.autospotting.core;
 import com.xammer.cloud.service.autospotting.core.lease.LeaseHandle;
 import com.xammer.cloud.service.autospotting.core.lease.LeaseProperties;
 import com.xammer.cloud.service.autospotting.core.lease.LeaseService;
-import io.micrometer.core.instrument.MeterRegistry;
+import com.xammer.cloud.service.autospotting.obs.AutoSpottingMdc;
+import com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -49,16 +50,16 @@ public class JobRunner {
     private final ThreadPoolTaskExecutor spotJobsExecutor;
     private final LeaseService leaseService;
     private final LeaseProperties leaseProperties;
-    private final MeterRegistry meterRegistry;
+    private final AutoSpottingMetrics metrics;
     private final boolean schedulingEnabled;
 
     public JobRunner(ThreadPoolTaskExecutor spotJobsExecutor, LeaseService leaseService,
-                     LeaseProperties leaseProperties, MeterRegistry meterRegistry,
+                     LeaseProperties leaseProperties, AutoSpottingMetrics metrics,
                      @Value("${scheduling.enabled:true}") boolean schedulingEnabled) {
         this.spotJobsExecutor = spotJobsExecutor;
         this.leaseService = leaseService;
         this.leaseProperties = leaseProperties;
-        this.meterRegistry = meterRegistry;
+        this.metrics = metrics;
         this.schedulingEnabled = schedulingEnabled;
     }
 
@@ -86,7 +87,7 @@ public class JobRunner {
         try {
             spotJobsExecutor.execute(() -> execute(jobName, runKey, ttl, heartbeat, minHold, body));
         } catch (TaskRejectedException rejected) {
-            meterRegistry.counter(SKIPPED_METRIC, "job", jobName, "reason", REASON_BUSY).increment();
+            metrics.jobSkipped(jobName, REASON_BUSY);
             log.debug("AutoSpotting job {} skipped: jobs executor busy", jobName);
         }
     }
@@ -95,15 +96,16 @@ public class JobRunner {
                          Runnable body) {
         Optional<LeaseHandle> acquired = leaseService.acquireJob(jobName, ttl, heartbeat);
         if (acquired.isEmpty()) {
-            meterRegistry.counter(SKIPPED_METRIC, "job", jobName, "reason", REASON_LEASE_HELD).increment();
+            metrics.jobSkipped(jobName, REASON_LEASE_HELD);
             log.debug("AutoSpotting job {} skipped: lease held elsewhere", jobName);
             return;
         }
         LeaseHandle handle = acquired.get();
         String resolvedRunKey = runKey;
-        try {
+        // The job body runs under the job's MDC key, cleared when the scope closes (ux §8.1).
+        try (AutoSpottingMdc.Scope ignored = AutoSpottingMdc.builder().job(jobName).open()) {
             if (runKey != null && runKey.equals(leaseService.lastRunKey(jobName))) {
-                meterRegistry.counter(SKIPPED_METRIC, "job", jobName, "reason", REASON_ALREADY_RUN).increment();
+                metrics.jobSkipped(jobName, REASON_ALREADY_RUN);
                 log.debug("AutoSpotting job {} skipped: run key {} already recorded", jobName, runKey);
                 resolvedRunKey = null; // don't rewrite last_run_key for a skipped run
                 return;

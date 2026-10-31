@@ -88,6 +88,11 @@ class AutoSpottingReconcileBeans {
     }
 
     @Bean
+    com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics autoSpottingMetrics(SimpleMeterRegistry meters) {
+        return new com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics(meters);
+    }
+
+    @Bean
     ObjectMapper objectMapper() {
         return new ObjectMapper();
     }
@@ -129,13 +134,13 @@ class AutoSpottingReconcileBeans {
 
     @Bean
     LeaseService leaseService(LeaseRepository repo, LeaseRegistry registry, LeaseProperties props,
-                              SimpleMeterRegistry meters) {
-        return new LeaseService(repo, registry, props, meters);
+                              com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics) {
+        return new LeaseService(repo, registry, props, metrics);
     }
 
     @Bean
-    FencedTx fencedTx(LeaseRepository repo, SimpleMeterRegistry meters) {
-        return new FencedTx(repo, meters);
+    FencedTx fencedTx(LeaseRepository repo, com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics) {
+        return new FencedTx(repo, metrics);
     }
 
     @Bean
@@ -194,8 +199,8 @@ class AutoSpottingReconcileBeans {
 
     @Bean
     HealthPass healthPass(SpotOperationRepository ops, PreemptionService preemption, ReconcilerStore store,
-                          SimpleMeterRegistry meters) {
-        return new HealthPass(ops, preemption, store, meters);
+                          com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics) {
+        return new HealthPass(ops, preemption, store, metrics);
     }
 
     @Bean(destroyMethod = "shutdown")
@@ -211,8 +216,8 @@ class AutoSpottingReconcileBeans {
 
     @Bean
     JobRunner jobRunner(ThreadPoolTaskExecutor spotJobsExecutor, LeaseService leaseService,
-                        LeaseProperties leaseProperties, SimpleMeterRegistry meters) {
-        return new JobRunner(spotJobsExecutor, leaseService, leaseProperties, meters, true);
+                        LeaseProperties leaseProperties, com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics) {
+        return new JobRunner(spotJobsExecutor, leaseService, leaseProperties, metrics, true);
     }
 
     @Bean
@@ -232,10 +237,10 @@ class AutoSpottingReconcileBeans {
                                   SwitchPauseApplier switchPauseApplier, DriftClassifier driftClassifier,
                                   GoneDetector goneDetector, HealthPass healthPass, GroupLifecycleService lifecycle,
                                   LeaseService leaseService, LeaseRegistry registry, JobRunner jobRunner,
-                                  LeaseProperties leaseProperties, SimpleMeterRegistry meters) {
+                                  LeaseProperties leaseProperties, com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics) {
         return new SpotReconciler(providers, groups, operations, sweepOrder, reconcilerStore, switchService,
                 switchPauseApplier, driftClassifier, goneDetector, healthPass, lifecycle, leaseService, registry,
-                jobRunner, leaseProperties, meters, Duration.ofHours(2));
+                jobRunner, leaseProperties, metrics, Duration.ofHours(2));
     }
 
     /** Set by the IT to control which accounts a discovery run sees; defaults to a Mockito mock. */

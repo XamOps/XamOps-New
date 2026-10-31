@@ -424,6 +424,12 @@ jobs:
           fi
           echo "ok  no duplicate migration versions"
 
+      - name: Check AutoSpotting CloudWatch alarms (AC-OBS-02)
+        # One alarm per FR-OBS-03 condition, each with a non-empty AlarmActions (design-ux-ops.md §6.4,
+        # plan-phase-10.md 10.3). Pure python3 (no pip install). Fails the build on a missing or
+        # action-less alarm before the monitoring stack is ever deployed.
+        run: python3 scripts/autospotting/check_alarms.py cloudformation/xamops-autospotting-monitoring.yaml cloudformation/autospotting-engine.yaml
+
       - name: Run tests
         run: mvn test -B --no-transfer-progress -pl xamops-service -am
 

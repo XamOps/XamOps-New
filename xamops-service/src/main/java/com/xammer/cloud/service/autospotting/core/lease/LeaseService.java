@@ -1,7 +1,7 @@
 package com.xammer.cloud.service.autospotting.core.lease;
 
 import com.xammer.cloud.repository.autospotting.LeaseRepository;
-import io.micrometer.core.instrument.MeterRegistry;
+import com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -31,8 +31,6 @@ public class LeaseService {
 
     private static final Logger log = LoggerFactory.getLogger(LeaseService.class);
 
-    static final String FAILURES_METRIC = "autospotting.lease.failures";
-
     /** The components allowed in a holder token (design-core.md §3.3). */
     public enum Component {
         DISPATCHER("dispatcher"),
@@ -54,15 +52,15 @@ public class LeaseService {
     private final LeaseRepository leases;
     private final LeaseRegistry registry;
     private final LeaseProperties properties;
-    private final MeterRegistry meterRegistry;
+    private final AutoSpottingMetrics metrics;
     private final String instanceId;
 
     public LeaseService(LeaseRepository leases, LeaseRegistry registry, LeaseProperties properties,
-                        MeterRegistry meterRegistry) {
+                        AutoSpottingMetrics metrics) {
         this.leases = leases;
         this.registry = registry;
         this.properties = properties;
-        this.meterRegistry = meterRegistry;
+        this.metrics = metrics;
         this.instanceId = resolveInstanceId();
     }
 
@@ -124,7 +122,7 @@ public class LeaseService {
                 throw e;
             }
             // Release is best-effort: the lease will expire within its TTL anyway (§3.6).
-            meterRegistry.counter(FAILURES_METRIC, "reason", "store_error").increment();
+            metrics.leaseFailure("store_error");
             log.warn("Could not release group lease {} ({}): {}", groupId, handle.token(), e.toString());
         } finally {
             handle.markLost();
@@ -187,7 +185,7 @@ public class LeaseService {
             if (!isStoreError(e)) {
                 throw e;
             }
-            meterRegistry.counter(FAILURES_METRIC, "reason", "store_error").increment();
+            metrics.leaseFailure("store_error");
             log.warn("Could not release job lease {} ({}): {}", handle.resourceId(), handle.token(), e.toString());
         } finally {
             handle.markLost();
@@ -234,7 +232,7 @@ public class LeaseService {
         if (!isStoreError(cause)) {
             return cause;
         }
-        meterRegistry.counter(FAILURES_METRIC, "reason", "store_error").increment();
+        metrics.leaseFailure("store_error");
         return new LeaseUnavailableException("lease store unreachable: " + what, cause);
     }
 

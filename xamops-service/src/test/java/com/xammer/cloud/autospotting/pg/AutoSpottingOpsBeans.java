@@ -77,6 +77,11 @@ class AutoSpottingOpsBeans {
     }
 
     @Bean
+    com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics autoSpottingMetrics(SimpleMeterRegistry meters) {
+        return new com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics(meters);
+    }
+
+    @Bean
     ObjectMapper objectMapper() {
         return new ObjectMapper();
     }
@@ -108,13 +113,13 @@ class AutoSpottingOpsBeans {
 
     @Bean
     LeaseService leaseService(LeaseRepository repo, LeaseRegistry registry, LeaseProperties props,
-                              SimpleMeterRegistry meters) {
-        return new LeaseService(repo, registry, props, meters);
+                              com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics) {
+        return new LeaseService(repo, registry, props, metrics);
     }
 
     @Bean
-    FencedTx fencedTx(LeaseRepository repo, SimpleMeterRegistry meters) {
-        return new FencedTx(repo, meters);
+    FencedTx fencedTx(LeaseRepository repo, com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics) {
+        return new FencedTx(repo, metrics);
     }
 
     @Bean
@@ -190,9 +195,9 @@ class AutoSpottingOpsBeans {
     OperationDispatcher operationDispatcher(SpotOperationRepository ops, OperationStore store, OperationRunner runner,
                                             LeaseService leaseService, LeaseRegistry registry,
                                             ThreadPoolTaskExecutor spotOpsExecutor, SpotOpsLifecycle opsLifecycle,
-                                            SimpleMeterRegistry meters) {
+                                            com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics) {
         return new OperationDispatcher(ops, store, runner, leaseService, registry, spotOpsExecutor,
-                opsLifecycle, meters);
+                opsLifecycle, metrics);
     }
 
     @Bean

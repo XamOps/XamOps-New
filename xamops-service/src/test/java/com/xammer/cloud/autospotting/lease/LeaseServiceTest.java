@@ -38,6 +38,7 @@ class LeaseServiceTest {
     private LeaseRepository repository;
     private LeaseRegistry registry;
     private SimpleMeterRegistry meterRegistry;
+    private com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics;
     private LeaseService service;
     private final LeaseProperties properties = new LeaseProperties(120, 30, 600, 60, 1800, 60, 300, 10);
 
@@ -48,7 +49,8 @@ class LeaseServiceTest {
         repository = mock(LeaseRepository.class);
         registry = new LeaseRegistry();
         meterRegistry = new SimpleMeterRegistry();
-        service = new LeaseService(repository, registry, properties, meterRegistry);
+        metrics = new com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics(meterRegistry);
+        service = new LeaseService(repository, registry, properties, metrics);
     }
 
     private double failures() {
@@ -227,7 +229,7 @@ class LeaseServiceTest {
 
     @Test
     void fencedWorkRunsWhenFenceHeld() {
-        FencedTx fencedTx = new FencedTx(repository, meterRegistry);
+        FencedTx fencedTx = new FencedTx(repository, metrics);
         LeaseHandle handle = groupHandle((h) -> true);
         when(repository.fenceHeld(any(), eq(handle.token()), eq(handle.generation()))).thenReturn(true);
 
@@ -239,7 +241,7 @@ class LeaseServiceTest {
 
     @Test
     void fencedWorkThrowsLostAndMarksHandleWhenFenceMisses() {
-        FencedTx fencedTx = new FencedTx(repository, meterRegistry);
+        FencedTx fencedTx = new FencedTx(repository, metrics);
         LeaseHandle handle = groupHandle((h) -> true);
         when(repository.fenceHeld(any(), eq(handle.token()), eq(handle.generation()))).thenReturn(false);
 
@@ -252,7 +254,7 @@ class LeaseServiceTest {
 
     @Test
     void fencedWorkStoreErrorThrowsUnavailableAndCounts() {
-        FencedTx fencedTx = new FencedTx(repository, meterRegistry);
+        FencedTx fencedTx = new FencedTx(repository, metrics);
         LeaseHandle handle = groupHandle((h) -> true);
         when(repository.fenceHeld(any(), any(), anyLong()))
                 .thenThrow(new DataAccessResourceFailureException("down"));
