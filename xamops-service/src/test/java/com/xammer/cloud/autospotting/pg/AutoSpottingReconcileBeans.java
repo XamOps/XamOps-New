@@ -232,13 +232,15 @@ class AutoSpottingReconcileBeans {
 
     @Bean
     SpotReconciler spotReconciler(ProviderRegistry providers, SpotGroupRepository groups,
-                                  SpotOperationRepository operations, SweepOrder sweepOrder,
+                                  SpotOperationRepository operations,
+                                  com.xammer.cloud.repository.autospotting.SpotPlanRepository plans,
+                                  SweepOrder sweepOrder,
                                   ReconcilerStore reconcilerStore, SwitchService switchService,
                                   SwitchPauseApplier switchPauseApplier, DriftClassifier driftClassifier,
                                   GoneDetector goneDetector, HealthPass healthPass, GroupLifecycleService lifecycle,
                                   LeaseService leaseService, LeaseRegistry registry, JobRunner jobRunner,
                                   LeaseProperties leaseProperties, com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics) {
-        return new SpotReconciler(providers, groups, operations, sweepOrder, reconcilerStore, switchService,
+        return new SpotReconciler(providers, groups, operations, plans, sweepOrder, reconcilerStore, switchService,
                 switchPauseApplier, driftClassifier, goneDetector, healthPass, lifecycle, leaseService, registry,
                 jobRunner, leaseProperties, metrics, Duration.ofHours(2));
     }

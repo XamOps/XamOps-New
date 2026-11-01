@@ -67,6 +67,18 @@ public class AutoSpottingController {
         return ResponseEntity.status(e.getStatus()).body(body);
     }
 
+    /** The v2 Review-plan URL for a group (PLAN_REQUIRED hint, §7.4). */
+    private static String groupPlanUrl(String accountId, String region, String asgName) {
+        String groupKey = region + "/" + asgName;
+        return "/autospotting/aws/" + accountId + "/groups/" + java.net.URLEncoder.encode(
+                groupKey, java.nio.charset.StandardCharsets.UTF_8) + "/plan";
+    }
+
+    /** The v2 AutoSpotting account URL for an account-level legacy action (PLAN_REQUIRED hint). */
+    private static String accountPlanUrl(String accountId) {
+        return "/autospotting/aws/" + accountId;
+    }
+
     /**
      * Which conversion switches are on. Authenticated by the {@code /api/autospotting/**}
      * matcher; returns no tenant data.
@@ -92,22 +104,11 @@ public class AutoSpottingController {
     @PostMapping("/register/{accountId}")
     public ResponseEntity<?> registerAccount(@PathVariable String accountId,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
-        featureFlags.requireAwsConversionsEnabled();
-        log.info("AutoSpottingController.registerAccount called with accountId={}", accountId);
-        try {
-            autoSpottingService.registerCustomerAccount(account);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Account registered successfully in AutoSpotting DynamoDB"));
-        } catch (AutoSpottingBlockedException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("Failed to register account: {}", e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of(
-                    "success", false,
-                    "error", e.getMessage()));
-        }
+        // Resolve+authorize first so a foreign account still gets 403 (never a PLAN_REQUIRED oracle).
+        accountAccessService.requireAwsAccess(userDetails, accountId);
+        // B3 (A-02, AC-PLN-07): the legacy mutating endpoints return PLAN_REQUIRED whatever the
+        // flags and make no SDK call. A conversion now runs only through a confirmed v2 plan.
+        throw AutoSpottingBlockedException.planRequired(accountPlanUrl(accountId));
     }
 
     // ================= COST DATA (API-BASED) =================
@@ -271,25 +272,10 @@ public class AutoSpottingController {
             @RequestParam String region,
             @RequestParam String asgName,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
-        featureFlags.requireAwsConversionsEnabled();
-
-        log.info("AutoSpottingController.enableAutoSpotting called with accountId={}, region={}, asgName={}",
-                accountId, region, asgName);
-
-        try {
-            autoSpottingService.enableAutoSpotting(account, region, asgName);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "AutoSpotting enabled successfully for " + asgName));
-        } catch (AutoSpottingBlockedException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("Failed to enable AutoSpotting: {}", e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of(
-                    "success", false,
-                    "error", "Failed to enable: " + e.getMessage()));
-        }
+        accountAccessService.requireAwsAccess(userDetails, accountId);
+        // B3 (A-02, AC-PLN-07): enable runs only through a confirmed v2 plan now. PLAN_REQUIRED
+        // whatever the flags, no SDK call.
+        throw AutoSpottingBlockedException.planRequired(groupPlanUrl(accountId, region, asgName));
     }
 
     // ================= MANUAL SYNC / BACKFILL =================
@@ -373,7 +359,9 @@ public class AutoSpottingController {
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
         if (apply) {
-            featureFlags.requireAwsConversionsEnabled();
+            // B3 (A-02, AC-PLN-07, FR-CMP-04): applying to the ASG runs only through a confirmed v2
+            // plan now. The DB-only save (apply=false) keeps working below.
+            throw AutoSpottingBlockedException.planRequired(groupPlanUrl(accountId, region, asgName));
         }
 
         log.info("AutoSpottingController.updateInstanceTypeConfig: accountId={} region={} asgName={} apply={}",
@@ -454,7 +442,9 @@ public class AutoSpottingController {
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
         if (apply) {
-            featureFlags.requireAwsConversionsEnabled();
+            // B3 (A-02, AC-PLN-07, FR-CMP-04): applying to the ASG runs only through a confirmed v2
+            // plan now. The DB-only save (apply=false) keeps working below (ux §9.8).
+            throw AutoSpottingBlockedException.planRequired(groupPlanUrl(accountId, region, asgName));
         }
 
         log.info("AutoSpottingController.saveSpotConfig: accountId={} region={} asgName={} apply={} body={}",
@@ -614,25 +604,10 @@ public class AutoSpottingController {
             @RequestParam String asgName,
             @RequestBody ASGConfigUpdate config,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
-        // Always paused: enabled=true here calls enable, and POST /disable stays open.
-        featureFlags.requireAwsConversionsEnabled();
-
-        log.info("AutoSpottingController.updateAsgConfig called with accountId={}, region={}, asgName={}",
-                accountId, region, asgName);
-        log.debug("Config update payload: {}", config);
-
-        try {
-            ASGConfig updated = autoSpottingService.updateAsgConfig(account, region, asgName, config);
-            return ResponseEntity.ok(updated);
-        } catch (AutoSpottingBlockedException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("Failed to update ASG config: {}", e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of(
-                    "success", false,
-                    "error", "Failed to update config: " + e.getMessage()));
-        }
+        accountAccessService.requireAwsAccess(userDetails, accountId);
+        // B3 (A-02, AC-PLN-07): this endpoint applies to the ASG (enabled=true calls enable), so it
+        // runs only through a confirmed v2 plan now. PLAN_REQUIRED whatever the flags, no SDK call.
+        throw AutoSpottingBlockedException.planRequired(groupPlanUrl(accountId, region, asgName));
     }
 
     // ================= HEALTH CHECK =================

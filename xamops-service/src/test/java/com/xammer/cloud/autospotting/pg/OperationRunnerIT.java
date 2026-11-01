@@ -59,7 +59,8 @@ class OperationRunnerIT {
                 ctx.getBean(AutoSpottingAuditWriter.class),
                 ctx.getBean(SwitchService.class),
                 ctx.getBean(SpotOpsLifecycle.class),
-                new ProviderRegistry(List.of(provider)));
+                new ProviderRegistry(List.of(provider)),
+                ctx.getBean(com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics.class));
     }
 
     private static LeaseHandle acquire(AnnotationConfigApplicationContext ctx, UUID groupId) {

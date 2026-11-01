@@ -100,52 +100,63 @@ class AutoSpottingControllerTest {
         return builder.contentType(MediaType.APPLICATION_JSON).content(body);
     }
 
-    private static void expectPaused(ResultActions result) throws Exception {
+    /**
+     * B3 (A-02, AC-PLN-07, plan-phase-11.md task 11.5): the legacy mutating endpoints now return 409
+     * {@code PLAN_REQUIRED} whatever the conversion flags, and make no SDK call. A conversion runs
+     * only through a confirmed v2 plan.
+     */
+    private static void expectPlanRequired(ResultActions result) throws Exception {
         result.andExpect(status().isConflict())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.code").value(AutoSpottingBlockedException.CONVERSIONS_PAUSED))
-                .andExpect(jsonPath("$.error").isNotEmpty());
+                .andExpect(jsonPath("$.code").value(AutoSpottingBlockedException.PLAN_REQUIRED))
+                .andExpect(jsonPath("$.planUrl").isNotEmpty());
     }
 
-    // ── paused (default) ─────────────────────────────────────────────────────
+    // ── B3: legacy mutating endpoints return PLAN_REQUIRED (AC-PLN-07), no SDK call ──
 
     @Test
-    void paused_enableIsRefusedWithoutServiceCall() throws Exception {
-        expectPaused(mvc(false).perform(post(BASE + "/asgs/" + AWS_ID + "/enable" + ASG)));
+    void enableReturnsPlanRequiredWhateverTheFlag_andNoServiceCall() throws Exception {
+        expectPlanRequired(mvc(false).perform(post(BASE + "/asgs/" + AWS_ID + "/enable" + ASG)));
+        expectPlanRequired(mvc(true).perform(post(BASE + "/asgs/" + AWS_ID + "/enable" + ASG)));
         verifyNoInteractions(service);
     }
 
     @Test
-    void paused_instanceTypesWithApplyTrue_isRefused() throws Exception {
-        expectPaused(mvc(false).perform(json(put(BASE + "/asgs/" + AWS_ID + "/instance-types" + ASG + "&apply=true"),
+    void instanceTypesWithApplyTrue_returnsPlanRequired() throws Exception {
+        expectPlanRequired(mvc(false).perform(json(put(BASE + "/asgs/" + AWS_ID + "/instance-types" + ASG
+                + "&apply=true"), "{\"instanceTypes\":[\"t3.micro\"]}")));
+        expectPlanRequired(mvc(true).perform(json(put(BASE + "/asgs/" + AWS_ID + "/instance-types" + ASG
+                + "&apply=true"), "{\"instanceTypes\":[\"t3.micro\"]}")));
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void instanceTypesWithApplyOmitted_returnsPlanRequired() throws Exception {
+        // apply defaults to true, so the implicit-apply form also routes to PLAN_REQUIRED.
+        expectPlanRequired(mvc(false).perform(json(put(BASE + "/asgs/" + AWS_ID + "/instance-types" + ASG),
                 "{\"instanceTypes\":[\"t3.micro\"]}")));
         verifyNoInteractions(service);
     }
 
     @Test
-    void paused_instanceTypesWithApplyOmitted_isRefused() throws Exception {
-        expectPaused(mvc(false).perform(json(put(BASE + "/asgs/" + AWS_ID + "/instance-types" + ASG),
-                "{\"instanceTypes\":[\"t3.micro\"]}")));
+    void spotConfigWithApplyTrue_returnsPlanRequired() throws Exception {
+        expectPlanRequired(mvc(false).perform(json(put(BASE + "/asgs/" + AWS_ID + "/spot-config" + ASG
+                + "&apply=true"), "{\"spotPercentage\":75}")));
         verifyNoInteractions(service);
     }
 
     @Test
-    void paused_spotConfigWithApplyTrue_isRefused() throws Exception {
-        expectPaused(mvc(false).perform(json(put(BASE + "/asgs/" + AWS_ID + "/spot-config" + ASG + "&apply=true"),
-                "{\"spotPercentage\":75}")));
-        verifyNoInteractions(service);
-    }
-
-    @Test
-    void paused_asgConfigUpdate_isAlwaysRefused() throws Exception {
-        expectPaused(mvc(false).perform(json(put(BASE + "/asgs/" + AWS_ID + "/config" + ASG),
+    void asgConfigUpdate_returnsPlanRequired() throws Exception {
+        expectPlanRequired(mvc(false).perform(json(put(BASE + "/asgs/" + AWS_ID + "/config" + ASG),
+                "{\"enabled\":false}")));
+        expectPlanRequired(mvc(true).perform(json(put(BASE + "/asgs/" + AWS_ID + "/config" + ASG),
                 "{\"enabled\":false}")));
         verifyNoInteractions(service);
     }
 
     @Test
-    void paused_register_isRefused() throws Exception {
-        expectPaused(mvc(false).perform(post(BASE + "/register/" + AWS_ID)));
+    void register_returnsPlanRequired() throws Exception {
+        expectPlanRequired(mvc(false).perform(post(BASE + "/register/" + AWS_ID)));
         verifyNoInteractions(service);
     }
 
@@ -202,34 +213,16 @@ class AutoSpottingControllerTest {
         mvc(false).perform(get(BASE + "/feature-status")).andExpect(status().isForbidden());
     }
 
-    // ── enabled ──────────────────────────────────────────────────────────────
+    // ── enabled-flag no longer opens the SDK path (B3): still PLAN_REQUIRED ─────
 
     @Test
-    void enabled_enableReachesServiceWithResolvedAccount() throws Exception {
-        mvc(true).perform(post(BASE + "/asgs/" + AWS_ID + "/enable" + ASG))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true));
-        verify(service).enableAutoSpotting(account, "us-east-1", "web");
-    }
-
-    @Test
-    void enabled_instanceTypesApplyTrue_reachesService() throws Exception {
-        mvc(true).perform(json(put(BASE + "/asgs/" + AWS_ID + "/instance-types" + ASG + "&apply=true"),
-                        "{\"instanceTypes\":[\"t3.micro\"]}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.applied").value(true));
-        verify(service).saveInstanceTypeConfig(account, "us-east-1", "web", List.of("t3.micro"), true);
-    }
-
-    @Test
-    void enabled_readOnlyRefusalFromServiceIsMappedNotWrapped() throws Exception {
-        doThrow(AutoSpottingBlockedException.readOnlyConnection())
-                .when(service).saveSpotConfig(account, "us-east-1", "web", 75, null, true);
-
-        mvc(true).perform(json(put(BASE + "/asgs/" + AWS_ID + "/spot-config" + ASG + "&apply=true"),
-                        "{\"spotPercentage\":75}"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value(AutoSpottingBlockedException.READ_ONLY_CONNECTION));
+    void enabledFlag_doesNotReopenTheSdkPath_stillPlanRequired() throws Exception {
+        // Even with aws.conversions-enabled=true, enable/apply return PLAN_REQUIRED and never call the
+        // service: the flag no longer gates these endpoints (plan-phase-11.md task 11.5).
+        expectPlanRequired(mvc(true).perform(post(BASE + "/asgs/" + AWS_ID + "/enable" + ASG)));
+        expectPlanRequired(mvc(true).perform(json(put(BASE + "/asgs/" + AWS_ID + "/instance-types" + ASG
+                + "&apply=true"), "{\"instanceTypes\":[\"t3.micro\"]}")));
+        verifyNoInteractions(service);
     }
 
     // ── tenancy and the account-id contract ──────────────────────────────────

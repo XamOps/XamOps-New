@@ -85,6 +85,15 @@ public class PreemptionService {
             return new Preemption(Verdict.CLEAR, null, false);
         }
 
+        /**
+         * A CLEAR verdict for a plan on a group with no {@code spot_group} row yet (§2.1: a row
+         * appears with the first plan). There is no row to lock or op to preempt, so the caller may
+         * insert the new op QUEUED. Public so the confirm path (core.plan) can use it.
+         */
+        public static Preemption clearForRowlessPlan() {
+            return new Preemption(Verdict.CLEAR, null, false);
+        }
+
         static Preemption busy() {
             return new Preemption(Verdict.BUSY, null, false);
         }

@@ -22,6 +22,8 @@ import com.xammer.cloud.service.autospotting.core.lifecycle.GroupLifecycleServic
 import com.xammer.cloud.service.autospotting.core.switches.SwitchService;
 import com.xammer.cloud.service.autospotting.core.switches.SwitchState;
 import com.xammer.cloud.service.autospotting.obs.AutoSpottingMdc;
+import com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics;
+import com.xammer.cloud.service.autospotting.spi.StepContext;
 import com.xammer.cloud.service.autospotting.spi.OperationContext;
 import com.xammer.cloud.service.autospotting.spi.ProviderRegistry;
 import com.xammer.cloud.service.autospotting.spi.SpotProvider;
@@ -94,11 +96,13 @@ public class OperationRunner {
     private final SwitchService switchService;
     private final SpotOpsLifecycle opsLifecycle;
     private final ProviderRegistry providers;
+    private final AutoSpottingMetrics metrics;
 
     public OperationRunner(SpotOperationRepository operations, SpotGroupRepository groups, OperationStore store,
                            StepExecutor stepExecutor, GroupLifecycleService lifecycle, FencedTx fencedTx,
                            AutoSpottingAuditWriter auditWriter, SwitchService switchService,
-                           SpotOpsLifecycle opsLifecycle, ProviderRegistry providers) {
+                           SpotOpsLifecycle opsLifecycle, ProviderRegistry providers,
+                           AutoSpottingMetrics metrics) {
         this.operations = operations;
         this.groups = groups;
         this.store = store;
@@ -109,6 +113,7 @@ public class OperationRunner {
         this.switchService = switchService;
         this.opsLifecycle = opsLifecycle;
         this.providers = providers;
+        this.metrics = metrics;
     }
 
     /**
@@ -155,6 +160,10 @@ public class OperationRunner {
     }
 
     private void drive(LeaseHandle handle, SpotOperation op, SpotGroup group, SpotProvider provider) {
+        if (op.isDryRun()) {
+            driveDryRun(handle, op, group, provider);
+            return;
+        }
         StepProgram program = deriveProgram(op, group, provider);
         // The compensation program's steps use a persisted-seq base above the forward steps, so the
         // append-only spot_operation_step rows never collide across the FORWARD and COMPENSATING legs
@@ -216,6 +225,64 @@ public class OperationRunner {
 
         // Program ran to the end: finish per the §2.2.1 success path for this phase.
         finishSuccess(handle, op, group);
+    }
+
+    /**
+     * Drive a dry-run op (design-core.md §7.2, FR-PLN-05, AC-PLN-06; plan-phase-11.md task 11.3).
+     * Each step's {@link com.xammer.cloud.service.autospotting.spi.Step#describeIntent} is evaluated
+     * instead of {@code execute} — no mutating client is ever reached — and a {@code WOULD_DO} audit
+     * row is written per step. The op never writes {@code spot_group.state}, a transition or any
+     * {@code desired_*} column; a dry-run ENABLE never moved the group to PLANNED (plan creation
+     * skipped it), so a dry-run can't make a group ACTIVE and the ledger never sees it (PO-04). The
+     * lease is held only while a step is evaluated ({@code beginStep}/{@code endStep}). The op ends
+     * SUCCEEDED and is metered as {@code autospotting.dryrun.operations} only, never as a conversion.
+     */
+    private void driveDryRun(LeaseHandle handle, SpotOperation op, SpotGroup group, SpotProvider provider) {
+        StepProgram program = deriveProgram(op, group, provider);
+        for (int index = 0; index < program.size(); index++) {
+            if (opsLifecycle.isDraining()) {
+                store.park(op.getId(), WaitReason.BACKOFF, Instant.now(), index, null);
+                return;
+            }
+            Step step = program.at(index);
+            String intent;
+            opsLifecycle.beginStep();
+            try {
+                StepContext ctx = new StepContext(op.getId(), index, handle, null,
+                        step.mutates() ? MUTATING_CALL_TIMEOUT : READ_CALL_TIMEOUT);
+                intent = step.describeIntent(ctx); // read-only; never touches the mutating client
+            } finally {
+                opsLifecycle.endStep();
+            }
+            auditWouldDo(handle, op, group, step.name(), intent);
+            store.advanceStep(op.getId(), index + 1);
+        }
+        store.finishSucceeded(op.getId());
+        metrics.dryRunOperation(group.getProvider(), op.getKind().name(), "SUCCEEDED");
+        if (log.isDebugEnabled()) {
+            log.debug("dry-run op {} {} SUCCEEDED ({} would-do steps)", op.getId(), op.getKind(),
+                    program.size());
+        }
+    }
+
+    /** Write a {@code WOULD_DO} audit row for a dry-run step (§7.2), fenced on the lease. */
+    private void auditWouldDo(LeaseHandle handle, SpotOperation op, SpotGroup group, String stepName,
+                              String intent) {
+        fencedTx.run(handle, () -> auditWriter.write(
+                AuditRecord.builder("STEP_INTENT", Actor.system(), op.getKind().name(), "WOULD_DO")
+                        .operationId(op.getId())
+                        .planId(op.getPlanId())
+                        .provider(group.getProvider() == null ? null : group.getProvider().name())
+                        .clientId(group.getClientId())
+                        .cloudAccountId(group.getCloudAccountId())
+                        .groupId(group.getId())
+                        .groupKey(group.getGroupKey())
+                        .details(intent == null ? null : "{\"wouldDo\":\"" + jsonEscape(stepName) + "\"}")
+                        .build()));
+    }
+
+    private static String jsonEscape(String s) {
+        return s == null ? "" : s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     /** The persisted-seq base for the op's current leg: 0 for FORWARD, {@link #COMPENSATION_SEQ_BASE} for COMPENSATING. */

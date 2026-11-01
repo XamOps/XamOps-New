@@ -186,9 +186,10 @@ class AutoSpottingOpsBeans {
     OperationRunner operationRunner(SpotOperationRepository ops, SpotGroupRepository groups, OperationStore store,
                                     StepExecutor stepExecutor, GroupLifecycleService lifecycle, FencedTx fencedTx,
                                     AutoSpottingAuditWriter auditWriter, SwitchService switchService,
-                                    SpotOpsLifecycle opsLifecycle, ProviderRegistry providers) {
+                                    SpotOpsLifecycle opsLifecycle, ProviderRegistry providers,
+                                    com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics) {
         return new OperationRunner(ops, groups, store, stepExecutor, lifecycle, fencedTx, auditWriter,
-                switchService, opsLifecycle, providers);
+                switchService, opsLifecycle, providers, metrics);
     }
 
     @Bean

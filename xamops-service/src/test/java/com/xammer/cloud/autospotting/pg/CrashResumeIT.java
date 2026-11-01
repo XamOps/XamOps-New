@@ -57,7 +57,8 @@ class CrashResumeIT {
                 ctx.getBean(AutoSpottingAuditWriter.class),
                 ctx.getBean(SwitchService.class),
                 ctx.getBean(SpotOpsLifecycle.class),
-                new ProviderRegistry(List.of(provider)));
+                new ProviderRegistry(List.of(provider)),
+                ctx.getBean(com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics.class));
     }
 
     /**

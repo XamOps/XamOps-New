@@ -10,8 +10,22 @@
 
 export const AUTOSPOTTING_CONVERSIONS_PAUSED = 'AUTOSPOTTING_CONVERSIONS_PAUSED';
 
+/**
+ * The B3 refusal the legacy AWS mutating endpoints now return (enable, apply config with apply=true,
+ * register, update config): a conversion runs only through a confirmed v2 plan (design-core.md §7.4,
+ * AC-PLN-07; plan-phase-11.md task 11.5).
+ */
+export const PLAN_REQUIRED = 'PLAN_REQUIRED';
+
 export const PAUSED_MESSAGE =
   'New Spot conversions are paused while AutoSpotting is being upgraded. Groups already on Spot keep running, and you can still switch them back to On-Demand.';
+
+/**
+ * What a PLAN_REQUIRED refusal shows on the legacy pages once the AutoSpotting shell is on
+ * (autospotting.ui.shell-enabled true, Phase 14): point the user at the Review-plan flow. While the
+ * shell is off, PLAN_REQUIRED shows the same paused notice as before, so users see no new message.
+ */
+export const REVIEW_PLAN_MESSAGE = 'Use Review plan in AutoSpotting to make this change.';
 
 const SESSION_EXPIRED_MESSAGE = 'Your session has expired. Sign in again.';
 const NO_ACCESS_MESSAGE = "You don't have access to this account, or it isn't connected to XamOps.";
@@ -23,7 +37,22 @@ export interface AutoSpottingError {
   message: string;
 }
 
-export function parseAutoSpottingError(e: unknown, fallback = DEFAULT_FALLBACK): AutoSpottingError {
+export interface ParseOptions {
+  /** The fallback message when nothing else matches. */
+  fallback?: string;
+  /** Whether the AutoSpotting shell is on (autospotting.ui.shell-enabled). Changes PLAN_REQUIRED copy. */
+  shellEnabled?: boolean;
+}
+
+export function parseAutoSpottingError(
+  e: unknown,
+  fallbackOrOptions: string | ParseOptions = DEFAULT_FALLBACK,
+): AutoSpottingError {
+  const options: ParseOptions =
+    typeof fallbackOrOptions === 'string' ? { fallback: fallbackOrOptions } : fallbackOrOptions;
+  const fallback = options.fallback ?? DEFAULT_FALLBACK;
+  const shellEnabled = options.shellEnabled ?? false;
+
   if (!(e instanceof Error)) return { message: fallback };
 
   const match = /^HTTP (\d+): ([\s\S]*)$/.exec(e.message);
@@ -51,6 +80,11 @@ export function parseAutoSpottingError(e: unknown, fallback = DEFAULT_FALLBACK):
   }
 
   if (code === AUTOSPOTTING_CONVERSIONS_PAUSED) return { status, code, message: PAUSED_MESSAGE };
+  if (code === PLAN_REQUIRED) {
+    // While the shell is off, show the same paused notice as before (no new message); once the shell
+    // is on, point the user at the Review-plan flow (plan-phase-11.md task 11.5).
+    return { status, code, message: shellEnabled ? REVIEW_PLAN_MESSAGE : PAUSED_MESSAGE };
+  }
   if (status === 401) return { status, code, message: SESSION_EXPIRED_MESSAGE };
   if (status === 403) return { status, code, message: NO_ACCESS_MESSAGE };
 

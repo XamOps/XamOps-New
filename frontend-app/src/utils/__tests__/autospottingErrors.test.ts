@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   AUTOSPOTTING_CONVERSIONS_PAUSED,
   PAUSED_MESSAGE,
+  PLAN_REQUIRED,
+  REVIEW_PLAN_MESSAGE,
   isConversionsPausedError,
   parseAutoSpottingError,
 } from '../autospottingErrors';
@@ -34,6 +36,32 @@ describe('parseAutoSpottingError', () => {
     expect(parsed.code).toBe('AUTOSPOTTING_READ_ONLY_CONNECTION');
     expect(parsed.message).toBe('This AWS connection is read-only.');
     expect(isConversionsPausedError(err)).toBe(false);
+  });
+
+  it('maps a 409 PLAN_REQUIRED to the paused notice while the shell is off', () => {
+    const err = httpError(409, JSON.stringify({
+      success: false,
+      code: PLAN_REQUIRED,
+      error: 'This group is now managed by AutoSpotting.',
+      planUrl: '/autospotting/aws/123/groups/x/plan',
+    }));
+    const parsed = parseAutoSpottingError(err);
+    expect(parsed.status).toBe(409);
+    expect(parsed.code).toBe(PLAN_REQUIRED);
+    expect(parsed.message).toBe(PAUSED_MESSAGE);
+    expect(isConversionsPausedError(err)).toBe(false);
+  });
+
+  it('maps a 409 PLAN_REQUIRED to the Review-plan copy once the shell is on', () => {
+    const err = httpError(409, JSON.stringify({ success: false, code: PLAN_REQUIRED, error: 'x' }));
+    const parsed = parseAutoSpottingError(err, { shellEnabled: true });
+    expect(parsed.status).toBe(409);
+    expect(parsed.code).toBe(PLAN_REQUIRED);
+    expect(parsed.message).toBe(REVIEW_PLAN_MESSAGE);
+  });
+
+  it('still accepts a string fallback argument', () => {
+    expect(parseAutoSpottingError('oops', 'Toggle failed')).toEqual({ message: 'Toggle failed' });
   });
 
   it('uses fixed copy for a plain 403', () => {
