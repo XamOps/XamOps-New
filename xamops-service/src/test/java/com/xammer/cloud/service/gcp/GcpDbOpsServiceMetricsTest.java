@@ -94,7 +94,8 @@ class GcpDbOpsServiceMetricsTest {
                 dbAgentConfigRepository,
                 mock(DbAgentDataCacheRepository.class),
                 dbAgentMetricsHistoryRepository,
-                new DbOpsFeatureFlags(false));
+                new DbOpsFeatureFlags(false),
+                Runnable::run);
     }
 
     // ── COR-2: label ↔ inventory key match ──────────────────────────────────

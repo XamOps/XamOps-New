@@ -2,6 +2,7 @@ package pusher
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -44,6 +45,14 @@ func (p *Pusher) Push(payload *collector.AgentPayload) error {
 		return fmt.Errorf("marshal payload: %w", err)
 	}
 
+	// PERF-8: gzip the ingest body (often 400+ KB of JSON). The backend's GzipRequestFilter inflates
+	// it transparently when Content-Encoding: gzip is present, and still accepts uncompressed bodies
+	// from older agents. Heartbeat stays uncompressed (its body is a near-empty object).
+	gzBody, err := gzipBytes(body)
+	if err != nil {
+		return fmt.Errorf("gzip payload: %w", err)
+	}
+
 	url := p.cfg.ServerURL + "/api/v1/agent/ingest"
 
 	var lastErr error
@@ -53,13 +62,14 @@ func (p *Pusher) Push(payload *collector.AgentPayload) error {
 			time.Sleep(time.Duration(p.cfg.RetryDelay) * time.Second)
 		}
 
-		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(gzBody))
 		if err != nil {
 			lastErr = fmt.Errorf("create request: %w", err)
 			continue
 		}
 
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Authorization", "Bearer "+p.cfg.APIKey)
 
 		resp, err := p.httpClient.Do(req)
@@ -78,6 +88,21 @@ func (p *Pusher) Push(payload *collector.AgentPayload) error {
 	}
 
 	return fmt.Errorf("all push attempts failed: %w", lastErr)
+}
+
+// gzipBytes compresses b with gzip. Factored out of Push so the gzip round-trip is unit-testable
+// (PERF-8). The writer is closed before the buffer is read so the gzip trailer is flushed.
+func gzipBytes(b []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(b); err != nil {
+		_ = zw.Close()
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // FetchConfig calls GET /api/v1/agent/config and populates any unset OpenObserve

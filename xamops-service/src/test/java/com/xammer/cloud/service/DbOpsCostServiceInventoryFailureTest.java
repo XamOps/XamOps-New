@@ -66,7 +66,7 @@ class DbOpsCostServiceInventoryFailureTest {
                 cachedDataRepository, new ObjectMapper(), mock(AgentDataCacheRepository.class),
                 mock(KubernetesClusterConfigRepository.class), mock(DbAgentConfigRepository.class),
                 mock(DbAgentDataCacheRepository.class), mock(DbAgentMetricsHistoryRepository.class),
-                mock(SpotPricingService.class), mock(DbOpsFeatureFlags.class));
+                mock(SpotPricingService.class), mock(DbOpsFeatureFlags.class), Runnable::run);
     }
 
     private void stubSingleRegion() {

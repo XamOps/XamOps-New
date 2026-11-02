@@ -64,7 +64,8 @@ class DbOpsCostServiceTimeseriesTest {
                 mock(RedisCacheService.class), mock(CachedDataRepository.class), new ObjectMapper(),
                 mock(AgentDataCacheRepository.class), mock(KubernetesClusterConfigRepository.class),
                 dbAgentConfigRepository, mock(DbAgentDataCacheRepository.class),
-                dbAgentMetricsHistoryRepository, mock(SpotPricingService.class), mock(DbOpsFeatureFlags.class));
+                dbAgentMetricsHistoryRepository, mock(SpotPricingService.class), mock(DbOpsFeatureFlags.class),
+                Runnable::run);
     }
 
     @Test

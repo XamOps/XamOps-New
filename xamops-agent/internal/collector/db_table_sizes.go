@@ -10,6 +10,39 @@ import (
 
 const tableSizeLimit = 50 // top N tables by total size
 
+// postgresTableSizesQuery (PERF-6) sizes only the top-N candidate tables instead of every table.
+//
+// The old query called pg_total_relation_size on every row of pg_stat_user_tables just to ORDER BY
+// it, then LIMIT 50 — on a 12k-table database that is 12k size calls (seconds + hundreds of MB).
+// Instead an inner select picks the top-N candidate OIDs by pg_class.relpages (the planner's cheap
+// cached page-count estimate, no size call), and the outer select computes the exact
+// pg_table_size/pg_indexes_size/pg_total_relation_size for ONLY those N by OID. Sizing by c.oid also
+// drops the old `schemaname || '.' || relname` regclass cast, which broke on mixed-case/quoted
+// names (incidental COR-12 fix). Candidate membership is now chosen by the relpages estimate, so at
+// the N boundary it can differ slightly from an exact global ordering — the intended optimisation.
+const postgresTableSizesQuery = `
+SELECT
+    n.nspname                       AS schemaname,
+    c.relname                       AS relname,
+    pg_table_size(c.oid)            AS data_bytes,
+    pg_indexes_size(c.oid)          AS index_bytes,
+    pg_total_relation_size(c.oid)   AS total_bytes,
+    COALESCE(st.n_live_tup, 0)      AS row_count
+FROM (
+    SELECT c.oid
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relkind IN ('r','p','m')
+      AND n.nspname NOT IN ('pg_catalog','information_schema')
+      AND n.nspname NOT LIKE 'pg_toast%'
+    ORDER BY c.relpages DESC
+    LIMIT $1
+) cand
+JOIN pg_class c      ON c.oid = cand.oid
+JOIN pg_namespace n  ON n.oid = c.relnamespace
+LEFT JOIN pg_stat_user_tables st ON st.relid = c.oid
+ORDER BY total_bytes DESC`
+
 // collectDBTableSizes queries table storage stats for all DSNs.
 // Pushed as "db-table-sizes" batch — safe to add: server stores any batch type it receives.
 func collectDBTableSizes(ctx context.Context, dsns []string) (DataBatch, error) {
@@ -89,21 +122,9 @@ LIMIT ?`
 }
 
 func queryPostgresTableSizes(ctx context.Context, db *sql.DB, alias, host string) ([]DbTableSize, error) {
-	const q = `
-SELECT
-    schemaname,
-    relname,
-    pg_table_size(schemaname || '.' || relname)          AS data_bytes,
-    pg_indexes_size(schemaname || '.' || relname)        AS index_bytes,
-    pg_total_relation_size(schemaname || '.' || relname) AS total_bytes,
-    COALESCE(n_live_tup, 0)                              AS row_count
-FROM pg_stat_user_tables
-ORDER BY total_bytes DESC
-LIMIT $1`
-
-	rows, err := db.QueryContext(ctx, q, tableSizeLimit)
+	rows, err := db.QueryContext(ctx, postgresTableSizesQuery, tableSizeLimit)
 	if err != nil {
-		return nil, fmt.Errorf("query pg_stat_user_tables: %w", err)
+		return nil, fmt.Errorf("query pg table sizes: %w", err)
 	}
 	defer rows.Close()
 

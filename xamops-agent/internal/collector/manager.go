@@ -100,8 +100,14 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 		mongoDSNs := filterByEngine(m.cfg.DBDSNs, "mongodb")
 		redisDSNs := filterByEngine(m.cfg.DBDSNs, "redis")
 
+		// PERF-7: each DB collector below runs under its own child deadline (not the shared cycle
+		// context), so one collector stalled on an ACCESS EXCLUSIVE lock cannot zero the rest.
+		dbTimeout := time.Duration(m.cfg.DBCollectorTimeoutSeconds) * time.Second
+
 		// Query digests from performance_schema / pg_stat_statements
-		if batch, err := collectDBQueryStats(ctx, sqlDSNs, m.cfg.DBQueryLimit); err == nil {
+		if batch, err := runDBCollector(ctx, "db-query-stats", dbTimeout, func(c context.Context) (DataBatch, error) {
+			return collectDBQueryStats(c, sqlDSNs, m.cfg.DBQueryLimit)
+		}); err == nil {
 			if batch.Count > 0 {
 				payload.Batches = append(payload.Batches, batch)
 			}
@@ -109,7 +115,9 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 			log.Printf("WARN: db-query-stats: %v", err)
 		}
 		// Server-level status metrics (connections, QPS, buffer pool, lock waits, etc.)
-		if batch, err := collectDBInstanceMetrics(ctx, sqlDSNs); err == nil {
+		if batch, err := runDBCollector(ctx, "db-instance-metrics", dbTimeout, func(c context.Context) (DataBatch, error) {
+			return collectDBInstanceMetrics(c, sqlDSNs)
+		}); err == nil {
 			if batch.Count > 0 {
 				payload.Batches = append(payload.Batches, batch)
 			}
@@ -117,7 +125,9 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 			log.Printf("WARN: db-instance-metrics: %v", err)
 		}
 		// Table storage sizes (top 50 tables by size per DSN)
-		if batch, err := collectDBTableSizes(ctx, sqlDSNs); err == nil {
+		if batch, err := runDBCollector(ctx, "db-table-sizes", dbTimeout, func(c context.Context) (DataBatch, error) {
+			return collectDBTableSizes(c, sqlDSNs)
+		}); err == nil {
 			if batch.Count > 0 {
 				payload.Batches = append(payload.Batches, batch)
 			}
@@ -125,7 +135,9 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 			log.Printf("WARN: db-table-sizes: %v", err)
 		}
 		// Vacuum/analyze history and dead tuple ratios (PostgreSQL only)
-		if batch, err := collectDBVacuumStats(ctx, sqlDSNs); err == nil {
+		if batch, err := runDBCollector(ctx, "db-vacuum-stats", dbTimeout, func(c context.Context) (DataBatch, error) {
+			return collectDBVacuumStats(c, sqlDSNs)
+		}); err == nil {
 			if batch.Count > 0 {
 				payload.Batches = append(payload.Batches, batch)
 			}
@@ -133,7 +145,9 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 			log.Printf("WARN: db-vacuum-stats: %v", err)
 		}
 		// Per-user connection and query activity
-		if batch, err := collectDBUserActivity(ctx, sqlDSNs); err == nil {
+		if batch, err := runDBCollector(ctx, "db-user-activity", dbTimeout, func(c context.Context) (DataBatch, error) {
+			return collectDBUserActivity(c, sqlDSNs)
+		}); err == nil {
 			if batch.Count > 0 {
 				payload.Batches = append(payload.Batches, batch)
 			}
@@ -141,7 +155,9 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 			log.Printf("WARN: db-user-activity: %v", err)
 		}
 		// Per-index scan stats (unused index detection)
-		if batch, err := collectDBIndexUsage(ctx, sqlDSNs); err == nil {
+		if batch, err := runDBCollector(ctx, "db-index-usage", dbTimeout, func(c context.Context) (DataBatch, error) {
+			return collectDBIndexUsage(c, sqlDSNs)
+		}); err == nil {
 			if batch.Count > 0 {
 				payload.Batches = append(payload.Batches, batch)
 			}
@@ -149,7 +165,9 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 			log.Printf("WARN: db-index-usage: %v", err)
 		}
 		// Per-table read/write activity counters
-		if batch, err := collectDBTableActivity(ctx, sqlDSNs); err == nil {
+		if batch, err := runDBCollector(ctx, "db-table-activity", dbTimeout, func(c context.Context) (DataBatch, error) {
+			return collectDBTableActivity(c, sqlDSNs)
+		}); err == nil {
 			if batch.Count > 0 {
 				payload.Batches = append(payload.Batches, batch)
 			}
@@ -157,13 +175,17 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 			log.Printf("WARN: db-table-activity: %v", err)
 		}
 		// Wait event snapshot (pg_stat_activity / events_waits_summary)
-		if batch, err := collectDBWaitEvents(ctx, sqlDSNs); err == nil {
+		if batch, err := runDBCollector(ctx, "db-wait-events", dbTimeout, func(c context.Context) (DataBatch, error) {
+			return collectDBWaitEvents(c, sqlDSNs)
+		}); err == nil {
 			payload.Batches = append(payload.Batches, batch)
 		} else {
 			log.Printf("WARN: db-wait-events: %v", err)
 		}
 		// Per-DSN connection and privilege health — always push (even 0 items signals healthy)
-		if batch, err := collectDBDiagnostics(ctx, m.cfg.DBDSNs); err == nil {
+		if batch, err := runDBCollector(ctx, "db-diagnostics", dbTimeout, func(c context.Context) (DataBatch, error) {
+			return collectDBDiagnostics(c, m.cfg.DBDSNs)
+		}); err == nil {
 			payload.Batches = append(payload.Batches, batch)
 		} else {
 			log.Printf("WARN: db-diagnostics: %v", err)
@@ -345,6 +367,27 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 	}
 
 	return payload, nil
+}
+
+// runDBCollector runs ONE DB collector under its own child deadline derived from the cycle context
+// (PERF-7). Previously every DB collector shared the single 5-minute CollectAll context, so a table
+// held under an ACCESS EXCLUSIVE lock could burn the whole budget inside collectDBTableSizes and
+// leave every collector after it running on an already-expired context — each returning 0 items with
+// err=nil, silently zeroing the rest of the cycle. A per-collector timeout bounds one stall to its
+// own budget and lets the next collector start on a fresh deadline. The 5-minute cycle cap stays as
+// an overall backstop (parent cancellation still propagates to the child).
+func runDBCollector(parent context.Context, name string, timeout time.Duration,
+	fn func(context.Context) (DataBatch, error)) (DataBatch, error) {
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+	batch, err := fn(ctx)
+	if err != nil {
+		return batch, fmt.Errorf("%s: %w", name, err)
+	}
+	return batch, nil
 }
 
 // StartLogWatcher launches the log watcher goroutine. Call once from main.go.
