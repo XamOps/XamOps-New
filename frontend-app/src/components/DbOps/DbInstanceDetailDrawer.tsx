@@ -4329,8 +4329,11 @@ export default function DbInstanceDetailDrawer({
   // Engine-specific: Mongo / Redis detection + hooks (called unconditionally at top level)
   const isMongo = /mongo/i.test(instance?.engine ?? '');
   const isRedis = /redis/i.test(instance?.engine ?? '');
-  const mongoHost = isMongo ? (instance?.agentHost ?? instance?.rdsData?.endpoint) : undefined;
-  const redisHost = isRedis ? (instance?.agentHost ?? instance?.rdsData?.endpoint) : undefined;
+  // PERF-19: only resolve a host (which drives the fetch) when the engine matches AND its mirror
+  // flag is on. With the flags default-off the Mongo/Redis panels are hidden, so fetching their
+  // data was pure waste on every drawer open.
+  const mongoHost = isMongo && DBOPS_MONGO_UI_ENABLED ? (instance?.agentHost ?? instance?.rdsData?.endpoint) : undefined;
+  const redisHost = isRedis && DBOPS_REDIS_UI_ENABLED ? (instance?.agentHost ?? instance?.rdsData?.endpoint) : undefined;
   const { metrics: mongoMetrics, slowOps: mongoSlowOps, indexStats: mongoIndexStats } = useMongoData(accountId, mongoHost);
   const { metrics: redisMetrics, slowLog: redisSlowLog, keyspace: redisKeyspace } = useRedisData(accountId, redisHost);
   const [agentDisconnecting, setAgentDisconnecting] = useState(false);

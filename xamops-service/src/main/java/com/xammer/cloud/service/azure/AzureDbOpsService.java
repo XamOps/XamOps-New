@@ -21,6 +21,7 @@ import com.xammer.cloud.repository.DbAgentDataCacheRepository;
 import com.xammer.cloud.repository.DbAgentMetricsHistoryRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -30,6 +31,9 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.function.Supplier;
 
 /**
  * Azure DbOps Service — Azure SQL, Managed Instance, PostgreSQL Flexible, MySQL Flexible
@@ -95,6 +99,12 @@ public class AzureDbOpsService {
     private final AzureArmClient armClient;
     private final DbOpsFeatureFlags dbOpsFeatureFlags;
 
+    /** PERF-1: dedicated bounded pool for DbOps cloud I/O (off {@code ForkJoinPool.commonPool()}). */
+    private final Executor dbOpsTaskExecutor;
+
+    /** PERF-2: per-cache-key in-flight scan registry; concurrent cold-cache callers share one scan. */
+    private final ConcurrentHashMap<String, CompletableFuture<?>> inFlightScans = new ConcurrentHashMap<>();
+
     public AzureDbOpsService(
             AzureClientProvider azureClientProvider,
             CloudAccountRepository cloudAccountRepository,
@@ -105,7 +115,8 @@ public class AzureDbOpsService {
             DbAgentDataCacheRepository dbAgentDataCacheRepository,
             DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository,
             AzureArmClient armClient,
-            DbOpsFeatureFlags dbOpsFeatureFlags) {
+            DbOpsFeatureFlags dbOpsFeatureFlags,
+            @Qualifier("dbOpsTaskExecutor") Executor dbOpsTaskExecutor) {
         this.azureClientProvider = azureClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.redisCache = redisCache;
@@ -116,6 +127,38 @@ public class AzureDbOpsService {
         this.dbAgentMetricsHistoryRepository = dbAgentMetricsHistoryRepository;
         this.armClient = armClient;
         this.dbOpsFeatureFlags = dbOpsFeatureFlags;
+        this.dbOpsTaskExecutor = dbOpsTaskExecutor;
+    }
+
+    // ── PERF-1/PERF-2 helpers (mirror DbOpsCostService) ───────────────────────
+
+    /** PERF-1: run a DbOps I/O task on the dedicated bounded pool, not the common ForkJoinPool. */
+    private <T> CompletableFuture<T> dbOpsAsync(Supplier<T> supplier) {
+        return CompletableFuture.supplyAsync(supplier, dbOpsTaskExecutor);
+    }
+
+    /**
+     * PERF-2: per-key single-flight. Concurrent cold-cache callers for the same key share one
+     * in-flight scan; the slot clears when the result settles (success or failure). Cache-HIT fast
+     * paths never enter here.
+     */
+    @SuppressWarnings("unchecked")
+    private <T> CompletableFuture<T> singleFlight(String cacheKey, Supplier<CompletableFuture<T>> loader) {
+        CompletableFuture<T> created = new CompletableFuture<>();
+        CompletableFuture<?> existing = inFlightScans.putIfAbsent(cacheKey, created);
+        if (existing != null) {
+            return (CompletableFuture<T>) existing;
+        }
+        created.whenComplete((r, e) -> inFlightScans.remove(cacheKey, created));
+        try {
+            loader.get().whenComplete((r, e) -> {
+                if (e != null) created.completeExceptionally(e);
+                else created.complete(r);
+            });
+        } catch (RuntimeException ex) {
+            created.completeExceptionally(ex);
+        }
+        return created;
     }
 
     // =========================================================================
@@ -145,7 +188,8 @@ public class AzureDbOpsService {
             }
         }
 
-        return CompletableFuture.supplyAsync(() -> {
+        // PERF-2: concurrent cold-cache callers share one inventory scan (the sources fan out 6x).
+        return singleFlight(cacheKey, () -> dbOpsAsync(() -> {
             // COR-13 failure-vs-empty contract (mirrors AWS DbOpsCostService#getDbInventory):
             // a scan that could not run at all must error so the caller does not cache a
             // misleading "no databases", while a scan that ran and found nothing is cached.
@@ -184,7 +228,7 @@ public class AzureDbOpsService {
             saveToDb(cacheKey, instances);
             log.info("[AzureDbOps] Inventory fetched: {} instances for subscription {}", instances.size(), subscriptionId);
             return instances;
-        });
+        }));
     }
 
     // =========================================================================
@@ -812,7 +856,7 @@ public class AzureDbOpsService {
 
     @Async("awsTaskExecutor")
     public CompletableFuture<List<AgentInstanceMetricsDto>> getAgentInstanceMetrics(String subscriptionId) {
-        return CompletableFuture.supplyAsync(() -> {
+        return dbOpsAsync(() -> {
             try {
                 CloudAccount account = getAccountBySubscriptionId(subscriptionId);
                 if (account == null) return Collections.emptyList();
@@ -843,7 +887,7 @@ public class AzureDbOpsService {
 
     @Async("awsTaskExecutor")
     public CompletableFuture<List<AgentQueryStatDto>> getAgentQueryStats(String subscriptionId) {
-        return CompletableFuture.supplyAsync(() -> {
+        return dbOpsAsync(() -> {
             try {
                 CloudAccount account = getAccountBySubscriptionId(subscriptionId);
                 if (account == null) return Collections.emptyList();
@@ -871,37 +915,37 @@ public class AzureDbOpsService {
 
     @Async("awsTaskExecutor")
     public CompletableFuture<List<AgentTableSizeDto>> getAgentTableSizes(String subscriptionId) {
-        return CompletableFuture.supplyAsync(() -> readAgentData(subscriptionId, "db-table-sizes",
+        return dbOpsAsync(() -> readAgentData(subscriptionId, "db-table-sizes",
                 new TypeReference<List<AgentTableSizeDto>>() {}));
     }
 
     @Async("awsTaskExecutor")
     public CompletableFuture<List<AgentIndexUsageDto>> getAgentIndexUsage(String subscriptionId) {
-        return CompletableFuture.supplyAsync(() -> readAgentData(subscriptionId, "db-index-usage",
+        return dbOpsAsync(() -> readAgentData(subscriptionId, "db-index-usage",
                 new TypeReference<List<AgentIndexUsageDto>>() {}));
     }
 
     @Async("awsTaskExecutor")
     public CompletableFuture<List<AgentTableActivityDto>> getAgentTableActivity(String subscriptionId) {
-        return CompletableFuture.supplyAsync(() -> readAgentData(subscriptionId, "db-table-activity",
+        return dbOpsAsync(() -> readAgentData(subscriptionId, "db-table-activity",
                 new TypeReference<List<AgentTableActivityDto>>() {}));
     }
 
     @Async("awsTaskExecutor")
     public CompletableFuture<List<AgentVacuumStatDto>> getAgentVacuumStats(String subscriptionId) {
-        return CompletableFuture.supplyAsync(() -> readAgentData(subscriptionId, "db-vacuum-stats",
+        return dbOpsAsync(() -> readAgentData(subscriptionId, "db-vacuum-stats",
                 new TypeReference<List<AgentVacuumStatDto>>() {}));
     }
 
     @Async("awsTaskExecutor")
     public CompletableFuture<List<AgentUserActivityDto>> getAgentUserActivity(String subscriptionId) {
-        return CompletableFuture.supplyAsync(() -> readAgentData(subscriptionId, "db-user-activity",
+        return dbOpsAsync(() -> readAgentData(subscriptionId, "db-user-activity",
                 new TypeReference<List<AgentUserActivityDto>>() {}));
     }
 
     @Async("awsTaskExecutor")
     public CompletableFuture<List<AgentTimeseriesDto>> getAgentTimeseries(String subscriptionId, int hours) {
-        return CompletableFuture.supplyAsync(() -> {
+        return dbOpsAsync(() -> {
             try {
                 CloudAccount account = getAccountBySubscriptionId(subscriptionId);
                 if (account == null) return Collections.emptyList();

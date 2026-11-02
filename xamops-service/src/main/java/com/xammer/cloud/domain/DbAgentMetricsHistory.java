@@ -13,7 +13,12 @@ import java.time.LocalDateTime;
     indexes = {
         @Index(name = "idx_db_metrics_hist_agent",     columnList = "db_agent_id"),
         @Index(name = "idx_db_metrics_hist_type",      columnList = "data_type"),
-        @Index(name = "idx_db_metrics_hist_collected", columnList = "collected_at")
+        @Index(name = "idx_db_metrics_hist_collected", columnList = "collected_at"),
+        // PERF-5: composite index matching the exact shape of the timeseries finder
+        // (findByDbAgentIdAndDataTypeAndCollectedAtAfterOrderByCollectedAtAsc) so a read is an
+        // index range scan instead of filtering the agent's whole history.
+        @Index(name = "idx_db_metrics_hist_agent_type_collected",
+               columnList = "db_agent_id, data_type, collected_at")
     }
 )
 public class DbAgentMetricsHistory {

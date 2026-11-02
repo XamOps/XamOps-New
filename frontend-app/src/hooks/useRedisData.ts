@@ -48,7 +48,16 @@ export function useRedisData(accountId: string, dbHost?: string) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!accountId) return;
+    // PERF-19: only fetch when a Redis host is supplied. The drawer passes a host only for a Redis
+    // instance whose mirror flag is on, so a Postgres/MySQL drawer no longer fires three unused
+    // Redis requests on every open.
+    if (!accountId || !dbHost) {
+      setMetrics([]);
+      setSlowLog([]);
+      setKeyspace([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const base = `/api/dbops/aws/${accountId}`;
     Promise.all([

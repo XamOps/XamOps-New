@@ -53,7 +53,16 @@ export function useMongoData(accountId: string, dbHost?: string) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!accountId) return;
+    // PERF-19: only fetch when a Mongo host is supplied. The drawer passes a host only for a Mongo
+    // instance whose mirror flag is on, so a Postgres/MySQL drawer no longer fires three unused
+    // Mongo requests on every open.
+    if (!accountId || !dbHost) {
+      setMetrics([]);
+      setSlowOps([]);
+      setIndexStats([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const base = `/api/dbops/aws/${accountId}`;
     Promise.all([

@@ -8,6 +8,39 @@ import (
 	"time"
 )
 
+// postgresIndexUsageQuery (PERF-13) sizes only the top-N candidate indexes instead of every index.
+//
+// The old query computed pg_relation_size(indexrelid) for all ~24k indexes just to ORDER BY size,
+// then LIMIT 200. Instead an inner select picks the 200 "least-used, largest-first" candidates using
+// pg_class.relpages (the planner's cheap cached page-count estimate) as the size proxy — joined to
+// pg_stat_user_indexes via indexrelid — and the outer select computes the exact
+// pg_relation_size(indexrelid) for ONLY those 200. The least-used-first intent (idx_scan ASC) and
+// the IsUnused = idx_scan == 0 flag are preserved; the outer sort re-ranks the 200 by exact size.
+const postgresIndexUsageQuery = `
+SELECT
+    sub.schemaname,
+    sub.table_name,
+    sub.index_name,
+    sub.idx_scan,
+    sub.idx_tup_read,
+    sub.idx_tup_fetch,
+    COALESCE(pg_relation_size(sub.indexrelid), 0) AS index_size_bytes
+FROM (
+    SELECT
+        s.schemaname,
+        s.relname      AS table_name,
+        s.indexrelname AS index_name,
+        s.indexrelid,
+        s.idx_scan,
+        s.idx_tup_read,
+        s.idx_tup_fetch
+    FROM pg_stat_user_indexes s
+    JOIN pg_class ci ON ci.oid = s.indexrelid
+    ORDER BY s.idx_scan ASC, ci.relpages DESC
+    LIMIT 200
+) sub
+ORDER BY sub.idx_scan ASC, index_size_bytes DESC`
+
 // collectDBIndexUsage collects per-index scan statistics.
 // Postgres: pg_stat_user_indexes. MySQL: performance_schema.table_io_waits_summary_by_index_usage.
 func collectDBIndexUsage(ctx context.Context, dsns []string) (DataBatch, error) {
@@ -49,19 +82,7 @@ func queryPostgresIndexUsage(ctx context.Context, dsn, alias, host string) ([]Db
 		return nil, fmt.Errorf("ping: %w", err)
 	}
 
-	rows, err := db.QueryContext(ctx, `
-		SELECT
-			s.schemaname,
-			s.relname      AS table_name,
-			s.indexrelname AS index_name,
-			s.idx_scan,
-			s.idx_tup_read,
-			s.idx_tup_fetch,
-			COALESCE(pg_relation_size(s.indexrelid), 0) AS index_size_bytes
-		FROM pg_stat_user_indexes s
-		ORDER BY s.idx_scan ASC, index_size_bytes DESC
-		LIMIT 200
-	`)
+	rows, err := db.QueryContext(ctx, postgresIndexUsageQuery)
 	if err != nil {
 		return nil, fmt.Errorf("query pg_stat_user_indexes: %w", err)
 	}

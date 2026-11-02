@@ -60,7 +60,7 @@ class DbOpsSlowLogMaskingTest {
                 mock(CachedDataRepository.class), new ObjectMapper(), mock(AgentDataCacheRepository.class),
                 mock(KubernetesClusterConfigRepository.class), mock(DbAgentConfigRepository.class),
                 mock(DbAgentDataCacheRepository.class), mock(DbAgentMetricsHistoryRepository.class),
-                mock(SpotPricingService.class), mock(DbOpsFeatureFlags.class));
+                mock(SpotPricingService.class), mock(DbOpsFeatureFlags.class), Runnable::run);
     }
 
     private DbInstanceDto instance(String id, String engine) {
@@ -116,5 +116,49 @@ class DbOpsSlowLogMaskingTest {
         SlowQueryDto q = result.getQueries().get(0);
         assertThat(q.getQuery()).doesNotContain("'bob'").doesNotContain("99").doesNotContain("1767225600");
         assertThat(q.getQuery()).contains("customer = ?").contains("total = ?");
+    }
+
+    private DbInstanceDto instance(String id, String engine, String region) {
+        DbInstanceDto dto = new DbInstanceDto();
+        dto.setInstanceId(id);
+        dto.setRegion(region);
+        dto.setEngine(engine);
+        return dto;
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void stubInventory(List<DbInstanceDto> instances) {
+        when(redisCache.get(eq(INVENTORY_KEY), any(TypeReference.class)))
+                .thenReturn((Optional) Optional.of(instances));
+    }
+
+    private void stubRegionLog(String region, String message) {
+        CloudWatchLogsClient logs = mock(CloudWatchLogsClient.class);
+        when(awsClientProvider.getCloudWatchLogsClient(eq(account), eq(region))).thenReturn(logs);
+        when(logs.filterLogEvents(any(FilterLogEventsRequest.class)))
+                .thenReturn(FilterLogEventsResponse.builder()
+                        .events(FilteredLogEvent.builder().message(message).build())
+                        .build());
+    }
+
+    /**
+     * PERF-11: the per-instance log fetch now runs in parallel. Rows from every region must still
+     * appear, and the final sort (by query time, descending) and limit must be unchanged.
+     */
+    @Test
+    void parallelFetchMergesAllRegionsSortedByQueryTime() throws Exception {
+        stubInventory(List.of(
+                instance("pg-east", "postgres", "us-east-1"),
+                instance("pg-west", "postgres", "eu-west-1")));
+        stubRegionLog("us-east-1", "2026-01-01 00:00:00.000 duration: 10.0 ms  statement: SELECT 1");
+        stubRegionLog("eu-west-1", "2026-01-01 00:00:00.000 duration: 50.0 ms  statement: SELECT 2");
+
+        SlowQueriesResponseDto result = service.getSlowQueries(AWS_ID, true).get();
+
+        assertThat(result.isLogsEnabled()).isTrue();
+        assertThat(result.getQueries()).hasSize(2);
+        // Both regions represented, sorted slowest-first (0.05s before 0.01s).
+        assertThat(result.getQueries().get(0).getInstanceId()).isEqualTo("pg-west");
+        assertThat(result.getQueries().get(1).getInstanceId()).isEqualTo("pg-east");
     }
 }

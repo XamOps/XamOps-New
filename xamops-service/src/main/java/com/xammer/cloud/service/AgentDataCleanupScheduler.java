@@ -1,12 +1,16 @@
 package com.xammer.cloud.service;
 
 import com.xammer.cloud.config.SchedulingEnvironmentConfig;
+import com.xammer.cloud.repository.DbAgentMetricsHistoryRepository;
 import com.xammer.cloud.service.spot.SpotInterruptionTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 /**
  * Prunes agent-pushed data so {@code agent_data_cache} and {@code agent_event} stay bounded.
@@ -40,9 +44,18 @@ public class AgentDataCleanupScheduler {
     @Value("${xamops.k8s.onboarding.event-retention-days:400}")
     private int onboardingEventRetentionDays;
 
+    /**
+     * PERF-5: days of {@code db_agent_metrics_history} snapshots to keep. This append-only table
+     * grows one row per agent push and had no purge, so it grew for the deployment's lifetime.
+     * Default 30 matches the entity Javadoc and the read-window clamp in {@code DbOpsCostService}.
+     */
+    @Value("${xamops.dbops.metrics-history.retention-days:30}")
+    private int metricsHistoryRetentionDays;
+
     private final AgentIngestService agentIngestService;
     private final SchedulingEnvironmentConfig envConfig;
     private final SpotInterruptionTracker spotInterruptionTracker;
+    private final DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository;
 
     /** Optional so tests that build the scheduler without the onboarding layer keep working. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -50,10 +63,12 @@ public class AgentDataCleanupScheduler {
 
     public AgentDataCleanupScheduler(AgentIngestService agentIngestService,
                                      SchedulingEnvironmentConfig envConfig,
-                                     SpotInterruptionTracker spotInterruptionTracker) {
+                                     SpotInterruptionTracker spotInterruptionTracker,
+                                     DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository) {
         this.agentIngestService = agentIngestService;
         this.envConfig = envConfig;
         this.spotInterruptionTracker = spotInterruptionTracker;
+        this.dbAgentMetricsHistoryRepository = dbAgentMetricsHistoryRepository;
     }
 
     /** Delete agent cache rows and events older than the retention window. Daily 04:20. */
@@ -83,6 +98,28 @@ public class AgentDataCleanupScheduler {
         }
         // BP-13 (F-26): prune onboarding audit events past the long (default 400-day) retention.
         purgeOldOnboardingEvents();
+        // PERF-5: prune db_agent_metrics_history past the retention window. Own try/catch inside.
+        purgeOldMetricsHistory();
+    }
+
+    /**
+     * PERF-5: delete {@code db_agent_metrics_history} rows older than the retention window. Its own
+     * try/catch so it never breaks the scheduler thread, mirroring {@link #purgeOldOnboardingEvents()}.
+     * The repository call runs in the repository proxy's own transaction (external call, not a
+     * self-invocation), exactly like the onboarding-event purge.
+     */
+    void purgeOldMetricsHistory() {
+        try {
+            LocalDateTime cutoff = LocalDateTime.now(ZoneOffset.UTC)
+                    .minusDays(metricsHistoryRetentionDays);
+            int deleted = dbAgentMetricsHistoryRepository.purgeOlderThan(cutoff);
+            if (deleted > 0) {
+                log.info("✅ Pruned {} db_agent_metrics_history row(s) older than {}d",
+                        deleted, metricsHistoryRetentionDays);
+            }
+        } catch (Exception e) {
+            log.error("❌ DbOps metrics-history retention purge failed", e);
+        }
     }
 
     /**
