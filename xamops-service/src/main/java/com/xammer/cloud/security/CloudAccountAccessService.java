@@ -229,6 +229,37 @@ public class CloudAccountAccessService {
         return callerClientId.equals(accountClientId);
     }
 
+    /**
+     * SEC-9 customer-facing interim for the two sensitive console endpoints (access-graph, health).
+     * Layered ON TOP of {@link #requireAccessByIdentifier} (which already closed the cross-tenant
+     * IDOR), this admits the account's <em>primary</em> user — {@code createdBy == null}, the same
+     * root-user semantics {@link #canAccess} uses — and platform staff, while refusing the read-only
+     * and trial sub-users SEC-9 targets (they carry a {@code createdBy}). It is an interim, not SEC-9
+     * itself: it does not model per-feature authorities (view-query-text vs manage-agents) and does
+     * not stop a staff "Login as" of the primary user. Swap it for the real {@code @PreAuthorize}
+     * authority when SEC-9 lands.
+     *
+     * @throws AccessDeniedException if the caller is absent or is not a primary user / platform admin.
+     */
+    public void requirePrimaryUser(ClientUserDetails userDetails, CloudAccount account) {
+        if (userDetails == null) {
+            throw new AccessDeniedException("Authentication required.");
+        }
+        if (isPlatformAdmin(userDetails)) {
+            return; // internal staff — may validate / demo
+        }
+        Long userId = userDetails.getId();
+        if (userId != null) {
+            Optional<User> user = userRepository.findById(userId);
+            if (user.isPresent() && user.get().getCreatedBy() == null) {
+                return; // account's primary (root) user — the customer-usable interim
+            }
+        }
+        log.warn("Denied governance endpoint: user={} is not a primary user of account {}",
+                userId, account != null ? account.getId() : null);
+        throw new AccessDeniedException("Account not found or access denied.");
+    }
+
     private boolean isPlatformAdmin(ClientUserDetails userDetails) {
         return userDetails.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)

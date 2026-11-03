@@ -10,7 +10,11 @@ import com.xammer.cloud.domain.DbAgentDataCache;
 import com.xammer.cloud.domain.DbAgentMetricsHistory;
 import com.xammer.cloud.dto.agent.AgentIngestPayload;
 import com.xammer.cloud.dto.agent.AgentIngestResponse;
+import com.xammer.cloud.dto.dbops.AgentAccessGraphDoc;
 import com.xammer.cloud.dto.dbops.AgentDiagnosticDto;
+import com.xammer.cloud.dto.dbops.AgentFkGraphDoc;
+import com.xammer.cloud.dto.dbops.AgentLockWaitDto;
+import com.xammer.cloud.dto.dbops.AgentReplicationDto;
 import com.xammer.cloud.dto.dbops.AgentWaitEventDto;
 import com.xammer.cloud.dto.dbops.MongoInstanceMetricsDto;
 import com.xammer.cloud.dto.dbops.MongoSlowOpDto;
@@ -170,6 +174,10 @@ public class DbAgentService {
                 if ("db-wait-events".equals(batch.getCollector())
                         || "db-diagnostics".equals(batch.getCollector())
                         || "db-explain-result".equals(batch.getCollector())
+                        || "db-lock-waits".equals(batch.getCollector())
+                        || "db-replication".equals(batch.getCollector())
+                        || "db-access-grants".equals(batch.getCollector())
+                        || "db-fk-graph".equals(batch.getCollector())
                         || "mongo-instance-metrics".equals(batch.getCollector())
                         || "mongo-slow-ops".equals(batch.getCollector())
                         || "mongo-index-stats".equals(batch.getCollector())
@@ -282,6 +290,35 @@ public class DbAgentService {
                         }
                     }
                 }
+                case "db-lock-waits" -> {
+                    // Row batch — group per DSN as a JSON array, like db-wait-events.
+                    List<AgentLockWaitDto> items = objectMapper.readValue(
+                        itemsJson, new TypeReference<List<AgentLockWaitDto>>() {});
+                    saveGroupedByDsn(agentConfig, "db-lock-waits", items,
+                        i -> ((AgentLockWaitDto)i).getDsnAlias());
+                }
+                case "db-replication" -> {
+                    List<AgentReplicationDto> items = objectMapper.readValue(
+                        itemsJson, new TypeReference<List<AgentReplicationDto>>() {});
+                    saveGroupedByDsn(agentConfig, "db-replication", items,
+                        i -> ((AgentReplicationDto)i).getDsnAlias());
+                }
+                case "db-access-grants" -> {
+                    // Composite document per DSN — store each doc as a single JSON OBJECT
+                    // (saveDocPerDsn), not wrapped in a one-element array.
+                    List<AgentAccessGraphDoc> docs = objectMapper.readValue(
+                        itemsJson, new TypeReference<List<AgentAccessGraphDoc>>() {});
+                    for (AgentAccessGraphDoc doc : docs) {
+                        saveDocPerDsn(agentConfig, "db-access-grants", doc, doc.getDsnAlias());
+                    }
+                }
+                case "db-fk-graph" -> {
+                    List<AgentFkGraphDoc> docs = objectMapper.readValue(
+                        itemsJson, new TypeReference<List<AgentFkGraphDoc>>() {});
+                    for (AgentFkGraphDoc doc : docs) {
+                        saveDocPerDsn(agentConfig, "db-fk-graph", doc, doc.getDsnAlias());
+                    }
+                }
                 case "mongo-instance-metrics" -> {
                     List<MongoInstanceMetricsDto> items = objectMapper.readValue(itemsJson, new TypeReference<List<MongoInstanceMetricsDto>>() {});
                     saveGroupedByDsn(agentConfig, "mongo-instance-metrics", items,
@@ -346,7 +383,38 @@ public class DbAgentService {
         items.stream()
             .collect(java.util.stream.Collectors.groupingBy(i -> dsnExtractor.apply(i)))
             .forEach((dsnAlias, group) -> saveToCache(agentConfig,
-                batchType + ":" + agentConfig.getCloudAccountId() + ":" + dsnAlias, group));
+                boundedCacheKey(batchType, agentConfig.getCloudAccountId(), dsnAlias), group));
+    }
+
+    /**
+     * Store a composite console document (access graph / FK graph) for one DSN as a single JSON
+     * OBJECT under the bounded per-DSN key — NOT wrapped in a one-element array, so the read side
+     * parses it back as the doc type directly.
+     */
+    private void saveDocPerDsn(DbAgentConfig agentConfig, String batchType, Object doc, String dsnAlias) {
+        saveToCache(agentConfig, boundedCacheKey(batchType, agentConfig.getCloudAccountId(), dsnAlias), doc);
+    }
+
+    /** Longest {@code db_agent_data_cache.data_type} the schema allows (varchar(50)). */
+    static final int MAX_DATA_TYPE_LEN = 50;
+
+    /**
+     * Build a {@code {batchType}:{accountId}:{dsnAlias}} cache key, truncating the {@code dsnAlias}
+     * segment so the whole key stays within {@code data_type}'s {@code varchar(50)}.
+     *
+     * <p>The design body widened {@code data_type} to {@code varchar(255)} via an ALTER TABLE, but
+     * that is owner-requiring DDL and the Flyway role does not own the DbOps tables on UAT/prod, so
+     * owner-DDL migrations fail on deploy. The reconciliation decision keeps {@code varchar(50)} and
+     * no migration, bounding the alias instead. The agent emits short {@code db-N} aliases, so this
+     * never actually truncates today; it is a defensive bound (and {@code dbHost} is never in a key).
+     */
+    static String boundedCacheKey(String batchType, Long accountId, String dsnAlias) {
+        String prefix = batchType + ":" + accountId + ":";
+        String alias = dsnAlias == null ? "" : dsnAlias;
+        int budget = MAX_DATA_TYPE_LEN - prefix.length();
+        if (budget < 0) budget = 0;
+        if (alias.length() > budget) alias = alias.substring(0, budget);
+        return prefix + alias;
     }
 
     /**

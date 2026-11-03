@@ -46,6 +46,28 @@ public class AgentInstanceMetricsDto {
     private long bytesReceived;
     private long bytesSent;
 
+    // ── Phase 2 console — extended Postgres health counters (COL-A1) ──────────
+    // cacheHit/blks* are instance-wide; temp*/xact* are scoped to current_database() (LOW-2).
+    // The existing innodbDeadlocks field is now scoped to current_database() too (LOW-2 reconcile).
+    private double cacheHitRatio;
+    private long blksHit;
+    private long blksRead;
+    private long tempFiles;
+    private long tempBytes;
+    private long xactCommit;
+    private long xactRollback;
+    private long checkpointsTimed;
+    private long checkpointsReq;
+    private double checkpointWriteTime;
+    private long buffersCheckpoint;
+    private long walRecords;
+    private long walFpi;
+    private long walBytes;
+    private long walBuffersFull;
+    private Double walWriteTime; // null on PG18+
+    private Double walSyncTime;  // null on PG18+
+    private long datfrozenxidAge;
+
     // Server info
     private long uptime;
     private String version;
@@ -98,6 +120,42 @@ public class AgentInstanceMetricsDto {
     public void setBytesReceived(long bytesReceived) { this.bytesReceived = bytesReceived; }
     public long getBytesSent() { return bytesSent; }
     public void setBytesSent(long bytesSent) { this.bytesSent = bytesSent; }
+    public double getCacheHitRatio() { return cacheHitRatio; }
+    public void setCacheHitRatio(double cacheHitRatio) { this.cacheHitRatio = cacheHitRatio; }
+    public long getBlksHit() { return blksHit; }
+    public void setBlksHit(long blksHit) { this.blksHit = blksHit; }
+    public long getBlksRead() { return blksRead; }
+    public void setBlksRead(long blksRead) { this.blksRead = blksRead; }
+    public long getTempFiles() { return tempFiles; }
+    public void setTempFiles(long tempFiles) { this.tempFiles = tempFiles; }
+    public long getTempBytes() { return tempBytes; }
+    public void setTempBytes(long tempBytes) { this.tempBytes = tempBytes; }
+    public long getXactCommit() { return xactCommit; }
+    public void setXactCommit(long xactCommit) { this.xactCommit = xactCommit; }
+    public long getXactRollback() { return xactRollback; }
+    public void setXactRollback(long xactRollback) { this.xactRollback = xactRollback; }
+    public long getCheckpointsTimed() { return checkpointsTimed; }
+    public void setCheckpointsTimed(long checkpointsTimed) { this.checkpointsTimed = checkpointsTimed; }
+    public long getCheckpointsReq() { return checkpointsReq; }
+    public void setCheckpointsReq(long checkpointsReq) { this.checkpointsReq = checkpointsReq; }
+    public double getCheckpointWriteTime() { return checkpointWriteTime; }
+    public void setCheckpointWriteTime(double checkpointWriteTime) { this.checkpointWriteTime = checkpointWriteTime; }
+    public long getBuffersCheckpoint() { return buffersCheckpoint; }
+    public void setBuffersCheckpoint(long buffersCheckpoint) { this.buffersCheckpoint = buffersCheckpoint; }
+    public long getWalRecords() { return walRecords; }
+    public void setWalRecords(long walRecords) { this.walRecords = walRecords; }
+    public long getWalFpi() { return walFpi; }
+    public void setWalFpi(long walFpi) { this.walFpi = walFpi; }
+    public long getWalBytes() { return walBytes; }
+    public void setWalBytes(long walBytes) { this.walBytes = walBytes; }
+    public long getWalBuffersFull() { return walBuffersFull; }
+    public void setWalBuffersFull(long walBuffersFull) { this.walBuffersFull = walBuffersFull; }
+    public Double getWalWriteTime() { return walWriteTime; }
+    public void setWalWriteTime(Double walWriteTime) { this.walWriteTime = walWriteTime; }
+    public Double getWalSyncTime() { return walSyncTime; }
+    public void setWalSyncTime(Double walSyncTime) { this.walSyncTime = walSyncTime; }
+    public long getDatfrozenxidAge() { return datfrozenxidAge; }
+    public void setDatfrozenxidAge(long datfrozenxidAge) { this.datfrozenxidAge = datfrozenxidAge; }
     public long getUptime() { return uptime; }
     public void setUptime(long uptime) { this.uptime = uptime; }
     public String getVersion() { return version; }

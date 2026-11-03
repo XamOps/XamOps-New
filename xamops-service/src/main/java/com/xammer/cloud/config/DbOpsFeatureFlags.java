@@ -29,6 +29,7 @@ public class DbOpsFeatureFlags {
     private final boolean healthEnabled;
     private final boolean mongoEnabled;
     private final boolean redisEnabled;
+    private final boolean consoleEnabled;
 
     @Autowired
     public DbOpsFeatureFlags(
@@ -37,22 +38,24 @@ public class DbOpsFeatureFlags {
             @Value("${xamops.dbops.rightsizing.enabled:false}") boolean rightsizingEnabled,
             @Value("${xamops.dbops.health.enabled:false}") boolean healthEnabled,
             @Value("${xamops.dbops.mongo.enabled:false}") boolean mongoEnabled,
-            @Value("${xamops.dbops.redis.enabled:false}") boolean redisEnabled) {
+            @Value("${xamops.dbops.redis.enabled:false}") boolean redisEnabled,
+            @Value("${xamops.dbops.console.enabled:false}") boolean consoleEnabled) {
         this.explainEnabled = explainEnabled;
         this.idleEnabled = idleEnabled;
         this.rightsizingEnabled = rightsizingEnabled;
         this.healthEnabled = healthEnabled;
         this.mongoEnabled = mongoEnabled;
         this.redisEnabled = redisEnabled;
+        this.consoleEnabled = consoleEnabled;
     }
 
     /**
      * Backward-compatible constructor used by tests that only care about the Explain flag; the
-     * five Phase-1a flags default to {@code false} (their production default), so existing
+     * other flags default to {@code false} (their production default), so existing
      * {@code new DbOpsFeatureFlags(false)} call sites keep compiling and keep every feature off.
      */
     public DbOpsFeatureFlags(boolean explainEnabled) {
-        this(explainEnabled, false, false, false, false, false);
+        this(explainEnabled, false, false, false, false, false, false);
     }
 
     /** @return whether the DbOps Explain pipeline is enabled. Defaults to {@code false}. */
@@ -83,5 +86,14 @@ public class DbOpsFeatureFlags {
     /** @return whether the DbOps Redis agent tabs are enabled. Defaults to {@code false}. */
     public boolean isRedisEnabled() {
         return redisEnabled;
+    }
+
+    /**
+     * @return whether the Phase 2 DbOps console (health view + access/FK graphs) is enabled.
+     *         Defaults to {@code false} — the console tabs fail closed to an empty document until
+     *         the work (and the SEC-9 gate for the sensitive endpoints) is ready to expose.
+     */
+    public boolean isConsoleEnabled() {
+        return consoleEnabled;
     }
 }

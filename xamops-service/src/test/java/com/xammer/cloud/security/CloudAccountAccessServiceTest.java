@@ -201,6 +201,34 @@ class CloudAccountAccessServiceTest {
                 .isFalse();
     }
 
+    // ── requirePrimaryUser: SEC-9 interim for the sensitive console endpoints ──
+
+    @Test
+    void requirePrimaryUser_admitsRootUser() {
+        givenRootUser();
+        service.requirePrimaryUser(caller("ROLE_USER"), account(ACCOUNT_ID, CALLER_CLIENT_ID)); // no throw
+    }
+
+    @Test
+    void requirePrimaryUser_refusesSubUser() {
+        givenSubUser();
+        assertThatThrownBy(() -> service.requirePrimaryUser(caller("ROLE_USER"), account(ACCOUNT_ID, CALLER_CLIENT_ID)))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void requirePrimaryUser_admitsPlatformAdminWithoutUserLookup() {
+        service.requirePrimaryUser(caller("ROLE_SUPER_ADMIN"), account(ACCOUNT_ID, OTHER_CLIENT_ID)); // no throw
+        verify(userRepository, never()).findById(anyLong());
+    }
+
+    @Test
+    void requirePrimaryUser_nullPrincipalRequiresAuthentication() {
+        assertThatThrownBy(() -> service.requirePrimaryUser(null, account(ACCOUNT_ID, CALLER_CLIENT_ID)))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessage("Authentication required.");
+    }
+
     // ── requireAwsAccess: the AWS AutoSpotting account-id contract ───────────
 
     private static final String AWS_ID = "012345678901";

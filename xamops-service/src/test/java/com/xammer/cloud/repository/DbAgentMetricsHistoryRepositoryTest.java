@@ -68,6 +68,37 @@ class DbAgentMetricsHistoryRepositoryTest {
     }
 
     @Test
+    void findTop2ReturnsTwoNewestDescForDeltaFindings() {
+        LocalDateTime base = LocalDateTime.of(2026, 10, 1, 0, 0);
+        repository.saveAll(List.of(
+                row(1L, base),
+                row(1L, base.plusMinutes(5)),
+                row(1L, base.plusMinutes(10)),   // newest
+                row(2L, base.plusMinutes(99)),    // other agent — must be excluded
+                row(1L, base.plusMinutes(2))));
+        repository.flush();
+
+        List<DbAgentMetricsHistory> top2 = repository
+                .findTop2ByDbAgentIdAndDataTypeOrderByCollectedAtDesc(1L, "db-instance-metrics");
+
+        assertThat(top2).hasSize(2);
+        assertThat(top2.get(0).getCollectedAt()).isEqualTo(base.plusMinutes(10)); // newest first
+        assertThat(top2.get(1).getCollectedAt()).isEqualTo(base.plusMinutes(5));
+        assertThat(top2).allSatisfy(r -> assertThat(r.getDbAgentId()).isEqualTo(1L));
+    }
+
+    @Test
+    void findTop2ReturnsFewerWhenAgentFreshlyDeployed() {
+        repository.save(row(7L, LocalDateTime.of(2026, 10, 1, 0, 0)));
+        repository.flush();
+
+        List<DbAgentMetricsHistory> top2 = repository
+                .findTop2ByDbAgentIdAndDataTypeOrderByCollectedAtDesc(7L, "db-instance-metrics");
+
+        assertThat(top2).hasSize(1); // < 2 drives the "collecting — need a second sample" state
+    }
+
+    @Test
     void compositeIndexCoversAgentTypeCollected() throws Exception {
         // Column set + order of the index, read via JDBC metadata so it is H2-version independent.
         Map<String, SortedMap<Integer, String>> byIndex = new HashMap<>();

@@ -15,3 +15,10 @@ export const DBOPS_RIGHTSIZING_UI_ENABLED = false;
 export const DBOPS_HEALTH_UI_ENABLED = false;
 export const DBOPS_MONGO_UI_ENABLED = false;
 export const DBOPS_REDIS_UI_ENABLED = false;
+
+/**
+ * Phase 2 DbOps console — the Health view and the access/FK cytoscape graph tabs. Mirrors the
+ * backend `xamops.dbops.console.enabled` flag (default false). Flip in step with the backend when
+ * the console (and the SEC-9 gate for the sensitive endpoints) is ready to expose.
+ */
+export const DBOPS_CONSOLE_UI_ENABLED = false;
