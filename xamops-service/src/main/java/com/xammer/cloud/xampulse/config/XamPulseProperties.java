@@ -21,6 +21,7 @@ public class XamPulseProperties {
     private final Setup setup = new Setup();
     private final Archive archive = new Archive();
     private final Baseline baseline = new Baseline();
+    private final Usage usage = new Usage();
     private String internalSecret = "";
     private String hotRegion = "";
 
@@ -35,6 +36,7 @@ public class XamPulseProperties {
     public Setup getSetup() { return setup; }
     public Archive getArchive() { return archive; }
     public Baseline getBaseline() { return baseline; }
+    public Usage getUsage() { return usage; }
     public String getInternalSecret() { return internalSecret; }
     public void setInternalSecret(String internalSecret) { this.internalSecret = internalSecret; }
     public String getHotRegion() { return hotRegion; }
@@ -205,5 +207,23 @@ public class XamPulseProperties {
         public void setCron(String v) { this.cron = v; }
         public List<String> getMetrics() { return metrics; }
         public void setMetrics(List<String> v) { this.metrics = v; }
+    }
+
+    /**
+     * Usage metering writer (slice E). Upserts xp_usage_daily per (day, source) from the minute log-volume rollup so
+     * the Storage &amp; Retention view reports real bytes_in / per-source breakdown. {@code bytesStored} is a rollup
+     * byte-sum approximation, not true ClickHouse compressed size. Safe to leave on: reads tenant-scoped rollups only.
+     */
+    public static class Usage {
+        private boolean enabled = true;
+        /** Recompute this many trailing days each run so late-arriving rollup rows correct recent days. */
+        private int lookbackDays = 3;
+        private String cron = "0 35 * * * *";
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean v) { this.enabled = v; }
+        public int getLookbackDays() { return lookbackDays; }
+        public void setLookbackDays(int v) { this.lookbackDays = v; }
+        public String getCron() { return cron; }
+        public void setCron(String v) { this.cron = v; }
     }
 }

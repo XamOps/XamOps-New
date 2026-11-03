@@ -301,6 +301,20 @@ public final class TenantScopedQueryBuilder {
         return q.build(scope);
     }
 
+    /**
+     * Per-day, per-source ingested bytes and row counts from the minute rollup. Backs the usage metering writer
+     * ({@code XpUsageRollupJob}), which upserts one {@code xp_usage_daily} row per {@code (day, source)}. Tenant
+     * predicate first; the window bounds are bound parameters.
+     */
+    public ScopedSql usageDailyBySource(QueryScope scope) {
+        Q q = start("SELECT toString(toDate(minute)) AS d, service AS s, sum(bytes) AS b, sum(rows) AS r "
+                + "FROM xp_log_volume_1m", scope);
+        q.add(" AND minute >= toDateTime(?, 'UTC') AND minute < toDateTime(?, 'UTC')",
+                scope.from().getEpochSecond(), scope.to().getEpochSecond());
+        q.add(" GROUP BY d, s");
+        return q.build(scope);
+    }
+
     public ScopedSql usageBySource(QueryScope scope) {
         Q q = start("SELECT service AS s, sum(bytes) AS b FROM xp_log_volume_1m", scope);
         q.add(" AND minute >= toDateTime(?, 'UTC') AND minute < toDateTime(?, 'UTC')",

@@ -51,6 +51,7 @@ class TenantScopedQueryBuilderTest {
         out.add(b.events(s, List.of("DEPLOY"), 100));
         out.add(b.usageByDay(s));
         out.add(b.usageBySource(s));
+        out.add(b.usageDailyBySource(s));
         out.add(b.errorVolume(s));
         out.add(b.lastDataAt(s));
         out.add(b.alertMetric(s, m));
@@ -180,6 +181,22 @@ class TenantScopedQueryBuilderTest {
         ClickHouseExecutor.validate(q);
         assertThrows(IllegalArgumentException.class, () -> b.baselineSamples(s, "m", 0));
         assertThrows(IllegalArgumentException.class, () -> b.baselineSamples(s, "m", 401));
+    }
+
+    @Test
+    void usageDailyBySourceIsTenantScopedBindsWindowAndGroupsByDayAndSource() {
+        QueryScope s = QueryScope.of(List.of(5L), from, to);
+        ScopedSql q = b.usageDailyBySource(s);
+        assertTrue(q.sql().contains("FROM xp_log_volume_1m"), q.sql());
+        assertTrue(q.sql().startsWith("SELECT toString(toDate(minute)) AS d, service AS s, sum(bytes) AS b, sum(rows) AS r"), q.sql());
+        assertTrue(q.sql().contains("GROUP BY d, s"), q.sql());
+        int where = q.sql().indexOf("WHERE ");
+        assertTrue(q.sql().startsWith("tenant_id IN (?)", where + "WHERE ".length()), q.sql());
+        // tenant first, then the two bound window epochs.
+        assertEquals(5L, q.params().get(0));
+        assertEquals(from.getEpochSecond(), q.params().get(1));
+        assertEquals(to.getEpochSecond(), q.params().get(2));
+        ClickHouseExecutor.validate(q);
     }
 
     @Test
