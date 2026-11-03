@@ -211,6 +211,18 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 		return payload, nil
 	}
 
+	// ── 0. Cloud nodegroups (EKS scaling config via the account's read role) ─
+	// Needs AWS creds (Pod Identity / IRSA), not the k8s API. Opt-in, set only when a read role
+	// was created. On AccessDenied it logs and pushes nothing (design §8.1).
+	if m.cfg.CollectorCloudNodegroups {
+		identityArn := logCallerIdentity(ctx, m.cfg.Region)
+		if batch, err := collectCloudNodegroups(ctx, m.cfg.ClusterName, m.cfg.Region, identityArn); err == nil {
+			payload.Batches = append(payload.Batches, batch)
+		} else {
+			log.Printf("WARN: cloud-nodegroups: %v", err)
+		}
+	}
+
 	// ── 1. Full K8s resource snapshot (nodes, pods, deployments, HPAs, etc.) ─
 	if m.cfg.CollectorK8sResources {
 		if batch, err := collectK8sResources(ctx, m.k8sClient, m.metricsClient); err == nil {

@@ -1,0 +1,225 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: XamOps CloudK8s per-cluster agent roles (pod-scoped). Managed by the XamOps installer.
+
+# Design §5.2/§5.3 (as corrected by design-delta §3):
+#  - The write policy renders FOUR actions (autoscaling:DescribeAutoScalingGroups,
+#    autoscaling:DescribeAutoScalingInstances, eks:DescribeNodegroup,
+#    autoscaling:TerminateInstanceInAutoScalingGroup). The shipped dev JSON's unused
+#    ec2:DescribeInstances is deliberately DROPPED (no consumer in the autoscaler).
+#  - The terminate Resource is the SCOPED ASG ARN, not "*", tightening the shipped dev artifact.
+#  - ClusterName / Region / AccountId are templated via pseudo-parameters (never hard-coded).
+#  - The whole write policy exists only under MakeRemoval; otherwise the write role has zero
+#    AWS permissions (it is only the automation pod's verifiable identity, §3.4).
+
+Parameters:
+  ClusterName:              { Type: String, AllowedPattern: '^[0-9A-Za-z][A-Za-z0-9_-]{0,99}$' }
+  IdentityMode:             { Type: String, AllowedValues: [PodIdentity, IRSA] }
+  OidcProviderArn:          { Type: String, Default: '' }
+  OidcIssuerHostPath:       { Type: String, Default: '' }
+  CreateReadRole:           { Type: String, AllowedValues: ['true', 'false'], Default: 'true' }
+  EnableAutomation:         { Type: String, AllowedValues: ['true', 'false'], Default: 'false' }
+  NodeRemoval:              { Type: String, AllowedValues: ['true', 'false'], Default: 'false' }
+  Namespace:                { Type: String, Default: xamops-system }
+  DataServiceAccount:       { Type: String, Default: xamops-agent-sa }
+  AutomationServiceAccount: { Type: String, Default: xamops-automation }
+  PermissionManifestHash:   { Type: String, AllowedPattern: '^[0-9a-f]{64}$' }
+
+Conditions:
+  PodId:       !Equals [!Ref IdentityMode, PodIdentity]
+  Irsa:        !Equals [!Ref IdentityMode, IRSA]
+  MakeRead:    !Equals [!Ref CreateReadRole, 'true']
+  MakeWrite:   !Equals [!Ref EnableAutomation, 'true']
+  MakeRemoval: !And [!Condition MakeWrite, !Equals [!Ref NodeRemoval, 'true']]
+  ReadPodId:   !And [!Condition MakeRead, !Condition PodId]
+  ReadIrsa:    !And [!Condition MakeRead, !Condition Irsa]
+  WritePodId:  !And [!Condition MakeWrite, !Condition PodId]
+  WriteIrsa:   !And [!Condition MakeWrite, !Condition Irsa]
+
+Resources:
+  # ── Read role (data agent) — Pod Identity ─────────────────────────────────
+  ReadRolePodId:
+    Type: AWS::IAM::Role
+    Condition: ReadPodId
+    Properties:
+      Path: /xamops/
+      AssumeRolePolicyDocument: !Sub |
+        { "Version": "2012-10-17", "Statement": [ { "Effect": "Allow",
+          "Principal": { "Service": "pods.eks.amazonaws.com" },
+          "Action": ["sts:AssumeRole", "sts:TagSession"],
+          "Condition": {
+            "ArnEquals": {
+              "aws:SourceArn": "arn:${AWS::Partition}:eks:${AWS::Region}:${AWS::AccountId}:cluster/${ClusterName}" },
+            "StringEquals": {
+              "aws:SourceAccount": "${AWS::AccountId}",
+              "aws:RequestTag/eks-cluster-arn": "arn:${AWS::Partition}:eks:${AWS::Region}:${AWS::AccountId}:cluster/${ClusterName}",
+              "aws:RequestTag/kubernetes-namespace": "${Namespace}",
+              "aws:RequestTag/kubernetes-service-account": "${DataServiceAccount}" } } } ] }
+      Policies:
+        - PolicyName: xamops-read
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ListThisClustersNodegroups
+                Effect: Allow
+                Action: ['eks:ListNodegroups']
+                Resource: !Sub 'arn:${AWS::Partition}:eks:${AWS::Region}:${AWS::AccountId}:cluster/${ClusterName}'
+              - Sid: DescribeThisClustersNodegroups
+                Effect: Allow
+                Action: ['eks:DescribeNodegroup']
+                Resource: !Sub 'arn:${AWS::Partition}:eks:${AWS::Region}:${AWS::AccountId}:nodegroup/${ClusterName}/*/*'
+      Tags:
+        - { Key: 'xamops:cluster', Value: !Ref ClusterName }
+        - { Key: 'xamops:managed-by', Value: xamops-onboarding }
+        - { Key: 'xamops:permission-manifest', Value: !Ref PermissionManifestHash }
+
+  # ── Read role (data agent) — IRSA ─────────────────────────────────────────
+  ReadRoleIrsa:
+    Type: AWS::IAM::Role
+    Condition: ReadIrsa
+    Properties:
+      Path: /xamops/
+      AssumeRolePolicyDocument: !Sub |
+        { "Version": "2012-10-17", "Statement": [ { "Effect": "Allow",
+          "Principal": { "Federated": "${OidcProviderArn}" },
+          "Action": "sts:AssumeRoleWithWebIdentity",
+          "Condition": { "StringEquals": {
+            "${OidcIssuerHostPath}:sub": "system:serviceaccount:${Namespace}:${DataServiceAccount}",
+            "${OidcIssuerHostPath}:aud": "sts.amazonaws.com" } } } ] }
+      Policies:
+        - PolicyName: xamops-read
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ListThisClustersNodegroups
+                Effect: Allow
+                Action: ['eks:ListNodegroups']
+                Resource: !Sub 'arn:${AWS::Partition}:eks:${AWS::Region}:${AWS::AccountId}:cluster/${ClusterName}'
+              - Sid: DescribeThisClustersNodegroups
+                Effect: Allow
+                Action: ['eks:DescribeNodegroup']
+                Resource: !Sub 'arn:${AWS::Partition}:eks:${AWS::Region}:${AWS::AccountId}:nodegroup/${ClusterName}/*/*'
+      Tags:
+        - { Key: 'xamops:cluster', Value: !Ref ClusterName }
+        - { Key: 'xamops:managed-by', Value: xamops-onboarding }
+        - { Key: 'xamops:permission-manifest', Value: !Ref PermissionManifestHash }
+
+  ReadAssociation:
+    Type: AWS::EKS::PodIdentityAssociation
+    Condition: ReadPodId
+    Properties:
+      ClusterName: !Ref ClusterName
+      Namespace: !Ref Namespace
+      ServiceAccount: !Ref DataServiceAccount
+      RoleArn: !GetAtt ReadRolePodId.Arn
+
+  # ── Write role (automation agent) — Pod Identity ──────────────────────────
+  # The write role always exists in phase 2 (the automation pod's verifiable identity, §3.4). It
+  # carries the node-removal policy ONLY under MakeRemoval; otherwise it has zero AWS permissions.
+  WriteRolePodId:
+    Type: AWS::IAM::Role
+    Condition: WritePodId
+    Properties:
+      Path: /xamops/
+      AssumeRolePolicyDocument: !Sub |
+        { "Version": "2012-10-17", "Statement": [ { "Effect": "Allow",
+          "Principal": { "Service": "pods.eks.amazonaws.com" },
+          "Action": ["sts:AssumeRole", "sts:TagSession"],
+          "Condition": {
+            "ArnEquals": {
+              "aws:SourceArn": "arn:${AWS::Partition}:eks:${AWS::Region}:${AWS::AccountId}:cluster/${ClusterName}" },
+            "StringEquals": {
+              "aws:SourceAccount": "${AWS::AccountId}",
+              "aws:RequestTag/eks-cluster-arn": "arn:${AWS::Partition}:eks:${AWS::Region}:${AWS::AccountId}:cluster/${ClusterName}",
+              "aws:RequestTag/kubernetes-namespace": "${Namespace}",
+              "aws:RequestTag/kubernetes-service-account": "${AutomationServiceAccount}" } } } ] }
+      Policies: !If
+        - MakeRemoval
+        - - PolicyName: xamops-node-removal
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Sid: DescribeNodeCapacity
+                  Effect: Allow
+                  Action:
+                    - 'autoscaling:DescribeAutoScalingInstances'
+                    - 'autoscaling:DescribeAutoScalingGroups'
+                  Resource: '*'
+                - Sid: DescribeThisClustersNodegroups
+                  Effect: Allow
+                  Action: ['eks:DescribeNodegroup']
+                  Resource: !Sub 'arn:${AWS::Partition}:eks:${AWS::Region}:${AWS::AccountId}:nodegroup/${ClusterName}/*/*'
+                - Sid: RemoveDrainedNodeFromThisClustersManagedNodegroups
+                  Effect: Allow
+                  Action: 'autoscaling:TerminateInstanceInAutoScalingGroup'
+                  Resource: !Sub 'arn:${AWS::Partition}:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/*'
+                  Condition:
+                    StringEquals:
+                      'aws:ResourceTag/eks:cluster-name': !Ref ClusterName
+                    'Null':
+                      'aws:ResourceTag/eks:nodegroup-name': 'false'
+        - !Ref AWS::NoValue
+      Tags:
+        - { Key: 'xamops:cluster', Value: !Ref ClusterName }
+        - { Key: 'xamops:managed-by', Value: xamops-onboarding }
+        - { Key: 'xamops:permission-manifest', Value: !Ref PermissionManifestHash }
+
+  # ── Write role (automation agent) — IRSA ──────────────────────────────────
+  WriteRoleIrsa:
+    Type: AWS::IAM::Role
+    Condition: WriteIrsa
+    Properties:
+      Path: /xamops/
+      AssumeRolePolicyDocument: !Sub |
+        { "Version": "2012-10-17", "Statement": [ { "Effect": "Allow",
+          "Principal": { "Federated": "${OidcProviderArn}" },
+          "Action": "sts:AssumeRoleWithWebIdentity",
+          "Condition": { "StringEquals": {
+            "${OidcIssuerHostPath}:sub": "system:serviceaccount:${Namespace}:${AutomationServiceAccount}",
+            "${OidcIssuerHostPath}:aud": "sts.amazonaws.com" } } } ] }
+      Policies: !If
+        - MakeRemoval
+        - - PolicyName: xamops-node-removal
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Sid: DescribeNodeCapacity
+                  Effect: Allow
+                  Action:
+                    - 'autoscaling:DescribeAutoScalingInstances'
+                    - 'autoscaling:DescribeAutoScalingGroups'
+                  Resource: '*'
+                - Sid: DescribeThisClustersNodegroups
+                  Effect: Allow
+                  Action: ['eks:DescribeNodegroup']
+                  Resource: !Sub 'arn:${AWS::Partition}:eks:${AWS::Region}:${AWS::AccountId}:nodegroup/${ClusterName}/*/*'
+                - Sid: RemoveDrainedNodeFromThisClustersManagedNodegroups
+                  Effect: Allow
+                  Action: 'autoscaling:TerminateInstanceInAutoScalingGroup'
+                  Resource: !Sub 'arn:${AWS::Partition}:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/*'
+                  Condition:
+                    StringEquals:
+                      'aws:ResourceTag/eks:cluster-name': !Ref ClusterName
+                    'Null':
+                      'aws:ResourceTag/eks:nodegroup-name': 'false'
+        - !Ref AWS::NoValue
+      Tags:
+        - { Key: 'xamops:cluster', Value: !Ref ClusterName }
+        - { Key: 'xamops:managed-by', Value: xamops-onboarding }
+        - { Key: 'xamops:permission-manifest', Value: !Ref PermissionManifestHash }
+
+  WriteAssociation:
+    Type: AWS::EKS::PodIdentityAssociation
+    Condition: WritePodId
+    Properties:
+      ClusterName: !Ref ClusterName
+      Namespace: !Ref Namespace
+      ServiceAccount: !Ref AutomationServiceAccount
+      RoleArn: !GetAtt WriteRolePodId.Arn
+
+Outputs:
+  ReadRoleArn:
+    Value: !If [MakeRead, !If [PodId, !GetAtt ReadRolePodId.Arn, !GetAtt ReadRoleIrsa.Arn], '']
+  WriteRoleArn:
+    Value: !If [MakeWrite, !If [PodId, !GetAtt WriteRolePodId.Arn, !GetAtt WriteRoleIrsa.Arn], '']
+  PermissionManifestHash:
+    Value: !Ref PermissionManifestHash

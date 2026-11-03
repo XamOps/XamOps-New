@@ -187,6 +187,12 @@ const ACTING_NODE_ROWS: ReadonlySet<string> = new Set([
   'rebalancing',
   'hpa-manager',
   'spot-interruption',
+  // FEAT-002: VPA-apply is an acting capability too (the agent resizes pods in place once armed).
+  // While vpa-apply is not ready it reads Blocked (not available) with the server's message; once
+  // the key is ready it reads the honest effectiveActing tri-state — "Ready to enable" (configured
+  // but not acting, e.g. DRY_RUN) or "Available" (ACTING) — never a flat "Available" over an inert
+  // controller. VPA ships inert this task, so it reads not-available in every profile today.
+  'vpa-baseline',
 ]);
 
 /** The honest reason shown in the drawer when a gate is open in policy but the controller isn't acting. */

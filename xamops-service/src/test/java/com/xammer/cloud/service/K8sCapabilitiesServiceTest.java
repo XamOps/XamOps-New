@@ -301,6 +301,67 @@ class K8sCapabilitiesServiceTest {
         assertThat(cluster(capabilities(), CLUSTER).automationAgent().status()).isEqualTo("NOT_INSTALLED");
     }
 
+    // ── §3.1a disable-automation cut-off (AC-21) ───────────────────────────
+
+    /**
+     * Stub the automation-event lookup to honour the {@code since} argument the service passes,
+     * so the §3.1a cut-off (which raises {@code since} to {@code automation_disabled_at + 5 min})
+     * is actually exercised. The event's {@code createdAt} is stored server-zone, as production does.
+     */
+    private void automationEventRespectingSince(long configId, Instant createdAt, String version) {
+        when(eventRepository.findFirstByClusterConfigIdAndAgentVersionEndingWithAndCreatedAtAfterOrderByCreatedAtDesc(
+                eq(configId), eq("-autoscaler"), any())).thenAnswer(inv -> {
+            LocalDateTime since = inv.getArgument(2);
+            Instant sinceInstant = since.atZone(ZoneId.systemDefault()).toInstant();
+            if (!createdAt.isAfter(sinceInstant)) {
+                return Optional.empty();
+            }
+            AgentEvent e = new AgentEvent(configId, "heartbeat", version, 0);
+            e.setCreatedAt(serverWallClock(createdAt));
+            return Optional.of(e);
+        });
+    }
+
+    @Test
+    void disableCutoff_ignoresEvidenceBeforeCutoff_countsAfter() {
+        Instant disabledAt = NOW.minus(Duration.ofMinutes(30));
+        world.tenantAConfig.setAutomationDisabledAt(disabledAt);
+        // cutoff = disabledAt + 5 min. An event 2 min BEFORE the cutoff must be ignored.
+        automationEventRespectingSince(100L, disabledAt.plus(Duration.ofMinutes(3)), "1.0.0-autoscaler");
+        // A stale -autoscaler cache row from before the cutoff must also be ignored.
+        rows.add(new Row(100L, "node-optimizer-report",
+                utcWallClock(disabledAt.plus(Duration.ofMinutes(2))), 1, "1.0.0-autoscaler"));
+
+        assertThat(cluster(capabilities(), CLUSTER).automationAgent().status()).isEqualTo("NOT_INSTALLED");
+        assertThat(cluster(capabilities(), CLUSTER).nodeAutomation().derivedState()).isEqualTo("NOT_INSTALLED");
+    }
+
+    @Test
+    void disableCutoff_eventAfterCutoff_isConnected() {
+        Instant disabledAt = NOW.minus(Duration.ofMinutes(30));
+        world.tenantAConfig.setAutomationDisabledAt(disabledAt);
+        // An event 10 min AFTER the cutoff (within the 5-min CONNECTED window of NOW? no — use near NOW).
+        automationEventRespectingSince(100L, NOW.minus(Duration.ofMinutes(1)), "1.0.0-autoscaler");
+        assertThat(cluster(capabilities(), CLUSTER).automationAgent().status()).isEqualTo("CONNECTED");
+    }
+
+    @Test
+    void disableCutoff_holdsUnderAsiaKolkataZone() {
+        // AC-21 / R2-5: converting either evidence column the wrong way shifts it 5h30m and flips
+        // the result. Run the same before/after-cutoff assertions with the JVM default zone in IST.
+        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Kolkata"));
+        Instant disabledAt = NOW.minus(Duration.ofMinutes(30));
+        world.tenantAConfig.setAutomationDisabledAt(disabledAt);
+        automationEventRespectingSince(100L, disabledAt.plus(Duration.ofMinutes(3)), "1.0.0-autoscaler");
+        rows.add(new Row(100L, "node-optimizer-report",
+                utcWallClock(disabledAt.plus(Duration.ofMinutes(2))), 1, "1.0.0-autoscaler"));
+        assertThat(cluster(capabilities(), CLUSTER).automationAgent().status()).isEqualTo("NOT_INSTALLED");
+
+        // A fresh event well after the cutoff still counts in IST.
+        automationEventRespectingSince(100L, NOW.minus(Duration.ofMinutes(1)), "1.0.0-autoscaler");
+        assertThat(cluster(capabilities(), CLUSTER).automationAgent().status()).isEqualTo("CONNECTED");
+    }
+
     @Test
     void aPerClusterFailureIsUnknownForThatClusterOnly() {
         KubernetesClusterConfig second = world.addConfig(101L, K8sAutomationTestWorld.TENANT_A_DB_ID, "eu-eks");

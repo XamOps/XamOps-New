@@ -52,12 +52,17 @@ class AutoSpottingControllerTest {
 
     private AutoSpottingService service;
     private CloudAccountAccessService accessService;
+    private com.xammer.cloud.service.autospotting.core.LegacyDisableGuard legacyDisableGuard;
     private CloudAccount account;
 
     @BeforeEach
     void setUp() {
         service = mock(AutoSpottingService.class);
         accessService = mock(CloudAccountAccessService.class);
+        legacyDisableGuard = mock(com.xammer.cloud.service.autospotting.core.LegacyDisableGuard.class);
+        // Default: a group with no v2 row and the flag off keeps working; the guard holds no lease.
+        when(legacyDisableGuard.beforeDisable(any(), any(), any(), any()))
+                .thenReturn(com.xammer.cloud.service.autospotting.core.LegacyDisableGuard.Guard.noLease());
 
         account = new CloudAccount();
         account.setId(7L);
@@ -83,7 +88,7 @@ class AutoSpottingControllerTest {
 
     private MockMvc mvc(boolean awsConversionsEnabled) {
         AutoSpottingController controller = new AutoSpottingController(service, accessService,
-                new AutoSpottingFeatureFlags(awsConversionsEnabled, false, false, false));
+                new AutoSpottingFeatureFlags(awsConversionsEnabled, false, false, false), legacyDisableGuard);
         return MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
@@ -252,5 +257,54 @@ class AutoSpottingControllerTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value(AutoSpottingBlockedException.READ_ONLY_CONNECTION));
+    }
+
+    // ── the Phase A disable rule (A-02, AC-PLN-07, plan-phase-08.md task 8.4) ──
+
+    @Test
+    void disable_v2StateRow_returnsPlanRequired_andNoServiceCall() throws Exception {
+        when(legacyDisableGuard.beforeDisable(eq(com.xammer.cloud.domain.autospotting.Provider.AWS),
+                eq(7L), eq("us-east-1/web"), any()))
+                .thenThrow(AutoSpottingBlockedException.planRequired("/autospotting/aws/" + AWS_ID
+                        + "/groups/us-east-1%2Fweb/revert"));
+
+        mvc(false).perform(post(BASE + "/asgs/" + AWS_ID + "/disable" + ASG))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(AutoSpottingBlockedException.PLAN_REQUIRED))
+                .andExpect(jsonPath("$.planUrl").isNotEmpty());
+        verify(service, org.mockito.Mockito.never()).disableAutoSpotting(any(), any(), any());
+    }
+
+    @Test
+    void disable_noRow_phaseABehaviourUnchanged() throws Exception {
+        // Default guard stub returns Guard.noLease(): the legacy disable proceeds (FR-CMP-05).
+        mvc(false).perform(post(BASE + "/asgs/" + AWS_ID + "/disable" + ASG))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+        verify(service).disableAutoSpotting(account, "us-east-1", "web");
+    }
+
+    @Test
+    void disable_leaseHeld_returnsGroupBusy() throws Exception {
+        when(legacyDisableGuard.beforeDisable(any(), any(), any(), any()))
+                .thenThrow(AutoSpottingBlockedException.groupBusy());
+
+        mvc(false).perform(post(BASE + "/asgs/" + AWS_ID + "/disable" + ASG))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(AutoSpottingBlockedException.AS_GROUP_BUSY));
+        verify(service, org.mockito.Mockito.never()).disableAutoSpotting(any(), any(), any());
+    }
+
+    @Test
+    void disable_v2MutationsEnabled_everyGroupPlanRequired() throws Exception {
+        // The guard throws PLAN_REQUIRED for every group once the flag is true (§7.4). We model that
+        // by stubbing the guard to throw regardless of the row.
+        when(legacyDisableGuard.beforeDisable(any(), any(), any(), any()))
+                .thenThrow(AutoSpottingBlockedException.planRequired("/plan"));
+
+        mvc(false).perform(post(BASE + "/asgs/" + AWS_ID + "/disable" + ASG))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(AutoSpottingBlockedException.PLAN_REQUIRED));
+        verify(service, org.mockito.Mockito.never()).disableAutoSpotting(any(), any(), any());
     }
 }

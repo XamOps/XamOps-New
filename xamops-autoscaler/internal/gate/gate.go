@@ -195,9 +195,13 @@ func HPAManager(cfg *config.Config, b policy.PolicyBundle) Decision {
 }
 
 // VPAManager: ENABLE_VPA_MANAGER ∧ vpaManagerPolicy.enabled ∧ mode∈{full,scoped}.
-// The VPA manager is analysis-only: it is never Simulate or Live. The control loop
-// only calls CollectRecommendations; VPAManager.Apply (the restart-capable write)
-// has no caller, so this gate caps at Analyse by construction.
+//   - analyseOnly=true OR updateMode∈{"","Off","Initial"} → Analyse (collect only; never mutates)
+//   - an acting updateMode                                → actOrSimulate(cfg) (Simulate under DRY_RUN)
+//
+// A Simulate/Live decision only authorises the controller to act; the controller
+// (controller.ApplyInPlace) applies ONLY in place via the pods/resize subresource and
+// REFUSES any change that would require a restart — it never evicts, deletes or
+// template-patches a workload. VPAManager.Apply (the VPA-CRD writer) stays callerless.
 func VPAManager(cfg *config.Config, b policy.PolicyBundle) Decision {
 	switch {
 	case modeDisabled(b):
@@ -208,8 +212,22 @@ func VPAManager(cfg *config.Config, b policy.PolicyBundle) Decision {
 		return off("vpaManagerPolicy.enabled=false")
 	case !fullOrScoped(b):
 		return off("autoscalerMode=%q (VPA manager needs full or scoped)", b.AutoscalerMode)
+	case b.VPAManagerPolicy.AnalyseOnly || !isActingUpdateMode(b.VPAManagerPolicy.UpdateMode):
+		return Decision{Mode: Analyse, Reason: "analysis only (analyseOnly or non-acting updateMode)"}
 	}
-	return Decision{Mode: Analyse, Reason: "analysis only (the VPA manager never mutates)"}
+	return actOrSimulate(cfg)
+}
+
+// isActingUpdateMode reports whether the mode means XamOps should apply the
+// recommendation to a RUNNING pod in place. "" / "Off" never touch a pod; "Initial"
+// only affects pod CREATION (XamOps applies nothing in place for it). The string set
+// MUST stay byte-identical to the backend ACTING_UPDATE_MODES.
+func isActingUpdateMode(mode string) bool {
+	switch mode {
+	case "Recreate", "Auto", "InPlaceOrRecreate":
+		return true
+	}
+	return false
 }
 
 // ConsolidationActions: ENABLE_CONSOLIDATION ∧ consolidationPolicy.enabled ∧

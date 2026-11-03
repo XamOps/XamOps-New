@@ -27,19 +27,25 @@ public class GcpAutoSpottingController {
     private final GcpAutoSpottingService gcpAutoSpottingService;
     private final CloudAccountAccessService accountAccessService;
     private final AutoSpottingFeatureFlags featureFlags;
+    private final com.xammer.cloud.service.autospotting.core.LegacyDisableGuard legacyDisableGuard;
 
     /**
-     * Typed refusals (paused conversions, GKE-managed pools, MIG update conflicts) as
-     * {@code {success:false, code, error}}. Local, so it wins over the catch-all
-     * {@code @ExceptionHandler(Exception.class)} in {@code GlobalExceptionHandler}.
+     * Typed refusals (paused conversions, GKE-managed pools, MIG update conflicts, the Phase A
+     * disable rule's {@code PLAN_REQUIRED}/{@code AS_GROUP_BUSY}) as {@code {success:false, code,
+     * error[, planUrl]}}. Local, so it wins over the catch-all {@code @ExceptionHandler(Exception.class)}
+     * in {@code GlobalExceptionHandler}.
      */
     @ExceptionHandler(AutoSpottingBlockedException.class)
     public ResponseEntity<Map<String, Object>> handleBlocked(AutoSpottingBlockedException e) {
         log.info("GCP AutoSpotting action refused: {}", e.getCode());
-        return ResponseEntity.status(e.getStatus()).body(Map.of(
-                "success", false,
-                "code", e.getCode(),
-                "error", e.getMessage()));
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("success", false);
+        body.put("code", e.getCode());
+        body.put("error", e.getMessage());
+        if (e.getPlanUrl() != null) {
+            body.put("planUrl", e.getPlanUrl());
+        }
+        return ResponseEntity.status(e.getStatus()).body(body);
     }
 
     @GetMapping("/migs/all-regions/{accountId}")
@@ -148,10 +154,20 @@ public class GcpAutoSpottingController {
             @RequestParam("region") String region,
             @RequestParam("migName") String migName,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccessByIdentifier(userDetails, accountId);
+        com.xammer.cloud.domain.CloudAccount account =
+                accountAccessService.requireAccessByIdentifier(userDetails, accountId);
         log.info("🚀 [GCP DEBUG] disableAutoSpotting called - accountId: {}, region: {}, migName: {}", accountId,
                 region, migName);
-        try {
+
+        // The Phase A disable rule (A-02, AC-PLN-07, §7.4): the legacy GCP disable routes to the v2
+        // Revert flow with PLAN_REQUIRED for a v2-managed MIG (or when gcp.v2-mutations-enabled is
+        // true), and keeps working — with the group lease held for the call — for a MIG with no v2 row.
+        String groupKey = account.getGcpProjectId() + "/" + region + "/" + migName;
+        String planUrl = "/autospotting/gcp/" + accountId + "/groups/" + java.net.URLEncoder.encode(
+                groupKey, java.nio.charset.StandardCharsets.UTF_8) + "/revert";
+        try (com.xammer.cloud.service.autospotting.core.LegacyDisableGuard.Guard guard =
+                     legacyDisableGuard.beforeDisable(
+                             com.xammer.cloud.domain.autospotting.Provider.GCP, account.getId(), groupKey, planUrl)) {
             gcpAutoSpottingService.disableAutoSpotting(accountId, region, migName);
             log.info("✅ [GCP DEBUG] Successfully disabled Spot for MIG: {}", migName);
             return ResponseEntity.ok(Map.of(

@@ -115,6 +115,14 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+        <!-- AutoSpotting metrics export to CloudWatch (design-ux-ops.md §6.3, plan-phase-10.md 10.2).
+             Version is managed by the Spring Boot BOM (no override). The registry is only created when
+             management.cloudwatch.metrics.export.enabled=true, which is PROD-only; local/uat/preprod keep
+             it false, so no exporter credential is needed to boot off prod. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-cloudwatch2</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
@@ -797,6 +805,14 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Architecture rules for the AutoSpotting program (plan-phase-03.md task 3.4,
+             design-ux-ops.md §9.1). Version pinned exactly. -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>1.5.1</version>
             <scope>test</scope>
         </dependency>
         <!-- Strips scripts/handlers from user-authored ticket HTML before it is stored -->

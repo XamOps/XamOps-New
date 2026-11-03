@@ -77,4 +77,24 @@ public interface KubernetesClusterConfigRepository extends JpaRepository<Kuberne
     @Modifying
     @Transactional
     void deleteByCloudAccountId(Long cloudAccountId);
+
+    // ===== CloudK8s onboarding (design §2.1, §2.2) =====
+
+    /**
+     * Resolve a cluster config by its automation-agent API key. Used by the agent
+     * authenticate order after {@link #findByAgentApiKey(String)} (tier 1b, R2-4).
+     */
+    Optional<KubernetesClusterConfig> findByAutomationAgentApiKey(String automationAgentApiKey);
+
+    /**
+     * Serialise find-or-create for one (account, cluster) pair inside the caller's
+     * transaction, without touching existing rows or needing a unique constraint
+     * (design §2.2, review F-15). A Postgres transaction-scoped advisory lock keyed
+     * by {@code hashtext(cloudAccountPk || '/' || clusterName)}; it is released at
+     * commit/rollback automatically.
+     */
+    @Query(value = "SELECT pg_advisory_xact_lock(hashtext(CAST(:cloudAccountPk AS text) || '/' || :clusterName))",
+           nativeQuery = true)
+    void lockAccountCluster(@Param("cloudAccountPk") Long cloudAccountPk,
+                            @Param("clusterName") String clusterName);
 }

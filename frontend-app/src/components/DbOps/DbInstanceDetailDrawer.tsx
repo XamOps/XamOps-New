@@ -21,6 +21,11 @@ import {
   AgentIndexUsage, AgentTableActivity,
   fetchHealthHistory, DbHealthSnapshotDto,
 } from '../../hooks/useDbOpsData';
+import {
+  DBOPS_IDLE_UI_ENABLED, DBOPS_RIGHTSIZING_UI_ENABLED, DBOPS_HEALTH_UI_ENABLED,
+  DBOPS_MONGO_UI_ENABLED, DBOPS_REDIS_UI_ENABLED,
+} from '../../constants/dbOpsFeatureFlags';
+import { computeQueryStatsKpis } from './queryStatsKpis';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -309,7 +314,7 @@ function PerfChart({
 
 // ── Agent Setup Wizard ────────────────────────────────────────────────────────
 
-interface DsnEntry {
+export interface DsnEntry {
   engine: 'mysql' | 'postgres' | 'mongodb' | 'redis';
   host: string;
   port: string;
@@ -319,18 +324,85 @@ interface DsnEntry {
   sslMode: 'disable' | 'require' | 'prefer';
 }
 
-function buildDsn(d: DsnEntry) {
+/**
+ * Builds a DSN preview for the wizard. SEC-12/SEC-5: the password is always rendered masked as
+ * `***` — the real value never appears in the preview or the generated env-file. The operator
+ * fills it into xamops-agent.env by hand, so the password never leaves the browser for storage.
+ */
+export function buildDsn(d: DsnEntry) {
+  const pass = '***';
   if (d.engine === 'postgres') {
     const ssl = d.sslMode !== 'prefer' ? `?sslmode=${d.sslMode}` : '';
-    return `postgres://${d.user}:${d.pass || '<password>'}@${d.host || '<host>'}:${d.port}/${d.dbName || '<db>'}${ssl}`;
+    return `postgres://${d.user}:${pass}@${d.host || '<host>'}:${d.port}/${d.dbName || '<db>'}${ssl}`;
   }
   if (d.engine === 'mongodb') {
-    return `mongodb://${d.user}:${d.pass || '<password>'}@${d.host || '<host>'}:${d.port}/${d.dbName || 'admin'}`;
+    return `mongodb://${d.user}:${pass}@${d.host || '<host>'}:${d.port}/${d.dbName || 'admin'}`;
   }
   if (d.engine === 'redis') {
-    return `redis://:${d.pass || '<password>'}@${d.host || '<host>'}:${d.port}/${d.dbName || '0'}`;
+    return `redis://:${pass}@${d.host || '<host>'}:${d.port}/${d.dbName || '0'}`;
   }
-  return `${d.user}:${d.pass || '<password>'}@tcp(${d.host || '<host>'}:${d.port})/${d.dbName || '<db>'}`;
+  return `${d.user}:${pass}@tcp(${d.host || '<host>'}:${d.port})/${d.dbName || '<db>'}`;
+}
+
+/** SEC-12: the agent image is pinned, matching install-k8s.sh and xamops-agent/internal/version. */
+export const AGENT_IMAGE = 'xamops/agent:v2.1.0';
+
+/**
+ * SEC-2/3: Explain is disabled server-side (xamops.dbops.explain.enabled defaults off, and the
+ * enqueue/result endpoints return 409). Hard-hide the Explain UI triggers for Phase 0; the code
+ * paths stay behind this flag so flipping it back to true re-enables them when the server does.
+ */
+const EXPLAIN_UI_ENABLED = false;
+
+/**
+ * SEC-7: Postgres setup grants stats-only access (pg_read_all_stats), not a blanket table SELECT.
+ * Exported so the wizard and its unit test reference one source of truth.
+ */
+export const POSTGRES_SETUP_SQL = `-- Create read-only monitoring user
+CREATE USER xamops_reader WITH PASSWORD '<strong_password>';
+GRANT CONNECT ON DATABASE <your_db> TO xamops_reader;
+GRANT USAGE ON SCHEMA public TO xamops_reader;
+GRANT pg_read_all_stats TO xamops_reader;
+-- Optional: enable slow query analysis
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
+
+/**
+ * SEC-12: builds the wizard's install command. The DSN (which carries the password) is written
+ * to a mode-600 env-file via a here-doc rather than inlined as `-e DB_DSN_n=...`, keeping it out
+ * of shell history and `docker inspect`; the image tag is pinned; the DSN password is masked.
+ */
+export function buildAgentRunCmd(opts: {
+  serverUrl: string;
+  apiKey: string;
+  clusterName: string;
+  cloudAccountId: string;
+  queryLimit: number;
+  dsns: DsnEntry[];
+}): string {
+  const envLines = [
+    `XAMOPS_SERVER_URL=${opts.serverUrl || '<your-xamops-url>'}`,
+    `XAMOPS_API_KEY=${opts.apiKey || '<your-api-key>'}`,
+    `CLUSTER_NAME=${opts.clusterName || '<agent-name>'}`,
+    `CLOUD_ACCOUNT_ID=${opts.cloudAccountId || '<account-id>'}`,
+    'COLLECTOR_DB=true',
+    `DB_QUERY_LIMIT=${opts.queryLimit}`,
+    ...opts.dsns.map((d, i) => `DB_DSN_${i}=${buildDsn(d)}`),
+  ];
+  return [
+    '# Write the agent env-file (mode 600 keeps the DSN out of shell history and docker inspect).',
+    '# Replace *** with the real DB password in xamops-agent.env before running.',
+    "cat > xamops-agent.env <<'EOF'",
+    ...envLines,
+    'EOF',
+    'chmod 600 xamops-agent.env',
+    '',
+    'docker run -d \\',
+    '  --name xamops-agent \\',
+    '  --restart unless-stopped \\',
+    '  --network host \\',
+    '  --env-file xamops-agent.env \\',
+    `  ${AGENT_IMAGE}`,
+  ].join('\n');
 }
 
 function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engine: string; instanceId: string; endpoint?: string; onConnected?: (inst: DrawerInstance) => void }) {
@@ -388,12 +460,14 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
   const [dataCounts, setDataCounts] = useState<Record<string, { itemCount: number; collectedAt: string }>>({});
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [disconnecting, setDisconnecting] = useState(false);
+  // SEC-5: the server returns only whether a password is on file (hasPassword), never the value.
+  const [hasSavedPassword, setHasSavedPassword] = useState(false);
 
   const handleDisconnect = () => {
     if (!clusterName || !cloudAccountId) return;
     if (!window.confirm(`Remove agent "${clusterName}" and all its cached data? The Docker container will keep running until you stop it manually.`)) return;
     setDisconnecting(true);
-    apiClient.delete(`/api/v1/agent/db/register?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`)
+    apiClient.delete(`/api/xamops/db-agent/register?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`)
       .then(() => { setViewMode('wizard'); setStep(1); })
       .catch(() => setDisconnecting(false));
   };
@@ -418,7 +492,7 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
   useEffect(() => {
     if (!clusterName || !cloudAccountId) { setViewMode('wizard'); return; }
 
-    const applyConfig = (res: { found: boolean; dbEngine?: string; dbHost?: string; dbPort?: string; dbName?: string; dbUser?: string; dbPassword?: string; serverUrl?: string }) => {
+    const applyConfig = (res: { found: boolean; dbEngine?: string; dbHost?: string; dbPort?: string; dbName?: string; dbUser?: string; hasPassword?: boolean; serverUrl?: string }) => {
       if (!res.found) return false;
       if (res.dbEngine) setSqlEngine(res.dbEngine as 'mysql' | 'postgres' | 'mongodb' | 'redis');
       setDsns(prev => {
@@ -428,19 +502,21 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
         if (res.dbPort) first.port = res.dbPort!;
         if (res.dbName) first.dbName = res.dbName!;
         if (res.dbUser) first.user = res.dbUser!;
-        if (res.dbPassword) first.pass = res.dbPassword!;
+        // SEC-5: the server no longer returns the password — only hasPassword. Leave the field
+        // empty; the operator re-enters it to regenerate the command (it never leaves the browser).
         return [first, ...prev.slice(1)];
       });
       if (res.serverUrl) setServerUrl(res.serverUrl!);
+      setHasSavedPassword(!!res.hasPassword);
       return true;
     };
 
     Promise.all([
-      apiClient.get<{ found: boolean; dbEngine?: string; dbHost?: string; dbPort?: string; dbName?: string; dbUser?: string; dbPassword?: string; serverUrl?: string }>(
-        `/api/v1/agent/db/config?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`
+      apiClient.get<{ found: boolean; dbEngine?: string; dbHost?: string; dbPort?: string; dbName?: string; dbUser?: string; hasPassword?: boolean; serverUrl?: string }>(
+        `/api/xamops/db-agent/config?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`
       ).catch(() => ({ found: false })),
       apiClient.get<{ registered: boolean; isActive: boolean; lastCheckin: string | null; agentIp: string; dataCounts?: Record<string, { itemCount: number; collectedAt: string }> }>(
-        `/api/v1/agent/db/status?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`
+        `/api/xamops/db-agent/status?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`
       ).catch(() => ({ registered: false, isActive: false, lastCheckin: null, agentIp: '' })),
     ]).then(([cfg, status]) => {
       applyConfig(cfg);
@@ -464,12 +540,12 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
     if ((viewMode !== 'wizard' || step !== 3) && viewMode !== 'disconnected') return;
     if (!clusterName || !cloudAccountId) return;
 
-    apiClient.post('/api/v1/agent/db/register', { agentName: clusterName, cloudAccountId })
+    apiClient.post('/api/xamops/db-agent/register', { agentName: clusterName, cloudAccountId })
       .catch(() => { });
 
     const poll = () => {
       apiClient.get<{ registered: boolean; isActive: boolean; lastCheckin: string | null; agentIp: string; dataCounts?: Record<string, { itemCount: number; collectedAt: string }> }>(
-        `/api/v1/agent/db/status?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`
+        `/api/xamops/db-agent/status?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`
       ).then(res => {
         setLastCheckin(res.lastCheckin ?? null);
         setAgentIp(res.agentIp ?? '');
@@ -488,7 +564,7 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
     if (viewMode !== 'connected' || !clusterName || !cloudAccountId) return;
     const poll = () => {
       apiClient.get<{ registered: boolean; isActive: boolean; lastCheckin: string | null; agentIp: string; dataCounts?: Record<string, { itemCount: number; collectedAt: string }> }>(
-        `/api/v1/agent/db/status?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`
+        `/api/xamops/db-agent/status?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`
       ).then(res => {
         setLastCheckin(res.lastCheckin ?? null);
         setAgentIp(res.agentIp ?? '');
@@ -510,13 +586,7 @@ GRANT SELECT ON <your_database>.* TO 'xamops_reader'@'%';
 FLUSH PRIVILEGES;
 -- Note: RDS requires performance_schema=1 in a custom parameter group (requires reboot)`;
 
-  const postgresSql = `-- Create read-only monitoring user
-CREATE USER xamops_reader WITH PASSWORD '<strong_password>';
-GRANT CONNECT ON DATABASE <your_db> TO xamops_reader;
-GRANT USAGE ON SCHEMA public TO xamops_reader;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO xamops_reader;
--- Optional: enable slow query analysis
-CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
+  const postgresSql = POSTGRES_SETUP_SQL;
 
   const mongoSql = `// Create a read-only monitoring user in admin DB
 use admin
@@ -542,20 +612,7 @@ db.grantRolesToUser("xamops_reader", [
 
   const stopCmd = 'docker stop xamops-agent 2>/dev/null; docker rm xamops-agent 2>/dev/null';
 
-  const runCmd = [
-    'docker run -d \\',
-    '  --name xamops-agent \\',
-    '  --restart unless-stopped \\',
-    '  --network host \\',
-    `  -e XAMOPS_SERVER_URL="${serverUrl || '<your-xamops-url>'}" \\`,
-    `  -e XAMOPS_API_KEY="${apiKey || '<your-api-key>'}" \\`,
-    `  -e CLUSTER_NAME="${clusterName || '<agent-name>'}" \\`,
-    `  -e CLOUD_ACCOUNT_ID="${cloudAccountId || '<account-id>'}" \\`,
-    '  -e COLLECTOR_DB=true \\',
-    `  -e DB_QUERY_LIMIT=${queryLimit} \\`,
-    ...dsns.map((d, i) => `  -e DB_DSN_${i}='${buildDsn(d)}' \\`),
-    '  xamops/agent:latest',
-  ].join('\n');
+  const runCmd = buildAgentRunCmd({ serverUrl, apiKey, clusterName, cloudAccountId, queryLimit, dsns });
 
   const copy = (text: string, key: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -775,7 +832,7 @@ db.grantRolesToUser("xamops_reader", [
           <ul className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
             <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">CONNECT</span><span>Allows the agent to open a connection to the database. No data access on its own.</span></li>
             <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">USAGE ON SCHEMA public</span><span>Lets the agent see the list of schema objects (tables, views). Does <strong>not</strong> grant access to row data.</span></li>
-            <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">SELECT ON ALL TABLES</span><span>Reads system catalog views like <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">pg_stat_user_tables</code> and <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">pg_stats</code> for table sizes, index usage, and row counts. We <strong>never</strong> read your business data rows.</span></li>
+            <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">pg_read_all_stats</span><span>Read access to the statistics and plan views only — <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">pg_stat_statements</code>, <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">pg_stat_user_tables</code> and <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">pg_stats</code> for query stats, table sizes, index usage, and row-count estimates. It does <strong>not</strong> grant SELECT on your tables.</span></li>
             <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">pg_stat_statements</span><span>Extension that exposes aggregated query statistics (call counts, avg/max time, rows). Query text is normalized — literals and parameter values are <strong>stripped out</strong>.</span></li>
           </ul>
         ) : (
@@ -958,7 +1015,7 @@ db.grantRolesToUser("xamops_reader", [
               <div className="relative">
                 <input type={showPass[idx] ? 'text' : 'password'} value={d.pass}
                   onChange={e => updateDsn(idx, 'pass', e.target.value)}
-                  placeholder="••••••••"
+                  placeholder={idx === 0 && hasSavedPassword ? 'Saved — re-enter to regenerate the command' : '••••••••'}
                   className="w-full px-2 py-1.5 text-xs rounded-lg bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:border-[rgba(0,0,0,0.2)] pr-7" />
                 <button type="button" onClick={() => setShowPass(p => ({ ...p, [idx]: !p[idx] }))}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.6)]">
@@ -1022,7 +1079,7 @@ db.grantRolesToUser("xamops_reader", [
           onClick={() => {
             setSaveStatus('saving');
             const d0 = dsns[0];
-            apiClient.post('/api/v1/agent/db/config', {
+            apiClient.post('/api/xamops/db-agent/config', {
               agentName: clusterName, cloudAccountId,
               dbEngine: d0.engine, dbHost: d0.host, dbPort: d0.port,
               dbName: d0.dbName, dbUser: d0.user, dbPassword: d0.pass, serverUrl,
@@ -1353,8 +1410,8 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
   return (
     <div className="space-y-4">
 
-      {/* ── Explain Query overlay ── */}
-      {explainQuery !== null && (
+      {/* ── Explain Query overlay ── SEC-2/3: gated off in Phase 0 (feature disabled server-side) */}
+      {EXPLAIN_UI_ENABLED && explainQuery !== null && (
         <div
           className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center p-4 bg-black/50"
           onClick={() => setExplainQuery(null)}
@@ -1562,13 +1619,15 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
                       {copied === gi ? <Icon icon="mdi:check" width={11} /> : <Icon icon="mdi:content-copy" width={11} />}
                       {copied === gi ? 'Copied!' : 'Copy SQL'}
                     </button>
-                    {/* Explain */}
+                    {/* Explain — SEC-2/3: hidden in Phase 0 (feature disabled server-side) */}
+                    {EXPLAIN_UI_ENABLED && (
                     <button
                       onClick={() => setExplainQuery(q.query)}
                       className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium border bg-[rgba(0,0,0,0.03)] text-[#0b8f5a] border-[rgba(0,0,0,0.1)] hover:bg-[rgba(0,0,0,0.05)] transition-colors"
                     >
                       <Icon icon="mdi:console" width={11} className="inline" /> Explain
                     </button>
+                    )}
                   </div>
 
                   {/* SQL block with syntax highlighting */}
@@ -1702,11 +1761,7 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint, onExplain }: {
   const collectedAt = stats[0]?.collectedAt;
 
   // ── Aggregate KPIs (over all stats, unaffected by filters) ──
-  const totalCalls = stats.reduce((s, q) => s + q.callCount, 0);
-  const overallAvgMs = stats.length > 0 ? stats.reduce((s, q) => s + q.avgTimeSeconds * 1000, 0) / stats.length : 0;
-  const overallMaxMs = stats.length > 0 ? Math.max(...stats.map(q => q.maxTimeSeconds * 1000)) : 0;
-  const noIndexCount = stats.filter(q => q.noIndexUsed).length;
-  const totalTimeS = stats.reduce((s, q) => s + q.totalTimeSeconds, 0);
+  const { totalCalls, overallAvgMs, overallMaxMs, noIndexCount, noIndexTotalExecS } = computeQueryStatsKpis(stats);
 
   // ── Filter + sort ──
   let filtered = stats;
@@ -1809,7 +1864,7 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint, onExplain }: {
           { icon: 'mdi:layers-outline', label: 'Total Calls', val: totalCalls.toLocaleString(), sub: `${stats.length} digests`, color: 'text-[#0b8f5a]', tip: 'Sum of all query executions across every pattern since stats were last reset.' },
           { icon: 'mdi:speedometer', label: 'Avg Latency', val: `${round2(overallAvgMs)}ms`, sub: 'mean across all queries', color: overallAvgMs >= 500 ? 'text-red-600' : overallAvgMs >= 100 ? 'text-amber-600' : 'text-emerald-600', tip: 'Weighted average execution time across all query patterns. Red ≥ 500 ms, amber ≥ 100 ms.' },
           { icon: 'mdi:trending-up', label: 'Peak Latency', val: `${round2(overallMaxMs)}ms`, sub: 'single-query maximum', color: overallMaxMs >= 1000 ? 'text-red-600' : overallMaxMs >= 500 ? 'text-orange-600' : 'text-[rgba(0,0,0,0.88)]', tip: 'Slowest single query execution recorded across all patterns — the absolute worst-case latency.' },
-          { icon: 'mdi:alert-outline', label: 'No Index', val: noIndexCount.toString(), sub: `${round2(totalTimeS)}s total exec`, color: noIndexCount > 0 ? 'text-red-600' : 'text-emerald-600', tip: 'Number of query patterns running full table scans with no index. The sub-value shows total CPU time wasted on these scans.' },
+          { icon: 'mdi:alert-outline', label: 'No Index', val: noIndexCount.toString(), sub: `${round2(noIndexTotalExecS)}s total exec`, color: noIndexCount > 0 ? 'text-red-600' : 'text-emerald-600', tip: 'Number of query patterns running full table scans with no index. The sub-value shows total CPU time spent on these no-index scans.' },
         ].map(k => (
           <div key={k.label} className="bg-white rounded-xl p-3 border border-[rgba(0,0,0,0.12)] shadow-sm">
             <div className="flex items-center gap-1.5 mb-1">
@@ -2016,12 +2071,15 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint, onExplain }: {
                       </td>
                     )}
                     <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                      {/* Explain — SEC-2/3: hidden in Phase 0 (feature disabled server-side) */}
+                      {EXPLAIN_UI_ENABLED && (
                       <button
                         onClick={() => onExplain?.(s)}
                         className="px-2 py-1 text-[10px] font-semibold text-[#0b8f5a] dark:text-[rgba(0,0,0,0.4)] border border-[rgba(0,0,0,0.1)] dark:border-indigo-800 rounded-lg hover:bg-[rgba(0,0,0,0.03)] dark:hover:bg-indigo-900/20 transition-colors whitespace-nowrap"
                       >
                         <i className="fas fa-magnifying-glass-chart mr-1 text-[9px]" /> Explain
                       </button>
+                      )}
                     </td>
                   </tr>
 
@@ -2634,9 +2692,6 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
   const restoreCmd = (s: DbSnapshot) =>
     `aws rds restore-db-instance-from-db-snapshot \\\n  --db-instance-identifier ${instanceId}-restored \\\n  --db-snapshot-identifier ${s.snapshotId} \\\n  --region ${s.region}`;
 
-  const deleteCmd = (s: DbSnapshot) =>
-    `aws rds delete-db-snapshot \\\n  --db-snapshot-identifier ${s.snapshotId} \\\n  --region ${s.region}`;
-
   const takeSnapshotCmd =
     `aws rds create-db-snapshot \\\n  --db-instance-identifier ${instanceId} \\\n  --db-snapshot-identifier ${instanceId}-manual-$(date +%Y%m%d%H%M%S) \\\n  --region ${rd?.region ?? 'us-east-1'}`;
 
@@ -2937,7 +2992,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
                 )}
 
                 {/* Age dot */}
-                <Tip text={s.ageDays > 90 ? 'Old snapshot (>90 days) — red dot. Consider deleting if no longer needed.' : s.ageDays > 30 ? 'Aging snapshot (>30 days) — orange dot. Review if still required.' : 'Recent snapshot (<30 days) — green dot. Likely still relevant.'} wide>
+                <Tip text={s.ageDays > 90 ? 'Old snapshot (>90 days) — red dot. Review if still required.' : s.ageDays > 30 ? 'Aging snapshot (>30 days) — orange dot. Review if still required.' : 'Recent snapshot (<30 days) — green dot. Likely still relevant.'} wide>
                   <div className="relative shrink-0">
                     <span className={`w-2.5 h-2.5 rounded-full block ${t.dot}`} />
                   </div>
@@ -2947,7 +3002,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <code className="text-[11px] font-medium text-[#0b8f5a] truncate">{s.snapshotId}</code>
-                    <Tip text={auto ? 'Automatically created by RDS automated backup or AWS Backup. Cannot be manually deleted while retention policy is active.' : 'Manually created snapshot. You have full control — safe to delete when no longer needed.'} wide>
+                    <Tip text={auto ? 'Automatically created by RDS automated backup or AWS Backup. Cannot be manually deleted while retention policy is active.' : 'Manually created snapshot. Review retention before deleting.'} wide>
                       <span className={`shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold border ${auto ? 'bg-sky-50 text-sky-600 border-sky-200/50' : 'bg-[rgba(0,0,0,0.03)] text-[rgba(0,0,0,0.7)] border-[rgba(0,0,0,0.1)]'}`}>
                         {auto ? <Icon icon="mdi:robot-outline" width={11} className="inline" /> : <Icon icon="mdi:hand-wave-outline" width={11} className="inline" />}
                         {auto ? 'Auto' : 'Manual'}
@@ -2980,7 +3035,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
 
                 {/* Cost */}
                 <div className="text-center shrink-0">
-                  <Tip text="Estimated monthly cost to store this snapshot (size × $0.095/GB). Delete old unneeded snapshots to save on storage costs.">
+                  <Tip text="Estimated monthly cost to store this snapshot (size × $0.095/GB). Snapshot storage is billed per GB-month.">
                     <div className="text-[9px] text-[rgba(0,0,0,0.4)] mb-0.5">Cost/mo</div>
                   </Tip>
                   <span className="text-xs font-semibold text-[rgba(0,0,0,0.7)] tabular-nums">{fmt$(s.estimatedMonthlyCost)}</span>
@@ -2995,15 +3050,6 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
                     >
                       {copied === copyKey('restore') ? <Icon icon="mdi:check" width={11} /> : <Icon icon="mdi:history" width={11} />}
                       {copied === copyKey('restore') ? 'Copied' : 'Restore'}
-                    </button>
-                  </Tip>
-                  <Tip text={`Copy: aws rds delete-db-snapshot --db-snapshot-identifier ${s.snapshotId}`} wide>
-                    <button
-                      onClick={() => copyCmd(deleteCmd(s), copyKey('delete'))}
-                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-medium border transition-all duration-200 ${copied === copyKey('delete') ? 'bg-emerald-100 text-emerald-700 border-emerald-300/50' : 'bg-red-50 text-red-500 border-red-200/50 hover:bg-red-100'}`}
-                    >
-                      {copied === copyKey('delete') ? <Icon icon="mdi:check" width={11} /> : <Icon icon="mdi:trash-can-outline" width={11} />}
-                      {copied === copyKey('delete') ? 'Copied' : 'Delete'}
                     </button>
                   </Tip>
                 </div>
@@ -3075,7 +3121,9 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
 }
 
 // ── Security Tab ──────────────────────────────────────────────────────────────
-const SECURITY_CATALOGUE_AWS = [
+// The backend (getSecurityChecks) evaluates exactly four checks, so the catalogue reflects only
+// those four — advertising checks that are never evaluated misleads the user (COR-23).
+export const SECURITY_CATALOGUE_AWS = [
   {
     category: 'Access Control',
     icon: 'mdi:key-outline',
@@ -3083,8 +3131,6 @@ const SECURITY_CATALOGUE_AWS = [
     bg: 'bg-rose-50',
     checks: [
       { name: 'Public Accessibility', desc: 'DB reachable from the public internet.' },
-      { name: 'IAM Database Authentication', desc: 'Password-free login via AWS IAM tokens.' },
-      { name: 'Default Port Usage', desc: 'Using default port increases attack surface.' },
     ],
   },
   {
@@ -3094,8 +3140,6 @@ const SECURITY_CATALOGUE_AWS = [
     bg: 'bg-[rgba(0,0,0,0.03)]',
     checks: [
       { name: 'Encryption at Rest', desc: 'Storage encrypted with AWS KMS.' },
-      { name: 'SSL/TLS in Transit', desc: 'Connections require SSL/TLS.' },
-      { name: 'Certificate Rotation', desc: 'SSL certificate is current and unexpired.' },
     ],
   },
   {
@@ -3106,23 +3150,11 @@ const SECURITY_CATALOGUE_AWS = [
     checks: [
       { name: 'Automated Backups', desc: 'Daily snapshots retained ≥7 days.' },
       { name: 'Multi-AZ Deployment', desc: 'Standby replica for failover.' },
-      { name: 'Deletion Protection', desc: 'Guards against accidental instance deletion.' },
-    ],
-  },
-  {
-    category: 'Monitoring',
-    icon: 'mdi:binoculars',
-    color: 'text-emerald-500',
-    bg: 'bg-emerald-50',
-    checks: [
-      { name: 'Enhanced Monitoring', desc: 'OS-level metrics at 60 s intervals.' },
-      { name: 'Performance Insights', desc: 'Query-level performance profiling.' },
-      { name: 'CloudWatch Alarms', desc: 'Alerts on CPU, connections, and storage.' },
     ],
   },
 ];
 
-const SECURITY_CATALOGUE_GCP = [
+export const SECURITY_CATALOGUE_GCP = [
   {
     category: 'Access Control',
     icon: 'mdi:key-outline',
@@ -3130,8 +3162,6 @@ const SECURITY_CATALOGUE_GCP = [
     bg: 'bg-rose-50',
     checks: [
       { name: 'Public Accessibility', desc: 'DB reachable from the public internet.' },
-      { name: 'Cloud IAM Authentication', desc: 'Password-free login via GCP Cloud IAM.' },
-      { name: 'Default Port Usage', desc: 'Using default port increases attack surface.' },
     ],
   },
   {
@@ -3141,8 +3171,6 @@ const SECURITY_CATALOGUE_GCP = [
     bg: 'bg-[rgba(0,0,0,0.03)]',
     checks: [
       { name: 'Encryption at Rest', desc: 'Storage encrypted with Google-managed keys (CMEK optional).' },
-      { name: 'SSL/TLS in Transit', desc: 'Connections require SSL/TLS.' },
-      { name: 'Certificate Rotation', desc: 'SSL certificate is current and unexpired.' },
     ],
   },
   {
@@ -3153,18 +3181,6 @@ const SECURITY_CATALOGUE_GCP = [
     checks: [
       { name: 'Automated Backups', desc: 'Daily snapshots retained ≥7 days.' },
       { name: 'High Availability (HA)', desc: 'Standby replica in another zone for failover.' },
-      { name: 'Deletion Protection', desc: 'Guards against accidental instance deletion.' },
-    ],
-  },
-  {
-    category: 'Monitoring',
-    icon: 'mdi:binoculars',
-    color: 'text-emerald-500',
-    bg: 'bg-emerald-50',
-    checks: [
-      { name: 'Cloud Monitoring', desc: 'OS-level metrics via GCP Cloud Monitoring.' },
-      { name: 'Query Insights', desc: 'Query-level performance profiling.' },
-      { name: 'Cloud Monitoring Alerts', desc: 'Alerts on CPU, connections, and storage.' },
     ],
   },
 ];
@@ -3190,7 +3206,7 @@ function getRemediation(checkName: string): string | null {
   return hit?.fix ?? null;
 }
 
-function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
+export function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
   checks: DbSecurityCheck[];
   instanceSource: 'rds' | 'agent';
   cloudProvider?: 'aws' | 'gcp' | 'azure';
@@ -3265,11 +3281,6 @@ function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
                     : <>Security checks run automatically for <strong>RDS instances</strong> connected to your AWS account. Checks may take a few minutes to populate after initial connection.</>
                 )}
               </p>
-              <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-[rgba(0,0,0,0.88)] text-white hover:bg-black transition-colors shadow-sm">
-                <Icon icon="mdi:cog-outline" width={13} className="inline" />
-                Configure Security Checks
-                <Icon icon="mdi:arrow-right" width={12} className="inline" />
-              </button>
             </div>
           </div>
         </div>
@@ -3737,7 +3748,7 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
           )}
 
           {/* Idle detection result */}
-          {instanceIdle ? (
+          {DBOPS_IDLE_UI_ENABLED && (instanceIdle ? (
             <div className="relative overflow-hidden rounded-xl border border-amber-200 bg-amber-50 p-4">
               <div className="flex items-start gap-3 mb-3">
                 <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
@@ -3787,10 +3798,10 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
                 </p>
               </div>
             </div>
-          )}
+          ))}
 
           {/* Right-sizing result */}
-          {instanceRightsizing ? (
+          {DBOPS_RIGHTSIZING_UI_ENABLED && (instanceRightsizing ? (
             <div className="relative overflow-hidden rounded-xl border border-pink-200 bg-pink-50 p-4">
               <div className="flex items-start gap-3 mb-3">
                 <div className="w-8 h-8 rounded-lg bg-pink-100 flex items-center justify-center shrink-0">
@@ -3841,7 +3852,7 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
                 </p>
               </div>
             </div>
-          )}
+          ))}
         </div>
       )}
 
@@ -4406,7 +4417,7 @@ export default function DbInstanceDetailDrawer({
     if (!agentName || !accountId) return;
     if (!window.confirm(`Remove agent "${agentName}" and all its cached data?\n\nThe Docker container will keep running until you stop it manually on the EC2.`)) return;
     setAgentDisconnecting(true);
-    apiClient.delete(`/api/v1/agent/db/register?agentName=${encodeURIComponent(agentName)}&cloudAccountId=${encodeURIComponent(accountId)}`)
+    apiClient.delete(`/api/xamops/db-agent/register?agentName=${encodeURIComponent(agentName)}&cloudAccountId=${encodeURIComponent(accountId)}`)
       .then(() => window.location.reload())
       .catch(() => setAgentDisconnecting(false));
   };
@@ -4454,7 +4465,7 @@ export default function DbInstanceDetailDrawer({
 
   // Notify parent (topbar) whenever health score changes
   useEffect(() => {
-    onHealthChange?.(healthScore);
+    if (DBOPS_HEALTH_UI_ENABLED) onHealthChange?.(healthScore);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [healthScore.score, healthScore.status, healthScore.issues.join(',')]);
 
@@ -4510,11 +4521,11 @@ export default function DbInstanceDetailDrawer({
       badgeCount: instanceSnapshots.length > 0 ? instanceSnapshots.length : undefined,
       badgeColor: 'bg-[rgba(0,0,0,0.05)] text-[rgba(0,0,0,0.7)]',
     },
-    ...(isMongo ? [
+    ...(isMongo && DBOPS_MONGO_UI_ENABLED ? [
       { id: 'mongo-ops' as const, label: 'Slow Ops', icon: 'fa-bolt' },
       { id: 'mongo-index' as const, label: 'Indexes', icon: 'fa-list-tree' },
     ] : []),
-    ...(isRedis ? [
+    ...(isRedis && DBOPS_REDIS_UI_ENABLED ? [
       { id: 'redis-keyspace' as const, label: 'Keyspace', icon: 'fa-database' },
       { id: 'redis-slowlog' as const, label: 'Slow Log', icon: 'fa-stopwatch' },
     ] : []),
@@ -4687,7 +4698,7 @@ export default function DbInstanceDetailDrawer({
             })()}
 
             {/* ── Health Score Widget ── */}
-            {(metrics || agentMetrics) && (
+            {(metrics || agentMetrics) && DBOPS_HEALTH_UI_ENABLED && (
               <div className={`rounded-xl p-4 border flex items-center gap-4 ${healthScore.status === 'healthy' ? 'bg-emerald-50 border-emerald-100' :
                 healthScore.status === 'warning' ? 'bg-amber-50 border-amber-100' :
                   'bg-red-50 border-red-100'
@@ -4788,9 +4799,9 @@ export default function DbInstanceDetailDrawer({
                     tooltip="Average write I/O latency in milliseconds over 7 days. High write latency may indicate I/O saturation, slow commit flush, or storage bottleneck." />
                   <StatCard label="Free Storage" value={metrics.freeStorageSpaceGb} unit="GB"
                     tooltip="Remaining free storage space. Below 10% of total storage triggers a CloudWatch alarm. Running out of storage will cause the instance to become read-only." />
-                  <StatCard label="Network In" value={metrics.avgNetworkReceiveMbps} unit="Mbps"
+                  <StatCard label="Network In" value={metrics.avgNetworkReceiveMbps} unit="MB/s"
                     tooltip="Average inbound network throughput over 7 days. High inbound traffic may indicate large bulk imports or heavy replication." />
-                  <StatCard label="Network Out" value={metrics.avgNetworkTransmitMbps} unit="Mbps"
+                  <StatCard label="Network Out" value={metrics.avgNetworkTransmitMbps} unit="MB/s"
                     tooltip="Average outbound network throughput over 7 days. High outbound traffic may indicate large result sets being returned to clients — consider pagination or projection." />
                   {metrics.avgSwapUsageMb > 0 && (
                     <StatCard label="Swap Usage" value={`${round2(metrics.avgSwapUsageMb)} MB`}
@@ -5056,7 +5067,7 @@ export default function DbInstanceDetailDrawer({
             )}
 
             {/* MongoDB overview */}
-            {isMongo && mongoMetrics[0] && (() => {
+            {isMongo && DBOPS_MONGO_UI_ENABLED && mongoMetrics[0] && (() => {
               const m = mongoMetrics[0];
               const totalOps = m.opsInsert + m.opsQuery + m.opsUpdate + m.opsDelete + m.opsCommand;
               return (
@@ -5091,7 +5102,7 @@ export default function DbInstanceDetailDrawer({
             })()}
 
             {/* Redis overview */}
-            {isRedis && redisMetrics[0] && (() => {
+            {isRedis && DBOPS_REDIS_UI_ENABLED && redisMetrics[0] && (() => {
               const m = redisMetrics[0];
               const hitColor = m.hitRatioPct >= 95 ? 'text-emerald-600 dark:text-emerald-400'
                 : m.hitRatioPct >= 80 ? 'text-amber-600 dark:text-amber-400'
@@ -5248,8 +5259,8 @@ export default function DbInstanceDetailDrawer({
                     <PerfChart title="Write Latency" data={wLatData} color="#ef4444" unit="ms" syncId="rds_perf" />
                     <PerfChart title="Free Storage" data={storData} color="#14b8a6" unit="GB" syncId="rds_perf" />
                     <PerfChart title="Freeable Memory" data={memData} color="#f97316" unit="MB" syncId="rds_perf" />
-                    <PerfChart title="Network In" data={netInData} color="#06b6d4" unit="Mbps" syncId="rds_perf" />
-                    <PerfChart title="Network Out" data={netOutData} color="#a78bfa" unit="Mbps" syncId="rds_perf" />
+                    <PerfChart title="Network In" data={netInData} color="#06b6d4" unit="MB/s" syncId="rds_perf" />
+                    <PerfChart title="Network Out" data={netOutData} color="#a78bfa" unit="MB/s" syncId="rds_perf" />
                     {repData.length > 0 && (
                       <PerfChart title="Replication Lag" data={repData} color="#a855f7" unit="s" syncId="rds_perf" />
                     )}

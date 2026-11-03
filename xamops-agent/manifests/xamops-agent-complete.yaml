@@ -319,8 +319,9 @@ metadata:
     app.kubernetes.io/name: xamops-agent
 type: Opaque
 stringData:
-  # Global API key - SAME for ALL clusters (DO NOT CHANGE)
-  XAMOPS_API_KEY: "xamops_SecureAgentKey2024XamOps"
+  # SEC-6: paste the account-scoped agent key from the XamOps wizard here, or replace this
+  # Secret with a secretKeyRef to an externally-created Secret at deploy time. No shared key.
+  XAMOPS_API_KEY: "REPLACE_WITH_ACCOUNT_SCOPED_KEY"
 
   # XamOps server URL (change based on environment)
   XAMOPS_SERVER_URL: "https://live.xamops.com"

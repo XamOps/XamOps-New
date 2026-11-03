@@ -210,6 +210,16 @@ public class SecurityConfig {
                                                 .requestMatchers(PATH.matcher("/api/health")).permitAll()
                                                 .requestMatchers(PATH.matcher("/api/maintenance/status")).permitAll()
 
+                                                // Dashboard reads under the agent prefix. They take no agent key, so
+                                                // the /api/v1/agent/** permitAll below would leave them open, and each
+                                                // is addressed by a sequential cluster id or an account id. Must stay
+                                                // ahead of that rule: the first match wins. No agent calls them.
+                                                .requestMatchers(
+                                                                PATH.matcher("/api/v1/agent/status"),
+                                                                PATH.matcher("/api/v1/agent/status/*"),
+                                                                PATH.matcher("/api/v1/agent/events/*"))
+                                                .authenticated()
+
                                                 // Public Static Resources & Pages
                                                 .requestMatchers(
                                                                 PATH.matcher("/"),
@@ -292,7 +302,11 @@ public class SecurityConfig {
                                                                 // It is now in the authenticated block below, which is what
                                                                 // populates the principal the handler checks ownership with.
 
-                                                                // XamOps Agent API (authenticates via API key, not session)
+                                                                // XamOps Agent API (authenticates via API key, not session).
+                                                                // Anything the browser calls belongs under /api/xamops/**
+                                                                // instead, e.g. the DbOps wizard's /api/xamops/db-agent/**.
+                                                                // The Login-As JWT chain skips this prefix, so a session-only
+                                                                // rule here would also turn away impersonated users.
                                                                 PATH.matcher("/api/v1/agent/**"),
 
                                                                 // XamOps Metering API — public:
@@ -395,6 +409,49 @@ public class SecurityConfig {
                 http.addFilterAfter(trialEnforcementFilter, UsernamePasswordAuthenticationFilter.class);
 
                 return http.build();
+        }
+
+        // The per-environment allowed-origin list for the AutoSpotting CSRF/origin filter
+        // (design-core.md §11, DR-30). Explicit hosts only: the filter's constructor fails startup
+        // if any entry contains a wildcard or a tunnel domain. Empty by default, so a non-GET
+        // AutoSpotting request that carries an Origin is rejected until a profile lists it.
+        // (Line comments, not a block javadoc, so VerticalAutomationSecurityCoverageTest's
+        // comment-balance parser of this file is unaffected.)
+        @org.springframework.beans.factory.annotation.Value("${autospotting.security.allowed-origins:}")
+        private java.util.List<String> autospottingAllowedOrigins;
+
+        // Registers the AutoSpotting CSRF/origin filter (design-core.md §11, DR-30, FR-SEC-01) for
+        // the AutoSpotting non-GET prefixes only. Registration-only: the global CSRF and CORS
+        // configuration above are unchanged (FR-CMP-05). The filter class lives in
+        // permissions-common so billops reuses it in Phase 34. The prefixes are the customer v2 API,
+        // the operator API (core §6.6), the BillOps ledger admin API (ledger §11.4, served here
+        // while the screens live in xamops-service), and the Phase A legacy endpoints for as long as
+        // they exist, so the Phase 02 admin page and the legacy pages keep working once they send
+        // the intent header.
+        @Bean
+        public org.springframework.boot.web.servlet.FilterRegistrationBean<com.xammer.cloud.permissions.autospotting.AutoSpottingIntentFilter>
+                        autoSpottingIntentFilterRegistration() {
+                com.xammer.cloud.permissions.autospotting.AutoSpottingIntentFilter filter =
+                                new com.xammer.cloud.permissions.autospotting.AutoSpottingIntentFilter(
+                                                java.util.List.of(
+                                                                "/api/autospotting/v2/",
+                                                                "/api/xamops/autospotting-admin/",
+                                                                "/api/xamops/billops-admin/autospotting/",
+                                                                "/api/autospotting/",
+                                                                "/api/gcp/autospotting/"),
+                                                autospottingAllowedOrigins);
+                org.springframework.boot.web.servlet.FilterRegistrationBean<com.xammer.cloud.permissions.autospotting.AutoSpottingIntentFilter> registration =
+                                new org.springframework.boot.web.servlet.FilterRegistrationBean<>(filter);
+                registration.addUrlPatterns(
+                                "/api/autospotting/v2/*",
+                                "/api/xamops/autospotting-admin/*",
+                                "/api/xamops/billops-admin/autospotting/*",
+                                "/api/autospotting/*",
+                                "/api/gcp/autospotting/*");
+                registration.setName("autoSpottingIntentFilter");
+                // Before Spring Security so a rejected request never reaches a controller or the chain.
+                registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE);
+                return registration;
         }
 
         @Bean

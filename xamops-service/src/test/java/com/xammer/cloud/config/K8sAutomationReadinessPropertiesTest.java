@@ -117,12 +117,15 @@ class K8sAutomationReadinessPropertiesTest {
     }
 
     @Test
-    void vpaApplyIsAbsentOrFalseInEveryProfileIncludingUat() throws Exception {
-        // Design-review NIT 3: the VPA apply path ships inert this task — vpa-apply is false even in
-        // UAT (unlike hpa-apply/vertical-rightsizing/spot-interruption-actions, which UAT turns on).
-        // This is STRICTER than onlyUatMayOverrideSpotInterruptionActions: NO profile, UAT included,
-        // may declare vpa-apply=true. The test fails if any profile sets it true.
+    void onlyUatMayOverrideVpaApply() throws Exception {
+        // VPA-apply is now a LIVE acting path that UAT turns on, exactly like
+        // spot-interruption-actions/hpa-apply/vertical-rightsizing. UAT is the ONLY profile allowed to
+        // set vpa-apply=true; the base application.properties default stays false and every OTHER
+        // profile (prod/preprod/local) must not declare the key at all. The test still FAILS if the key
+        // appears true anywhere but uat. The runtime gate is unchanged: a live VPA resize still needs
+        // ENABLE_VPA_MANAGER + the policy + mode=full, and restart-requiring resizes are still refused.
         String key = PREFIX + ".vpa-apply";
+        String uat = "application-uat.properties";
         java.nio.file.Path dir = java.nio.file.Path.of("src/main/resources");
         List<java.nio.file.Path> files;
         try (java.util.stream.Stream<java.nio.file.Path> s = java.nio.file.Files.list(dir)) {
@@ -134,8 +137,16 @@ class K8sAutomationReadinessPropertiesTest {
             try (InputStream in = java.nio.file.Files.newInputStream(f)) {
                 props.load(in);
             }
-            if (props.containsKey(key)) {
-                assertThat(props.getProperty(key)).as(f + " must keep vpa-apply false").isEqualTo("false");
+            String name = f.getFileName().toString();
+            if (name.equals("application.properties")) {
+                assertThat(props.getProperty(key)).as(f.toString()).isEqualTo("false");
+            } else if (name.equals(uat)) {
+                // uat may declare it; if present it must be exactly "true" (never a stray value).
+                if (props.containsKey(key)) {
+                    assertThat(props.getProperty(key)).as(f.toString()).isEqualTo("true");
+                }
+            } else {
+                assertThat(props.containsKey(key)).as(f + " must not override " + key).isFalse();
             }
         }
     }

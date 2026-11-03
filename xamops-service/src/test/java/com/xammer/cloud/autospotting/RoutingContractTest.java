@@ -41,11 +41,20 @@ class RoutingContractTest {
 
     static List<Route> routes() {
         return List.of(
-                // Admin dashboard reads (NO-02): gateway location /api/xamops/, straight to the service.
+                // Admin dashboard reads and the operator API (NO-02, core §6.6): gateway location
+                // /api/xamops/, straight to the service.
                 new Route("/api/xamops/autospotting-admin/", Service.XAMOPS_SERVICE, 1),
                 // v2 API (core §11): gateway location / to the frontend container, whose nginx
                 // proxies /api/ to xamops-service.
                 new Route("/api/autospotting/v2/", Service.XAMOPS_SERVICE, 2),
+                // BillOps ledger admin API served from xamops-service (ledger §11.4; core §11 CSRF
+                // scope): gateway location /api/xamops/, straight to the service.
+                new Route("/api/xamops/billops-admin/autospotting/", Service.XAMOPS_SERVICE, 1),
+                // Phase A legacy AWS endpoints (core §11 CSRF scope, for as long as they exist):
+                // gateway location / to the frontend container, whose nginx proxies /api/ to xamops.
+                new Route("/api/autospotting/", Service.XAMOPS_SERVICE, 2),
+                // Phase A legacy GCP endpoints (core §11 CSRF scope): same catch-all path.
+                new Route("/api/gcp/autospotting/", Service.XAMOPS_SERVICE, 2),
                 // BillOps AutoSpotting screens (ledger §11.4): gateway location /api/billops/.
                 new Route("/api/billops/autospotting/", Service.BILLOPS_SERVICE, 1));
     }

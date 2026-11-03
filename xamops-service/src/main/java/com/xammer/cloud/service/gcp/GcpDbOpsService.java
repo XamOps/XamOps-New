@@ -19,6 +19,7 @@ import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.DbAgentConfig;
 import com.xammer.cloud.domain.DbAgentMetricsHistory;
+import com.xammer.cloud.config.DbOpsFeatureFlags;
 import com.xammer.cloud.dto.dbops.*;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
@@ -101,6 +102,7 @@ public class GcpDbOpsService {
     private final DbAgentConfigRepository dbAgentConfigRepository;
     private final DbAgentDataCacheRepository dbAgentDataCacheRepository;
     private final DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository;
+    private final DbOpsFeatureFlags dbOpsFeatureFlags;
 
     public GcpDbOpsService(
             GcpClientProvider gcpClientProvider,
@@ -110,7 +112,8 @@ public class GcpDbOpsService {
             ObjectMapper objectMapper,
             DbAgentConfigRepository dbAgentConfigRepository,
             DbAgentDataCacheRepository dbAgentDataCacheRepository,
-            DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository) {
+            DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository,
+            DbOpsFeatureFlags dbOpsFeatureFlags) {
         this.gcpClientProvider = gcpClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.redisCache = redisCache;
@@ -119,6 +122,7 @@ public class GcpDbOpsService {
         this.dbAgentConfigRepository = dbAgentConfigRepository;
         this.dbAgentDataCacheRepository = dbAgentDataCacheRepository;
         this.dbAgentMetricsHistoryRepository = dbAgentMetricsHistoryRepository;
+        this.dbOpsFeatureFlags = dbOpsFeatureFlags;
     }
 
     // =========================================================================
@@ -219,12 +223,16 @@ public class GcpDbOpsService {
                 Instant endTime   = Instant.now();
                 Instant startTime = endTime.minus(7, ChronoUnit.DAYS);
 
-                // Initialize empty DTOs for all instances
+                // Initialize empty DTOs for all instances, and index the inventory by key so
+                // metric application can resolve engine (connections routing), tier RAM (memory)
+                // and allocated storage (free storage) per matched instance.
+                Map<String, DbInstanceDto> instByKey = new HashMap<>();
                 for (DbInstanceDto inst : instances) {
                     DbMetricsDto dto = new DbMetricsDto();
                     dto.setInstanceId(inst.getInstanceId());
                     dto.setRegion(inst.getRegion());
                     metricsMap.put(inst.getInstanceId(), dto);
+                    instByKey.put(inst.getInstanceId(), inst);
                 }
 
                 String monitoringProject = ProjectName.of(projectId).toString();
@@ -235,52 +243,53 @@ public class GcpDbOpsService {
                                 .setSeconds(endTime.getEpochSecond()).build())
                         .build();
 
-                Aggregation aggregation = Aggregation.newBuilder()
-                        .setAlignmentPeriod(Duration.newBuilder().setSeconds(86400).build())
-                        .setPerSeriesAligner(Aggregation.Aligner.ALIGN_MEAN)
-                        .setCrossSeriesReducer(Aggregation.Reducer.REDUCE_MEAN)
-                        .addGroupByFields("resource.labels.database_id")
-                        .build();
+                // Each metric picks its own aligner inside fetchAndApplyMetric: ALIGN_MEAN for
+                // gauges, ALIGN_RATE for the DELTA count metrics (see selectAligner).
 
                 // Fetch CPU utilization
-                fetchAndApplyMetric(metricClient, monitoringProject, interval, aggregation,
+                fetchAndApplyMetric(metricClient, monitoringProject, interval,
                         "cloudsql.googleapis.com/database/cpu/utilization",
-                        projectId, metricsMap, "cpu");
+                        projectId, metricsMap, instByKey, "cpu");
 
-                // Fetch active connections
-                fetchAndApplyMetric(metricClient, monitoringProject, interval, aggregation,
+                // Fetch active connections (MySQL / SQL Server only — applied to non-Postgres)
+                fetchAndApplyMetric(metricClient, monitoringProject, interval,
                         "cloudsql.googleapis.com/database/network/connections",
-                        projectId, metricsMap, "connections");
+                        projectId, metricsMap, instByKey, "connections");
+
+                // Fetch Postgres backends (connections equivalent for Postgres instances)
+                fetchAndApplyMetric(metricClient, monitoringProject, interval,
+                        "cloudsql.googleapis.com/database/postgresql/num_backends",
+                        projectId, metricsMap, instByKey, "numBackends");
 
                 // Fetch memory utilization
-                fetchAndApplyMetric(metricClient, monitoringProject, interval, aggregation,
+                fetchAndApplyMetric(metricClient, monitoringProject, interval,
                         "cloudsql.googleapis.com/database/memory/utilization",
-                        projectId, metricsMap, "memory");
+                        projectId, metricsMap, instByKey, "memory");
 
                 // Fetch disk read ops
-                fetchAndApplyMetric(metricClient, monitoringProject, interval, aggregation,
+                fetchAndApplyMetric(metricClient, monitoringProject, interval,
                         "cloudsql.googleapis.com/database/disk/read_ops_count",
-                        projectId, metricsMap, "readOps");
+                        projectId, metricsMap, instByKey, "readOps");
 
                 // Fetch disk write ops
-                fetchAndApplyMetric(metricClient, monitoringProject, interval, aggregation,
+                fetchAndApplyMetric(metricClient, monitoringProject, interval,
                         "cloudsql.googleapis.com/database/disk/write_ops_count",
-                        projectId, metricsMap, "writeOps");
+                        projectId, metricsMap, instByKey, "writeOps");
 
                 // Fetch disk bytes used
-                fetchAndApplyMetric(metricClient, monitoringProject, interval, aggregation,
+                fetchAndApplyMetric(metricClient, monitoringProject, interval,
                         "cloudsql.googleapis.com/database/disk/bytes_used",
-                        projectId, metricsMap, "diskBytesUsed");
+                        projectId, metricsMap, instByKey, "diskBytesUsed");
 
                 // Fetch network receive bytes
-                fetchAndApplyMetric(metricClient, monitoringProject, interval, aggregation,
+                fetchAndApplyMetric(metricClient, monitoringProject, interval,
                         "cloudsql.googleapis.com/database/network/received_bytes_count",
-                        projectId, metricsMap, "networkReceive");
+                        projectId, metricsMap, instByKey, "networkReceive");
 
                 // Fetch network send bytes
-                fetchAndApplyMetric(metricClient, monitoringProject, interval, aggregation,
+                fetchAndApplyMetric(metricClient, monitoringProject, interval,
                         "cloudsql.googleapis.com/database/network/sent_bytes_count",
-                        projectId, metricsMap, "networkSend");
+                        projectId, metricsMap, instByKey, "networkSend");
 
                 try { metricClient.close(); } catch (Exception ignored) {}
 
@@ -421,7 +430,7 @@ public class GcpDbOpsService {
                             dto.setSizeGb(sizeGb);
                             dto.setEstimatedMonthlyCost(round2(sizeGb * BACKUP_COST_PER_GB));
                             dto.setRecommendation(ageDays > 90
-                                    ? "Safe to delete — on-demand backup over 90 days old"
+                                    ? "Review retention before deleting — on-demand backup over 90 days old"
                                     : "Review — on-demand backup created " + ageDays + " days ago");
                             wasteList.add(dto);
                         }
@@ -569,8 +578,14 @@ public class GcpDbOpsService {
     @Async("awsTaskExecutor")
     public CompletableFuture<DbSavingsSummaryDto> getSavingsSummary(String projectId, boolean forceRefresh) {
         CompletableFuture<List<DbInstanceDto>> invFuture = getDbInventory(projectId, forceRefresh);
-        CompletableFuture<List<DbIdleInstanceDto>> idleFuture = getIdleInstances(projectId, forceRefresh);
-        CompletableFuture<List<DbRightsizingDto>> rightFuture = getRightsizingRecommendations(projectId, forceRefresh);
+        // Phase 1a: a disabled pillar contributes an empty list, so its count/savings are 0 and it
+        // never enters the savings total — the summary omits it rather than faking a value.
+        CompletableFuture<List<DbIdleInstanceDto>> idleFuture = dbOpsFeatureFlags.isIdleEnabled()
+                ? getIdleInstances(projectId, forceRefresh)
+                : CompletableFuture.completedFuture(Collections.emptyList());
+        CompletableFuture<List<DbRightsizingDto>> rightFuture = dbOpsFeatureFlags.isRightsizingEnabled()
+                ? getRightsizingRecommendations(projectId, forceRefresh)
+                : CompletableFuture.completedFuture(Collections.emptyList());
         CompletableFuture<List<DbSnapshotWasteDto>> snapFuture = getDbSnapshots(projectId, false);
 
         return CompletableFuture.allOf(invFuture, idleFuture, rightFuture, snapFuture).thenApply(v -> {
@@ -718,7 +733,8 @@ public class GcpDbOpsService {
                 List<DbAgentConfig> agents = dbAgentConfigRepository.findByCloudAccountId(account.getId());
                 if (agents.isEmpty()) return Collections.emptyList();
 
-                java.time.LocalDateTime since = java.time.LocalDateTime.now().minusHours(hours);
+                java.time.LocalDateTime since =
+                        java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).minusHours(hours);
                 List<AgentTimeseriesDto> result = new ArrayList<>();
 
                 for (DbAgentConfig agent : agents) {
@@ -923,14 +939,16 @@ public class GcpDbOpsService {
      * Fetch a single Cloud SQL monitoring metric and populate the metricsMap.
      * Uses ListTimeSeries with a filter for database_id.
      */
-    private void fetchAndApplyMetric(MetricServiceClient client, String monitoringProject,
-            TimeInterval interval, Aggregation aggregation,
-            String metricType, String projectId,
-            Map<String, DbMetricsDto> metricsMap, String fieldKey) {
+    void fetchAndApplyMetric(MetricServiceClient client, String monitoringProject,
+            TimeInterval interval, String metricType, String projectId,
+            Map<String, DbMetricsDto> metricsMap, Map<String, DbInstanceDto> instByKey,
+            String fieldKey) {
         try {
             String filter = String.format(
                     "metric.type=\"%s\" AND resource.labels.project_id=\"%s\"",
                     metricType, projectId);
+
+            Aggregation aggregation = buildAggregation(selectAligner(metricType));
 
             ListTimeSeriesRequest request = ListTimeSeriesRequest.newBuilder()
                     .setName(monitoringProject)
@@ -942,14 +960,13 @@ public class GcpDbOpsService {
             for (MetricServiceClient.ListTimeSeriesPagedResponse page :
                     Collections.singletonList(client.listTimeSeries(request))) {
                 for (com.google.monitoring.v3.TimeSeries ts : page.iterateAll()) {
-                    // Extract database_id label — format: "project:region:instanceName"
+                    // Extract database_id label — may be "name", "project:name" or
+                    // "project:region:name" depending on the metric source.
                     String dbId = ts.getResource().getLabelsOrDefault("database_id", null);
                     if (dbId == null) continue;
 
-                    // Match to full instanceId by checking suffix
-                    String matchKey = metricsMap.keySet().stream()
-                            .filter(k -> k.endsWith(":" + dbId) || k.equals(dbId))
-                            .findFirst().orElse(null);
+                    // Match to the inventory key by its trailing instance-name segment.
+                    String matchKey = matchInstanceKey(metricsMap.keySet(), dbId);
                     if (matchKey == null) continue;
 
                     DbMetricsDto dto = metricsMap.get(matchKey);
@@ -960,12 +977,89 @@ public class GcpDbOpsService {
                             .mapToDouble(p -> getPointValue(p, metricType))
                             .average().orElse(0.0);
 
-                    applyMetricValue(dto, fieldKey, avg, metricType);
+                    applyMetricValue(dto, fieldKey, avg, metricType, instByKey.get(matchKey));
                 }
             }
         } catch (Exception e) {
             log.debug("[GcpDbOps] Metric fetch error for {}: {}", metricType, e.getMessage());
         }
+    }
+
+    /**
+     * Build the per-series aggregation for a Cloud Monitoring query. The alignment period
+     * matches the 7-day window sampled daily; the aligner is chosen per-metric.
+     */
+    private Aggregation buildAggregation(Aggregation.Aligner aligner) {
+        return Aggregation.newBuilder()
+                .setAlignmentPeriod(Duration.newBuilder().setSeconds(86400).build())
+                .setPerSeriesAligner(aligner)
+                .setCrossSeriesReducer(Aggregation.Reducer.REDUCE_MEAN)
+                .addGroupByFields("resource.labels.database_id")
+                .build();
+    }
+
+    /**
+     * Choose the per-series aligner for a Cloud SQL metric. DELTA count metrics
+     * (read/write ops, received/sent bytes) must be rate-aligned to read as per-second
+     * rates; gauges (cpu/memory utilization, num_backends, disk bytes used) use the mean.
+     */
+    static Aggregation.Aligner selectAligner(String metricType) {
+        if (metricType == null) return Aggregation.Aligner.ALIGN_MEAN;
+        if (metricType.endsWith("/read_ops_count")
+                || metricType.endsWith("/write_ops_count")
+                || metricType.endsWith("/received_bytes_count")
+                || metricType.endsWith("/sent_bytes_count")) {
+            return Aggregation.Aligner.ALIGN_RATE;
+        }
+        return Aggregation.Aligner.ALIGN_MEAN;
+    }
+
+    /**
+     * Match a Cloud Monitoring {@code database_id} label to an inventory key by comparing the
+     * trailing instance-name segment (text after the last ':'). Robust to the label arriving as
+     * {@code name}, {@code project:name} or {@code project:region:name} — instance names are
+     * unique within a project, so the trailing segment is a safe join key.
+     */
+    static String matchInstanceKey(Set<String> keys, String dbId) {
+        if (keys == null || dbId == null) return null;
+        String target = trailingSegment(dbId);
+        for (String key : keys) {
+            if (trailingSegment(key).equals(target)) {
+                return key;
+            }
+        }
+        return null;
+    }
+
+    private static String trailingSegment(String value) {
+        if (value == null) return "";
+        int idx = value.lastIndexOf(':');
+        return idx >= 0 ? value.substring(idx + 1) : value;
+    }
+
+    private static final java.util.regex.Pattern DB_CUSTOM_TIER_PATTERN =
+            java.util.regex.Pattern.compile("db-custom-(\\d+)-(\\d+)");
+
+    /**
+     * Resolve the RAM (MB) encoded in a Cloud SQL tier. Only custom tiers
+     * ({@code db-custom-{cpu}-{memMb}}) carry it explicitly; returns null otherwise so the
+     * caller leaves memory metrics unset rather than fabricating a figure.
+     */
+    static Double resolveTierRamMb(String tier) {
+        if (tier == null) return null;
+        java.util.regex.Matcher m = DB_CUSTOM_TIER_PATTERN.matcher(tier.trim().toLowerCase());
+        if (m.matches()) {
+            try {
+                return Double.parseDouble(m.group(2));
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isPostgresEngine(String engine) {
+        return engine != null && engine.toLowerCase().startsWith("postgres");
     }
 
     private double getPointValue(Point point, String metricType) {
@@ -976,18 +1070,30 @@ public class GcpDbOpsService {
         return 0.0;
     }
 
-    private void applyMetricValue(DbMetricsDto dto, String fieldKey, double value, String metricType) {
+    void applyMetricValue(DbMetricsDto dto, String fieldKey, double value, String metricType,
+            DbInstanceDto inst) {
         switch (fieldKey) {
             case "cpu":
                 dto.setAvgCpuPercent(round2(value * 100.0)); // utilization is 0-1, convert to %
                 break;
             case "connections":
+                // database/network/connections is MySQL/SQL Server only — skip Postgres,
+                // which is populated from postgresql/num_backends instead.
+                if (inst != null && isPostgresEngine(inst.getEngine())) break;
+                dto.setAvgConnections(round2(value));
+                break;
+            case "numBackends":
+                // postgresql/num_backends — Postgres connection count only.
+                if (inst != null && !isPostgresEngine(inst.getEngine())) break;
                 dto.setAvgConnections(round2(value));
                 break;
             case "memory":
-                // memory/utilization is 0-1 ratio; we store "freeable memory" as MB
-                // For GCP, store used memory % as negated freeable (approximation)
-                dto.setAvgFreeableMemoryMb(round2((1.0 - value) * 1024.0)); // rough estimate
+                // memory/utilization is a 0-1 ratio. Freeable MB = tier RAM * (1 - util).
+                // Leave unset (0) when the tier RAM cannot be resolved rather than assume 1 GB.
+                Double ramMb = resolveTierRamMb(inst != null ? inst.getInstanceClass() : null);
+                if (ramMb != null) {
+                    dto.setAvgFreeableMemoryMb(round2(ramMb * (1.0 - value)));
+                }
                 break;
             case "readOps":
                 dto.setAvgReadIops(round2(value));
@@ -996,7 +1102,11 @@ public class GcpDbOpsService {
                 dto.setAvgWriteIops(round2(value));
                 break;
             case "diskBytesUsed":
-                dto.setFreeStorageSpaceGb(0.0); // set after we know total disk
+                // Free = allocated - used; used = bytes / 1024^3. Clamp negatives (unknown alloc).
+                double usedGb = value / (1024.0 * 1024.0 * 1024.0);
+                int allocatedGb = inst != null ? inst.getAllocatedStorage() : 0;
+                double freeGb = allocatedGb - usedGb;
+                dto.setFreeStorageSpaceGb(round2(freeGb < 0 ? 0.0 : freeGb));
                 break;
             case "networkReceive":
                 dto.setAvgNetworkReceiveMbps(round2(value / (1024.0 * 1024.0)));

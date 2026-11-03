@@ -13,6 +13,7 @@ type Config struct {
 	APIKey         string
 	ClusterName    string
 	CloudAccountID string
+	Region         string // AWS region for the cloud-nodegroups collector (optional)
 
 	// Collection settings
 	CollectInterval   int // seconds
@@ -35,6 +36,7 @@ type Config struct {
 	CollectorDisk              bool // disk usage collector (opt-in, for EBS/GCP disk rightsizing)
 	CollectorSreWatcher        bool // auto-detect pod anomalies and trigger SRE investigations (opt-in)
 	CollectorLogWatcher        bool // stream logs to OpenObserve + inline anomaly detection (opt-in)
+	CollectorCloudNodegroups   bool // EKS nodegroup scaling via eks:ListNodegroups/DescribeNodegroup (opt-in; read role)
 	LogWatcherInterval         int  // seconds between log collection runs (default 60)
 	LogWatcherBatchSize        int  // max log records per OpenObserve ingest call (default 500)
 
@@ -79,6 +81,7 @@ func Load() (*Config, error) {
 		APIKey:         getEnvRequired("XAMOPS_API_KEY"),
 		ClusterName:    getEnvRequired("CLUSTER_NAME"),
 		CloudAccountID: getEnvRequired("CLOUD_ACCOUNT_ID"),
+		Region:         getEnv("AWS_REGION", ""),
 
 		// Intervals
 		CollectInterval:   getEnvInt("COLLECT_INTERVAL", 300),
@@ -101,6 +104,7 @@ func Load() (*Config, error) {
 		CollectorDisk:              getEnvBool("COLLECTOR_DISK", false),               // opt-in
 		CollectorSreWatcher:        getEnvBool("COLLECTOR_SRE_WATCHER", false),        // opt-in
 		CollectorLogWatcher:        getEnvBool("COLLECTOR_LOG_WATCHER", false),        // opt-in
+		CollectorCloudNodegroups:   getEnvBool("COLLECTOR_CLOUD_NODEGROUPS", false),   // opt-in; set when a read role exists
 		LogWatcherInterval:         getEnvInt("LOG_WATCHER_INTERVAL", 60),
 		LogWatcherBatchSize:        getEnvInt("LOG_WATCHER_BATCH_SIZE", 500),
 

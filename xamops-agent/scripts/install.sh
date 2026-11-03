@@ -31,9 +31,11 @@ info()  { echo -e "${GREEN}[xamops]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[xamops]${NC} $*"; }
 error() { echo -e "${RED}[xamops]${NC} $*"; exit 1; }
 
-# ── Baked-in XamOps connection (customers do NOT change these) ────────────────
+# ── Baked-in XamOps connection ───────────────────────────────────────────────
 XAMOPS_SERVER_URL="https://api.xamops.com"
-XAMOPS_API_KEY="xamops_SecureAgentKey2024XamOps"
+# SEC-6: no committed key. Supply the account-scoped key from the XamOps wizard via the
+# XAMOPS_API_KEY env var; it is written to the mode-600 env-file below.
+: "${XAMOPS_API_KEY:?paste the account-scoped key from the XamOps wizard}"
 
 # ── Validate customer-provided vars ──────────────────────────────────────────
 : "${CLOUD_ACCOUNT_ID:?   ERROR: CLOUD_ACCOUNT_ID is required (your 12-digit AWS account ID)}"
