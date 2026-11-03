@@ -77,6 +77,7 @@ import '../../../main.tsx';
 import { AuthProvider } from '../../../contexts/AuthContext';
 import { AccountProvider, useAccounts } from '../../../contexts/AccountContext';
 import { ThemeProvider } from '../../../contexts/ThemeContext';
+import { XamTabAccessProvider } from '../../../contexts/XamTabAccessContext';
 import Sidebar from '../Sidebar';
 import CostTrendSection from '../../LiveDashboard/CostTrendSection';
 
@@ -99,11 +100,13 @@ const AwsDashboardStandIn: React.FC = () => {
   );
 };
 
+// As in App.tsx's AuthenticatedLayout: the Sidebar reads XamOps page access from this provider,
+// which makes the /api/xamops/team/profile request the Sidebar used to send itself.
 const Layout: React.FC = () => (
-  <>
+  <XamTabAccessProvider>
     <Sidebar />
     <Outlet />
-  </>
+  </XamTabAccessProvider>
 );
 
 const renderLoginAsTab = () =>

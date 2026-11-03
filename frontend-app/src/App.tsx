@@ -55,6 +55,10 @@ import SignupCompletePage from './pages/SignupCompletePage';
 import TrialExpiredPage from './pages/TrialExpiredPage';
 import FeedbackPage from './pages/FeedbackPage';
 import TrialBanner from './components/Trial/TrialBanner';
+import DashboardAnnouncementBanner from './components/Banners/DashboardAnnouncementBanner';
+
+// XamOps client dashboards that show the admin announcement banners.
+const ANNOUNCEMENT_BANNER_PATHS = new Set(['/unified-dashboard', '/dashboard', '/gcp-dashboard', '/azure-dashboard']);
 import XamOpsLoader from './components/Shared/XamOpsLoader';
 
 // Dashboards
@@ -440,6 +444,8 @@ const AuthenticatedLayout: React.FC = () => {
                     <TrialBanner />
                     {/* Permission gap alert: explains why data is missing when IAM policies are restricted */}
                     <PermissionGapBanner />
+                    {/* Announcements written by BillOps admins for this client */}
+                    {ANNOUNCEMENT_BANNER_PATHS.has(location.pathname) && <DashboardAnnouncementBanner />}
                     <AnimatePresence mode="wait" initial={false}>
                         {/* A new key per navigation re-enters the page; in-page navigations
                             (utils/inPageNavigation) keep their page's key so it stays mounted. */}

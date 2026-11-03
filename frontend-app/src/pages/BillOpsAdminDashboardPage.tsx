@@ -23,6 +23,7 @@ import { apiFetch } from '../utils/apiClient';
 import { useCurrency } from '../hooks/useCurrency';
 import { useTabState } from '../hooks/useTabState';
 import LegacyUnverifiedTag from '../components/SpotAutomation/LegacyUnverifiedTag';
+import AdminBannerSection from '../components/Banners/AdminBannerSection';
 
 interface CustomerSpotSavings {
   clientId: number;
@@ -610,6 +611,9 @@ const BillOpsAdminDashboardPage: React.FC = () => {
   return (
     <div className="admin-dashboard flex-1 flex flex-col h-full overflow-hidden">
       <main className="flex-1 overflow-y-auto px-6 pt-4 pb-6 space-y-5 admin-scrollbar">
+
+        {/* ── Announcement banners for XamOps client dashboards ─────────── */}
+        <AdminBannerSection />
 
         {/* Error */}
         {error && (
