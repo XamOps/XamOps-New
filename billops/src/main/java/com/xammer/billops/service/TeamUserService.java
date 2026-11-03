@@ -51,6 +51,10 @@ public class TeamUserService {
     @Autowired
     private UserTabAccessRepository userTabAccessRepository;
 
+    /** Platform-wide XamOps page rule exceptions; FK to app_user, so cleared on delete. */
+    @Autowired
+    private com.xammer.billops.repository.GlobalTabRuleExceptionRepository globalTabRuleExceptionRepository;
+
     @Autowired
     private BCryptPasswordEncoder passwordEncoder;
 
@@ -420,6 +424,7 @@ public class TeamUserService {
 
         // Delete tab access
         userTabAccessRepository.deleteByUserId(userId);
+        globalTabRuleExceptionRepository.deleteByUserId(userId);
 
         // Then delete the user
         appUserRepository.delete(userToDelete);

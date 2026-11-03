@@ -22,10 +22,11 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import { formatIST, getResponseSlaLabel } from '../utils/timeUtils';
 import { useSlaCountdown } from '../components/tickets/SlaCountdown';
-import { sanitizeRichText, htmlToPlainText, escapeHtml } from '../utils/sanitizeHtml';
+import { sanitizeRichText } from '../utils/sanitizeHtml';
 import TicketCallButton from '../components/calls/TicketCallButton';
 import TicketCallHistory from '../components/calls/TicketCallHistory';
 import TicketEmailDetails, { TicketEmailDetails as TicketEmailDetailsData } from '../components/tickets/TicketEmailDetails';
+import ReplyEditEditor, { ReplyEditValue } from '../components/tickets/ReplyEditEditor';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
@@ -106,7 +107,7 @@ const TicketDetailPage: React.FC = () => {
 
   // Edit / Delete state
   const [editingReplyId, setEditingReplyId] = useState<number | null>(null);
-  const [editContent, setEditContent] = useState('');
+  const [editValue, setEditValue] = useState<ReplyEditValue>({ html: '', text: '', changed: false });
 
   // Assignment state
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
@@ -330,6 +331,27 @@ const TicketDetailPage: React.FC = () => {
       throw err;
     }
   }, [fetchTicket]);
+
+  /**
+   * Saves a reply edit. The editor's HTML is sent as-is so the formatting is kept. When the user
+   * changed nothing, the stored HTML is left exactly as it was rather than re-saved.
+   */
+  const saveReplyEdit = async (replyId: number, originalHtml: string | undefined) => {
+    if (!editValue.changed) {
+      setEditingReplyId(null);
+      return;
+    }
+    const hasImage = /<img\b/i.test(editValue.html);
+    if (!editValue.text && !hasImage) return;
+    if (editValue.html === (originalHtml ?? '')) {
+      setEditingReplyId(null);
+      return;
+    }
+    try {
+      await editReply(replyId, editValue.html);
+      setEditingReplyId(null);
+    } catch { globalThis.alert('Failed to edit. The other side may have already seen this message.'); }
+  };
 
   /**
    * Delete a reply (soft-delete)
@@ -701,12 +723,12 @@ const TicketDetailPage: React.FC = () => {
 
                         {/* ── Edit / Delete hover buttons ── */}
                         {isMe(reply) && !reply.deleted && ticket.status !== 'CLOSED' && (
-                          <div className={`absolute top-2 ${isMe(reply) ? 'left-2' : 'right-2'} opacity-0 group-hover/msg:opacity-100 transition-opacity flex items-center gap-1 z-10`}>
+                          <div className={`absolute top-2 ${isMe(reply) ? 'left-2' : 'right-2'} opacity-0 pointer-events-none group-hover/msg:opacity-100 group-hover/msg:pointer-events-auto transition-opacity flex items-center gap-1 z-10`}>
                             {!isReplySeen(reply) && (
                               <button
                                 onClick={() => {
                                   setEditingReplyId(reply.id);
-                                  setEditContent(htmlToPlainText(reply.message));
+                                  setEditValue({ html: reply.message ?? '', text: '', changed: false });
                                 }}
                                 className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
                                 title="Edit (until seen by the other side)"
@@ -730,13 +752,12 @@ const TicketDetailPage: React.FC = () => {
                             <span className="text-sm">This message was deleted</span>
                           </div>
                         ) : editingReplyId === reply.id ? (
-                          <div className="flex flex-col gap-2 min-w-[200px]">
-                            <textarea
-                              value={editContent}
-                              onChange={e => setEditContent(e.target.value)}
-                              className="w-full rounded-lg border border-indigo-300 p-2 text-sm text-[rgba(0,0,0,0.88)] resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                              rows={3}
-                              autoFocus
+                          <div className="flex flex-col gap-2 min-w-[260px]" style={{ width: 'min(72vw, 480px)' }}>
+                            <ReplyEditEditor
+                              initialHtml={reply.message ?? ''}
+                              onChange={setEditValue}
+                              onSubmit={() => saveReplyEdit(reply.id, reply.message)}
+                              onCancel={() => setEditingReplyId(null)}
                             />
                             <div className="flex gap-2 justify-end">
                               <button
@@ -744,17 +765,7 @@ const TicketDetailPage: React.FC = () => {
                                 className="text-xs px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 text-white border border-white/30"
                               >Cancel</button>
                               <button
-                                onClick={async () => {
-                                  if (!editContent.trim()) return;
-                                  try {
-                                    const htmlMsg = editContent
-                                      .split('\n')
-                                      .map(line => `<p>${escapeHtml(line) || '<br>'}</p>`)
-                                      .join('');
-                                    await editReply(reply.id, htmlMsg);
-                                    setEditingReplyId(null);
-                                  } catch { globalThis.alert('Failed to edit. The other side may have already seen this message.'); }
-                                }}
+                                onClick={() => saveReplyEdit(reply.id, reply.message)}
                                 className="text-xs px-3 py-1 rounded-lg bg-white text-indigo-700 font-semibold hover:bg-indigo-50"
                               >Save</button>
                             </div>

@@ -21,6 +21,8 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AccountProvider } from './contexts/AccountContext';
 import { firstAllowedBillopsRoute } from './constants/billopsAdminTabs';
 import { PermissionGapProvider } from './contexts/PermissionGapContext';
+import { XamTabAccessProvider } from './contexts/XamTabAccessContext';
+import XamTabRouteGuard from './components/Shared/XamTabRouteGuard';
 import { MaintenanceProvider, useMaintenanceMode } from './contexts/MaintenanceContext';
 import MaintenancePage from './pages/MaintenancePage';
 import { VPCProvider } from './contexts/VPCContext';
@@ -53,6 +55,10 @@ import SignupCompletePage from './pages/SignupCompletePage';
 import TrialExpiredPage from './pages/TrialExpiredPage';
 import FeedbackPage from './pages/FeedbackPage';
 import TrialBanner from './components/Trial/TrialBanner';
+import DashboardAnnouncementBanner from './components/Banners/DashboardAnnouncementBanner';
+
+// XamOps client dashboards that show the admin announcement banners.
+const ANNOUNCEMENT_BANNER_PATHS = new Set(['/unified-dashboard', '/dashboard', '/gcp-dashboard', '/azure-dashboard']);
 import XamOpsLoader from './components/Shared/XamOpsLoader';
 
 // Dashboards
@@ -417,6 +423,8 @@ const AuthenticatedLayout: React.FC = () => {
     return (
         <ErrorBoundary>
           <PermissionGapProvider>
+          {/* XamOps page access (own tab list + platform-wide rules), shared by Sidebar and the URL guard. */}
+          <XamTabAccessProvider>
             <div className={clsx(
                 'flex h-screen overflow-hidden',
                 theme === 'dark' ? 'bg-[#020617] text-slate-100' : 'bg-white text-gray-900'
@@ -436,6 +444,8 @@ const AuthenticatedLayout: React.FC = () => {
                     <TrialBanner />
                     {/* Permission gap alert: explains why data is missing when IAM policies are restricted */}
                     <PermissionGapBanner />
+                    {/* Announcements written by BillOps admins for this client */}
+                    {ANNOUNCEMENT_BANNER_PATHS.has(location.pathname) && <DashboardAnnouncementBanner />}
                     <AnimatePresence mode="wait" initial={false}>
                         {/* A new key per navigation re-enters the page; in-page navigations
                             (utils/inPageNavigation) keep their page's key so it stays mounted. */}
@@ -454,7 +464,10 @@ const AuthenticatedLayout: React.FC = () => {
                                     <XamOpsLoader size={56} delay={300} />
                                 </div>
                             }>
-                                <Outlet />
+                                {/* Blocks XamOps pages hidden for everyone by a platform-wide rule. */}
+                                <XamTabRouteGuard>
+                                    <Outlet />
+                                </XamTabRouteGuard>
                             </Suspense>
                         </motion.div>
                     </AnimatePresence>
@@ -475,6 +488,7 @@ const AuthenticatedLayout: React.FC = () => {
             </div>
             <GooeyToaster position="bottom-right" />
             <UpdateBanner />
+          </XamTabAccessProvider>
           </PermissionGapProvider>
         </ErrorBoundary>
     );

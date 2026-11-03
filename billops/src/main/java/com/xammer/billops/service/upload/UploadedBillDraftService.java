@@ -2,6 +2,10 @@ package com.xammer.billops.service.upload;
 
 import com.xammer.billops.domain.Client;
 import com.xammer.billops.domain.CloudAccount;
+import com.xammer.billops.domain.UserCloudAccountAccess;
+import com.xammer.billops.repository.UserCloudAccountAccessRepository;
+import com.xammer.billops.service.AdminAccessScope;
+import com.xammer.cloud.domain.AppUser;
 import com.xammer.billops.dto.UploadedBillPreviewDto;
 import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
@@ -46,28 +50,30 @@ public class UploadedBillDraftService {
 
     private static final Pattern AWS_ACCOUNT_ID = Pattern.compile("\\d{12}");
 
-    /**
-     * Status of an account added from an uploaded bill. Not PENDING, which the onboarding
-     * flow treats as "awaiting role verification", and not CONNECTED, which would tell the
-     * AWS client code there are credentials to use.
-     */
-    static final String UPLOADED_ACCOUNT_STATUS = "BILLING_ONLY";
+    /** See {@link CloudAccount#STATUS_INVOICE_ONLY}. */
+    static final String UPLOADED_ACCOUNT_STATUS = CloudAccount.STATUS_INVOICE_ONLY;
 
     private final AwsBillPdfParser parser;
     private final CloudAccountRepository cloudAccountRepository;
     private final ClientRepository clientRepository;
     private final AccountAccessHelper accountAccessHelper;
+    private final AdminAccessScope adminAccessScope;
+    private final UserCloudAccountAccessRepository userCloudAccountAccessRepository;
     private final InvoiceManagementService invoiceManagementService;
 
     public UploadedBillDraftService(AwsBillPdfParser parser,
                                     CloudAccountRepository cloudAccountRepository,
                                     ClientRepository clientRepository,
                                     AccountAccessHelper accountAccessHelper,
+                                    AdminAccessScope adminAccessScope,
+                                    UserCloudAccountAccessRepository userCloudAccountAccessRepository,
                                     InvoiceManagementService invoiceManagementService) {
         this.parser = parser;
         this.cloudAccountRepository = cloudAccountRepository;
         this.clientRepository = clientRepository;
         this.accountAccessHelper = accountAccessHelper;
+        this.adminAccessScope = adminAccessScope;
+        this.userCloudAccountAccessRepository = userCloudAccountAccessRepository;
         this.invoiceManagementService = invoiceManagementService;
     }
 
@@ -183,23 +189,49 @@ public class UploadedBillDraftService {
      * no role or credentials, under the client the admin chose -- an existing one, one
      * found by name, or a new one.
      *
-     * <p>Refused for an admin whose access is limited to assigned accounts: the new account
-     * would not be among them, so the draft would be created and then hidden from the
-     * person who created it.
+     * <p>An admin whose access is limited is given access to the account they just added,
+     * so the draft isn't created and then hidden from the person who created it. How depends
+     * on how they are limited:
+     * <ul>
+     *   <li>By a Cloud Account Access list (or, for a sub-user, by an empty one): the account
+     *       is ticked on that list.</li>
+     *   <li>A sub-admin with no list, scoped by the clients they own: the client is made
+     *       theirs if it has no owner. Adding a list entry instead would switch them to
+     *       list mode and cut them off from every other account they see.</li>
+     * </ul>
+     * Nothing else about their access changes.
      */
     private CloudAccount createBillingOnlyAccount(String awsAccountId, NewAccountDetails details) {
         if (!AWS_ACCOUNT_ID.matcher(awsAccountId).matches()) {
             throw new UploadedBillException(HttpStatus.BAD_REQUEST,
                     "Account " + awsAccountId + " isn't set up in BillOps, and it isn't a 12-digit AWS account ID.");
         }
-        if (accountAccessHelper.getAllowedDbIds() != null) {
-            throw new UploadedBillException(HttpStatus.FORBIDDEN,
-                    "Account " + awsAccountId + " isn't set up in BillOps, and your access is limited to assigned "
-                            + "accounts. Ask a BillOps admin with access to all accounts to upload this bill.");
-        }
         NewAccountDetails d = details != null ? details : new NewAccountDetails(null, null, null);
 
+        AppUser uploader = null;
+        boolean scopedByOwnedClients = false;
+        if (accountAccessHelper.getAllowedDbIds() != null) {
+            uploader = adminAccessScope.currentUser();
+            if (uploader == null || uploader.getId() == null) {
+                throw new UploadedBillException(HttpStatus.FORBIDDEN,
+                        "Account " + awsAccountId + " isn't set up in BillOps, and your user couldn't be identified "
+                                + "to give you access to it. Sign in again and retry.");
+            }
+            boolean hasList = !userCloudAccountAccessRepository.findCloudAccountIdsByUserId(uploader.getId()).isEmpty();
+            scopedByOwnedClients = !hasList && "ROLE_BILLOPS_ADMIN_SUB".equals(uploader.getRole());
+        }
+
         Client client = resolveClient(awsAccountId, d);
+        if (scopedByOwnedClients) {
+            if (client.getOwnerAdminId() == null) {
+                client.setOwnerAdminId(uploader.getId());
+                client = clientRepository.save(client);
+            } else if (!client.getOwnerAdminId().equals(uploader.getId())) {
+                throw new UploadedBillException(HttpStatus.FORBIDDEN,
+                        "Client \"" + client.getName() + "\" is managed by another admin. Choose one of your "
+                                + "clients, or a new client name.");
+            }
+        }
         String name = d.accountName() != null && !d.accountName().isBlank()
                 ? d.accountName().trim() : defaultAccountName(awsAccountId);
 
@@ -211,8 +243,24 @@ public class UploadedBillDraftService {
         account.setAccessType("billing-only");
         account.setClient(client);
         CloudAccount saved = cloudAccountRepository.save(account);
-        logger.info("[BillUpload] Added billing-only AWS account {} ('{}') under client '{}' (id={})",
+        logger.info("[BillUpload] Added invoice-only AWS account {} ('{}') under client '{}' (id={})",
                 awsAccountId, saved.getAccountName(), client.getName(), client.getId());
+
+        if (uploader != null && !scopedByOwnedClients) {
+            userCloudAccountAccessRepository.save(new UserCloudAccountAccess(uploader, saved));
+            logger.info("[BillUpload] Gave uploader '{}' (id={}) access to the new account {}",
+                    uploader.getUsername(), uploader.getId(), awsAccountId);
+        }
+        if (uploader != null) {
+            Set<Long> nowAllowed = accountAccessHelper.getAllowedDbIds();
+            if (nowAllowed != null && !nowAllowed.contains(saved.getId())) {
+                // Created and saved, but the uploader's scope still doesn't reach it -- e.g. the
+                // signed-in id and the username resolve to different app_user rows. Logged so the
+                // draft going missing from their list can be traced; the draft itself is fine.
+                logger.warn("[BillUpload] Account {} (id={}) is still outside uploader '{}''s access after the grant",
+                        awsAccountId, saved.getId(), uploader.getUsername());
+            }
+        }
         return saved;
     }
 

@@ -129,13 +129,15 @@ public class UserManagementController {
     }
 
     private static ClientCloudAccountDTO toDto(CloudAccount ca) {
-        return new ClientCloudAccountDTO(
+        ClientCloudAccountDTO dto = new ClientCloudAccountDTO(
                 ca.getId(),
                 ca.getAccountName(),
                 ca.getProvider(),
                 deriveAccountId(ca),
                 ca.getClient() != null ? ca.getClient().getId() : null,
                 ca.getClient() != null ? ca.getClient().getName() : null);
+        dto.setInvoiceOnly(ca.isInvoiceOnly());
+        return dto;
     }
 
     private static String deriveAccountId(CloudAccount ca) {

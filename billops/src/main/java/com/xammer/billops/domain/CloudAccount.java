@@ -234,6 +234,20 @@ public class CloudAccount {
         this.status = status;
     }
 
+    /**
+     * Status of an account BillOps added only so an uploaded AWS bill had something to be
+     * invoiced against: no role, no credentials, nothing read from the provider. Not PENDING,
+     * which onboarding treats as awaiting verification, and not CONNECTED, which tells the AWS
+     * client code there are credentials to use.
+     */
+    public static final String STATUS_INVOICE_ONLY = "BILLING_ONLY";
+
+    /** An account created from an uploaded bill, as opposed to one onboarded with access. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean isInvoiceOnly() {
+        return STATUS_INVOICE_ONLY.equals(status);
+    }
+
     public String getProvider() {
         return provider;
     }

@@ -7,6 +7,7 @@ import com.xammer.cloud.domain.UserTabAccess;
 import com.xammer.cloud.dto.ProfileDTO;
 import com.xammer.cloud.dto.TeamUserDTO;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.GlobalTabRuleReader;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.repository.UserTabAccessRepository;
@@ -41,6 +42,9 @@ public class TeamUserService {
 
     @Autowired
     private UserTabAccessRepository userTabAccessRepository;
+
+    @Autowired
+    private GlobalTabRuleReader globalTabRuleReader;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -103,6 +107,13 @@ public class TeamUserService {
         // Sidebar tab access — applies to both primary and sub XamOps users.
         // Empty list means "no restriction" (full sidebar); the frontend treats it that way.
         profile.setAllowedTabs(userTabAccessRepository.findTabNamesByUserId(currentUserId));
+
+        // Platform-wide page rules (BillOps admin User Manager → XamOps Page Visibility), minus the
+        // ones this user is an exception to. The sidebar and the route guard combine them with
+        // allowedTabs; see makeXamTabGate in frontend constants/xamopsTabs.ts.
+        GlobalTabRuleReader.UserRules globalRules = globalTabRuleReader.rulesFor(currentUserId);
+        profile.setHiddenTabs(globalRules.hidden());
+        profile.setGrantedTabs(globalRules.granted());
 
         // Add-on entitlement, so the sidebar can decide whether to show the DSPM group without a second
         // request. Nav visibility only — the read path enforces the same flag independently.
@@ -341,6 +352,7 @@ public class TeamUserService {
         // Delete account access and tab access first
         userCloudAccountAccessRepository.deleteByUserId(userId);
         userTabAccessRepository.deleteByUserId(userId);
+        globalTabRuleReader.deleteExceptionsForUser(userId);
 
         // Then delete the user
         userRepository.delete(userToDelete);

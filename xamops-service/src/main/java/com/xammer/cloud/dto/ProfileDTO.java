@@ -39,6 +39,15 @@ public class ProfileDTO {
      */
     private boolean mattersDspmEnabled;
 
+    /**
+     * Platform-wide page rules that apply to this user (set in the BillOps admin User Manager),
+     * with the rules this user is an exception to already removed. Keys are XamOps module or tab
+     * keys; a tab key wins over its module key. HIDE beats the user's own allowedTabs, GRANT adds
+     * to them. Empty = no platform-wide rule applies.
+     */
+    private List<String> hiddenTabs;
+    private List<String> grantedTabs;
+
     @Data
     @NoArgsConstructor
     @AllArgsConstructor

@@ -211,8 +211,13 @@
   }
 }
 
+/* `backwards`, not `both`: the start state still applies during the stagger delay, but once the
+   animation ends no transform is left on the row. With `both`, every message kept a permanent
+   `transform: translateY(0)`, and Safari/WebKit mis-maps mouse positions to text inside such a
+   layer when the list scrolls: a click or double-click inside a bubble landed at the start of the
+   message, so "select a word" selected everything from the start up to the cursor. */
 .chat-bubble-enter {
-  animation: chat-bubble-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: chat-bubble-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
 /* ── Chat search match flash ──────────────────────────────────────────────────
