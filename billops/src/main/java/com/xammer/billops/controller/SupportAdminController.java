@@ -544,6 +544,7 @@ public class SupportAdminController {
             item.put("accountId", accountId);
             item.put("accountName", account.getAccountName());
             item.put("provider", account.getProvider());
+            item.put("invoiceOnly", account.isInvoiceOnly());
             result.add(item);
         }
         return result;

@@ -61,6 +61,10 @@ public class AppUserService {
     @Autowired
     private UserTabAccessRepository userTabAccessRepository;
 
+    /** Platform-wide XamOps page rule exceptions; FK to app_user, so cleared on delete. */
+    @Autowired
+    private com.xammer.billops.repository.GlobalTabRuleExceptionRepository globalTabRuleExceptionRepository;
+
     @Autowired
     private UserCloudAccountAccessRepository userCloudAccountAccessRepository;
 
@@ -686,6 +690,7 @@ public class AppUserService {
 
         // 4. Per-user access / mapping / support rows that belong solely to this user.
         userTabAccessRepository.deleteByUserId(id);
+        globalTabRuleExceptionRepository.deleteByUserId(id);
         userCloudAccountAccessRepository.deleteByUserId(id);
         userPlatformConnectionRepository.deleteByUserId(id);
         supportMessageRepository.deleteByUserId(id);

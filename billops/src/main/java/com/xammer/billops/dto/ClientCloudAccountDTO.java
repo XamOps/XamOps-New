@@ -23,6 +23,9 @@ public class ClientCloudAccountDTO {
     private Long clientId;
     private String clientName;
 
+    /** Added by an uploaded AWS bill for invoicing only; no access to the provider account. */
+    private boolean invoiceOnly;
+
     public ClientCloudAccountDTO() {
     }
 
@@ -52,4 +55,6 @@ public class ClientCloudAccountDTO {
     public void setClientId(Long clientId) { this.clientId = clientId; }
     public String getClientName() { return clientName; }
     public void setClientName(String clientName) { this.clientName = clientName; }
+    public boolean isInvoiceOnly() { return invoiceOnly; }
+    public void setInvoiceOnly(boolean invoiceOnly) { this.invoiceOnly = invoiceOnly; }
 }

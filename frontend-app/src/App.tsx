@@ -21,6 +21,8 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AccountProvider } from './contexts/AccountContext';
 import { firstAllowedBillopsRoute } from './constants/billopsAdminTabs';
 import { PermissionGapProvider } from './contexts/PermissionGapContext';
+import { XamTabAccessProvider } from './contexts/XamTabAccessContext';
+import XamTabRouteGuard from './components/Shared/XamTabRouteGuard';
 import { MaintenanceProvider, useMaintenanceMode } from './contexts/MaintenanceContext';
 import MaintenancePage from './pages/MaintenancePage';
 import { VPCProvider } from './contexts/VPCContext';
@@ -417,6 +419,8 @@ const AuthenticatedLayout: React.FC = () => {
     return (
         <ErrorBoundary>
           <PermissionGapProvider>
+          {/* XamOps page access (own tab list + platform-wide rules), shared by Sidebar and the URL guard. */}
+          <XamTabAccessProvider>
             <div className={clsx(
                 'flex h-screen overflow-hidden',
                 theme === 'dark' ? 'bg-[#020617] text-slate-100' : 'bg-white text-gray-900'
@@ -454,7 +458,10 @@ const AuthenticatedLayout: React.FC = () => {
                                     <XamOpsLoader size={56} delay={300} />
                                 </div>
                             }>
-                                <Outlet />
+                                {/* Blocks XamOps pages hidden for everyone by a platform-wide rule. */}
+                                <XamTabRouteGuard>
+                                    <Outlet />
+                                </XamTabRouteGuard>
                             </Suspense>
                         </motion.div>
                     </AnimatePresence>
@@ -475,6 +482,7 @@ const AuthenticatedLayout: React.FC = () => {
             </div>
             <GooeyToaster position="bottom-right" />
             <UpdateBanner />
+          </XamTabAccessProvider>
           </PermissionGapProvider>
         </ErrorBoundary>
     );

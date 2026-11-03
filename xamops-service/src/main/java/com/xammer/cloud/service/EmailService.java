@@ -4,6 +4,7 @@ import jakarta.mail.internet.MimeMessage;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -11,6 +12,18 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class EmailService {
+
+    /**
+     * A file sent with an email. The content is held in memory because JavaMail reads an
+     * attachment more than once while it builds the message.
+     */
+    public record Attachment(String fileName, String contentType, byte[] content) {
+        public Attachment {
+            if (contentType == null || contentType.isBlank()) {
+                contentType = "application/octet-stream";
+            }
+        }
+    }
 
     @Autowired
     private JavaMailSender mailSender;
@@ -48,6 +61,17 @@ public class EmailService {
      */
     public void sendHtmlEmail(String to, String subject, String htmlBody,
                               java.util.Map<String, String> headers) {
+        send(to, subject, htmlBody, headers, java.util.List.of());
+    }
+
+    /** As {@link #sendHtmlEmail(String, String, String)}, with files attached to the message. */
+    public void sendHtmlEmail(String to, String subject, String htmlBody,
+                              java.util.List<Attachment> attachments) {
+        send(to, subject, htmlBody, java.util.Map.of(), attachments);
+    }
+
+    private void send(String to, String subject, String htmlBody,
+                      java.util.Map<String, String> headers, java.util.List<Attachment> attachments) {
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
@@ -59,6 +83,10 @@ public class EmailService {
                 if (header.getValue() != null && !header.getValue().isBlank()) {
                     message.setHeader(header.getKey(), header.getValue());
                 }
+            }
+            for (Attachment attachment : attachments) {
+                helper.addAttachment(attachment.fileName(), new ByteArrayResource(attachment.content()),
+                        attachment.contentType());
             }
             mailSender.send(message);
         } catch (Exception e) {

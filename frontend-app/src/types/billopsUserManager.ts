@@ -70,6 +70,8 @@ export interface ClientCloudAccount {
      */
     clientId?: number | string | null;
     clientName?: string | null;
+    /** Added by an uploaded AWS bill for invoicing only; BillOps has no access to the account itself. */
+    invoiceOnly?: boolean;
 }
 
 /**

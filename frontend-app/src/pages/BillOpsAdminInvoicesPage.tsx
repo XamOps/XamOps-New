@@ -181,7 +181,7 @@ const CreateDraftDialog: React.FC<CreateDraftDialogProps> = ({
               <option value="">Select an account…</option>
               {accounts.map(acc => (
                 <option key={acc.id} value={acc.identifier}>
-                  {acc.name} · {acc.identifier} ({acc.provider})
+                  {acc.name} · {acc.identifier} ({acc.provider}){acc.invoiceOnly ? ' · invoice only' : ''}
                 </option>
               ))}
             </select>
@@ -541,7 +541,7 @@ const UploadDraftDialog: React.FC<UploadDraftDialogProps> = ({
                   )}
                   {accounts.map(acc => (
                     <option key={acc.id} value={acc.identifier}>
-                      {acc.name} · {acc.identifier} ({acc.provider})
+                      {acc.name} · {acc.identifier} ({acc.provider}){acc.invoiceOnly ? ' · invoice only' : ''}
                     </option>
                   ))}
                 </select>
@@ -557,8 +557,10 @@ const UploadDraftDialog: React.FC<UploadDraftDialogProps> = ({
                   <i className="fas fa-info-circle" aria-hidden="true" />
                   <div className="min-w-0 flex-1 space-y-3">
                     <p>
-                      Account {preview.accountId} isn&rsquo;t in BillOps yet. It&rsquo;ll be added as a billing-only
-                      AWS account when the draft is created. Nothing is read from AWS for it.
+                      Account {preview.accountId} isn&rsquo;t in BillOps yet. It&rsquo;ll be added as an invoice-only
+                      AWS account when the draft is created, marked &ldquo;Invoice only&rdquo; wherever accounts are
+                      listed. Nothing is read from AWS for it. If your access is limited to assigned accounts,
+                      you&rsquo;ll be given access to this one.
                     </p>
                     <div>
                       <label className="inv-field-label" htmlFor="upload-new-account-name">Account name</label>

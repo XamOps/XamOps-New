@@ -563,12 +563,16 @@ public class TicketService {
                 User ticketCreator = ticket.getCreator();
                 String subject = String.format("New Reply on Ticket [ID: %d]: %s", ticket.getId(), ticket.getSubject());
 
-                String htmlBody = buildReplyNotificationEmailTemplate(ticket, author, reply);
+                // The reply's files travel with the email. Naming them was not enough: the in-app
+                // links are presigned URLs that expire after 15 minutes, and the ticket needs a login.
+                ReplyEmailFiles emailFiles = replyEmailFiles(nonEmpty);
+                String htmlBody = buildReplyNotificationEmailTemplate(ticket, author, reply, emailFiles);
 
                 if (isAdminReply) {
                     if (ticketCreator != null && ticketCreator.getEmail() != null
                             && !ticketCreator.getEmail().isBlank()) {
-                        emailService.sendHtmlEmail(ticketCreator.getEmail(), subject, htmlBody);
+                        emailService.sendHtmlEmail(ticketCreator.getEmail(), subject, htmlBody,
+                                emailFiles.attached());
                     }
                 } else {
                     // User reply → always notify the category admin inbox
@@ -576,7 +580,8 @@ public class TicketService {
                     // regardless of whether an admin is assigned.
                     List<String> adminEmails = getAdminEmailList(ticket.getCategory());
                     if (!adminEmails.isEmpty()) {
-                        emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
+                        emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody,
+                                emailFiles.attached());
                     }
                 }
             } catch (Exception e) {
@@ -871,7 +876,58 @@ public class TicketService {
                 + "</div></body></html>";
     }
 
-    private String buildReplyNotificationEmailTemplate(Ticket ticket, User author, TicketReply reply) {
+    /**
+     * Most bytes of reply files one notification email carries, before encoding. Base64 adds
+     * about 37%, so this makes a message of roughly 9.6 MB: inside the 10 MB receive limit some
+     * corporate mail servers still apply, and well under Gmail's 25 MB sending limit. Files past
+     * it are named in the email but not attached.
+     */
+    private static final long MAX_EMAIL_ATTACHMENT_BYTES = 7L * 1024 * 1024;
+
+    /** A reply's files, split into those its notification email attaches and those it only names. */
+    private record ReplyEmailFiles(List<EmailService.Attachment> attached, List<String> notAttached) {
+    }
+
+    /**
+     * Picks the reply files to attach to its notification email, in upload order, until
+     * {@link #MAX_EMAIL_ATTACHMENT_BYTES} is used up. A file that does not fit is skipped rather
+     * than ending the selection, so a smaller file after it can still go.
+     */
+    private ReplyEmailFiles replyEmailFiles(List<MultipartFile> files) {
+        List<EmailService.Attachment> attached = new java.util.ArrayList<>();
+        List<String> notAttached = new java.util.ArrayList<>();
+        long remaining = MAX_EMAIL_ATTACHMENT_BYTES;
+        for (MultipartFile f : files) {
+            // The uploader chooses the name and it ends up in a MIME header, so control characters
+            // are replaced to keep it from breaking out of the attachment's headers.
+            String name = (f.getOriginalFilename() != null ? f.getOriginalFilename() : "attachment")
+                    .replaceAll("\\p{Cntrl}", "_");
+            if (f.getSize() > remaining) {
+                notAttached.add(name);
+                continue;
+            }
+            try {
+                byte[] content = f.getBytes();
+                attached.add(new EmailService.Attachment(name, f.getContentType(), content));
+                remaining -= content.length;
+            } catch (java.io.IOException e) {
+                logger.warn("Could not read {} to attach it to the reply notification email", name, e);
+                notAttached.add(name);
+            }
+        }
+        return new ReplyEmailFiles(attached, notAttached);
+    }
+
+    private String replyFileRowHtml(String fileName, String note) {
+        return "<div style=\"margin-top:10px;padding:10px 14px;background:#f9fafb;"
+                + "border:1px solid #e5e7eb;border-radius:8px;font-size:12px;color:#6b7280;\">"
+                + "📎 <strong>" + escapeHtml(fileName) + "</strong>"
+                + "<div style=\"margin-top:2px;font-size:11px;color:#9ca3af;\">" + note + "</div>"
+                + "</div>";
+    }
+
+    private String buildReplyNotificationEmailTemplate(Ticket ticket, User author, TicketReply reply,
+            ReplyEmailFiles files) {
         boolean isAdmin = author.getRole() != null && author.getRole().contains("ADMIN");
         String senderLabel = isAdmin ? "Support Team" : escapeHtml(author.getUsername());
         String senderColor = isAdmin ? "#4f46e5" : "#0ea5e9";
@@ -883,11 +939,14 @@ public class TicketService {
                 ? "<em style=\"color:#9ca3af;\">(No message — see attachment)</em>"
                 : reply.getMessage();
 
-        String attachmentHtml = "";
-        if (reply.getAttachmentName() != null && !reply.getAttachmentName().isBlank()) {
-            attachmentHtml = "<div style=\"margin-top:12px;padding:10px 14px;background:#f9fafb;"
-                    + "border:1px solid #e5e7eb;border-radius:8px;font-size:12px;color:#6b7280;\">"
-                    + "📎 <strong>" + escapeHtml(reply.getAttachmentName()) + "</strong></div>";
+        // One row per file, so a multi-file reply no longer shows only its first file.
+        StringBuilder attachmentHtml = new StringBuilder();
+        for (EmailService.Attachment attachment : files.attached()) {
+            attachmentHtml.append(replyFileRowHtml(attachment.fileName(), "Attached to this email"));
+        }
+        for (String name : files.notAttached()) {
+            attachmentHtml.append(replyFileRowHtml(name,
+                    "Not attached to this email. Open the ticket in XamOps to view it."));
         }
 
         return "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head>"
