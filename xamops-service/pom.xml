@@ -888,6 +888,11 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
+                    <!-- The whole H2 unit suite runs in one reused fork; AutoSpottingArchitectureTest
+                         loads every compiled class and OOMs at the CI runner's default heap. Raise the
+                         fork heap. @{argLine} keeps JaCoCo's agent, which default-prepare-agent injects
+                         via the argLine property (a bare -Xmx would drop coverage). -->
+                    <argLine>@{argLine} -Xms256m -Xmx3g</argLine>
                     <excludedGroups>${surefire.excludedGroups}</excludedGroups>
                     <!-- Surefire's defaults plus *IT, so containers ITs such as
                          LegacySavingsFlagMigrationIT run when the tag is included. -->
