@@ -255,6 +255,33 @@ public final class TenantScopedQueryBuilder {
         return q.build(scope);
     }
 
+    /**
+     * Latest value of the two process metrics for one instance at (or nearest before) {@code atEpochSec}, keyed by
+     * the process identity labels. Reads raw {@code xp_metric_points} (process metrics live only at collection
+     * level T2) and keeps, per {@code (metric, pid)}, the most recent point that is not after the timestamp.
+     *
+     * <p>Tenant predicate first; {@code instanceId} and the timestamp are bound parameters. The process identity
+     * labels are read out of the {@code labels} map by constant key names, never from user text. Returns one row
+     * per {@code (metric, pid)} with columns {@code metric, pid, name, user, threads, v}.
+     */
+    public ScopedSql processLatest(QueryScope scope, String instanceId, long atEpochSec) {
+        Q q = start("SELECT metric, labels['process.pid'] AS pid, "
+                + "argMax(labels['process.executable.name'], ts) AS name, "
+                + "argMax(labels['process.owner'], ts) AS user, "
+                + "argMax(labels['process.threads'], ts) AS threads, "
+                + "argMax(value, ts) AS v FROM xp_metric_points", scope);
+        q.add(" AND instance_id = ?", instanceId);
+        q.add(" AND metric IN ('process.cpu.utilization', 'process.memory.utilization')");
+        q.add(" AND ts <= fromUnixTimestamp64Milli(?)", atEpochSec * 1000L);
+        q.add(" AND ts >= fromUnixTimestamp64Milli(?)", (atEpochSec - PROCESS_LOOKBACK_SEC) * 1000L);
+        q.add(" AND labels['process.pid'] != ''");
+        q.add(" GROUP BY metric, pid ORDER BY v DESC");
+        return q.build(scope);
+    }
+
+    /** How far back {@link #processLatest} looks for the nearest point before the timestamp. */
+    static final long PROCESS_LOOKBACK_SEC = 3600L;
+
     // ------------------------------------------------- events, usage, health
 
     public ScopedSql events(QueryScope scope, Collection<String> kinds, int limit) {

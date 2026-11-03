@@ -44,6 +44,7 @@ class TenantScopedQueryBuilderTest {
         out.add(b.tailPoll(s, f, 5000, 100));
         out.add(b.metricSeries(s, m, plan));
         out.add(b.latestMetrics(s, 1000, List.of("system.cpu.utilization", "x" + SENTINEL)));
+        out.add(b.processLatest(s, "i-" + SENTINEL, 1_700_000_000L));
         out.add(b.baseline(s, "system.cpu.utilization", List.of("i-" + SENTINEL)));
         out.add(b.baselineSamples(s, "system.cpu.utilization", 14));
         out.add(b.metricNames(s));
@@ -179,5 +180,22 @@ class TenantScopedQueryBuilderTest {
         ClickHouseExecutor.validate(q);
         assertThrows(IllegalArgumentException.class, () -> b.baselineSamples(s, "m", 0));
         assertThrows(IllegalArgumentException.class, () -> b.baselineSamples(s, "m", 401));
+    }
+
+    @Test
+    void processLatestIsTenantScopedBindsInstanceAndTimestampAndReadsBothProcessMetrics() {
+        QueryScope s = QueryScope.of(List.of(5L), from, to);
+        long at = 1_700_000_000L;
+        ScopedSql q = b.processLatest(s, "i-9", at);
+        assertTrue(q.sql().contains("FROM xp_metric_points"), q.sql());
+        assertTrue(q.sql().contains("labels['process.pid']"), q.sql());
+        assertTrue(q.sql().contains("process.cpu.utilization") && q.sql().contains("process.memory.utilization"), q.sql());
+        assertTrue(q.sql().contains("GROUP BY metric, pid ORDER BY v DESC"), q.sql());
+        // tenant first, then the bound instance id, then the two window epochs (ms).
+        assertEquals(5L, q.params().get(0));
+        assertEquals("i-9", q.params().get(1));
+        assertEquals(at * 1000L, q.params().get(2));
+        assertFalse(q.sql().contains("i-9"), "instance id travels only as a parameter");
+        ClickHouseExecutor.validate(q);
     }
 }
