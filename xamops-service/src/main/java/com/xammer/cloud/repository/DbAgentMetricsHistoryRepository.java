@@ -16,6 +16,14 @@ public interface DbAgentMetricsHistoryRepository extends JpaRepository<DbAgentMe
     List<DbAgentMetricsHistory> findByDbAgentIdAndDataTypeAndCollectedAtAfterOrderByCollectedAtAsc(
             Long dbAgentId, String dataType, LocalDateTime after);
 
+    /**
+     * The two most recent history rows for an agent + data type, newest first. Pillar A's delta
+     * findings (deadlocks, cache-hit, temp spill, checkpoint/WAL) are rates that need two cumulative
+     * samples; fewer than two rows drives the "collecting — need a second sample" state (§6.3).
+     */
+    List<DbAgentMetricsHistory> findTop2ByDbAgentIdAndDataTypeOrderByCollectedAtDesc(
+            Long dbAgentId, String dataType);
+
     void deleteByCollectedAtBefore(LocalDateTime cutoff);
 
     /**

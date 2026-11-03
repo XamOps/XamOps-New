@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resolveDemoResponse } from './demoRouter';
 import { DEMO_MODE_KEY, DEMO_ROLE_KEY } from './demoConfig';
 import { demoCapabilities } from './k8sAutomationMockData';
-import { demoAccounts, demoChargeTypes, demoK8sClusters } from './xamopsMockData';
+import { demoAccounts, demoChargeTypes, demoK8sClusters,
+  demoDbHealthView, demoDbLockWaits, demoDbReplication, demoAccessGraph, demoFkGraph } from './xamopsMockData';
 import { READINESS_KEYS } from '../types/k8sAutomation';
 import { isEmptyDashboard, nodeGroups, podCounts } from '../utils/k8sDerivations';
 import { toVerticalEngineView } from '../api/verticalRecommendationsAdapter';
@@ -1060,5 +1061,42 @@ describe('demo router — CUR insights (ROLE_XAMOPS)', () => {
       '/api/xamops/cur-insights/resource-change/demo-aws-001?resourceId=&period=2026-08',
     );
     expect(body).toBeNull();
+  });
+});
+
+describe('demo router — DbOps console (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+  const base = '/api/dbops/aws/demo-aws-001';
+
+  it('serves the health view as an object with findings (not the [] catch-all)', async () => {
+    const body = await readDemoBody(`${base}/console/health`);
+    expect(Array.isArray(body)).toBe(false);
+    expect(body).toEqual(demoDbHealthView);
+    expect(body.findings.length).toBeGreaterThan(0);
+  });
+
+  it('serves lock-waits as an array', async () => {
+    expect(await readDemoBody(`${base}/console/lock-waits`)).toEqual(demoDbLockWaits);
+  });
+
+  it('serves replication as an array', async () => {
+    expect(await readDemoBody(`${base}/console/replication`)).toEqual(demoDbReplication);
+  });
+
+  it('serves the access graph as a nodes/edges document', async () => {
+    const body = await readDemoBody(`${base}/console/access-graph`);
+    expect(Array.isArray(body)).toBe(false);
+    expect(body).toEqual(demoAccessGraph);
+    expect(body.nodes.length).toBeGreaterThan(0);
+  });
+
+  it('serves the table graph as a nodes/edges document', async () => {
+    const body = await readDemoBody(`${base}/console/table-graph`);
+    expect(Array.isArray(body)).toBe(false);
+    expect(body).toEqual(demoFkGraph);
+    expect(body.edges.length).toBeGreaterThan(0);
   });
 });

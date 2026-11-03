@@ -934,6 +934,18 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse(xamops.demoAgentUserActivity);
   if (url.includes('/api/dbops/') && url.includes('/metrics'))
     return makeResponse({});
+  // Phase 2 console — health/access-graph/table-graph return OBJECTS, so they must precede the
+  // `[]` catch-all below (an array where the view expects an object blanks the tab).
+  if (url.includes('/api/dbops/') && url.includes('/console/health'))
+    return makeResponse(xamops.demoDbHealthView);
+  if (url.includes('/api/dbops/') && url.includes('/console/lock-waits'))
+    return makeResponse(xamops.demoDbLockWaits);
+  if (url.includes('/api/dbops/') && url.includes('/console/replication'))
+    return makeResponse(xamops.demoDbReplication);
+  if (url.includes('/api/dbops/') && url.includes('/console/access-graph'))
+    return makeResponse(xamops.demoAccessGraph);
+  if (url.includes('/api/dbops/') && url.includes('/console/table-graph'))
+    return makeResponse(xamops.demoFkGraph);
   if (url.includes('/api/dbops/'))
     return makeResponse([]);
 

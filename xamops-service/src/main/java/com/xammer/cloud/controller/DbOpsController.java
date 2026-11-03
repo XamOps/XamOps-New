@@ -27,7 +27,11 @@ import com.xammer.cloud.repository.ExplainRequestRepository;
 import com.xammer.cloud.config.DbOpsFeatureFlags;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CloudAccountAccessService;
+import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.service.AccessGraphService;
+import com.xammer.cloud.service.DbHealthConsoleService;
 import com.xammer.cloud.service.DbOpsCostService;
+import com.xammer.cloud.service.FkGraphService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -67,6 +71,9 @@ public class DbOpsController {
     private final DbHealthAlertRepository dbHealthAlertRepository;
     private final CloudAccountAccessService cloudAccountAccessService;
     private final DbOpsFeatureFlags dbOpsFeatureFlags;
+    private final DbHealthConsoleService dbHealthConsoleService;
+    private final AccessGraphService accessGraphService;
+    private final FkGraphService fkGraphService;
     private final ObjectMapper objectMapper;
 
     public DbOpsController(
@@ -78,7 +85,10 @@ public class DbOpsController {
             DbHealthSnapshotRepository dbHealthSnapshotRepository,
             DbHealthAlertRepository dbHealthAlertRepository,
             CloudAccountAccessService cloudAccountAccessService,
-            DbOpsFeatureFlags dbOpsFeatureFlags) {
+            DbOpsFeatureFlags dbOpsFeatureFlags,
+            DbHealthConsoleService dbHealthConsoleService,
+            AccessGraphService accessGraphService,
+            FkGraphService fkGraphService) {
         this.dbOpsCostService = dbOpsCostService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.dbAgentConfigRepository = dbAgentConfigRepository;
@@ -88,6 +98,9 @@ public class DbOpsController {
         this.dbHealthAlertRepository = dbHealthAlertRepository;
         this.cloudAccountAccessService = cloudAccountAccessService;
         this.dbOpsFeatureFlags = dbOpsFeatureFlags;
+        this.dbHealthConsoleService = dbHealthConsoleService;
+        this.accessGraphService = accessGraphService;
+        this.fkGraphService = fkGraphService;
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule());
     }
@@ -855,6 +868,104 @@ public class DbOpsController {
         }
         return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "redis-keyspace:",
                 new TypeReference<List<RedisKeyspaceDto>>() {}));
+    }
+
+    // ── Phase 2 console (Pillars A / B / C) ─────────────────────────────────────
+    //
+    // Every handler asserts requireAccessByIdentifier FIRST (provider-shared cross-tenant guard —
+    // the console is engine-scoped, reached cross-cloud from the GCP/Azure drawer). The two
+    // topology-exposing endpoints (console/health carries scrubbed query text; console/access-graph
+    // is a recon-grade grant inventory) additionally call requirePrimaryUser — the SEC-9 interim
+    // (design §9.1) — so read-only / trial sub-users are refused. All five fail closed to an empty
+    // document when the console flag is off.
+
+    /**
+     * GET /api/dbops/aws/{accountId}/console/health — Pillar A health view (findings + status).
+     * Sensitive (scrubbed query text): cross-tenant guard + SEC-9 primary-user interim.
+     */
+    @GetMapping("/{accountId}/console/health")
+    public ResponseEntity<DbHealthView> getConsoleHealth(
+            @PathVariable String accountId,
+            @RequestParam(required = false) String dsnAlias,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        CloudAccount account = cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1
+        cloudAccountAccessService.requirePrimaryUser(userDetails, account);                                 // SEC-9 interim
+        if (!dbOpsFeatureFlags.isConsoleEnabled()) {
+            return ResponseEntity.ok(DbHealthView.empty("no_data"));
+        }
+        return ResponseEntity.ok(dbHealthConsoleService.buildForAccount(account, dsnAlias));
+    }
+
+    /**
+     * GET /api/dbops/aws/{accountId}/console/lock-waits — blocked/blocking/long-txn sessions.
+     * Non-sensitive (no query text): baseline cross-tenant guard only. List shape — each row carries
+     * its dsnAlias, grouped client-side (the agent-wait-events pattern).
+     */
+    @GetMapping("/{accountId}/console/lock-waits")
+    public ResponseEntity<List<AgentLockWaitDto>> getConsoleLockWaits(
+            @PathVariable String accountId,
+            @RequestParam(required = false) String dsnAlias,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1
+        if (!dbOpsFeatureFlags.isConsoleEnabled()) {
+            return ResponseEntity.ok(List.of());
+        }
+        return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "db-lock-waits:",
+                new TypeReference<List<AgentLockWaitDto>>() {}));
+    }
+
+    /**
+     * GET /api/dbops/aws/{accountId}/console/replication — replication role + lag per DSN.
+     * Non-sensitive: baseline cross-tenant guard only.
+     */
+    @GetMapping("/{accountId}/console/replication")
+    public ResponseEntity<List<AgentReplicationDto>> getConsoleReplication(
+            @PathVariable String accountId,
+            @RequestParam(required = false) String dsnAlias,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1
+        if (!dbOpsFeatureFlags.isConsoleEnabled()) {
+            return ResponseEntity.ok(List.of());
+        }
+        return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "db-replication:",
+                new TypeReference<List<AgentReplicationDto>>() {}));
+    }
+
+    /**
+     * GET /api/dbops/aws/{accountId}/console/access-graph — Pillar B grants graph + insights.
+     * Sensitive (recon-grade grant/role topology): cross-tenant guard + SEC-9 primary-user interim.
+     */
+    @GetMapping("/{accountId}/console/access-graph")
+    public ResponseEntity<AccessGraphDoc> getConsoleAccessGraph(
+            @PathVariable String accountId,
+            @RequestParam(required = false) String dsnAlias,
+            @RequestParam(required = false) Integer topN,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        CloudAccount account = cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1
+        cloudAccountAccessService.requirePrimaryUser(userDetails, account);                                 // SEC-9 interim
+        if (!dbOpsFeatureFlags.isConsoleEnabled()) {
+            return ResponseEntity.ok(AccessGraphDoc.empty());
+        }
+        return ResponseEntity.ok(accessGraphService.buildForAccount(account, dsnAlias, topN));
+    }
+
+    /**
+     * GET /api/dbops/aws/{accountId}/console/table-graph — Pillar C FK graph.
+     * Non-sensitive (no query text, no principal/grant topology): baseline cross-tenant guard only.
+     */
+    @GetMapping("/{accountId}/console/table-graph")
+    public ResponseEntity<FkGraphDoc> getConsoleTableGraph(
+            @PathVariable String accountId,
+            @RequestParam(required = false) String dsnAlias,
+            @RequestParam(required = false) String schema,
+            @RequestParam(required = false) Integer topN,
+            @RequestParam(required = false) String focus,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        CloudAccount account = cloudAccountAccessService.requireAccessByIdentifier(userDetails, accountId); // SEC-1
+        if (!dbOpsFeatureFlags.isConsoleEnabled()) {
+            return ResponseEntity.ok(FkGraphDoc.empty());
+        }
+        return ResponseEntity.ok(fkGraphService.buildForAccount(account, dsnAlias, schema, topN, focus));
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

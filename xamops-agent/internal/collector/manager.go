@@ -35,13 +35,35 @@ type Manager struct {
 	httpClient     *http.Client
 	logWatcher     *logWatcher
 	logWatcherOnce sync.Once
+
+	// Phase 2 console: the hourly governance catalog collectors (db-access-grants, db-fk-graph)
+	// are gated by name to DBCatalogCollectInterval; this records each one's last run across the
+	// 5-minute collection cycles so they skip until their cadence elapses.
+	catalogMu      sync.Mutex
+	lastCatalogRun map[string]time.Time
+}
+
+// catalogDue reports whether the named catalog collector is due to run (its interval has elapsed)
+// and, when it is, records the run so the next cycle skips it. First call for a name is always due.
+func (m *Manager) catalogDue(name string, interval time.Duration) bool {
+	m.catalogMu.Lock()
+	defer m.catalogMu.Unlock()
+	if m.lastCatalogRun == nil {
+		m.lastCatalogRun = map[string]time.Time{}
+	}
+	if last, ok := m.lastCatalogRun[name]; ok && time.Since(last) < interval {
+		return false
+	}
+	m.lastCatalogRun[name] = time.Now()
+	return true
 }
 
 // NewCollectorManager creates a Manager with in-cluster Kubernetes clients
 func NewCollectorManager(cfg *config.Config) *Manager {
 	m := &Manager{
-		cfg:        cfg,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		cfg:            cfg,
+		httpClient:     &http.Client{Timeout: 30 * time.Second},
+		lastCatalogRun: map[string]time.Time{},
 	}
 
 	k8sCfg, err := rest.InClusterConfig()
@@ -189,6 +211,50 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 			payload.Batches = append(payload.Batches, batch)
 		} else {
 			log.Printf("WARN: db-diagnostics: %v", err)
+		}
+		// ── Phase 2 console, Pillar A (per-cycle, Postgres) ──────────────────
+		// Lock waits / long transactions (COL-A2) — always push (0 items signals healthy).
+		if batch, err := runDBCollector(ctx, "db-lock-waits", dbTimeout, func(c context.Context) (DataBatch, error) {
+			return collectDBLockWaits(c, sqlDSNs, m.cfg.DBLongXactSecs)
+		}); err == nil {
+			payload.Batches = append(payload.Batches, batch)
+		} else {
+			log.Printf("WARN: db-lock-waits: %v", err)
+		}
+		// Replication role + lag (COL-A3) — always push.
+		if batch, err := runDBCollector(ctx, "db-replication", dbTimeout, func(c context.Context) (DataBatch, error) {
+			return collectDBReplication(c, sqlDSNs)
+		}); err == nil {
+			payload.Batches = append(payload.Batches, batch)
+		} else {
+			log.Printf("WARN: db-replication: %v", err)
+		}
+
+		// ── Phase 2 console, Pillars B & C (hourly catalog, Postgres) ────────
+		// Gated to DBCatalogCollectInterval so the role/FK catalog scans run off the 5-minute hot
+		// loop; between runs the backend serves the last cached batch (no batch appended = no change).
+		catalogInterval := time.Duration(m.cfg.DBCatalogCollectInterval) * time.Second
+		if m.catalogDue("db-access-grants", catalogInterval) {
+			if batch, err := runDBCollector(ctx, "db-access-grants", dbTimeout, func(c context.Context) (DataBatch, error) {
+				return collectDBAccessGrants(c, sqlDSNs)
+			}); err == nil {
+				if batch.Count > 0 {
+					payload.Batches = append(payload.Batches, batch)
+				}
+			} else {
+				log.Printf("WARN: db-access-grants: %v", err)
+			}
+		}
+		if m.catalogDue("db-fk-graph", catalogInterval) {
+			if batch, err := runDBCollector(ctx, "db-fk-graph", dbTimeout, func(c context.Context) (DataBatch, error) {
+				return collectDBFkGraph(c, sqlDSNs)
+			}); err == nil {
+				if batch.Count > 0 {
+					payload.Batches = append(payload.Batches, batch)
+				}
+			} else {
+				log.Printf("WARN: db-fk-graph: %v", err)
+			}
 		}
 		// MongoDB collectors
 		if len(mongoDSNs) > 0 {

@@ -188,10 +188,152 @@ type DbInstanceMetrics struct {
 	BytesReceived int64 `json:"bytesReceived,omitempty"`
 	BytesSent     int64 `json:"bytesSent,omitempty"`
 
+	// ── Phase 2 console — extended Postgres health counters (COL-A1) ──────────
+	// Cache hit is read INSTANCE-WIDE (shared_buffers is instance-scoped), labelled as such;
+	// the per-DB counters below are scoped WHERE datname = current_database() (LOW-2).
+	CacheHitRatio float64 `json:"cacheHitRatio,omitempty"` // blks_hit / (blks_hit + blks_read), instance-wide
+	BlksHit       int64   `json:"blksHit,omitempty"`       // instance-wide
+	BlksRead      int64   `json:"blksRead,omitempty"`      // instance-wide
+	TempFiles     int64   `json:"tempFiles,omitempty"`     // per current_database()
+	TempBytes     int64   `json:"tempBytes,omitempty"`     // per current_database()
+	XactCommit    int64   `json:"xactCommit,omitempty"`    // per current_database()
+	XactRollback  int64   `json:"xactRollback,omitempty"`  // per current_database()
+	// Checkpoint pressure — pg_stat_checkpointer (PG17+) else pg_stat_bgwriter, normalized here.
+	CheckpointsTimed    int64   `json:"checkpointsTimed,omitempty"`
+	CheckpointsReq      int64   `json:"checkpointsReq,omitempty"`
+	CheckpointWriteTime float64 `json:"checkpointWriteTime,omitempty"`
+	BuffersCheckpoint   int64   `json:"buffersCheckpoint,omitempty"`
+	// WAL pressure — column-pinned pg_stat_wal subset; timing columns exist only on PG<18 (null above).
+	WalRecords     int64    `json:"walRecords,omitempty"`
+	WalFpi         int64    `json:"walFpi,omitempty"`
+	WalBytes       int64    `json:"walBytes,omitempty"`
+	WalBuffersFull int64    `json:"walBuffersFull,omitempty"`
+	WalWriteTime   *float64 `json:"walWriteTime,omitempty"` // null on PG18+
+	WalSyncTime    *float64 `json:"walSyncTime,omitempty"`  // null on PG18+
+	// Transaction-ID wraparound headroom.
+	DatfrozenxidAge int64 `json:"datfrozenxidAge,omitempty"` // max(age(datfrozenxid)) across databases
+
 	// Server info
 	Uptime          int64  `json:"uptime"`          // seconds
 	Version         string `json:"version"`
 	CollectedAt     string `json:"collectedAt"`     // RFC3339
+}
+
+// DbLockWait — one session involved in a lock wait, a long-running transaction, or an
+// idle-in-transaction state. Pushed as "db-lock-waits" batch (COL-A2).
+//
+// SEC invariant: this struct deliberately carries NO query / statement text — only session
+// identity, wait, and age fields. If a statement identity is useful the UI shows the queryId hash.
+type DbLockWait struct {
+	DSNAlias        string  `json:"dsnAlias"`
+	DBEngine        string  `json:"dbEngine"`
+	DBHost          string  `json:"dbHost"`
+	Category        string  `json:"category"` // blocked | blocking | long_running | idle_in_transaction
+	PID             int     `json:"pid"`
+	Username        string  `json:"usename"`
+	ApplicationName string  `json:"applicationName"`
+	State           string  `json:"state"`
+	WaitEventType   string  `json:"waitEventType"`
+	WaitEvent       string  `json:"waitEvent"`
+	BackendXid      string  `json:"backendXid"`
+	XactStart       string  `json:"xactStart"`
+	QueryStart      string  `json:"queryStart"`
+	StateChange     string  `json:"stateChange"`
+	XactAgeSeconds  float64 `json:"xactAgeSeconds"`
+	BlockedByPids   string  `json:"blockedByPids"`   // comma-joined blocking pids (for Category=blocked)
+	QueryID         string  `json:"queryId,omitempty"` // statement hash only, never query text
+	CollectedAt     string  `json:"collectedAt"`
+}
+
+// DbReplication — replication topology/lag for one DSN. Pushed as "db-replication" batch (COL-A3).
+type DbReplication struct {
+	DSNAlias         string   `json:"dsnAlias"`
+	DBEngine         string   `json:"dbEngine"`
+	DBHost           string   `json:"dbHost"`
+	Role             string   `json:"role"` // primary | replica
+	ClientAddr       string   `json:"clientAddr,omitempty"`
+	ApplicationName  string   `json:"applicationName,omitempty"`
+	State            string   `json:"state,omitempty"`
+	WriteLagSeconds  *float64 `json:"writeLagSeconds,omitempty"`
+	FlushLagSeconds  *float64 `json:"flushLagSeconds,omitempty"`
+	ReplayLagSeconds *float64 `json:"replayLagSeconds,omitempty"`
+	LastReplayTime   string   `json:"lastReplayTime,omitempty"` // replica role only
+	CollectedAt      string   `json:"collectedAt"`
+}
+
+// ── Phase 2 console — access graph (COL-B1) ───────────────────────────────────
+// One AccessGraphDoc is emitted per DSN (object per DSN, not an array per DSN).
+
+type DbAccessRole struct {
+	Name               string `json:"name"`
+	Oid                int64  `json:"oid"`
+	CanLogin           bool   `json:"canLogin"`
+	IsSuperuser        bool   `json:"isSuperuser"`
+	InheritsPrivileges bool   `json:"inheritsPrivileges"`
+	BypassRls          bool   `json:"bypassRls"`
+	CreateRole         bool   `json:"createRole"`
+	ConnLimit          int    `json:"connLimit"`
+	ValidUntil         string `json:"validUntil,omitempty"`
+}
+
+type DbMembership struct {
+	Member          string `json:"member"`
+	GrantedRole     string `json:"grantedRole"`
+	WithAdminOption bool   `json:"withAdminOption"`
+}
+
+type DbAccessGrant struct {
+	Grantee        string   `json:"grantee"`        // role name; "PUBLIC" for grantee OID 0
+	Scope          string   `json:"scope"`          // schema for object/schema grants, db name for CONNECT
+	PrivilegeClass string   `json:"privilegeClass"` // READ | WRITE | DDL | USAGE_EXEC | CONNECT | ADMIN
+	ObjectCount    int      `json:"objectCount"`
+	HasPublic      bool     `json:"hasPublic"`
+	SampleObjects  []string `json:"sampleObjects,omitempty"`
+}
+
+type DbAccessGraphDoc struct {
+	DSNAlias    string          `json:"dsnAlias"`
+	DBEngine    string          `json:"dbEngine"`
+	DBHost      string          `json:"dbHost"`
+	CollectedAt string          `json:"collectedAt"`
+	Roles       []DbAccessRole  `json:"roles"`
+	Memberships []DbMembership  `json:"memberships"`
+	Grants      []DbAccessGrant `json:"grants"`
+}
+
+// ── Phase 2 console — FK table graph (COL-C1) ─────────────────────────────────
+// One FkGraphDoc is emitted per DSN. Node weights are catalog-derived here (relpages ×
+// block_size / GREATEST(reltuples,0)), NOT pg_total_relation_size (PERF-6).
+
+type DbFkTable struct {
+	Schema      string `json:"schema"`
+	Name        string `json:"name"`
+	Oid         int64  `json:"oid"`
+	SizeBytes   int64  `json:"sizeBytes"`
+	RowEstimate int64  `json:"rowEstimate"`
+}
+
+type DbFkEdge struct {
+	ChildSchema    string   `json:"childSchema"`
+	ChildTable     string   `json:"childTable"`
+	ParentSchema   string   `json:"parentSchema"`
+	ParentTable    string   `json:"parentTable"`
+	Columns        []string `json:"columns"`
+	OnDelete       string   `json:"onDelete"`
+	OnUpdate       string   `json:"onUpdate"`
+	ConstraintName string   `json:"constraintName"`
+}
+
+type DbFkGraphDoc struct {
+	DSNAlias      string      `json:"dsnAlias"`
+	DBEngine      string      `json:"dbEngine"`
+	DBHost        string      `json:"dbHost"`
+	CollectedAt   string      `json:"collectedAt"`
+	Tables        []DbFkTable `json:"tables"`
+	FkEdges       []DbFkEdge  `json:"fkEdges"`
+	Truncated     bool        `json:"truncated"`
+	TotalFkTables int         `json:"totalFkTables"`
+	TotalFkEdges  int         `json:"totalFkEdges"`
 }
 
 // DbTableSize represents storage usage for a single table — pushed as "db-table-sizes" batch.

@@ -105,7 +105,10 @@ class DbOpsFeatureFlagGateTest {
                 mock(DbAgentConfigRepository.class), mock(DbAgentDataCacheRepository.class),
                 mock(ExplainRequestRepository.class), mock(DbHealthSnapshotRepository.class),
                 mock(DbHealthAlertRepository.class), accessService,
-                new DbOpsFeatureFlags(false)); // all five Phase-1a flags default to false
+                new DbOpsFeatureFlags(false), // all Phase-1a flags default to false
+                mock(com.xammer.cloud.service.DbHealthConsoleService.class),
+                mock(com.xammer.cloud.service.AccessGraphService.class),
+                mock(com.xammer.cloud.service.FkGraphService.class));
 
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
@@ -165,6 +168,39 @@ class DbOpsFeatureFlagGateTest {
     @Test
     void redisMetricsDisabled_returnsEmptyArray() throws Exception {
         assertEmptyArray("/api/dbops/aws/{id}/agent-redis-metrics");
+    }
+
+    // ── Phase 2 console — flags off fail closed (console flag defaults false) ──
+
+    @Test
+    void consoleLockWaitsDisabled_returnsEmptyArray() throws Exception {
+        assertEmptyArray("/api/dbops/aws/{id}/console/lock-waits");
+    }
+
+    @Test
+    void consoleReplicationDisabled_returnsEmptyArray() throws Exception {
+        assertEmptyArray("/api/dbops/aws/{id}/console/replication");
+    }
+
+    @Test
+    void consoleHealthDisabled_returnsEmptyNoDataDocument() throws Exception {
+        MvcResult result = dispatch(get("/api/dbops/aws/{id}/console/health", AWS_ID));
+        assertThat(result.getResponse().getStatus()).isEqualTo(200);
+        assertThat(result.getResponse().getContentAsString()).contains("\"status\":\"no_data\"");
+    }
+
+    @Test
+    void consoleAccessGraphDisabled_returns200EmptyDocument() throws Exception {
+        MvcResult result = dispatch(get("/api/dbops/aws/{id}/console/access-graph", AWS_ID));
+        assertThat(result.getResponse().getStatus()).isEqualTo(200);
+        assertThat(result.getResponse().getContentAsString()).contains("\"nodes\":[]");
+    }
+
+    @Test
+    void consoleTableGraphDisabled_returns200EmptyDocument() throws Exception {
+        MvcResult result = dispatch(get("/api/dbops/aws/{id}/console/table-graph", AWS_ID));
+        assertThat(result.getResponse().getStatus()).isEqualTo(200);
+        assertThat(result.getResponse().getContentAsString()).contains("\"nodes\":[]");
     }
 
     @Test
