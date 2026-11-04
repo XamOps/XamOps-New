@@ -124,6 +124,28 @@ public class KubernetesClusterConfig {
 
     @Column(name = "automation_disabled_at")
     private Instant automationDisabledAt;
+    // ===== Manual approval mode (Phase B) =====
+    // The single mapping of these eight safety-bearing/bookkeeping columns. Every one is
+    // updatable = false: NO save() of this entity (the agent heartbeat does a wholesale save of a
+    // possibly stale copy) can ever write them. They are written only by the @Modifying queries
+    // on KubernetesClusterConfigRepository (setApprovalMode, recordPolicyServed, recordAgentFeatures).
+    // INSERT is unaffected, so a new row still gets the entity default AUTONOMOUS.
+    @Column(name = "automation_approval_mode", nullable = false, length = 16, updatable = false)
+    private String automationApprovalMode = "AUTONOMOUS";
+    @Column(name = "approval_mode_changed_at", updatable = false)
+    private Instant approvalModeChangedAt;
+    @Column(name = "approval_mode_changed_by", updatable = false)
+    private Long approvalModeChangedBy;
+    @Column(name = "policy_served_approval_mode", length = 16, updatable = false)
+    private String policyServedApprovalMode;
+    @Column(name = "policy_served_at", updatable = false)
+    private Instant policyServedAt;
+    @Column(name = "automation_agent_features", length = 255, updatable = false)
+    private String automationAgentFeatures;
+    @Column(name = "automation_agent_features_seen_at", updatable = false)
+    private Instant automationAgentFeaturesSeenAt;
+    @Column(name = "automation_agent_drain_timeout_seconds", updatable = false)
+    private Integer automationAgentDrainTimeoutSeconds;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
@@ -358,6 +380,15 @@ public class KubernetesClusterConfig {
     public void setAutomationIdentitySeenAt(Instant automationIdentitySeenAt) { this.automationIdentitySeenAt = automationIdentitySeenAt; }
 
     public Instant getAutomationDisabledAt() { return automationDisabledAt; }
+    // Manual approval columns: read-only here on purpose (updatable = false, see the field block).
+    public String getAutomationApprovalMode() { return automationApprovalMode; }
+    public Instant getApprovalModeChangedAt() { return approvalModeChangedAt; }
+    public Long getApprovalModeChangedBy() { return approvalModeChangedBy; }
+    public String getPolicyServedApprovalMode() { return policyServedApprovalMode; }
+    public Instant getPolicyServedAt() { return policyServedAt; }
+    public String getAutomationAgentFeatures() { return automationAgentFeatures; }
+    public Instant getAutomationAgentFeaturesSeenAt() { return automationAgentFeaturesSeenAt; }
+    public Integer getAutomationAgentDrainTimeoutSeconds() { return automationAgentDrainTimeoutSeconds; }
     public void setAutomationDisabledAt(Instant automationDisabledAt) { this.automationDisabledAt = automationDisabledAt; }
 
     /**

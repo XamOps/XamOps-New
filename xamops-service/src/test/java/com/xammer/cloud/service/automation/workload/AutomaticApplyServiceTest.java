@@ -391,6 +391,39 @@ class AutomaticApplyServiceTest {
                 .contains("cluster xamops-test-1 (config 42, client 7)");
     }
 
+    // ---------------------------------------------------------------- Manual mode (Phase B)
+
+    @Test
+    @DisplayName("a cluster whose stored mode is not AUTONOMOUS is skipped before any read and never reaches apply")
+    void aManualClusterNeverReachesApply() {
+        com.xammer.cloud.service.automation.proposal.ApprovalModeReader reader =
+                mock(com.xammer.cloud.service.automation.proposal.ApprovalModeReader.class);
+        when(reader.isAutonomous(any(KubernetesClusterConfig.class))).thenReturn(false);
+        AutomaticApplyService service = service();
+        service.setApprovalModeReader(reader);
+
+        service.applyOnePerReadyCluster();
+
+        verify(readService, never()).read(any(), any(), any());
+        verify(applyService, never()).apply(any(), any(), any(), any(), any(), any());
+        assertThat(allLogText()).contains("reason manual-approval-mode");
+    }
+
+    @Test
+    @DisplayName("an AUTONOMOUS cluster is applied to exactly as before, with the AUTO trigger")
+    void anAutonomousClusterIsAppliedAsBefore() {
+        com.xammer.cloud.service.automation.proposal.ApprovalModeReader reader =
+                mock(com.xammer.cloud.service.automation.proposal.ApprovalModeReader.class);
+        when(reader.isAutonomous(any(KubernetesClusterConfig.class))).thenReturn(true);
+        AutomaticApplyService service = service();
+        service.setApprovalModeReader(reader);
+
+        service.applyOnePerReadyCluster();
+
+        verify(applyService).apply(any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.eq(ActionTrigger.AUTO));
+    }
+
     // ---------------------------------------------------------------- fixtures
 
     private AutomaticApplyService service() {

@@ -2,6 +2,7 @@ package com.xammer.cloud.service.automation.workload.api;
 
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.service.automation.proposal.ApprovalModeReader;
 import com.xammer.cloud.service.automation.workload.ActionTrigger;
 import com.xammer.cloud.service.automation.workload.ApplyMethod;
 import com.xammer.cloud.service.automation.workload.HpaView;
@@ -124,6 +125,12 @@ public class VerticalApplyService {
     private final VerticalMetricsProperties metricsProperties;
     private final Clock clock;
     /**
+     * Manual mode (Phase B): fail-closed read of the cluster's stored approval mode. Optional so the
+     * constructors tests use keep working; Spring always wires it. When absent the AUTO guard below is
+     * skipped, which only happens outside the application context.
+     */
+    private ApprovalModeReader approvalModeReader;
+    /**
      * The workloads a real apply is running on right now. In memory, so it holds per backend
      * instance; with more than one instance behind a balancer this would need a shared lock.
      */
@@ -168,6 +175,11 @@ public class VerticalApplyService {
         this.accessProviders = List.copyOf(ordered);
     }
 
+    @Autowired(required = false)
+    public void setApprovalModeReader(ApprovalModeReader approvalModeReader) {
+        this.approvalModeReader = approvalModeReader;
+    }
+
     /**
      * @param account the AWS account the caller is <strong>already entitled to</strong>; entitlement
      *                is the controller's job, this method only reads the connection's access type
@@ -194,8 +206,20 @@ public class VerticalApplyService {
     public ApplyResponseDto apply(ClientUserDetails principal, CloudAccount account,
                                   ClusterTarget target, WorkloadRef ref, ApplyRequestDto request,
                                   ActionTrigger trigger) {
+        return apply(principal, account, target, ref, request, trigger, null);
+    }
+
+    /**
+     * The same apply with an optional check run against the live workload before any re-validation or
+     * patch (Manual mode: an approved proposal whose current resource set no longer matches what the
+     * human saw is refused {@code PROPOSAL_STALE} here, with nothing sent to the cluster). Every gate
+     * of {@link #apply} still runs, in the same order.
+     */
+    public ApplyResponseDto apply(ClientUserDetails principal, CloudAccount account,
+                                  ClusterTarget target, WorkloadRef ref, ApplyRequestDto request,
+                                  ActionTrigger trigger, PreApplyCheck preApplyCheck) {
         try {
-            return applyGated(principal, account, target, ref, request, trigger);
+            return applyGated(principal, account, target, ref, request, trigger, preApplyCheck);
         } catch (ApplyRefusedException refused) {
             if (recordsRefusal(trigger, refused.code())) {
                 actionRecorder.recordRefusal(target == null ? null : target.clientId(), target, ref,
@@ -212,14 +236,23 @@ public class VerticalApplyService {
      * shared demo identity's, which must leave no trace on a real cluster's history.
      */
     static boolean recordsRefusal(ActionTrigger trigger, String code) {
-        return (trigger == null || trigger == ActionTrigger.MANUAL)
+        return (trigger == null || trigger == ActionTrigger.MANUAL || trigger == ActionTrigger.APPROVED)
                 && !ReasonCode.DEMO.refusalCode().equals(code);
     }
 
     private ApplyResponseDto applyGated(ClientUserDetails principal, CloudAccount account,
                                         ClusterTarget target, WorkloadRef ref, ApplyRequestDto request,
-                                        ActionTrigger trigger) {
+                                        ActionTrigger trigger, PreApplyCheck preApplyCheck) {
         requirePermission(principal, account);
+        // Manual mode defence in depth: an AUTO apply never runs on a cluster whose stored mode is not
+        // exactly AUTONOMOUS. The reader queries in its own transaction, so a flip committed after the
+        // loop's own check is still seen here. APPROVED and PROPOSAL triggers are unaffected.
+        if (trigger == ActionTrigger.AUTO && approvalModeReader != null && target != null
+                && !approvalModeReader.isAutonomous(target.clusterConfigId())) {
+            throw new ApplyRefusedException(HttpStatus.CONFLICT, "MANUAL_MODE", null,
+                    "This cluster is in Manual approval mode, so nothing is applied automatically."
+                            + " Approve a proposal instead.");
+        }
         requireWriteConnection(account);
         requireControllerReady();
 
@@ -259,7 +292,7 @@ public class VerticalApplyService {
                                 + " Nothing was sent; wait for it to finish, then refresh.");
             }
             try {
-                return applyLocked(target, workload, submitted, method, dryRun, access, trigger);
+                return applyLocked(target, workload, submitted, method, dryRun, access, trigger, preApplyCheck);
             } finally {
                 if (!dryRun) {
                     inFlight.remove(lock);
@@ -271,7 +304,8 @@ public class VerticalApplyService {
     private ApplyResponseDto applyLocked(ClusterTarget target,
                                          ClusterWorkloadInventory.Workload workload,
                                          List<ApplyRequestDto.Container> submitted, ApplyMethod method,
-                                         boolean dryRun, ClusterAccess access, ActionTrigger trigger) {
+                                         boolean dryRun, ClusterAccess access, ActionTrigger trigger,
+                                         PreApplyCheck preApplyCheck) {
         // The no-row case resolves to the environment's configured defaults -- the policy the
         // read endpoint reported -- so the row recordApplied creates carries that policy and
         // not the bare Java defaults, whose mode is OFF.
@@ -287,6 +321,10 @@ public class VerticalApplyService {
         // floor/QoS refusal instead of the more actionable VPA ownership. A mutating or unreadable
         // native VPA is refused for dry runs and real applies alike, before the executor is reached.
         requireNativeVpaClear(access, workload.ref());
+        if (preApplyCheck != null) {
+            // Manual mode: the live current resource set must still be what the approver saw.
+            preApplyCheck.verify(workload);
+        }
         List<ContainerApplyTarget> targets = revalidate(submitted, workload, policy);
         // The engine's holds, dry runs included, so a dry run predicts the real apply.
         requireEngineHoldsClear(workload, policy, submitted);
@@ -315,7 +353,7 @@ public class VerticalApplyService {
             // cooldown stamp above does.
             actionRecorder.record(target.clientId(), target, workload.ref(), trigger,
                     command.dryRun(), targets, proof, appliedAt);
-        } else if (proof != null) {
+        } else if (proof != null && trigger != ActionTrigger.PROPOSAL) {
             // A test run, or a real apply that changed no pod (a deferral put back and proved back,
             // a declined patch): recorded for the activity log only. It starts no cooldown, and
             // endpoint 1's lastAction skips it, exactly as before this row existed.

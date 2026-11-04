@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "proposalId": "b3f1c2d0-7e4a-4c1b-9d2e-5a6f7b8c9d0e",
+  "status": "succeeded",
+  "verified": true,
+  "dryRun": false,
+  "stage": "EXECUTION",
+  "reason": "",
+  "operationId": "proposal-b3f1c2d0-7e4a-4c1b-9d2e-5a6f7b8c9d0e",
+  "actions": [
+    {
+      "controller": "node-optimizer",
+      "action": "drain",
+      "target": "ip-10-0-1-5.ec2.internal",
+      "status": "succeeded",
+      "operationId": "proposal-b3f1c2d0-7e4a-4c1b-9d2e-5a6f7b8c9d0e",
+      "details": { "trigger": "approved-proposal", "proposalId": "b3f1c2d0-7e4a-4c1b-9d2e-5a6f7b8c9d0e" }
+    }
+  ],
+  "reports": [
+    {
+      "node": "ip-10-0-1-5.ec2.internal",
+      "operationId": "proposal-b3f1c2d0-7e4a-4c1b-9d2e-5a6f7b8c9d0e",
+      "evicted": 7,
+      "remaining": 0,
+      "verified": true
+    }
+  ],
+  "consolidation": {
+    "runId": "proposal-b3f1c2d0-7e4a-4c1b-9d2e-5a6f7b8c9d0e",
+    "nodes": [
+      { "node": "ip-10-0-1-5.ec2.internal", "status": "succeeded", "terminated": true }
+    ]
+  }
+}

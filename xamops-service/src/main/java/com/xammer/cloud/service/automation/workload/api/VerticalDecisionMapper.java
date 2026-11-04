@@ -222,7 +222,7 @@ public final class VerticalDecisionMapper {
     }
 
     /** @return null when the whole envelope is absent; individual unset fields stay null */
-    private static VerticalWorkloadDto.ResourcesDto resources(ResourceEnvelope envelope) {
+    static VerticalWorkloadDto.ResourcesDto resources(ResourceEnvelope envelope) {
         if (envelope == null) {
             return null;
         }

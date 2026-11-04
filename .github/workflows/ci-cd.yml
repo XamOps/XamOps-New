@@ -430,6 +430,10 @@ jobs:
         # action-less alarm before the monitoring stack is ever deployed.
         run: python3 scripts/autospotting/check_alarms.py cloudformation/xamops-autospotting-monitoring.yaml cloudformation/autospotting-engine.yaml
 
+      - name: Check approval contract fixtures are in sync (Manual mode)
+        # The agent <-> backend golden fixtures live on both sides (Go source of truth, Java copy)
+        # and must stay byte-identical; ApprovalContractTest parses the Java copies strictly.
+        run: bash scripts/check-approval-contract-sync.sh
       - name: Run tests
         run: mvn test -B --no-transfer-progress -pl xamops-service -am
 
@@ -1147,6 +1151,8 @@ jobs:
           go-version: '1.21'
           cache-dependency-path: xamops-autoscaler/go.sum
 
+      - name: Check approval contract fixtures are in sync (Manual mode)
+        run: bash scripts/check-approval-contract-sync.sh
       - name: Build and test
         working-directory: xamops-autoscaler
         run: |

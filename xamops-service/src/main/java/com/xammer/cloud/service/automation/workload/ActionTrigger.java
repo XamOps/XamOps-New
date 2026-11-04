@@ -14,5 +14,16 @@ public enum ActionTrigger {
     MANUAL,
 
     /** The scheduled auto-apply loop (FEAT-002) applied without a human naming the numbers. */
-    AUTO
+    AUTO,
+    /**
+     * Manual mode's probe (Phase B): a dry run the proposer makes to classify a workload resize and
+     * gather its proof. Writes nothing, records no refusal and no attempt, so a 15-minute proposal
+     * cycle does not flood the activity log.
+     */
+    PROPOSAL,
+    /**
+     * A human approved a Manual-mode proposal and this is the real apply. Records like
+     * {@link #MANUAL} (a refusal is logged), and bypasses no gate: the full apply chain runs.
+     */
+    APPROVED
 }

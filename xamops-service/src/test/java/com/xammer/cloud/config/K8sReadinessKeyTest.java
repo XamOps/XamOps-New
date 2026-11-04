@@ -78,7 +78,7 @@ class K8sReadinessKeyTest {
         assertThat(K8sReadinessKey.values()).extracting(K8sReadinessKey::key).containsExactly(
                 "vertical-rightsizing", "hpa-apply", "vpa-apply", "evictor-live", "rebalancer",
                 "node-optimizer-actions", "scale-out", "node-templates", "spot-interruption-actions",
-                "consolidation-actions");
+                "consolidation-actions", "manual-approval");
         for (K8sReadinessKey key : K8sReadinessKey.values()) {
             assertThat(key.message()).as(key.key()).isNotBlank();
             assertThat(key.reason()).isEqualTo(key == K8sReadinessKey.EVICTOR_LIVE

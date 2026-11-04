@@ -6,7 +6,7 @@ import java.util.Arrays;
 import java.util.Optional;
 
 /**
- * The ten controller-readiness keys of design §6.7, in property order, each with the reason
+ * The controller-readiness keys of design §6.7 (plus {@code manual-approval}, Manual mode), in property order, each with the reason
  * the UI and server use while it is not ready and the exact user-facing message.
  *
  * <p>
@@ -38,7 +38,9 @@ public enum K8sReadinessKey {
             "Automatic spot interruption handling is disabled until the node optimizer passes spot interruption validation."),
     CONSOLIDATION_ACTIONS("consolidation-actions", K8sAutomationReason.CONTROLLER_NOT_READY,
             "Live node consolidation is disabled until the consolidation controller passes safety validation "
-                    + "and a soak window; the look-only plans stay visible.");
+                    + "and a soak window; the look-only plans stay visible."),
+    MANUAL_APPROVAL("manual-approval", K8sAutomationReason.CONTROLLER_NOT_READY,
+            "Manual approval mode isn't enabled in this environment. Automation behaves as before.");
 
     private final String key;
     private final K8sAutomationReason reason;

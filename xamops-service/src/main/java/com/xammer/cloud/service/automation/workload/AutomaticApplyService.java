@@ -5,6 +5,7 @@ import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.service.automation.proposal.ApprovalModeReader;
 import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
 import com.xammer.cloud.service.automation.workload.api.VerticalApplyService;
 import com.xammer.cloud.service.automation.workload.api.VerticalAutomationReadService;
@@ -25,7 +26,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -94,6 +94,13 @@ public class AutomaticApplyService {
     private final SystemActorResolver systemActorResolver;
     private final Clock clock;
 
+    /**
+     * Manual mode (Phase B): fail-closed read of the stored approval mode. Optional so the constructors
+     * tests use keep working; Spring always wires it. Absent means the Manual skip below is off, which
+     * only happens outside the application context.
+     */
+    private ApprovalModeReader approvalModeReader;
+
     /** Per cluster config id: the instant the loop last applied to it, for the per-cluster cooldown. */
     private final ConcurrentMap<Long, Instant> lastAppliedByCluster = new ConcurrentHashMap<>();
 
@@ -132,6 +139,11 @@ public class AutomaticApplyService {
         this.cloudAccountRepository = cloudAccountRepository;
         this.systemActorResolver = systemActorResolver;
         this.clock = clock;
+    }
+
+    @Autowired(required = false)
+    public void setApprovalModeReader(ApprovalModeReader approvalModeReader) {
+        this.approvalModeReader = approvalModeReader;
     }
 
     /**
@@ -191,6 +203,15 @@ public class AutomaticApplyService {
      * early return logs its concrete skip reason first, so a cluster is accounted for exactly once.
      */
     private Decision applyOne(KubernetesClusterConfig config) {
+        // Manual mode, one position: a cluster whose stored mode is not exactly AUTONOMOUS is never
+        // auto-applied (it gets proposals from WorkloadProposer instead). First statement, before the
+        // circuit breaker and before any read; the reader queries in its own transaction so a flip
+        // committed mid-loop is seen.
+        if (approvalModeReader != null && !approvalModeReader.isAutonomous(config)) {
+            logger.info("Auto-apply skipped cluster config {}: reason manual-approval-mode",
+                    config == null ? null : config.getId());
+            return Decision.SKIPPED;
+        }
         Long clusterConfigId = config.getId();
         if (clusterConfigId == null) {
             logger.info("Auto-apply skipped a cluster config with no id");
@@ -369,7 +390,7 @@ public class AutomaticApplyService {
      * apply would refuse on ({@code CONTROLLER_NOT_READY}, the two cluster-access gates, or a caller
      * write gate the read happened to carry).
      */
-    private static boolean clusterIsApplyable(VerticalEngineResponse read) {
+    static boolean clusterIsApplyable(VerticalEngineResponse read) {
         if (read == null || read.engine() == null) {
             return false;
         }
@@ -406,33 +427,22 @@ public class AutomaticApplyService {
      * A decision's {@code recommended} is a complete envelope, so copying it wholesale would patch a
      * resource the engine deliberately froze; only the diff is a safe apply body.
      */
-    private static List<ApplyRequestDto.Container> applyBody(VerticalWorkloadDto workload) {
-        List<ApplyRequestDto.Container> containers = new ArrayList<>();
+    static List<ApplyRequestDto.Container> applyBody(VerticalWorkloadDto workload) {
+        List<WorkloadApplyBodyMapper.ContainerResources> current = new ArrayList<>();
+        List<WorkloadApplyBodyMapper.ContainerResources> recommended = new ArrayList<>();
         for (VerticalWorkloadDto.ContainerDto container : workload.containers()) {
-            VerticalWorkloadDto.ResourcesDto recommended = container.recommended();
-            if (recommended == null) {
-                continue;
+            VerticalWorkloadDto.ResourcesDto rec = container.recommended();
+            if (rec == null) {
+                continue; // no recommendation for this container: nothing to apply, and not diffed
             }
-            VerticalWorkloadDto.ResourcesDto current = container.current();
-            Integer cpuRequestM = changed(recommended.cpuRequestM(), current == null ? null : current.cpuRequestM());
-            Long memRequestMi = changed(recommended.memRequestMi(), current == null ? null : current.memRequestMi());
-            Integer cpuLimitM = changed(recommended.cpuLimitM(), current == null ? null : current.cpuLimitM());
-            Long memLimitMi = changed(recommended.memLimitMi(), current == null ? null : current.memLimitMi());
-            if (cpuRequestM == null && memRequestMi == null && cpuLimitM == null && memLimitMi == null) {
-                continue;
-            }
-            containers.add(new ApplyRequestDto.Container(container.name(), cpuRequestM, memRequestMi,
-                    cpuLimitM, memLimitMi));
+            VerticalWorkloadDto.ResourcesDto cur = container.current();
+            current.add(new WorkloadApplyBodyMapper.ContainerResources(container.name(),
+                    cur == null ? null : cur.cpuRequestM(), cur == null ? null : cur.cpuLimitM(),
+                    cur == null ? null : cur.memRequestMi(), cur == null ? null : cur.memLimitMi()));
+            recommended.add(new WorkloadApplyBodyMapper.ContainerResources(container.name(), rec.cpuRequestM(),
+                    rec.cpuLimitM(), rec.memRequestMi(), rec.memLimitMi()));
         }
-        return containers;
-    }
-
-    /** @return {@code recommended} when it differs from {@code current}, else null — "leave it alone" */
-    private static <T> T changed(T recommended, T current) {
-        if (recommended == null) {
-            return null;
-        }
-        return Objects.equals(recommended, current) ? null : recommended;
+        return WorkloadApplyBodyMapper.diff(current, recommended);
     }
 
     // ---------------------------------------------------------------- account resolution
@@ -445,7 +455,7 @@ public class AutomaticApplyService {
      * key first and the AWS account number second — the same ambiguity the controller resolves, in the
      * opposite direction (config → account).
      */
-    private Optional<CloudAccount> resolveAccount(KubernetesClusterConfig config) {
+    Optional<CloudAccount> resolveAccount(KubernetesClusterConfig config) {
         Long cloudAccountId = config.getCloudAccountId();
         if (cloudAccountId == null) {
             return Optional.empty();

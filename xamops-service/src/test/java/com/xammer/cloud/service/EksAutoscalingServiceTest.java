@@ -85,6 +85,9 @@ class EksAutoscalingServiceTest {
 
         when(cacheRepository.findByClusterConfigIdAndDataType(anyLong(), anyString()))
                 .thenAnswer(inv -> Optional.ofNullable(cache.get(inv.getArgument(0) + "|" + inv.getArgument(1))));
+        // Writes read the policy row through the locking variant (Manual mode, design 3.9 rule 4).
+        when(cacheRepository.findForUpdateByClusterConfigIdAndDataType(anyLong(), anyString()))
+                .thenAnswer(inv -> Optional.ofNullable(cache.get(inv.getArgument(0) + "|" + inv.getArgument(1))));
         when(cacheRepository.save(any(AgentDataCache.class))).thenAnswer(inv -> {
             AgentDataCache row = inv.getArgument(0);
             cache.put(row.getClusterConfigId() + "|" + row.getDataType(), row);
@@ -475,5 +478,56 @@ class EksAutoscalingServiceTest {
         service.getNodeFleetReport(config);
         service.getEvictorCandidates(config);
         verify(cacheRepository, never()).findByClusterConfigIdAndDataType(eq(7L), anyString());
+    }
+
+    // ── Manual mode (Phase B, design 3.9) ─────────────────────────────────
+
+    @Test
+    void consumingARebalanceRequestResetsOnlyTheStatusAndOnlyWhenStillRunning() throws Exception {
+        storeRow(EksAutoscalingService.DT_POLICY,
+                "{\"autoscalerMode\":\"scoped\",\"rebalancer\":{\"status\":\"running\",\"lastRebalanceAt\":\"2026-10-01T02:00:00Z\"}}");
+        readiness.setRebalancer(true);
+
+        assertThat(service.consumeRebalanceRequest(config)).isTrue();
+        assertThat(storedPolicy().get("rebalancer").get("status").asText()).isEqualTo("idle");
+        assertThat(storedPolicy().get("rebalancer").get("lastRebalanceAt").asText()).isEqualTo("2026-10-01T02:00:00Z");
+        assertThat(storedPolicy().get("autoscalerMode").asText()).isEqualTo("scoped");
+
+        // the user already reset it (or another batch consumed it): a no-op, nothing written
+        AgentDataCache before = cache.get(config.getId() + "|" + EksAutoscalingService.DT_POLICY);
+        String json = before.getDataJson();
+        assertThat(service.consumeRebalanceRequest(config)).isFalse();
+        assertThat(cache.get(config.getId() + "|" + EksAutoscalingService.DT_POLICY).getDataJson()).isEqualTo(json);
+    }
+
+    @Test
+    void everyWriterReadsThePolicyRowUnderTheLockAndEveryCallerIsTransactional() throws Exception {
+        storeRow(EksAutoscalingService.DT_POLICY, "{\"autoscalerMode\":\"full\"}");
+        service.setMode(config, "scoped", "jane.doe");
+        service.saveEvictorPolicy(config, new EvictorPolicyDto(), "jane.doe");
+        verify(cacheRepository, org.mockito.Mockito.atLeast(2))
+                .findForUpdateByClusterConfigIdAndDataType(config.getId(), EksAutoscalingService.DT_POLICY);
+
+        // a PESSIMISTIC_WRITE read outside a transaction throws, so a future un-annotated caller must fail here
+        for (String name : List.of("setMode", "saveNodeTemplate", "deleteNodeTemplate", "triggerRebalance",
+                "saveScaleOutPolicy", "saveEvictorPolicy", "saveWorkloadRightsizerPolicy", "saveSafetyGuards",
+                "saveNodeOptimizerPolicy", "saveRebalancerConfig", "saveConsolidationPolicy", "saveVpaManagerPolicy",
+                "consumeRebalanceRequest")) {
+            var methods = java.util.Arrays.stream(EksAutoscalingService.class.getDeclaredMethods())
+                    .filter(m -> m.getName().equals(name)).toList();
+            assertThat(methods).as(name).isNotEmpty();
+            assertThat(methods).as(name + " is @Transactional").allSatisfy(m ->
+                    assertThat(m.isAnnotationPresent(org.springframework.transaction.annotation.Transactional.class)).isTrue());
+        }
+    }
+
+    @Test
+    void theStoredScopeIsReadWithoutTheLockAndAMissingOrUnreadableBundleFailsClosed() {
+        assertThat(service.storedAutoscalerMode(config)).as("no stored policy").isEqualTo("disabled");
+        storeRow(EksAutoscalingService.DT_POLICY, "{\"autoscalerMode\":\"scoped\"}");
+        assertThat(service.storedAutoscalerMode(config)).isEqualTo("scoped");
+        storeRow(EksAutoscalingService.DT_POLICY, "{not json");
+        assertThat(service.storedAutoscalerMode(config)).isEqualTo("disabled");
+        verify(cacheRepository, never()).findForUpdateByClusterConfigIdAndDataType(anyLong(), anyString());
     }
 }

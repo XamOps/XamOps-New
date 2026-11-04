@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "cycleId": "c-1730480000",
+  "observedAt": "2026-11-01T10:00:00Z",
+  "items": [
+    {
+      "dedupeKey": "NODE_DRAIN:DRAIN:node-optimizer:ip-10-0-1-5.ec2.internal",
+      "actionType": "NODE_DRAIN",
+      "operation": "DRAIN",
+      "originController": "node-optimizer",
+      "target": {
+        "kind": "NODE",
+        "name": "ip-10-0-1-5.ec2.internal",
+        "uid": "7c1e5f0a-2b6d-4a41-9d3e-0f8b1c2d3e4f",
+        "providerId": "aws:///us-east-1a/i-0abc123def4567890",
+        "nodeGroup": "ng-1"
+      },
+      "params": {
+        "trigger": "idle-drain",
+        "unschedulableAtProposal": false,
+        "cpuUsagePct": 4.2,
+        "memUsagePct": 11.0,
+        "podsToMove": 7
+      },
+      "verdict": "ALLOWED",
+      "refusal": { "codes": [], "reason": "" },
+      "gate": { "mode": "live", "reason": "all gates open (DRY_RUN=false)", "dryRun": false },
+      "planFingerprint": "sha256:9f2c1e5a7b3d4c6e8a0b1d2f3a4c5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f",
+      "dwellSeconds": null,
+      "evidence": {
+        "fit": {
+          "drainable": true,
+          "refused": [],
+          "blocked": [],
+          "strands": [],
+          "moves": [
+            { "pod": "shop/api-6d9f7c-abcde", "from": "ip-10-0-1-5.ec2.internal", "to": "ip-10-0-2-9.ec2.internal" }
+          ],
+          "pdbChecks": [
+            { "pdb": "shop/api", "disruptionsAllowed": 1, "ok": true }
+          ],
+          "summary": "7 pods fit on the remaining nodes"
+        },
+        "guards": {
+          "respectPodDisruptionBudgets": true,
+          "protectSingleReplicas": true,
+          "protectStatefulSets": true,
+          "protectCriticalNamespaces": true
+        },
+        "stateful": [],
+        "actor": "KARPENTER"
+      }
+    },
+    {
+      "dedupeKey": "NODE_CONSOLIDATE:EMPTY:consolidation:ip-10-0-3-7.ec2.internal",
+      "actionType": "NODE_CONSOLIDATE",
+      "operation": "EMPTY",
+      "originController": "consolidation",
+      "target": {
+        "kind": "NODE",
+        "name": "ip-10-0-3-7.ec2.internal",
+        "uid": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+        "providerId": "aws:///us-east-1b/i-0fed987cba6543210",
+        "nodeGroup": "ng-2"
+      },
+      "params": {
+        "trigger": "consolidation-empty",
+        "unschedulableAtProposal": false,
+        "moveType": "EMPTY"
+      },
+      "verdict": "ALLOWED",
+      "refusal": { "codes": [], "reason": "" },
+      "gate": { "mode": "simulate", "reason": "DRY_RUN=true", "dryRun": true },
+      "planFingerprint": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "dwellSeconds": 600,
+      "evidence": {
+        "fit": {
+          "drainable": true,
+          "refused": [],
+          "blocked": [],
+          "strands": [],
+          "moves": [],
+          "pdbChecks": [
+            { "pdb": "kube-system/coredns", "disruptionsAllowed": 1, "ok": true }
+          ],
+          "summary": "node is empty of workload pods"
+        },
+        "guards": {
+          "respectPodDisruptionBudgets": true,
+          "protectSingleReplicas": true,
+          "protectStatefulSets": true,
+          "protectCriticalNamespaces": true
+        },
+        "stateful": [],
+        "actor": "KARPENTER"
+      }
+    },
+    {
+      "dedupeKey": "REBALANCE:DRAIN:rebalancer:ip-10-0-4-2.ec2.internal",
+      "actionType": "REBALANCE",
+      "operation": "DRAIN",
+      "originController": "rebalancer",
+      "target": {
+        "kind": "NODE",
+        "name": "ip-10-0-4-2.ec2.internal",
+        "uid": "5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a",
+        "providerId": "aws:///us-east-1c/i-0aa11bb22cc33dd44",
+        "nodeGroup": "ng-1"
+      },
+      "params": {
+        "trigger": "rebalance",
+        "unschedulableAtProposal": false
+      },
+      "verdict": "REFUSED",
+      "refusal": {
+        "codes": ["pdb-no-disruptions:shop/api"],
+        "reason": "pdb-no-disruptions:shop/api"
+      },
+      "gate": { "mode": "live", "reason": "all gates open (DRY_RUN=false)", "dryRun": false },
+      "planFingerprint": "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+      "dwellSeconds": null,
+      "evidence": {
+        "fit": {
+          "drainable": false,
+          "refused": [
+            { "pod": "shop/api-6d9f7c-fghij", "reason": "pdb-no-disruptions:shop/api" }
+          ],
+          "blocked": [],
+          "strands": [],
+          "moves": [],
+          "pdbChecks": [
+            { "pdb": "shop/api", "disruptionsAllowed": 0, "ok": false }
+          ],
+          "summary": "refused: a PodDisruptionBudget allows no disruptions"
+        },
+        "guards": {
+          "respectPodDisruptionBudgets": true,
+          "protectSingleReplicas": true,
+          "protectStatefulSets": true,
+          "protectCriticalNamespaces": true
+        },
+        "stateful": [],
+        "actor": "KARPENTER"
+      }
+    }
+  ],
+  "rebalance": { "complete": true, "candidateCount": 1 }
+}

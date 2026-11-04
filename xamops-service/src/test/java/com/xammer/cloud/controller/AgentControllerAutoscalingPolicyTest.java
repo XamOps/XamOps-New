@@ -55,12 +55,13 @@ class AgentControllerAutoscalingPolicyTest {
     private CloudAccountRepository cloudAccountRepository;
     private KubernetesClusterConfigRepository clusterConfigRepository;
     private AgentController controller;
+    private AgentIngestService ingest;
     private KubernetesClusterConfig config;
     private CloudAccount owner;
 
     @BeforeEach
     void setUp() {
-        AgentIngestService ingest = mock(AgentIngestService.class);
+        ingest = mock(AgentIngestService.class);
         when(ingest.authenticate(eq(KEY), isNull())).thenReturn(AgentPrincipal.cluster("111111111111", "prod-eks"));
         when(ingest.checkOwnership(any(), anyString(), anyString())).thenReturn(null);
         cacheRepository = mock(AgentDataCacheRepository.class);
@@ -182,6 +183,55 @@ class AgentControllerAutoscalingPolicyTest {
         config.setCloudAccountId(AWS);
         when(cloudAccountRepository.findByAwsAccountId("111111111111")).thenReturn(List.of(owner));
         assertThat(served().get("autoscalerMode").asText()).isEqualTo("scoped");
+    }
+
+    // ---------------------------------------------------------------- Manual mode (Phase B)
+
+    private void withManualSupport(String mode, AgentPrincipal principal) throws Exception {
+        var field = KubernetesClusterConfig.class.getDeclaredField("automationApprovalMode");
+        field.setAccessible(true);
+        field.set(config, mode);
+        var normalizer = new K8sAutomationPolicyNormalizer(new K8sAutomationReadinessProperties());
+        var bookkeeping = new com.xammer.cloud.service.automation.proposal.ManualBookkeeping(clusterConfigRepository);
+        controller.setManualSupport(
+                new com.xammer.cloud.service.automation.proposal.ManualModeServePolicy(normalizer, bookkeeping), bookkeeping);
+        when(ingest.authenticate(eq(KEY), isNull())).thenReturn(principal);
+    }
+
+    @Test
+    void anAutonomousClusterWithManualSupportWiredIsServedTheSameBytesAsWithout() throws Exception {
+        storePolicy("{\"autoscalerMode\":\"scoped\",\"evictorPolicy\":{\"analyseOnly\":false,\"targetUtilizationCpu\":66}}");
+        String before = (String) controller.getAutoscalingPolicy("Bearer " + KEY, "prod-eks", AWS).getBody();
+        withManualSupport("AUTONOMOUS", AgentPrincipal.cluster("111111111111", "prod-eks", AgentPrincipal.AgentRole.AUTOMATION));
+        String after = (String) controller.getAutoscalingPolicy("Bearer " + KEY, "prod-eks", AWS).getBody();
+        assertThat(after).isEqualTo(before);
+        assertThat(JSON.readTree(after).has("approvalMode")).isFalse();
+    }
+
+    @Test
+    void aManualClusterIsServedNeuteredWithTheIntentAndEvenAnOldAgentCannotAct() throws Exception {
+        storePolicy("{\"autoscalerMode\":\"full\",\"evictorPolicy\":{\"analyseOnly\":false},"
+                + "\"nodeOptimizerPolicy\":{\"autoDrainIdleNodes\":true}}");
+        withManualSupport("MANUAL", AgentPrincipal.cluster("111111111111", "prod-eks", AgentPrincipal.AgentRole.AUTOMATION));
+        JsonNode bundle = served();
+        assertThat(bundle.get("approvalMode").asText()).isEqualTo("manual");
+        assertThat(bundle.get("autoscalerMode").asText()).isEqualTo("full");
+        assertThat(bundle.at("/evictorPolicy/analyseOnly").asBoolean()).isTrue();
+        assertThat(bundle.at("/nodeOptimizerPolicy/autoDrainIdleNodes").asBoolean()).isFalse();
+        assertThat(bundle.at("/rebalancer/status").asText()).isEqualTo("idle");
+        assertThat(bundle.has("manualIntent")).isTrue();
+        // the serve bookkeeping is written through the @Modifying query, never save(config)
+        org.mockito.Mockito.verify(clusterConfigRepository).recordPolicyServed(eq(100L), eq("MANUAL"), any());
+        org.mockito.Mockito.verify(clusterConfigRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void aManualClusterIsNeuteredForADataKeyToo_butOnlyTheAutomationKeyRecordsTheServe() throws Exception {
+        storePolicy("{\"autoscalerMode\":\"full\"}");
+        withManualSupport("MANUAL", AgentPrincipal.cluster("111111111111", "prod-eks"));
+        assertThat(served().get("approvalMode").asText()).isEqualTo("manual");
+        org.mockito.Mockito.verify(clusterConfigRepository, org.mockito.Mockito.never())
+                .recordPolicyServed(any(), any(), any());
     }
 
     @Test

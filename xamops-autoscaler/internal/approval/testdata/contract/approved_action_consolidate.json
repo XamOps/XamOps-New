@@ -1,0 +1,29 @@
+{
+  "proposalId": "c4a2d3e1-8f5b-4d2c-8e3f-6b7a8c9d0e1f",
+  "version": 2,
+  "actionType": "NODE_CONSOLIDATE",
+  "operation": "EMPTY",
+  "originController": "consolidation",
+  "dedupeKey": "NODE_CONSOLIDATE:EMPTY:consolidation:ip-10-0-3-7.ec2.internal",
+  "target": {
+    "kind": "NODE",
+    "name": "ip-10-0-3-7.ec2.internal",
+    "uid": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "providerId": "aws:///us-east-1b/i-0fed987cba6543210",
+    "nodeGroup": "ng-2"
+  },
+  "params": {
+    "trigger": "consolidation-empty",
+    "unschedulableAtProposal": false,
+    "moveType": "EMPTY",
+    "providerId": "aws:///us-east-1b/i-0fed987cba6543210",
+    "nodeGroup": "ng-2"
+  },
+  "planFingerprint": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "firstSeenAt": "2026-11-01T09:10:00Z",
+  "dwellSeconds": 120,
+  "approvedBy": { "id": 42, "name": "A. Admin" },
+  "approvedAt": "2026-11-01T10:05:00Z",
+  "approvedUntil": "2026-11-01T10:20:00Z",
+  "dryRunAtProposal": true
+}
