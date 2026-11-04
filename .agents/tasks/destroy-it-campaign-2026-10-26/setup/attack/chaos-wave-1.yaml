@@ -1,0 +1,53 @@
+# Attack wave 1 — chaos against the stress fleet ONLY (namespace-annotated for injection).
+# These generate restarts / CPU pressure / latency so the dashboard's chaos-active indicator,
+# CFS throttling, and k6 latency panels light up, and so consolidation sees churn.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: fleet-cpu-stress
+  namespace: stress
+spec:
+  mode: fixed-percent
+  value: "30"
+  selector:
+    namespaces: [stress]
+    labelSelectors:
+      app: fleet-http
+  stressors:
+    cpu:
+      workers: 1
+      load: 80
+  duration: 8m
+---
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: fleet-pod-kill
+  namespace: stress
+spec:
+  action: pod-kill
+  mode: fixed-percent
+  value: "15"
+  selector:
+    namespaces: [stress]
+    labelSelectors:
+      app: fleet-http
+  duration: 8m
+---
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: fleet-net-latency
+  namespace: stress
+spec:
+  action: delay
+  mode: fixed-percent
+  value: "25"
+  selector:
+    namespaces: [stress]
+    labelSelectors:
+      app: fleet-http
+  delay:
+    latency: "120ms"
+    jitter: "40ms"
+  duration: 8m

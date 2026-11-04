@@ -1,0 +1,14 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: e5-f3-mongo-primary-kill
+  namespace: xamops-db-fixtures
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces:
+      - xamops-db-fixtures
+    labelSelectors:
+      app: mongo
+  duration: "30s"

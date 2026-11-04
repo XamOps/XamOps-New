@@ -1,0 +1,20 @@
+=== db-fixtures ns inject annotation (should be ABSENT after teardown) ===
+ <- (empty = removed)
+=== stateful nodes schedulable? (unschedulable should be empty) ===
+ip-172-31-23-193.ap-south-1.compute.internal  unschedulable=  taint=xamops.io/pool
+ip-172-31-4-95.ap-south-1.compute.internal  unschedulable=  taint=xamops.io/pool
+ip-172-31-46-10.ap-south-1.compute.internal  unschedulable=  taint=xamops.io/pool
+=== agent config DRY_RUN (should be true — never touched) ===
+DRY_RUN=true NODE_OPT=true RIGHTSIZER=false
+=== all 11 DB fixture pods Running/Completed ===
+load-mongo-6d5bdd7ddf-psjzs Running
+load-mysql-8d7d848d5-sw25c Running
+load-pgbench-bf746dc54-6s2q7 Running
+mongo-0 Running
+mongo-1 Running
+mongo-2 Running
+mongo-rs-init-np42g Completed
+mysql-0 Running
+pg-cnpg-1 Running
+pg-cnpg-2 Running
+pg-unsafe-0 Running

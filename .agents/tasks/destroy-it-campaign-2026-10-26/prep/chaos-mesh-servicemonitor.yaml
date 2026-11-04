@@ -1,0 +1,21 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: chaos-mesh-controller-manager
+  namespace: chaos-mesh
+  labels:
+    release: kube-prometheus-stack
+    app.kubernetes.io/part-of: chaos-mesh
+    xamops.io/campaign: destroy-it
+spec:
+  namespaceSelector:
+    matchNames:
+      - chaos-mesh
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: controller-manager
+      app.kubernetes.io/instance: chaos-mesh
+  endpoints:
+    - port: http          # controller-manager metrics port is named "http" (10080)
+      path: /metrics
+      interval: 15s

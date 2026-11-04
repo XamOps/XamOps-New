@@ -1,0 +1,14 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: e5-f2-cnpg-primary-kill
+  namespace: xamops-db-fixtures
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces:
+      - xamops-db-fixtures
+    labelSelectors:
+      cnpg.io/instanceRole: primary
+  duration: "30s"

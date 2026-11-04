@@ -1,0 +1,44 @@
+{
+  "context": "arn:aws:eks:ap-south-1:102227938259:cluster/xamops-test-1",
+  "server": "https://0A9C0230D0879EDBB699666A46D461BF.gr7.ap-south-1.eks.amazonaws.com",
+  "start": "2026-10-26T13:43:09.820634Z",
+  "end": "2026-10-27T05:48:38.269522Z",
+  "streams": {
+    "agent-logs": {
+      "restarts": 87,
+      "records": 29375
+    },
+    "deployments": {
+      "restarts": 37,
+      "records": 677
+    },
+    "events": {
+      "restarts": 50,
+      "records": 1289
+    },
+    "leases": {
+      "restarts": 39,
+      "records": 1359
+    },
+    "nodes": {
+      "restarts": 35,
+      "records": 278
+    },
+    "pdbs": {
+      "restarts": 43,
+      "records": 231
+    },
+    "pods": {
+      "restarts": 36,
+      "records": 3072
+    },
+    "replicasets": {
+      "restarts": 39,
+      "records": 936
+    },
+    "statefulsets": {
+      "restarts": 40,
+      "records": 92
+    }
+  }
+}

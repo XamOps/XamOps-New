@@ -1,0 +1,33 @@
+# Chaos Mesh values for destroy-it campaign on xamops-test-1.
+# Namespace-filtered injection via the ANNOTATION chaos-mesh.org/inject=enabled
+# (NOT a label — prior bug). Only stress / stress-db / xamops-system are annotated; never kube-system.
+clusterScoped: true
+
+controllerManager:
+  replicaCount: 1              # single replica to conserve the scarce t3.medium VPC-CNI pod/IP slots
+  # Only inject pods in namespaces annotated chaos-mesh.org/inject=enabled
+  enableFilterNamespace: true
+  leaderElection:
+    enabled: true
+  service:
+    type: ClusterIP
+
+chaosDaemon:
+  # Nodes run containerd (containerd://2.x), NOT docker — point the daemon at the containerd socket.
+  runtime: containerd
+  socketPath: /run/containerd/containerd.sock
+
+dashboard:
+  create: true
+  replicaCount: 1
+  service:
+    type: ClusterIP
+  securityMode: true
+
+dnsServer:
+  create: true
+
+# Chaos Mesh's own bundled Prometheus is not needed; we scrape via a ServiceMonitor into
+# the existing kube-prometheus-stack.
+prometheus:
+  create: false

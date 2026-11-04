@@ -1,0 +1,7 @@
+{
+  "task_id": "cloudk8s-cost-snapshot-2026-10-22",
+  "task_description": "Persist a periodic (daily) cluster-cost snapshot for XamOps CloudK8s and read back the prior period so CostSummaryDto.previousClusterMonthlyCost becomes real over time, lighting up the already-shipped Automation Overview hero cost-trend chip. Backend only (xamops-service), reusing the authoritative automation cost engine (VerticalAutomationReadService / WorkloadCostAttributionService / CostSummaryDto). REAL DATA ONLY: no prior snapshot => previousClusterMonthlyCost stays null (honest em-dash). Do NOT touch AutoSpotting, /k8opt, or unrelated surfaces.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null
+}

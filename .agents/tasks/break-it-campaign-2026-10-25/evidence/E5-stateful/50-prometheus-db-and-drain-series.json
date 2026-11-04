@@ -1,0 +1,18 @@
+=== xamops_drains_total (any result) — expect none/unchanged for DB ns ===
+=== xamops_drain_budget_inflight — expect 0 ===
+{"val":"0"}
+{"val":"0"}
+=== sum(xamops_leader) — expect 1 ===
+"1"
+=== DB pod uptime: kube_pod_start_time for xamops-db-fixtures (unchanged start = uninterrupted) ===
+{"pod":"mongo-rs-init-np42g","start":"1792928781"}
+{"pod":"mongo-2","start":"1792928784"}
+{"pod":"pg-unsafe-0","start":"1792928784"}
+{"pod":"pg-cnpg-1","start":"1792928831"}
+{"pod":"mongo-0","start":"1792928783"}
+{"pod":"mysql-0","start":"1792928781"}
+{"pod":"load-pgbench-bf746dc54-6s2q7","start":"1792928960"}
+{"pod":"load-mysql-8d7d848d5-sw25c","start":"1792928960"}
+{"pod":"load-mongo-6d5bdd7ddf-psjzs","start":"1792928961"}
+{"pod":"pg-cnpg-2","start":"1793084703"}
+{"pod":"mongo-1","start":"1793084703"}

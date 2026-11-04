@@ -1,0 +1,113 @@
+### baseline-no-fault @ 06:56:41Z  leader=xamops-automation-7fd5b5749d-sl5gw
+--- latest gate + consolidation lines (leader) ---
+2026/10/27 06:55:36 Controllers — Evictor=false Rightsizer=false RightsizerApply=false Rebalancer=false HPAManager=false VPAManager=false NodeOptimizer=true DryRun=true PodNamespace=xamops-system StateConfigMap=xamops-automation-state
+--- DB pods now (survival check) ---
+NAME                           READY   STATUS      RESTARTS      AGE   IP              NODE                                           NOMINATED NODE   READINESS GATES
+load-mongo-6d5bdd7ddf-psjzs    1/1     Running     0             43h   172.31.20.121   ip-172-31-26-143.ap-south-1.compute.internal   <none>           <none>
+load-mysql-8d7d848d5-sw25c     1/1     Running     0             43h   172.31.45.214   ip-172-31-43-198.ap-south-1.compute.internal   <none>           <none>
+load-pgbench-bf746dc54-6s2q7   1/1     Running     0             43h   172.31.39.25    ip-172-31-43-198.ap-south-1.compute.internal   <none>           <none>
+mongo-0                        1/1     Running     0             43h   172.31.33.202   ip-172-31-46-10.ap-south-1.compute.internal    <none>           <none>
+mongo-1                        1/1     Running     0             43h   172.31.13.232   ip-172-31-4-95.ap-south-1.compute.internal     <none>           <none>
+mongo-2                        1/1     Running     0             43h   172.31.16.27    ip-172-31-23-193.ap-south-1.compute.internal   <none>           <none>
+mongo-rs-init-np42g            0/1     Completed   4 (43h ago)   43h   172.31.38.165   ip-172-31-43-198.ap-south-1.compute.internal   <none>           <none>
+mysql-0                        1/1     Running     0             43h   172.31.15.248   ip-172-31-4-95.ap-south-1.compute.internal     <none>           <none>
+pg-cnpg-1                      0/1     Running     1 (12s ago)   43h   172.31.16.202   ip-172-31-23-193.ap-south-1.compute.internal   <none>           <none>
+pg-cnpg-2                      1/1     Running     0             43h   172.31.15.79    ip-172-31-4-95.ap-south-1.compute.internal     <none>           <none>
+pg-unsafe-0                    1/1     Running     0             43h   172.31.34.254   ip-172-31-46-10.ap-south-1.compute.internal    <none>           <none>
+
+### after-e5-f1-cnpg-replica-delay @ 06:59:29Z  leader=xamops-automation-7fd5b5749d-sl5gw
+--- latest gate + consolidation lines (leader) ---
+{"time":"2026-10-27T06:58:47.228125915Z","level":"INFO","msg":"Gates — spot-ratio","event":"gate","controller":"spot-ratio","mode":"off"}
+{"time":"2026-10-27T06:58:47.228139983Z","level":"INFO","msg":"Gates — evictor","event":"gate","controller":"evictor","mode":"off"}
+{"time":"2026-10-27T06:58:47.228303717Z","level":"INFO","msg":"Gates — rightsizer","event":"gate","controller":"rightsizer","mode":"off"}
+{"time":"2026-10-27T06:58:47.228308853Z","level":"INFO","msg":"Gates — rightsizer-apply","event":"gate","controller":"rightsizer-apply","mode":"off"}
+{"time":"2026-10-27T06:58:47.228325004Z","level":"INFO","msg":"Gates — node-optimizer","event":"gate","controller":"node-optimizer","mode":"analyse"}
+{"time":"2026-10-27T06:58:47.228330094Z","level":"INFO","msg":"Gates — idle-drain","event":"gate","controller":"idle-drain","mode":"off"}
+2026/10/27 06:58:47 Drain budget capacity=1 inflight=[] planner=fitsim selfNamespace=xamops-system
+2026/10/27 06:58:47 Consolidation (look-only): 0 empty, 0 drain, 5 blocked, 5 kept of 10 node(s) — actor=NONE
+--- DB pods now (survival check) ---
+NAME                           READY   STATUS      RESTARTS        AGE   IP              NODE                                           NOMINATED NODE   READINESS GATES
+load-mongo-6d5bdd7ddf-psjzs    1/1     Running     0               43h   172.31.20.121   ip-172-31-26-143.ap-south-1.compute.internal   <none>           <none>
+load-mysql-8d7d848d5-sw25c     1/1     Running     0               43h   172.31.45.214   ip-172-31-43-198.ap-south-1.compute.internal   <none>           <none>
+load-pgbench-bf746dc54-6s2q7   1/1     Running     0               43h   172.31.39.25    ip-172-31-43-198.ap-south-1.compute.internal   <none>           <none>
+mongo-0                        1/1     Running     0               43h   172.31.33.202   ip-172-31-46-10.ap-south-1.compute.internal    <none>           <none>
+mongo-1                        1/1     Running     0               43h   172.31.13.232   ip-172-31-4-95.ap-south-1.compute.internal     <none>           <none>
+mongo-2                        1/1     Running     0               43h   172.31.16.27    ip-172-31-23-193.ap-south-1.compute.internal   <none>           <none>
+mongo-rs-init-np42g            0/1     Completed   4 (43h ago)     43h   172.31.38.165   ip-172-31-43-198.ap-south-1.compute.internal   <none>           <none>
+mysql-0                        1/1     Running     0               43h   172.31.15.248   ip-172-31-4-95.ap-south-1.compute.internal     <none>           <none>
+pg-cnpg-1                      1/1     Running     1 (2m59s ago)   43h   172.31.16.202   ip-172-31-23-193.ap-south-1.compute.internal   <none>           <none>
+pg-cnpg-2                      1/1     Running     0               43h   172.31.15.79    ip-172-31-4-95.ap-south-1.compute.internal     <none>           <none>
+pg-unsafe-0                    1/1     Running     0               43h   172.31.34.254   ip-172-31-46-10.ap-south-1.compute.internal    <none>           <none>
+
+### after-e5-f2-cnpg-primary-kill @ 07:00:56Z  leader=xamops-automation-7fd5b5749d-sl5gw
+--- latest gate + consolidation lines (leader) ---
+{"time":"2026-10-27T07:00:47.231368459Z","level":"INFO","msg":"Gates — rightsizer","event":"gate","controller":"rightsizer","mode":"off"}
+{"time":"2026-10-27T07:00:47.231374539Z","level":"INFO","msg":"Gates — rightsizer-apply","event":"gate","controller":"rightsizer-apply","mode":"off"}
+{"time":"2026-10-27T07:00:47.231387437Z","level":"INFO","msg":"Gates — evictor","event":"gate","controller":"evictor","mode":"off"}
+{"time":"2026-10-27T07:00:47.231393993Z","level":"INFO","msg":"Gates — node-optimizer","event":"gate","controller":"node-optimizer","mode":"analyse"}
+{"time":"2026-10-27T07:00:47.231405263Z","level":"INFO","msg":"Gates — spot-ratio","event":"gate","controller":"spot-ratio","mode":"off"}
+{"time":"2026-10-27T07:00:47.231417753Z","level":"INFO","msg":"Gates — idle-drain","event":"gate","controller":"idle-drain","mode":"off"}
+2026/10/27 07:00:47 Drain budget capacity=1 inflight=[] planner=fitsim selfNamespace=xamops-system
+2026/10/27 07:00:47 Consolidation (look-only): 0 empty, 0 drain, 4 blocked, 5 kept of 9 node(s) — actor=NONE
+--- DB pods now (survival check) ---
+NAME                           READY   STATUS      RESTARTS        AGE   IP              NODE                                           NOMINATED NODE   READINESS GATES
+load-mongo-6d5bdd7ddf-psjzs    1/1     Running     0               43h   172.31.20.121   ip-172-31-26-143.ap-south-1.compute.internal   <none>           <none>
+load-mysql-8d7d848d5-sw25c     1/1     Running     0               43h   172.31.45.214   ip-172-31-43-198.ap-south-1.compute.internal   <none>           <none>
+load-pgbench-bf746dc54-6s2q7   1/1     Running     0               43h   172.31.39.25    ip-172-31-43-198.ap-south-1.compute.internal   <none>           <none>
+mongo-0                        1/1     Running     0               43h   172.31.33.202   ip-172-31-46-10.ap-south-1.compute.internal    <none>           <none>
+mongo-1                        1/1     Running     0               43h   172.31.13.232   ip-172-31-4-95.ap-south-1.compute.internal     <none>           <none>
+mongo-2                        1/1     Running     0               43h   172.31.16.27    ip-172-31-23-193.ap-south-1.compute.internal   <none>           <none>
+mongo-rs-init-np42g            0/1     Completed   4 (43h ago)     43h   172.31.38.165   ip-172-31-43-198.ap-south-1.compute.internal   <none>           <none>
+mysql-0                        1/1     Running     0               43h   172.31.15.248   ip-172-31-4-95.ap-south-1.compute.internal     <none>           <none>
+pg-cnpg-1                      1/1     Running     1 (4m26s ago)   43h   172.31.16.202   ip-172-31-23-193.ap-south-1.compute.internal   <none>           <none>
+pg-cnpg-2                      0/1     Pending     0               49s   <none>          <none>                                         <none>           <none>
+pg-unsafe-0                    1/1     Running     0               43h   172.31.34.254   ip-172-31-46-10.ap-south-1.compute.internal    <none>           <none>
+
+### after-e5-f3-mongo-primary-kill @ 07:02:23Z  leader=xamops-automation-7fd5b5749d-sl5gw
+--- latest gate + consolidation lines (leader) ---
+{"time":"2026-10-27T07:01:47.232156904Z","level":"INFO","msg":"Gates — evictor","event":"gate","controller":"evictor","mode":"off"}
+{"time":"2026-10-27T07:01:47.232167515Z","level":"INFO","msg":"Gates — rightsizer-apply","event":"gate","controller":"rightsizer-apply","mode":"off"}
+{"time":"2026-10-27T07:01:47.232176037Z","level":"INFO","msg":"Gates — rightsizer","event":"gate","controller":"rightsizer","mode":"off"}
+{"time":"2026-10-27T07:01:47.232234364Z","level":"INFO","msg":"Gates — node-optimizer","event":"gate","controller":"node-optimizer","mode":"analyse"}
+{"time":"2026-10-27T07:01:47.232246271Z","level":"INFO","msg":"Gates — idle-drain","event":"gate","controller":"idle-drain","mode":"off"}
+{"time":"2026-10-27T07:01:47.23225242Z","level":"INFO","msg":"Gates — spot-ratio","event":"gate","controller":"spot-ratio","mode":"off"}
+2026/10/27 07:01:47 Drain budget capacity=1 inflight=[] planner=fitsim selfNamespace=xamops-system
+2026/10/27 07:01:47 Consolidation (look-only): 0 empty, 0 drain, 4 blocked, 5 kept of 9 node(s) — actor=NONE
+--- DB pods now (survival check) ---
+NAME                           READY   STATUS      RESTARTS        AGE     IP              NODE                                           NOMINATED NODE   READINESS GATES
+load-mongo-6d5bdd7ddf-psjzs    1/1     Running     0               43h     172.31.20.121   ip-172-31-26-143.ap-south-1.compute.internal   <none>           <none>
+load-mysql-8d7d848d5-sw25c     1/1     Running     0               43h     172.31.45.214   ip-172-31-43-198.ap-south-1.compute.internal   <none>           <none>
+load-pgbench-bf746dc54-6s2q7   1/1     Running     0               43h     172.31.39.25    ip-172-31-43-198.ap-south-1.compute.internal   <none>           <none>
+mongo-0                        1/1     Running     0               43h     172.31.33.202   ip-172-31-46-10.ap-south-1.compute.internal    <none>           <none>
+mongo-1                        0/1     Pending     0               69s     <none>          <none>                                         <none>           <none>
+mongo-2                        1/1     Running     0               43h     172.31.16.27    ip-172-31-23-193.ap-south-1.compute.internal   <none>           <none>
+mongo-rs-init-np42g            0/1     Completed   4 (43h ago)     43h     172.31.38.165   ip-172-31-43-198.ap-south-1.compute.internal   <none>           <none>
+mysql-0                        1/1     Running     0               43h     172.31.15.248   ip-172-31-4-95.ap-south-1.compute.internal     <none>           <none>
+pg-cnpg-1                      1/1     Running     1 (5m51s ago)   43h     172.31.16.202   ip-172-31-23-193.ap-south-1.compute.internal   <none>           <none>
+pg-cnpg-2                      0/1     Pending     0               2m14s   <none>          <none>                                         <none>           <none>
+pg-unsafe-0                    1/1     Running     0               43h     172.31.34.254   ip-172-31-46-10.ap-south-1.compute.internal    <none>           <none>
+
+### after-e5-f4-mongo-mem-stress @ 07:04:46Z  leader=xamops-automation-7fd5b5749d-sl5gw
+--- latest gate + consolidation lines (leader) ---
+{"time":"2026-10-27T07:04:47.232389886Z","level":"INFO","msg":"Gates — evictor","event":"gate","controller":"evictor","mode":"off"}
+{"time":"2026-10-27T07:04:47.23243956Z","level":"INFO","msg":"Gates — idle-drain","event":"gate","controller":"idle-drain","mode":"off"}
+{"time":"2026-10-27T07:04:47.232445088Z","level":"INFO","msg":"Gates — spot-ratio","event":"gate","controller":"spot-ratio","mode":"off"}
+{"time":"2026-10-27T07:04:47.232450027Z","level":"INFO","msg":"Gates — rightsizer-apply","event":"gate","controller":"rightsizer-apply","mode":"off"}
+{"time":"2026-10-27T07:04:47.232463243Z","level":"INFO","msg":"Gates — node-optimizer","event":"gate","controller":"node-optimizer","mode":"analyse"}
+{"time":"2026-10-27T07:04:47.23247836Z","level":"INFO","msg":"Gates — rightsizer","event":"gate","controller":"rightsizer","mode":"off"}
+2026/10/27 07:04:47 Drain budget capacity=1 inflight=[] planner=fitsim selfNamespace=xamops-system
+2026/10/27 07:04:47 Consolidation (look-only): 0 empty, 0 drain, 4 blocked, 5 kept of 9 node(s) — actor=NONE
+--- DB pods now (survival check) ---
+NAME                           READY   STATUS      RESTARTS        AGE     IP              NODE                                           NOMINATED NODE   READINESS GATES
+load-mongo-6d5bdd7ddf-psjzs    1/1     Running     0               43h     172.31.20.121   ip-172-31-26-143.ap-south-1.compute.internal   <none>           <none>
+load-mysql-8d7d848d5-sw25c     1/1     Running     0               43h     172.31.45.214   ip-172-31-43-198.ap-south-1.compute.internal   <none>           <none>
+load-pgbench-bf746dc54-6s2q7   1/1     Running     0               43h     172.31.39.25    ip-172-31-43-198.ap-south-1.compute.internal   <none>           <none>
+mongo-0                        1/1     Running     0               43h     172.31.33.202   ip-172-31-46-10.ap-south-1.compute.internal    <none>           <none>
+mongo-1                        0/1     Pending     0               3m33s   <none>          <none>                                         <none>           <none>
+mongo-2                        1/1     Running     0               43h     172.31.16.27    ip-172-31-23-193.ap-south-1.compute.internal   <none>           <none>
+mongo-rs-init-np42g            0/1     Completed   4 (43h ago)     43h     172.31.38.165   ip-172-31-43-198.ap-south-1.compute.internal   <none>           <none>
+mysql-0                        1/1     Running     0               43h     172.31.15.248   ip-172-31-4-95.ap-south-1.compute.internal     <none>           <none>
+pg-cnpg-1                      1/1     Running     1 (8m15s ago)   43h     172.31.16.202   ip-172-31-23-193.ap-south-1.compute.internal   <none>           <none>
+pg-cnpg-2                      0/1     Pending     0               4m38s   <none>          <none>                                         <none>           <none>
+pg-unsafe-0                    1/1     Running     0               43h     172.31.34.254   ip-172-31-46-10.ap-south-1.compute.internal    <none>           <none>
+

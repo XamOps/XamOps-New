@@ -1,0 +1,63 @@
+E5 — per-DB-pod decision the DEPLOYED agent WOULD make (fit simulator + rightsizer)
+===================================================================================
+Grounding: deployed image sha-e02d6292… == worktree product source (git diff
+e02d62921..HEAD on xamops-autoscaler/internal/ is EMPTY). Classification rules:
+  internal/fitsim/snapshot.go  unmodelled()  -> Refused codes (pvc-volume, ephemeral-volume, host-port, …)
+  internal/fitsim/simulate.go  blockReasons() -> Blocked codes (statefulset, single-replica, replicas-unknown,
+                                                 unknown-owner-kind:<kind>, safe-to-evict-false, pdb-no-disruptions, …)
+  DefaultBundle guards: ProtectStatefulSets=true, ProtectSingleReplicas=true,
+                        ProtectCriticalNamespaces=true, Critical=[kube-system,monitoring,ingress-nginx,xamops-system]
+  NB: xamops-db-fixtures is NOT in CriticalNamespaces — DB protection is NOT namespace-based.
+
+LIVE INPUTS (03-db-pod-classification-inputs.txt):
+  pg-cnpg-1  primary   owner=Cluster/pg-cnpg   vols: pgdata=PVC, scratch=emptyDir, shm=memory
+  pg-cnpg-2  replica   owner=Cluster/pg-cnpg   vols: pgdata=PVC, scratch=emptyDir, shm=memory
+  pg-unsafe-0          owner=StatefulSet/pg-unsafe  replicas=1  vols: data=emptyDir(1Gi)  [NO PVC]
+  mysql-0              owner=StatefulSet/mysql      replicas=1  vols: data=PVC
+  mongo-0/1/2          owner=StatefulSet/mongo      replicas=3  vols: data=PVC   PDB mongo minAvail=2
+  PDB pg-cnpg-primary  minAvailable=1  ALLOWED DISRUPTIONS=0
+
+WHAT THE AGENT WOULD DECIDE PER POD (drain of its node):
+  pg-cnpg-1 (PRIMARY): REFUSED "pvc-volume" (pgdata PVC) + BLOCKED "unknown-owner-kind:Cluster"
+      + matched PDB pg-cnpg-primary disruptionsAllowed=0 => "pdb-no-disruptions".
+      -> NOT evicted. BUT the reason set is pvc-volume / unknown-owner-kind / pdb — NOT
+         "db-primary". The primary is protected INCIDENTALLY (it has a PVC + a non-native
+         owner kind), not because XamOps knows it is a Postgres primary.                     [GAP G6]
+  pg-cnpg-2 (sync/quorum replica): same as primary minus the 0-disruption PDB.
+      REFUSED "pvc-volume" + BLOCKED "unknown-owner-kind:Cluster". NOT evicted.
+      Reason lacks "db-sync-standby"/"db-lag".                                               [GAP G6]
+  mysql-0 (single-replica DB): REFUSED "pvc-volume" + BLOCKED "statefulset","single-replica".
+      NOT evicted. Protected by the blanket StatefulSet/single-replica/PVC net.             [GAP G6]
+  mongo-0/1/2: REFUSED "pvc-volume" + BLOCKED "statefulset" (+ PDB mongo allows 1 disruption).
+      NOT evicted. Generic reasons, no "db-*" role awareness.                               [GAP G6]
+  pg-unsafe-0 (emptyDir "unsafe" PG, data on emptyDir — drain = DATA LOSS):
+      data volume is emptyDir, NOT a PVC => unmodelled() returns NO "pvc-volume".
+      Protection rests ENTIRELY on BLOCKED "statefulset" + "single-replica".
+      If ProtectStatefulSets were ever turned off, the ONLY remaining guard is
+      single-replica; turn both off and this emptyDir DB becomes drainable with data loss.
+      There is NO emptyDir-DB ("db-emptydir") detection — the emptyDir data risk is invisible
+      to the tool.                                                                           [GAP G6 — highest-risk case]
+  load-mongo / load-mysql / load-pgbench (Deployment->ReplicaSet, NO PVC, stateless clients):
+      MOVABLE — correctly evictable/relocatable. Not DBs; correctly not protected.
+
+RIGHTSIZER BUFFER-POOL FLOOR (G8):
+  internal/policy/types.go: DefaultMinMemoryMib = 250 (floor). internal/controller/rightsizer.go
+  clampTarget(): a decrease is clamped to max(demand, floor); a DB pod can be clamped to the 250Mi floor.
+  Live DB pods (41-db-mem-requests-G8.txt) ALL request mem=256Mi, limit=512Mi.
+  Mongo 7.0 WiredTiger default cache ~= 256Mi (max(256MB,(RAM-1GB)*0.5)). The 250Mi floor is
+  BELOW both the current 256Mi request AND the WT cache size. So a rightsizer recommendation
+  could drop a DB pod's memory request to 250Mi — under the storage engine's buffer pool.
+  There is NO buffer-pool / WT-cache / InnoDB / shared_buffers awareness in the product
+  (grep => zero matches). => GAP G8 CONFIRMED (static + live request values).
+  Harmless TODAY: ENABLE_RIGHTSIZER=false, ENABLE_RIGHTSIZER_APPLY=false, DRY_RUN=true —
+  the rightsizer never ran and applied nothing (0 rightsizer action lines). Gap is in the
+  recommendation/floor design, not an applied action.
+
+LIVE CONFIRMATION (not just static):
+  Across baseline + 4 faults the leader logged every cycle:
+    "Consolidation (look-only): 0 empty, 0 drain, 4-5 blocked, 5 kept of N node(s) — actor=NONE"
+    node-optimizer=analyse, idle-drain=off, cordon=off, spot-ratio=off, rightsizer=off.
+  Zero evict/drain/cordon action lines against xamops-db-fixtures in the agent logs (20m window).
+  The only DB pod restarts (mongo-1, pg-cnpg-2) were caused by THIS experiment's Chaos
+  pod-kill/failover + the fence (events: "node(s) were unschedulable", "didn't match
+  PersistentVolume's node affinity"), NOT by any XamOps eviction. All 7 DB pods recovered Running.

@@ -1,0 +1,5 @@
+=== 41-F4b-net-loss-mid @ 2026-10-26T14:04:04Z ===
+--- pods ---
+Unable to connect to the server: dial tcp: lookup 0A9C0230D0879EDBB699666A46D461BF.gr7.ap-south-1.eks.amazonaws.com: no such host
+--- lease ---
+Unable to connect to the server: dial tcp: lookup 0A9C0230D0879EDBB699666A46D461BF.gr7.ap-south-1.eks.amazonaws.com: no such host

@@ -1,0 +1,2 @@
+networkchaos.chaos-mesh.org/e3-net-partition-apiserver created
+networkchaos.chaos-mesh.org "e3-net-partition-apiserver" deleted from chaos-testing namespace

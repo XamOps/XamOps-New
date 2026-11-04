@@ -1,0 +1,18 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: e3-kill-10s
+  namespace: chaos-testing
+spec:
+  schedule: "@every 10s"
+  concurrencyPolicy: Forbid
+  historyLimit: 8
+  type: PodChaos
+  podChaos:
+    action: pod-kill
+    mode: one
+    selector:
+      namespaces:
+        - xamops-system
+      labelSelectors:
+        app: xamops-automation
