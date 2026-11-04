@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -322,4 +323,59 @@ func assertPlanHasEmpty(t *testing.T, plan consolidation.Plan, name string) {
 		}
 	}
 	t.Fatalf("plan has no EMPTY move for %s; moves=%+v blocked=%+v kept=%+v", name, plan.Moves, plan.Blocked, plan.Kept)
+}
+
+// ExecuteWithRunID carries the caller's run id into the drained node's annotation,
+// every action record and the run record; Execute keeps its consolidation-<unix> id.
+func TestConsolidatorExecuteWithRunIDCarriesProposalID(t *testing.T) {
+	newCluster := func() *fake.Clientset {
+		return fake.NewSimpleClientset(
+			consolNode("node-a", "ng-a", "aws:///us-east-1a/i-0aaa", 20*time.Minute),
+			consolNode("node-b", "ng-a", "aws:///us-east-1a/i-0bbb", 0),
+			daemonSetPod("aws-node-a", "node-a"), busyPod("busy-b", "node-b"),
+		)
+	}
+	run := func(runID string) (*fake.Clientset, ConsolidationResult) {
+		c := newCluster()
+		in := collectInput(t, c)
+		plan := consolidation.Analyze(in, consolOpts(), fixedNow)
+		assertPlanHasEmpty(t, plan, "node-a")
+		prov := removal.NewFakeProvider()
+		prov.Facts["i-0aaa"] = facts("i-0aaa", "asg-a", 1, 3)
+		cons := NewConsolidator(prov, fitExec(c), nil)
+		var res ConsolidationResult
+		var err error
+		if runID == "" {
+			res, err = cons.Execute(context.Background(), in, plan, gate.Live, consolOpts(), consolPolicy(), drain.NewBudget(1, nil), fixedNow)
+		} else {
+			res, err = cons.ExecuteWithRunID(context.Background(), in, plan, gate.Live, consolOpts(), consolPolicy(), drain.NewBudget(1, nil), fixedNow, runID)
+		}
+		if err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+		return c, res
+	}
+
+	// Execute (no run id): unchanged consolidation-<unix>.
+	c, res := run("")
+	want := "consolidation-" + strconv.FormatInt(fixedNow.Unix(), 10)
+	n, _ := c.CoreV1().Nodes().Get(context.Background(), "node-a", metav1.GetOptions{})
+	if res.Run.RunID != want || n.Annotations[drain.AnnotationOperation] != want {
+		t.Errorf("Execute run id = %q / annotation %q, want %q", res.Run.RunID, n.Annotations[drain.AnnotationOperation], want)
+	}
+
+	// ExecuteWithRunID: proposal-X everywhere.
+	c, res = run("proposal-X")
+	n, _ = c.CoreV1().Nodes().Get(context.Background(), "node-a", metav1.GetOptions{})
+	if res.Run.RunID != "proposal-X" || n.Annotations[drain.AnnotationOperation] != "proposal-X" {
+		t.Errorf("run id = %q / annotation %q, want proposal-X", res.Run.RunID, n.Annotations[drain.AnnotationOperation])
+	}
+	if len(res.Actions) == 0 {
+		t.Fatal("no action records")
+	}
+	for _, a := range res.Actions {
+		if a.OperationID != "proposal-X" {
+			t.Errorf("action %s/%s operationId = %q, want proposal-X", a.Controller, a.Action, a.OperationID)
+		}
+	}
 }

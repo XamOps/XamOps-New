@@ -37,6 +37,13 @@ type Config struct {
 	EnableNodeOptimizer bool // idle node detection, spot candidate analysis, spot interruption handling
 	EnableConsolidation bool // consolidation controller: EMPTY/DRAIN + controller-owned ASG terminate
 
+	// EnableManualApproval — Manual mode (Phase B). When false (default) a cluster served
+	// approvalMode=manual gets no proposals and no approved execution from this agent
+	// (the served policy is already neutered, so it acts on nothing). When true the
+	// agent proposes node actions and executes at most one human-approved action per
+	// cycle. It never opens a gate: the env flags and policy flags still apply.
+	EnableManualApproval bool
+
 	// EnableRightsizerApply — the rightsizer patches requests only when this is true AND
 	// workloadRightsizerPolicy.applyMode=immediate AND DryRun is false (plan.md D9).
 	EnableRightsizerApply bool
@@ -104,6 +111,7 @@ func Load() (*Config, error) {
 		EnableConsolidation: getEnvBool("ENABLE_CONSOLIDATION", false),
 
 		EnableRightsizerApply: getEnvBool("ENABLE_RIGHTSIZER_APPLY", false),
+		EnableManualApproval:  getEnvBool("ENABLE_MANUAL_APPROVAL", false),
 		PodNamespace:          getEnv("POD_NAMESPACE", "xamops-system"),
 		PodName:               getEnv("POD_NAME", ""),
 		NodeName:              getEnv("NODE_NAME", ""),

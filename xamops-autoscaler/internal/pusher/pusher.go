@@ -20,7 +20,22 @@ type Pusher struct {
 	httpClient     *http.Client
 	maxRetries     int
 	retryDelay     int
+	// extras, when set, adds the Manual-mode heartbeat fields. nil (the default) keeps
+	// the body byte-identical to the original three-field heartbeat.
+	extras func() HeartbeatExtras
 }
+
+// HeartbeatExtras are the optional heartbeat fields of Manual mode. Features and
+// DrainTimeoutSeconds are sent only by the leader: a standby replica shares the key
+// and must not make the backend believe the (possibly dead) leader is alive.
+type HeartbeatExtras struct {
+	Features            []string
+	DrainTimeoutSeconds int
+	Leader              bool
+}
+
+// SetHeartbeatExtras registers the closure Heartbeat() calls once per beat.
+func (p *Pusher) SetHeartbeatExtras(fn func() HeartbeatExtras) { p.extras = fn }
 
 func New(serverURL, apiKey, clusterName, cloudAccountID string, maxRetries, retryDelay int) *Pusher {
 	return &Pusher{
@@ -72,6 +87,16 @@ func (p *Pusher) Heartbeat() error {
 		"clusterName":    p.clusterName,
 		"cloudAccountId": p.cloudAccountID,
 		"agentVersion":   p.agentVersion,
+	}
+	if p.extras != nil {
+		e := p.extras()
+		payload["leader"] = e.Leader
+		if e.Leader && len(e.Features) > 0 {
+			payload["features"] = e.Features
+		}
+		if e.Leader && e.DrainTimeoutSeconds > 0 {
+			payload["drainTimeoutSeconds"] = e.DrainTimeoutSeconds
+		}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
