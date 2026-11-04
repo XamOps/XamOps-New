@@ -23,6 +23,7 @@ import { resolveClusterVersion } from '../utils/k8sVersion';
 import { parseClusterLink, type ClusterLink } from '../utils/k8sClusterLink';
 import ErrorBoundary from '../components/Shared/ErrorBoundary';
 import SessionExpiredOverlay from '../components/Shared/SessionExpiredOverlay';
+import { AutomationControlBar } from '../components/EksDetails/AutomationControlBar';
 import { ClusterHeader } from '../components/EksDetails/ClusterHeader';
 import { ClusterStatusStrip } from '../components/EksDetails/ClusterStatusStrip';
 import EksDiagnosticsPanel from '../components/EksDetails/EksDiagnosticsPanel';
@@ -205,6 +206,14 @@ function ClusterPage({ link, debug }: { link: ClusterLink; debug: boolean }) {
           getTimeSince={eksData.getTimeSince}
           onSync={eksData.syncInBackground}
           onOpenGuide={openGuide}
+        />
+
+        {/* Depends only on capabilities, not the dashboard fetch, so it renders during the skeleton too. */}
+        <AutomationControlBar
+          clusterName={clusterName}
+          accountId={accountId}
+          workloadsHref={route.hrefFor('automation', 'workload-autoscaler')}
+          nodeAutoscalerHref={route.hrefFor('automation', 'node-autoscaler')}
         />
 
         {loading && !dashboard && <PageSkeleton />}

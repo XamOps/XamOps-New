@@ -385,11 +385,19 @@ function Probe() {
       <span data-testid="engine">{String(caps.verticalEngineEnabled)}</span>
       <span data-testid="gate">{c.gate?.reason ?? (c.allowed ? 'allowed' : 'blocked')}</span>
       <span data-testid="cluster">{caps.forCluster('prod-eks')?.clusterName ?? 'none'}</span>
+      <span data-testid="fetchedAt">{String(caps.fetchedAt)}</span>
       <button type="button" onClick={caps.refetch}>Retry</button>
+      <button type="button" onClick={caps.revalidate}>Revalidate</button>
       <button type="button" onClick={() => caps.onRefusal(new K8sApiError({ status: 403, code: 'K8S_READ_ONLY_CONNECTION' }))}>gate</button>
       <button type="button" onClick={() => caps.onRefusal(new K8sApiError({ status: 400, code: 'K8S_INVALID_POLICY' }))}>invalid</button>
     </div>
   );
+}
+
+function ProbeWithUnmount({ onRevalidateCalled }: { onRevalidateCalled: (fn: () => void) => void }) {
+  const caps = useK8sCapabilities();
+  onRevalidateCalled(caps.revalidate);
+  return <span data-testid="status2">{caps.status}</span>;
 }
 
 describe('K8sCapabilitiesProvider', () => {
@@ -464,5 +472,76 @@ describe('K8sCapabilitiesProvider', () => {
   it('refuses to run outside the provider', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(() => render(<Probe />)).toThrow('useK8sCapabilities must be used inside K8sCapabilitiesProvider');
+  });
+});
+
+describe('K8sCapabilitiesProvider: revalidate (§7.2)', () => {
+  beforeEach(() => getCapabilities.mockReset());
+
+  it('stays ready throughout a successful revalidate and swaps data', async () => {
+    getCapabilities.mockResolvedValueOnce(caps());
+    render(<K8sCapabilitiesProvider accountId="111111111111" demo={false}><Probe /></K8sCapabilitiesProvider>);
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('ready'));
+    const firstFetchedAt = screen.getByTestId('fetchedAt').textContent;
+
+    let resolveSecond!: (v: CapabilitiesDto) => void;
+    getCapabilities.mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
+    await act(async () => screen.getByText('Revalidate').click());
+    // Still ready while the quiet reload is in flight — no loading flash.
+    expect(screen.getByTestId('status').textContent).toBe('ready');
+    await act(async () => resolveSecond(caps()));
+    expect(screen.getByTestId('status').textContent).toBe('ready');
+    await waitFor(() => expect(screen.getByTestId('fetchedAt').textContent).not.toBe(firstFetchedAt));
+  });
+
+  it('keeps previous data and ready on a failed revalidate, and warns', async () => {
+    getCapabilities.mockResolvedValueOnce(caps());
+    render(<K8sCapabilitiesProvider accountId="111111111111" demo={false}><Probe /></K8sCapabilitiesProvider>);
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('ready'));
+    const fetchedAt = screen.getByTestId('fetchedAt').textContent;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    getCapabilities.mockRejectedValueOnce(new K8sApiError({ status: 500, code: 'K8S_INTERNAL' }));
+    await act(async () => screen.getByText('Revalidate').click());
+    expect(screen.getByTestId('status').textContent).toBe('ready');
+    expect(screen.getByTestId('cluster').textContent).toBe('prod-eks');
+    expect(screen.getByTestId('fetchedAt').textContent).toBe(fetchedAt);
+    expect(warn).toHaveBeenCalledWith('CloudK8s capabilities revalidate failed', expect.anything());
+  });
+
+  it('falls back to the normal loud path when the account changes before the quiet reload runs', async () => {
+    getCapabilities.mockResolvedValueOnce(caps());
+    const { rerender } = render(<K8sCapabilitiesProvider accountId="1" demo={false}><Probe /></K8sCapabilitiesProvider>);
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('ready'));
+
+    getCapabilities.mockResolvedValueOnce(caps());
+    rerender(<K8sCapabilitiesProvider accountId="2" demo={false}><Probe /></K8sCapabilitiesProvider>);
+    // A genuine account switch, not a revalidate: the loud path applies (status blanks to loading).
+    expect(screen.getByTestId('status').textContent).toBe('loading');
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('ready'));
+  });
+
+  it('sets no state on an unmount mid-flight', async () => {
+    let resolveIt!: (v: CapabilitiesDto) => void;
+    getCapabilities.mockImplementationOnce(() => new Promise((resolve) => { resolveIt = resolve; }));
+    const captured: Array<() => void> = [];
+    const { unmount } = render(
+      <K8sCapabilitiesProvider accountId="111111111111" demo={false}>
+        <ProbeWithUnmount onRevalidateCalled={(fn) => captured.push(fn)} />
+      </K8sCapabilitiesProvider>,
+    );
+    unmount();
+    expect(() => resolveIt(caps())).not.toThrow();
+  });
+
+  it('leaves plain refetch unchanged: it still loads, and a failed refetch still nulls data', async () => {
+    getCapabilities.mockResolvedValueOnce(caps());
+    render(<K8sCapabilitiesProvider accountId="111111111111" demo={false}><Probe /></K8sCapabilitiesProvider>);
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('ready'));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    getCapabilities.mockRejectedValueOnce(new K8sApiError({ status: 500, code: 'K8S_INTERNAL' }));
+    await act(async () => screen.getByText('Retry').click());
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('error'));
+    expect(screen.getByTestId('cluster').textContent).toBe('none');
   });
 });

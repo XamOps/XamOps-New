@@ -82,6 +82,7 @@ import {
 import { PageTemplate } from '../../../../CloudK8s/shared/PageTemplate';
 import { CARD, Card, DIVIDE, FAINT, INK, InPageLink, LINK, MUTED, RULE } from '../automationUi';
 import { ImpactCard, WorkloadUsageCard, latestLiveChange } from './workloadCharts';
+import { ProofOfNoHarmPanel } from '../ProofOfNoHarmPanel';
 
 export interface WorkloadDetailProps {
   clusterName: string;
@@ -623,6 +624,12 @@ export function WorkloadDetail({ clusterName, accountId, region, workload, contr
 
       <SizesCard workload={workload} />
       <CostCard workload={workload} />
+      <ProofOfNoHarmPanel
+        scope="workload"
+        feed={feed}
+        windowLabel="last 20 log entries"
+        qosClasses={workload.containers.map((c) => ({ container: c.name, qosClass: c.qosClass }))}
+      />
       <RecentChanges feed={feed} workload={workload} />
 
       <WorkloadUsageCard clusterName={clusterName} accountId={accountId} region={region} workload={workload} />

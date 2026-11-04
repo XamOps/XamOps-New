@@ -138,6 +138,22 @@ describe('Workload autoscaler › Workloads › one workload (UI v3 plan §2 "Wo
     expect(feedGets()).toHaveLength(1);
   });
 
+  it('shows the Proof of no harm panel above Recent changes, from the same feed read, with the containers\' QoS', async () => {
+    serve(undefined, [APPLIED]);
+    detail('team-a/Deployment/overprovisioned-api');
+    await screen.findByText('Where it is now');
+    const panel = await screen.findByTestId('proof-of-no-harm');
+    expect(panel.getAttribute('data-proof-scope')).toBe('workload');
+    const recent = screen.getByRole('heading', { name: 'Recent changes' }).closest('section')!;
+    expect(panel.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(panel.textContent).toContain('Source: activity log, last 20 log entries.');
+    expect(document.querySelector('[data-proof-group="consolidation-runs"]')).toBeNull();
+    // QoS comes from the workload's containers; a dash when the engine reports none.
+    expect(within(panel).getByText('QoS class')).toBeInTheDocument();
+    // One feed read serves Recent changes, the impact chart and the panel.
+    expect(feedGets()).toHaveLength(1);
+  });
+
   it('names every chart XamOps can\'t draw yet, and why', async () => {
     serve();
     detail('team-a/Deployment/overprovisioned-api');

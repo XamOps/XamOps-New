@@ -19,6 +19,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useAccounts } from '../contexts/AccountContext';
 import apiClient from '../utils/apiClient';
 import { inPageState } from '../utils/inPageNavigation';
+import { serializeClusterLink } from '../utils/k8sClusterLink';
 import CloudK8sHeader from '../components/CloudK8s/CloudK8sHeader';
 import CloudK8sClusterTable from '../components/CloudK8s/CloudK8sClusterTable';
 import CloudK8sIntegrations from '../components/CloudK8s/CloudK8sIntegrations';
@@ -120,10 +121,9 @@ const CloudK8sPage: React.FC = () => {
    * Navigate to cluster details
    */
   const navigateToDetails = useCallback((cluster: EKSCluster) => {
-    const params = new URLSearchParams({ name: cluster.name, region: cluster.region, accountIds: String(selectedAccountId) });
-    // The version EKS reports for this cluster (describeCluster), so the cluster page never guesses one.
-    if (cluster.version) params.set('version', cluster.version);
-    navigate(`/eks-details?${params.toString()}`);
+    navigate(serializeClusterLink({
+      clusterName: cluster.name, region: cluster.region, accountId: String(selectedAccountId), version: cluster.version,
+    }));
   }, [navigate, selectedAccountId]);
 
   // Initialize on mount and when account changes

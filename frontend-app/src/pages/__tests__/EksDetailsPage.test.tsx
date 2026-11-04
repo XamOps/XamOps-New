@@ -128,10 +128,11 @@ function dashboardState(over: Record<string, unknown> = {}) {
 }
 
 function TopbarOutlet() {
-  const { title, actions } = useTopbar();
+  const { title, titleAdornment, actions } = useTopbar();
   return (
     <div data-testid="topbar">
       {title && <h1>{title}</h1>}
+      {titleAdornment}
       {actions}
     </div>
   );
@@ -390,6 +391,25 @@ describe('cluster page shell', () => {
     expect(topbar()).not.toHaveTextContent('1.33');
   });
 
+  it('puts the cluster switcher beside the title and keeps the heading and Back link', async () => {
+    renderAt(BASE);
+    expect(await within(topbar()).findByRole('button', { name: 'Switch cluster' })).toBeInTheDocument();
+    expect(within(topbar()).getByRole('heading', { name: 'prod-eks-cluster' })).toBeInTheDocument();
+    expect(within(topbar()).getByRole('link', { name: 'Back to clusters' })).toBeInTheDocument();
+  });
+  it('renders the node automation bar between the header and the status strip', async () => {
+    renderAt(BASE);
+    const bar = await screen.findByTestId('automation-control-bar');
+    const clocks = screen.getByRole('group', { name: 'Data freshness' });
+    expect(clocks.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await find('Overview tab content');
+    expect(bar.compareDocumentPosition(statusStrip()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+  it('renders the node automation bar while the dashboard is still loading', async () => {
+    useEksDashboard.mockReturnValue(dashboardState({ loading: true, dashboard: null }));
+    renderAt(BASE);
+    expect(await screen.findByTestId('automation-control-bar')).toBeInTheDocument();
+  });
   it('shows the XamOps agent and node automation agent clocks separately', async () => {
     renderAt(BASE);
     const clocks = screen.getByRole('group', { name: 'Data freshness' });

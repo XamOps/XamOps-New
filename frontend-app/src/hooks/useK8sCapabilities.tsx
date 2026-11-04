@@ -8,7 +8,7 @@
  * The UI can only ever be stricter than the server: the server enforces the same write gates on
  * `/api/eks/autoscaling/**`, and greying a control out is presentation, not security.
  */
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { getCapabilities, isK8sApiError, type K8sApiError } from '../api/k8sAutomationApi';
 import { verticalGates, type VerticalGateInput } from '../api/verticalRecommendationsAdapter';
 import { isDemoMode } from '../demo/demoConfig';
@@ -233,6 +233,14 @@ export interface K8sCapabilitiesValue {
   can: (actionId: ActionId, ctx?: CapabilityContext) => Capability;
   /** Reloads capabilities (Retry, or after a gate changed underneath the page). */
   refetch: () => void;
+  /**
+   * Reloads capabilities without blanking the page: `status` stays 'ready' and the current `data` stays
+   * in place while it is in flight, and a failed reload keeps them. For after a write this page made
+   * itself, where a plain `refetch` would flash every gated control into "checking access".
+   */
+  revalidate: () => void;
+  /** Date.now() (epoch ms) when the current `data` landed; null before the first load. */
+  fetchedAt: number | null;
   /** Call with any mutation error: refetches when the refusal's code is a gate. */
   onRefusal: (error: unknown) => void;
   demo: boolean;
@@ -260,6 +268,9 @@ export function K8sCapabilitiesProvider({ accountId, provider, demo, children }:
   const [error, setError] = useState<K8sApiError | Error | null>(null);
   const [noAccess, setNoAccess] = useState(false);
   const [generation, setGeneration] = useState(0);
+  const [fetchedAt, setFetchedAt] = useState<number | null>(null);
+  // One-shot: set by revalidate() for the account it was called for, cleared by the load it triggers.
+  const quiet = useRef<{ accountId: string | null; isAws: boolean } | null>(null);
 
   useEffect(() => {
     if (!isAws || !accountId) {
@@ -270,17 +281,28 @@ export function K8sCapabilitiesProvider({ accountId, provider, demo, children }:
       return undefined;
     }
     const controller = new AbortController();
-    setStatus('loading');
-    setNoAccess(false);
+    const armed = quiet.current;
+    quiet.current = null;
+    const isQuiet = armed !== null && armed.accountId === accountId && armed.isAws === isAws;
+    if (!isQuiet) {
+      setStatus('loading');
+      setNoAccess(false);
+    }
     getCapabilities(accountId, { signal: controller.signal })
       .then((dto) => {
         if (controller.signal.aborted) return;
         setData(dto);
         setError(null);
         setStatus('ready');
+        setFetchedAt(Date.now());
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return;
+        if (isQuiet) {
+          // Keep what the page already shows; fetchedAt stays, so a held override stays in force.
+          console.warn('CloudK8s capabilities revalidate failed', err);
+          return;
+        }
         console.warn('CloudK8s capabilities failed to load', err);
         const forbidden = isK8sApiError(err) && err.status === 403
           && (err.code === null || err.code === 'K8S_NO_ACCOUNT_ACCESS');
@@ -293,6 +315,13 @@ export function K8sCapabilitiesProvider({ accountId, provider, demo, children }:
   }, [accountId, isAws, generation]);
 
   const refetch = useCallback(() => setGeneration((g) => g + 1), []);
+
+  const accountRef = useRef({ accountId, isAws });
+  accountRef.current = { accountId, isAws };
+  const revalidate = useCallback(() => {
+    quiet.current = { ...accountRef.current };
+    setGeneration((g) => g + 1);
+  }, []);
 
   const onRefusal = useCallback((err: unknown) => {
     if (isK8sApiError(err) && err.reason && isReasonCode(err.reason)) refetch();
@@ -309,10 +338,12 @@ export function K8sCapabilitiesProvider({ accountId, provider, demo, children }:
       actionId, status, data, provider: effectiveProvider, demo: demoSession, ...ctx,
     }),
     refetch,
+    revalidate,
+    fetchedAt,
     onRefusal,
     demo: demoSession,
     provider: effectiveProvider,
-  }), [status, data, error, noAccess, refetch, onRefusal, demoSession, effectiveProvider]);
+  }), [status, data, error, noAccess, refetch, revalidate, fetchedAt, onRefusal, demoSession, effectiveProvider]);
 
   return <K8sCapabilitiesContext.Provider value={value}>{children}</K8sCapabilitiesContext.Provider>;
 }
