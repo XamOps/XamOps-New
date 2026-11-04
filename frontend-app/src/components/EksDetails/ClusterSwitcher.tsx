@@ -11,6 +11,7 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 
 import { Icon } from '@iconify/react';
 import { Link, useLocation } from 'react-router-dom';
 import { useK8sClusters } from '../../hooks/useK8sClusters';
+import { useOptionalK8sCapabilities } from '../../hooks/useK8sCapabilities';
 import { clusterSwitchHref } from '../../utils/k8sClusterLink';
 
 export interface ClusterSwitcherProps {
@@ -22,6 +23,7 @@ export interface ClusterSwitcherProps {
 
 export const SWITCHER_LABEL = 'Switch cluster';
 export const ALL_CLUSTERS_TEXT = 'All clusters';
+const PENDING_DASH = '—';
 /** Past this many entries the panel offers a local filter. */
 const FILTER_THRESHOLD = 8;
 const FILTER_MAX_LENGTH = 100;
@@ -42,6 +44,14 @@ export function ClusterSwitcher({ accountId, clusterName, region, version }: Clu
   const [filter, setFilter] = useState('');
   const { status, clusters, reload } = useK8sClusters(accountId);
   const location = useLocation();
+  // Phase B: the current cluster in Manual shows how many actions wait for a decision. Only that
+  // cluster's capabilities are loaded, so other entries show nothing. Unknown is an em dash.
+  const caps = useOptionalK8sCapabilities();
+  const manual = caps?.forCluster(clusterName)?.manual ?? null;
+  const pendingText = caps === null ? null
+    : caps.status === 'error' ? `${PENDING_DASH} pending`
+      : manual?.mode === 'MANUAL' ? `${typeof manual.pending === 'number' ? manual.pending : PENDING_DASH} pending`
+        : null;
   const panelId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -171,6 +181,9 @@ export function ClusterSwitcher({ accountId, clusterName, region, version }: Clu
                   <span className={e.current ? 'font-semibold' : ''}>{e.name}</span>
                   <span className="text-[12px] text-[rgba(0,0,0,0.6)]">{e.region}</span>
                   {e.connected === false && <span className="text-[12px] text-[rgba(0,0,0,0.6)]">Not connected</span>}
+                  {e.current && pendingText && (
+                    <span className="text-[12px] text-[rgba(0,0,0,0.6)]" data-switcher-pending="">{pendingText}</span>
+                  )}
                   {e.current && <span className="ml-auto text-[12px] text-[rgba(0,0,0,0.6)]">Current</span>}
                 </Link>
               </li>

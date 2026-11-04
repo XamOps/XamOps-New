@@ -116,6 +116,8 @@ export const ACTION_IDS = [
   'rebalance.schedule',
   'guardrails.edit',
   'hpa.apply',
+  'proposals.approve.node',
+  'proposals.approve.workload',
 ] as const;
 
 export type ActionId = (typeof ACTION_IDS)[number];
@@ -127,7 +129,7 @@ export function isVerticalAction(id: ActionId): id is VerticalActionId {
 }
 
 /**
- * The gate scope of each action (BP-9 / OQ-6), partitioning the 17 `ACTION_IDS` into 12 + 5.
+ * The gate scope of each action (BP-9 / OQ-6), partitioning the 19 `ACTION_IDS` into 13 + 6.
  *
  * `NODE_AGENT_SCOPE_ACTIONS` are the controls the node-automation agent owns; they read a cluster's
  * `nodeAutomationWriteGate`, so once that cluster has completed Enable-automation and is verified
@@ -149,6 +151,7 @@ export const NODE_AGENT_SCOPE_ACTIONS = [
   'rebalance.trigger',
   'rebalance.schedule',
   'guardrails.edit',
+  'proposals.approve.node',
 ] as const satisfies readonly ActionId[];
 
 export const ACCOUNT_SCOPE_ACTIONS = [
@@ -157,11 +160,12 @@ export const ACCOUNT_SCOPE_ACTIONS = [
   'vertical.method.persist',
   'vertical.apply',
   'hpa.apply',
+  'proposals.approve.workload',
 ] as const satisfies readonly ActionId[];
 
 const NODE_AGENT_SCOPE_SET: ReadonlySet<ActionId> = new Set<ActionId>(NODE_AGENT_SCOPE_ACTIONS);
 
-/** True for a node-automation-scope action (the 12 that read `nodeAutomationWriteGate`). */
+/** True for a node-automation-scope action (the 13 that read `nodeAutomationWriteGate`). */
 export function isNodeAgentScopeAction(id: ActionId): boolean {
   return NODE_AGENT_SCOPE_SET.has(id);
 }
@@ -178,6 +182,7 @@ export const READINESS_KEYS = [
   'node-templates',
   'spot-interruption-actions',
   'consolidation-actions',
+  'manual-approval',
 ] as const;
 
 export type ReadinessKey = (typeof READINESS_KEYS)[number];
@@ -207,6 +212,18 @@ export interface CapabilitiesReadiness {
   message: string | null;
 }
 
+/** The per-cluster Manual mode block (Phase B). Absent or null means Manual is not available. */
+export interface CapabilitiesManual {
+  mode: 'AUTONOMOUS' | 'MANUAL';
+  /** The agent's own word on whether `mode` is in force. */
+  effective: 'active' | 'switching' | 'unknown';
+  /** PENDING proposals waiting for a decision. */
+  pending: number | null;
+  /** Manual can be switched on now. A cluster already MANUAL still reports its mode. */
+  available: boolean;
+  reason: 'CONTROLLER_NOT_READY' | 'AGENT_KEY_LEGACY' | 'AGENT_TOO_OLD' | null;
+  workloadProposals: boolean;
+}
 export interface CapabilitiesCluster {
   clusterName: string;
   registered: boolean;
@@ -241,6 +258,8 @@ export interface CapabilitiesCluster {
    * OnboardingStateDeriver. Optional so an older backend still parses.
    */
   onboarding?: CapabilitiesOnboarding;
+  /** Manual mode (Phase B). Optional so an older backend still parses; missing means not available. */
+  manual?: CapabilitiesManual | null;
 }
 
 /** Key metadata — a 12-char prefix only, never the key itself (design §3.2). */

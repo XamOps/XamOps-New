@@ -99,6 +99,8 @@ const READINESS_BY_ACTION: Partial<Record<ActionId, ReadinessKey>> = {
   'rebalance.trigger': 'rebalancer',
   'rebalance.schedule': 'rebalancer',
   'hpa.apply': 'hpa-apply',
+  'proposals.approve.node': 'manual-approval',
+  'proposals.approve.workload': 'manual-approval',
 };
 
 /** Node-automation controls that need the agents on the cluster (§6.3 "AGENT_NOT_INSTALLED"). */
@@ -110,6 +112,7 @@ const NEEDS_AUTOMATION_AGENT: ReadonlySet<ActionId> = new Set<ActionId>([
   'nodeOptimizer.settings',
   'nodeOptimizer.actions',
   'guardrails.edit',
+  'proposals.approve.node',
 ]);
 
 export const RETIRED_RIGHTSIZER_MESSAGE =

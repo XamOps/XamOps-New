@@ -73,6 +73,7 @@ export const EKS_SECTIONS: SectionRegistry<EksSectionId, EksSubtabId> = [
       { id: 'workload-autoscaler-policies', label: 'Policies', group: 'Workload autoscaler' },
       { id: 'node-autoscaler', label: 'Node autoscaler' },
       { id: 'consolidation', label: 'Consolidation' },
+      { id: 'pending-actions', label: 'Pending actions' },
       { id: 'spot-interruptions', label: 'Spot interruptions' },
       { id: 'hpa', label: 'HPA' },
       { id: 'vpa', label: 'VPA' },

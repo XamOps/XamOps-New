@@ -157,3 +157,32 @@ describe('deriveControlView: time-bound still-acting', () => {
     expect(derive({ cluster: cluster({ mode: 'full' }) })).toMatchObject({ stillActingAfterPause: false, lastRunPredatesPause: false });
   });
 });
+
+describe('deriveControlView › approval (Phase B)', () => {
+  const base = (manual: unknown, extra: Record<string, unknown> = {}) =>
+    deriveControlView({
+      status: 'ready', marker: null, override: null, lastWriteAt: null, now: 0,
+      cluster: { ...(cluster() as object), manual } as never, ...extra,
+    });
+  const m = (o: Record<string, unknown> = {}) => ({ mode: 'AUTONOMOUS', effective: 'active', pending: 0, available: true, reason: null, workloadProposals: true, ...o });
+
+  it('is unknown and unavailable when the backend sends no manual block', () => {
+    expect(base(undefined)).toMatchObject({ approval: 'unknown', storedApproval: null, manualAvailable: false, pendingProposals: null });
+    expect(base(null)).toMatchObject({ approval: 'unknown', manualAvailable: false });
+  });
+  it('autonomous and manual when the agent confirms the stored mode', () => {
+    expect(base(m())).toMatchObject({ approval: 'autonomous', storedApproval: 'AUTONOMOUS', manualAvailable: true });
+    expect(base(m({ mode: 'MANUAL', pending: 5 }))).toMatchObject({ approval: 'manual', storedApproval: 'MANUAL', pendingProposals: 5 });
+  });
+  it('switching while the stored mode and the agent disagree, unknown when the agent is silent', () => {
+    expect(base(m({ mode: 'MANUAL', effective: 'switching' }))).toMatchObject({ approval: 'switching' });
+    expect(base(m({ mode: 'MANUAL', effective: 'unknown' }))).toMatchObject({ approval: 'unknown', storedApproval: 'MANUAL' });
+  });
+  it('carries the unavailable reason, and a just-written override outranks the snapshot', () => {
+    expect(base(m({ available: false, reason: 'AGENT_TOO_OLD' }))).toMatchObject({ manualAvailable: false, manualReason: 'AGENT_TOO_OLD' });
+    expect(base(m(), { approvalOverride: { mode: 'MANUAL', effective: 'switching' } })).toMatchObject({ approval: 'switching', storedApproval: 'MANUAL' });
+  });
+  it('does not change the Phase A kind', () => {
+    expect(base(m({ mode: 'MANUAL' }))).toMatchObject({ kind: 'autonomous', acting: 'acting' });
+  });
+});

@@ -27,6 +27,16 @@ import {
   CODE_PREFIX,
   stripCodePrefix,
 } from '../types/k8sAutomation';
+import type {
+  ApprovalMode,
+  ApprovalModeResponse,
+  ApproveBody,
+  DecisionResponse,
+  ProposalDetailDto,
+  ProposalListDto,
+  ProposalStatus,
+  RejectBody,
+} from '../types/automationProposals';
 
 /** Server messages are shown as plain text, capped so a runaway body can't flood the UI. */
 export const MAX_MESSAGE_LENGTH = 300;
@@ -221,4 +231,37 @@ export function deleteNodeTemplate(t: AutomationTarget, templateId: string): Pro
 
 export function triggerRebalance(t: AutomationTarget): Promise<AutomationSaveResult> {
   return k8sRequest(`${base(t.cluster)}/rebalance?${query(t.accountId)}`, { method: 'POST' });
+}
+
+// ── Manual mode proposals (/api/eks/autoscaling/{cluster}/proposals, /approval-mode) ─────────────
+export function getProposals(
+  t: AutomationTarget,
+  opts: { status?: ProposalStatus; limit?: number; cursor?: string } = {},
+  init?: RequestInit,
+): Promise<ProposalListDto> {
+  const extra = [
+    opts.status ? `&status=${enc(opts.status)}` : '',
+    opts.limit ? `&limit=${enc(String(opts.limit))}` : '',
+    opts.cursor ? `&cursor=${enc(opts.cursor)}` : '',
+  ].join('');
+  return k8sRequest(`${base(t.cluster)}/proposals?${query(t.accountId, t.region)}${extra}`, init);
+}
+export function getProposal(t: AutomationTarget, id: string, init?: RequestInit): Promise<ProposalDetailDto> {
+  return k8sRequest(`${base(t.cluster)}/proposals/${enc(id)}?${query(t.accountId, t.region)}`, init);
+}
+/** Always sends the version and fingerprint of the row the user is looking at. */
+export function approveProposal(t: AutomationTarget, id: string, body: ApproveBody): Promise<DecisionResponse> {
+  return k8sRequest(`${base(t.cluster)}/proposals/${enc(id)}/approve?${query(t.accountId, t.region)}`, {
+    method: 'POST',
+    ...json(body),
+  });
+}
+export function rejectProposal(t: AutomationTarget, id: string, body: RejectBody): Promise<DecisionResponse> {
+  return k8sRequest(`${base(t.cluster)}/proposals/${enc(id)}/reject?${query(t.accountId, t.region)}`, {
+    method: 'POST',
+    ...json(body),
+  });
+}
+export function setApprovalMode(t: AutomationTarget, mode: ApprovalMode): Promise<ApprovalModeResponse> {
+  return k8sRequest(`${base(t.cluster)}/approval-mode?${query(t.accountId, t.region)}`, { method: 'PUT', ...json({ mode }) });
 }

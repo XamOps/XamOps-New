@@ -16,6 +16,7 @@ import WorkloadsPage from './automation/workload/WorkloadsPage';
 import PoliciesPage from './automation/workload/PoliciesPage';
 import NodeAutoscalerPage from './automation/node/NodeAutoscalerPage';
 import ConsolidationPage from './automation/node/ConsolidationPage';
+import PendingActionsPage from './automation/pending/PendingActionsPage';
 import SpotInterruptionsPage from './automation/node/SpotInterruptionsPage';
 import HpaPage from './automation/hpa/HpaPage';
 import VpaPage from './automation/vpa/VpaPage';
@@ -66,6 +67,8 @@ export default function AutomationSection({ clusterName, accountId, region, rout
             return <NodeAutoscalerPage clusterName={clusterName} accountId={accountId} region={region} eksData={eksData} />;
           case 'consolidation':
             return <ConsolidationPage clusterName={clusterName} accountId={accountId} region={region} />;
+          case 'pending-actions':
+            return <PendingActionsPage clusterName={clusterName} accountId={accountId} region={region} />;
           case 'spot-interruptions':
             return <SpotInterruptionsPage clusterName={clusterName} accountId={accountId} region={region} />;
           case 'hpa':

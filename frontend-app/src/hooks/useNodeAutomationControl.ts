@@ -9,7 +9,8 @@
  * state untouched and surfaces the error.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { isK8sApiError, setAutomationScope } from '../api/k8sAutomationApi';
+import { isK8sApiError, setApprovalMode, setAutomationScope } from '../api/k8sAutomationApi';
+import type { ApprovalMode, EffectiveState } from '../types/automationProposals';
 import type { AutomationScope, Capability } from '../types/k8sAutomation';
 import { deriveControlView, type ControlView } from '../utils/k8sAutomationControl';
 import {
@@ -23,6 +24,9 @@ import { useK8sCapabilities } from './useK8sCapabilities';
 export const STATE_CHANGED_MESSAGE = "The cluster's state changed. Review it and try again.";
 /** How often the bar re-checks the clock while it says "Pause sent". */
 const TICK_MS = 30_000;
+/** While the agent has not confirmed a mode switch: re-read capabilities this often, for this long. */
+const SWITCH_POLL_MS = 5_000;
+const SWITCH_POLL_MAX_MS = 2 * 60_000;
 
 export interface ControlError {
   message: string;
@@ -33,12 +37,16 @@ export interface NodeAutomationControl {
   view: ControlView;
   capability: Capability;
   pending: 'pause' | 'resume' | null;
+  /** True while a Manual/Autonomous switch is being sent. */
+  approvalPending: boolean;
   error: ControlError | null;
   /** The held prior-mode record, for the dialogs' wording. Null when there is none. */
   marker: PauseMarker | null;
   clearError: () => void;
   pause: () => Promise<boolean>;
   resume: () => Promise<boolean>;
+  /** Switch the approval mode (Manual or Autonomous). Resolves true when the server accepted it. */
+  switchApproval: (mode: ApprovalMode) => Promise<boolean>;
 }
 
 function toControlError(err: unknown): ControlError {
@@ -57,6 +65,9 @@ export function useNodeAutomationControl({ clusterName, accountId }: { clusterNa
   const [pending, setPending] = useState<'pause' | 'resume' | null>(null);
   const [error, setError] = useState<ControlError | null>(null);
   const [, setTick] = useState(0);
+  const [approvalOverride, setApprovalOverride] = useState<{ mode: ApprovalMode; effective: EffectiveState } | null>(null);
+  const [approvalWriteAt, setApprovalWriteAt] = useState<number | null>(null);
+  const [approvalPending, setApprovalPending] = useState(false);
 
   // The override and marker belong to one cluster on one account: start over when either changes.
   const scopeKey = `${accountId}|${clusterName}`;
@@ -67,11 +78,13 @@ export function useNodeAutomationControl({ clusterName, accountId }: { clusterNa
     setMarker(readPauseMarker({ accountId, clusterName }));
     setOverride(null);
     setLastWriteAt(null);
+    setApprovalOverride(null);
+    setApprovalWriteAt(null);
     setError(null);
   }, [scopeKey, accountId, clusterName]);
 
   const view = deriveControlView({
-    status: caps.status, cluster, marker, override, lastWriteAt, now: Date.now(),
+    status: caps.status, cluster, marker, override, lastWriteAt, now: Date.now(), approvalOverride,
   });
 
   // The server's first answer fetched after our write is the truth, whatever mode it reports.
@@ -81,6 +94,29 @@ export function useNodeAutomationControl({ clusterName, accountId }: { clusterNa
   useEffect(() => {
     if (override !== null && snapshotIsNewer && lastWriteAt !== null) setOverride(null);
   }, [override, snapshotIsNewer, lastWriteAt]);
+
+  // Likewise for the approval mode: the first read after our write replaces what the server told us then.
+  useEffect(() => {
+    if (approvalOverride === null || approvalWriteAt === null) return;
+    if (fetchedAt !== null && fetchedAt > approvalWriteAt) setApprovalOverride(null);
+  }, [approvalOverride, approvalWriteAt, fetchedAt]);
+
+  // While the agent has not confirmed the switch: re-read every 5 s, for at most 2 minutes.
+  const switching = view.approval === 'switching';
+  const revalidateRef = useRef(caps.revalidate);
+  revalidateRef.current = caps.revalidate;
+  useEffect(() => {
+    if (!switching) return undefined;
+    const startedAt = Date.now();
+    const id = setInterval(() => {
+      if (Date.now() - startedAt >= SWITCH_POLL_MAX_MS) {
+        clearInterval(id);
+        return;
+      }
+      revalidateRef.current();
+    }, SWITCH_POLL_MS);
+    return () => clearInterval(id);
+  }, [switching]);
 
   // A marker is stale once the server (read after our last write, with nothing in flight) says the
   // mode is full or scoped: someone resumed elsewhere.
@@ -164,15 +200,36 @@ export function useNodeAutomationControl({ clusterName, accountId }: { clusterNa
     return true;
   }, [clusterName, accountId]);
 
+  const approvalPendingRef = useRef(false);
+  const switchApproval = useCallback(async (mode: ApprovalMode): Promise<boolean> => {
+    if (approvalPendingRef.current || !capabilityRef.current.allowed || viewRef.current.kind !== 'autonomous') return false;
+    approvalPendingRef.current = true;
+    setApprovalPending(true);
+    setError(null);
+    try {
+      const res = await setApprovalMode({ cluster: clusterName, accountId }, mode);
+      setApprovalOverride({ mode: res.mode, effective: res.effective });
+      setApprovalWriteAt(Date.now());
+      capsRef.current.revalidate();
+      return true;
+    } catch (err) {
+      setError(toControlError(err));
+      capsRef.current.onRefusal(err);
+      return false;
+    } finally {
+      approvalPendingRef.current = false;
+      setApprovalPending(false);
+    }
+  }, [clusterName, accountId]);
   const pause = useCallback(() => write('pause'), [write]);
   const resume = useCallback(() => write('resume'), [write]);
   const clearError = useCallback(() => setError(null), []);
 
   return useMemo(
-    () => ({ view, capability, pending, error, marker, clearError, pause, resume }),
+    () => ({ view, capability, pending, approvalPending, error, marker, clearError, pause, resume, switchApproval }),
     // `view` is rebuilt every render (it reads the clock), so the memo only spares identity churn of the callbacks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [view.kind, view.mode, view.priorMode, view.acting, view.stillActingAfterPause, view.lastRunPredatesPause, capability, pending, error, marker, clearError, pause, resume],
+    [view.kind, view.mode, view.priorMode, view.acting, view.stillActingAfterPause, view.lastRunPredatesPause, view.approval, view.storedApproval, view.manualAvailable, view.manualReason, view.pendingProposals, capability, pending, approvalPending, error, marker, clearError, pause, resume, switchApproval],
   );
 }
 
