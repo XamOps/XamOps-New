@@ -1,7 +1,9 @@
 package com.xammer.cloud.repository;
 
 import com.xammer.cloud.domain.AgentDataCache;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -43,6 +45,16 @@ public interface AgentDataCacheRepository extends JpaRepository<AgentDataCache, 
      * Find cached data by cluster and data type
      */
     Optional<AgentDataCache> findByClusterConfigIdAndDataType(Long clusterConfigId, String dataType);
+
+    /**
+     * The same row under a write lock. Every user policy save reads the {@code autoscaling-policy}
+     * row through this (design 3.9 rule 4), so a save and the rebalance-request consume serialise on
+     * it and neither loses the other's write. Must be called inside a transaction.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT a FROM AgentDataCache a WHERE a.clusterConfigId = :clusterConfigId AND a.dataType = :dataType")
+    Optional<AgentDataCache> findForUpdateByClusterConfigIdAndDataType(
+            @Param("clusterConfigId") Long clusterConfigId, @Param("dataType") String dataType);
 
     /**
      * Find all cached data for a cluster

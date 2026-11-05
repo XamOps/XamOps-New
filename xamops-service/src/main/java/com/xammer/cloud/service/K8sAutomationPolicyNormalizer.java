@@ -498,6 +498,11 @@ public class K8sAutomationPolicyNormalizer {
         return new Read(normalize(parsed, configId), true);
     }
 
+    /** The complete default with {@code autoscalerMode: "disabled"}: what an agent that must idle is served. */
+    public AutomationPolicyBundle defaultsDisabled() {
+        return disabledDefault();
+    }
+
     private AutomationPolicyBundle disabledDefault() {
         AutomationPolicyBundle b = defaults();
         b.setAutoscalerMode("disabled");

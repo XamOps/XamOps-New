@@ -142,8 +142,9 @@ export function readFailureText(failure: ReadFailure): { title: string; detail: 
 }
 
 /** The card a page shows in place of what needs endpoint 1, with Retry. */
-export function ReadFailureCard({ failure, onRetry }: { failure: ReadFailure; onRetry: () => void }) {
+export function ReadFailureCard({ failure, onRetry, title }: { failure: ReadFailure; onRetry: () => void; title?: string }) {
   const text = readFailureText(failure);
+  if (title && failure.kind === 'error') text.title = title;
   return (
     <section className={`${CARD} px-4 py-3`} data-read-failure={failure.kind} data-k8s-kit="">
       <p className={`flex items-center gap-1.5 text-[13px] font-semibold ${INK}`}>

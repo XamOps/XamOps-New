@@ -1,0 +1,14 @@
+{
+  "items": [
+    {
+      "id": "b3f1c2d0-7e4a-4c1b-9d2e-5a6f7b8c9d0e",
+      "targetRef": "ip-10-0-1-5.ec2.internal",
+      "targetIdentity": "7c1e5f0a-2b6d-4a41-9d3e-0f8b1c2d3e4f",
+      "operationId": "proposal-b3f1c2d0-7e4a-4c1b-9d2e-5a6f7b8c9d0e",
+      "actionType": "NODE_DRAIN",
+      "operation": "DRAIN",
+      "dispatchedAt": "2026-11-01T10:02:15Z",
+      "dryRun": false
+    }
+  ]
+}

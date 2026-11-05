@@ -100,7 +100,7 @@ describe('resolveSectionRoute', () => {
       'cost:cluster',
       'workloads:workloads,pods,containers,resources',
       'nodes:nodes,node-groups,karpenter,utilization',
-      'automation:overview,workload-autoscaler,workload-autoscaler-policies,node-autoscaler,consolidation,spot-interruptions,hpa,vpa,activity',
+      'automation:overview,workload-autoscaler,workload-autoscaler-policies,node-autoscaler,consolidation,pending-actions,spot-interruptions,hpa,vpa,activity',
       'security:vulnerabilities',
     ]);
     for (const s of EKS_SECTIONS) expect(s.subs.some((x) => x.id === s.defaultSub)).toBe(true);
@@ -114,6 +114,7 @@ describe('resolveSectionRoute', () => {
       ['workload-autoscaler-policies', 'Policies', 'Workload autoscaler'],
       ['node-autoscaler', 'Node autoscaler', null],
       ['consolidation', 'Consolidation', null],
+      ['pending-actions', 'Pending actions', null],
       ['spot-interruptions', 'Spot interruptions', null],
       ['hpa', 'HPA', null],
       ['vpa', 'VPA', null],
@@ -296,6 +297,7 @@ describe('sectionNavEntries (Addendum 1, J-2..J-4)', () => {
       ['group:workload-autoscaler', 'Workload autoscaler', true],
       ['node-autoscaler', 'Node autoscaler', false],
       ['consolidation', 'Consolidation', false],
+      ['pending-actions', 'Pending actions', false],
       ['spot-interruptions', 'Spot interruptions', false],
       ['hpa', 'HPA', false],
       ['vpa', 'VPA', false],

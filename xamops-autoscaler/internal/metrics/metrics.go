@@ -80,6 +80,14 @@ type Set struct {
 	// VpaRevertedTotal counts in-place resizes auto-reverted after an OOM/throttle
 	// regression (live only).
 	VpaRevertedTotal prometheus.Counter
+
+	// Manual mode (Phase B) series. All are nil-safe through the Set helpers below.
+	ProposalsTotal            *prometheus.CounterVec // {type,verdict}
+	ProposalPostRejectedTotal *prometheus.CounterVec // {code}
+	ProposalItemsDroppedTotal prometheus.Counter
+	ApprovedExecutionsTotal   *prometheus.CounterVec // {type,result}
+	ProposalRevalidationTotal *prometheus.CounterVec // {result}
+	ProposalOutcomeQueue      prometheus.Gauge
 }
 
 // New builds the metric set, registering all collectors on a fresh registry.
@@ -166,6 +174,30 @@ func New() *Set {
 			Name: "xamops_vpa_reverted_total",
 			Help: "In-place resizes auto-reverted after an OOM/throttle regression (live only).",
 		}),
+		ProposalsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "xamops_proposals_total",
+			Help: "Manual-mode proposals built by the agent, by action type and verdict.",
+		}, []string{"type", "verdict"}),
+		ProposalPostRejectedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "xamops_proposal_post_rejected_total",
+			Help: "Proposal batch POSTs the backend rejected, by backend error code.",
+		}, []string{"code"}),
+		ProposalItemsDroppedTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "xamops_proposal_items_dropped_total",
+			Help: "Proposal items dropped for the per-cycle item cap.",
+		}),
+		ApprovedExecutionsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "xamops_approved_executions_total",
+			Help: "Approved Manual-mode actions the agent executed, by action type and outcome.",
+		}, []string{"type", "result"}),
+		ProposalRevalidationTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "xamops_proposal_revalidation_total",
+			Help: "Execution-time re-validations of approved proposals, by result (ok/stale/refused).",
+		}, []string{"result"}),
+		ProposalOutcomeQueue: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "xamops_proposal_outcome_queue",
+			Help: "Proposal outcomes queued in memory awaiting delivery to the backend.",
+		}),
 	}
 	reg.MustRegister(
 		s.DrainsTotal,
@@ -187,6 +219,12 @@ func New() *Set {
 		s.VpaRefusedNotEligibleTotal,
 		s.VpaRefusedByClassifierTotal,
 		s.VpaRevertedTotal,
+		s.ProposalsTotal,
+		s.ProposalPostRejectedTotal,
+		s.ProposalItemsDroppedTotal,
+		s.ApprovedExecutionsTotal,
+		s.ProposalRevalidationTotal,
+		s.ProposalOutcomeQueue,
 	)
 	return s
 }
@@ -365,4 +403,52 @@ func (s *Set) IncVpaReverted() {
 		return
 	}
 	s.VpaRevertedTotal.Inc()
+}
+
+// IncProposal counts one proposal item built by the agent.
+func (s *Set) IncProposal(actionType, verdict string) {
+	if s == nil {
+		return
+	}
+	s.ProposalsTotal.WithLabelValues(actionType, verdict).Inc()
+}
+
+// IncProposalPostRejected counts a rejected proposal POST by backend error code.
+func (s *Set) IncProposalPostRejected(code string) {
+	if s == nil {
+		return
+	}
+	s.ProposalPostRejectedTotal.WithLabelValues(code).Inc()
+}
+
+// AddProposalItemsDropped counts items dropped for the per-cycle cap.
+func (s *Set) AddProposalItemsDropped(n int) {
+	if s == nil || n <= 0 {
+		return
+	}
+	s.ProposalItemsDroppedTotal.Add(float64(n))
+}
+
+// IncApprovedExecution counts one approved action by type and outcome status.
+func (s *Set) IncApprovedExecution(actionType, result string) {
+	if s == nil {
+		return
+	}
+	s.ApprovedExecutionsTotal.WithLabelValues(actionType, result).Inc()
+}
+
+// IncProposalRevalidation counts one execution-time re-validation result.
+func (s *Set) IncProposalRevalidation(result string) {
+	if s == nil {
+		return
+	}
+	s.ProposalRevalidationTotal.WithLabelValues(result).Inc()
+}
+
+// SetProposalOutcomeQueue records how many outcomes are queued for delivery.
+func (s *Set) SetProposalOutcomeQueue(n int) {
+	if s == nil {
+		return
+	}
+	s.ProposalOutcomeQueue.Set(float64(n))
 }

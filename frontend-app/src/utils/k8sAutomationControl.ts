@@ -8,14 +8,29 @@
  * automation agent; whether Pause or Resume may be pressed always comes from the capability gate.
  */
 import type { CapabilitiesStatus } from '../hooks/useK8sCapabilities';
+import type { ApprovalMode, EffectiveState } from '../types/automationProposals';
 import type { AutomationScope, CapabilitiesCluster } from '../types/k8sAutomation';
 import type { PauseMarker } from './k8sPauseMarker';
 
 export type ControlKind = 'loading' | 'unknown' | 'not-installed' | 'not-enabled' | 'off' | 'paused' | 'autonomous';
 export type ActingWord = 'acting' | 'ready-to-enable' | 'analysis-only' | 'not-confirmed';
 
+/**
+ * Where Manual mode stands, from `capabilities.manual`: the stored mode against the agent's own word on
+ * whether it is in force (the same tri-state as `effectiveActing`). `switching` while they disagree.
+ */
+export type ApprovalView = 'autonomous' | 'manual' | 'switching' | 'unknown';
 export interface ControlView {
   kind: ControlKind;
+  /** Stored approval mode and what the agent confirmed. Null `storedApproval` means Manual is not reported. */
+  approval: ApprovalView;
+  storedApproval: ApprovalMode | null;
+  /** Manual can be switched on now (`capabilities.manual.available`). */
+  manualAvailable: boolean;
+  /** Why not, when it cannot (a `capabilities.manual.reason`). */
+  manualReason: string | null;
+  /** Proposals waiting for a decision; null when unknown. */
+  pendingProposals: number | null;
   /** Effective mode: the confirmed override, else the capabilities snapshot's. */
   mode: AutomationScope | null;
   /** Only when kind is 'paused'. */
@@ -43,10 +58,12 @@ export interface ControlInput {
   /** Date.now() of this hook's last successful mode PUT; null when none. */
   lastWriteAt: number | null;
   now: number;
+  /** The mode this browser just wrote with `setApprovalMode`, in force until a newer read arrives. */
+  approvalOverride?: { mode: ApprovalMode; effective: EffectiveState } | null;
 }
 
 const view = (kind: ControlKind, extra: Partial<ControlView> = {}): ControlView => ({
-  kind, mode: null, priorMode: null, acting: null, stillActingAfterPause: false, lastRunPredatesPause: false, ...extra,
+  kind, approval: 'unknown', storedApproval: null, manualAvailable: false, manualReason: null, pendingProposals: null, mode: null, priorMode: null, acting: null, stillActingAfterPause: false, lastRunPredatesPause: false, ...extra,
 });
 
 const isMode = (m: unknown): m is AutomationScope => m === 'full' || m === 'scoped' || m === 'disabled';
@@ -76,7 +93,34 @@ function pauseWording(
   return { stillActingAfterPause: inside, lastRunPredatesPause: !inside };
 }
 
+/** The Manual block of the view. Missing `manual` (an older backend) is unavailable and unreported. */
+function approvalFields(
+  cluster: CapabilitiesCluster | null, o: ControlInput['approvalOverride'],
+): Pick<ControlView, 'approval' | 'storedApproval' | 'manualAvailable' | 'manualReason' | 'pendingProposals'> {
+  const m = cluster?.manual ?? null;
+  const stored: ApprovalMode | null = o?.mode ?? (m ? m.mode : null);
+  const effective: EffectiveState | null = o?.effective ?? (m ? m.effective : null);
+  let approval: ApprovalView = 'unknown';
+  if (stored !== null && effective !== null) {
+    if (effective === 'switching') approval = 'switching';
+    else if (effective === 'unknown') approval = stored === 'AUTONOMOUS' ? 'autonomous' : 'unknown';
+    else approval = stored === 'MANUAL' ? 'manual' : 'autonomous';
+  }
+  return {
+    approval,
+    storedApproval: stored,
+    manualAvailable: m?.available === true,
+    manualReason: m?.reason ?? null,
+    pendingProposals: typeof m?.pending === 'number' ? m.pending : null,
+  };
+}
+
 export function deriveControlView(input: ControlInput): ControlView {
+  const base = deriveBase(input);
+  return { ...base, ...approvalFields(input.cluster, input.approvalOverride ?? null) };
+}
+
+function deriveBase(input: ControlInput): ControlView {
   const { status, cluster, marker, override, lastWriteAt, now } = input;
 
   // 1

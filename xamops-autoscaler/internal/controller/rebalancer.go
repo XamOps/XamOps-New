@@ -317,6 +317,11 @@ func selectRebalanceCandidates(nodes []corev1.Node) []corev1.Node {
 	return candidates
 }
 
+// RebalanceCandidates exposes the rebalancer's candidate selection (not control-plane,
+// not cordoned, not SPOT; oldest first) so Manual mode proposes exactly the nodes the
+// autonomous rebalancer would consider.
+func RebalanceCandidates(nodes []corev1.Node) []corev1.Node { return selectRebalanceCandidates(nodes) }
+
 func nodeNames(nodes []corev1.Node) []string {
 	names := make([]string, len(nodes))
 	for i, n := range nodes {

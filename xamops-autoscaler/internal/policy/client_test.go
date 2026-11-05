@@ -195,3 +195,87 @@ func TestFetchPolicyExplicitAnalyseOnlyFalseIsHonoured(t *testing.T) {
 		t.Error("expected EvictorPolicy.AnalyseOnly to be false when the backend sends false")
 	}
 }
+
+// AC-G8: a backend that omits approvalMode (every pre-Manual backend, and Autonomous
+// output) decodes to "autonomous" with no intent.
+func TestFetchPolicyOmittedApprovalModeIsAutonomous(t *testing.T) {
+	bundle := fetchFromBody(t, `{"autoscalerMode":"full"}`)
+	if bundle.ApprovalMode != ApprovalAutonomous || bundle.IsManual() || bundle.ManualIntent != nil {
+		t.Errorf("approvalMode = %q manual=%v intent=%v", bundle.ApprovalMode, bundle.IsManual(), bundle.ManualIntent)
+	}
+	if DefaultBundle().ApprovalMode != ApprovalAutonomous {
+		t.Error("DefaultBundle must be autonomous")
+	}
+	if got := bundle.Intent(); !reflect.DeepEqual(got, bundle) {
+		t.Error("Intent() of an autonomous bundle must equal the bundle")
+	}
+}
+
+const manualServedBody = `{
+  "autoscalerMode": "full",
+  "approvalMode": "manual",
+  "evictorPolicy": {"enabled": true, "analyseOnly": true, "targetUtilizationCpu": 70},
+  "nodeOptimizerPolicy": {"enabled": true, "autoCordonIdleNodes": false, "autoDrainIdleNodes": false, "spotRatioTargetPct": 0, "handleSpotInterruptions": false, "maxParallelDrains": 2},
+  "rebalancer": {"enabled": false, "scheduleEnabled": false, "status": "idle", "drainTimeoutMinutes": 33},
+  "consolidationPolicy": {"enabled": false, "consolidateAfterSeconds": 300},
+  "manualIntent": {
+    "evictorPolicy": {"analyseOnly": false},
+    "nodeOptimizerPolicy": {"autoDrainIdleNodes": true},
+    "rebalancer": {"enabled": true, "status": "running"},
+    "consolidationPolicy": {"enabled": true}
+  }
+}`
+
+// Intent() decodes each section onto a copy of the neutered served section, so a field
+// the intent omits keeps its neutered value instead of becoming a zero value.
+func TestIntentDecodesOntoNeuteredSections(t *testing.T) {
+	served := fetchFromBody(t, manualServedBody)
+	if !served.IsManual() || served.ManualIntent == nil {
+		t.Fatalf("served = %+v", served)
+	}
+	// The served bundle itself stays neutered.
+	if !served.EvictorPolicy.AnalyseOnly || served.NodeOptimizerPolicy.AutoDrainIdleNodes || served.Rebalancer.Enabled || served.ConsolidationPolicy.Enabled {
+		t.Fatalf("served bundle not neutered: %+v", served)
+	}
+	in := served.Intent()
+	if in.EvictorPolicy.AnalyseOnly || !in.EvictorPolicy.Enabled || in.EvictorPolicy.TargetUtilizationCpu != 70 {
+		t.Errorf("evictor intent = %+v (analyseOnly flipped; omitted fields must keep served values)", in.EvictorPolicy)
+	}
+	if !in.NodeOptimizerPolicy.AutoDrainIdleNodes || in.NodeOptimizerPolicy.AutoCordonIdleNodes ||
+		in.NodeOptimizerPolicy.SpotRatioTargetPct != 0 || in.NodeOptimizerPolicy.HandleSpotInterruptions || in.NodeOptimizerPolicy.MaxParallelDrains != 2 {
+		t.Errorf("node optimizer intent = %+v (only autoDrainIdleNodes may change)", in.NodeOptimizerPolicy)
+	}
+	if !in.Rebalancer.Enabled || in.Rebalancer.Status != "running" || in.Rebalancer.DrainTimeoutMinutes != 33 {
+		t.Errorf("rebalancer intent = %+v", in.Rebalancer)
+	}
+	if !in.ConsolidationPolicy.Enabled || in.ConsolidationPolicy.ConsolidateAfterSeconds != 300 {
+		t.Errorf("consolidation intent = %+v", in.ConsolidationPolicy)
+	}
+	if in.ManualIntent != nil || in.AutoscalerMode != "full" || !in.IsManual() {
+		t.Errorf("intent envelope = mode %q manual=%v intent=%v", in.AutoscalerMode, in.IsManual(), in.ManualIntent)
+	}
+	// Intent() did not mutate the served bundle.
+	if !served.EvictorPolicy.AnalyseOnly || served.Rebalancer.Status != "idle" {
+		t.Error("Intent() mutated the served bundle")
+	}
+}
+
+// An absent, null or undecodable intent section keeps the neutered served value.
+func TestIntentFailsClosedOnBadSections(t *testing.T) {
+	served := fetchFromBody(t, `{
+	  "autoscalerMode": "full", "approvalMode": "manual",
+	  "evictorPolicy": {"enabled": true, "analyseOnly": true},
+	  "rebalancer": {"enabled": false, "status": "idle"},
+	  "manualIntent": {"evictorPolicy": {"analyseOnly": "not-a-bool", "enabled": false}, "rebalancer": null}
+	}`)
+	in := served.Intent()
+	if !in.EvictorPolicy.AnalyseOnly || !in.EvictorPolicy.Enabled {
+		t.Errorf("undecodable evictor intent must keep the whole neutered section, got %+v", in.EvictorPolicy)
+	}
+	if in.Rebalancer.Enabled || in.Rebalancer.Status != "idle" {
+		t.Errorf("null rebalancer intent must keep the served section, got %+v", in.Rebalancer)
+	}
+	if in.NodeOptimizerPolicy.AutoDrainIdleNodes || in.ConsolidationPolicy.Enabled {
+		t.Errorf("absent sections must stay neutered: %+v %+v", in.NodeOptimizerPolicy, in.ConsolidationPolicy)
+	}
+}

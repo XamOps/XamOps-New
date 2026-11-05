@@ -1,5 +1,5 @@
 /** A minimal capabilities payload for the node-automation control tests (hook and bar). */
-import type { CapabilitiesCluster, CapabilitiesDto } from '../../types/k8sAutomation';
+import type { CapabilitiesCluster, CapabilitiesDto, CapabilitiesManual } from '../../types/k8sAutomation';
 
 export const CLUSTER = 'prod-eks';
 export const ACCOUNT = '111111111111';
@@ -12,6 +12,10 @@ export interface CapsOptions {
   agent?: 'CONNECTED' | 'NOT_INSTALLED';
   automationAgent?: 'CONNECTED' | 'NOT_INSTALLED';
   writeReasons?: string[];
+  /** The Manual block; omitted (undefined) models an older backend. */
+  manual?: CapabilitiesManual | null;
+  /** Readiness map overrides, e.g. `{ 'manual-approval': { ready: true, reason: null, message: null } }`. */
+  readiness?: CapabilitiesDto['readiness'];
 }
 
 export function capsDto(o: CapsOptions = {}): CapabilitiesDto {
@@ -30,7 +34,7 @@ export function capsDto(o: CapsOptions = {}): CapabilitiesDto {
     connection: { accessLevel: 'READ_WRITE', status: 'CONNECTED' },
     user: { canChangeAutomation: true, reasons: [], detail: null },
     writeGate,
-    readiness: {},
+    readiness: o.readiness ?? {},
     verticalEngine: { enabled: true },
     clusters: [{
       clusterName: CLUSTER,
@@ -42,6 +46,7 @@ export function capsDto(o: CapsOptions = {}): CapabilitiesDto {
       automationAgent: { status: o.automationAgent ?? 'CONNECTED', lastSeenAt: null, version: null },
       nodeAutomation,
       dataSources: [],
+      ...(o.manual !== undefined ? { manual: o.manual } : {}),
     }],
   };
 }

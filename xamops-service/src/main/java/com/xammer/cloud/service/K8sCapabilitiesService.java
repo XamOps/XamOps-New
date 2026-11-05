@@ -80,6 +80,13 @@ public class K8sCapabilitiesService {
     private final Clock clock;
     private final com.xammer.cloud.service.onboarding.OnboardingStateDeriver onboardingStateDeriver;
     private final AtomicBoolean warnedUnparseableEngineFlag = new AtomicBoolean();
+    /** Manual mode (Phase B); optional so the older constructors keep working. Null reads as "not available". */
+    private com.xammer.cloud.service.automation.proposal.ManualCapabilityService manualCapabilityService;
+
+    @Autowired(required = false)
+    void setManualCapabilityService(com.xammer.cloud.service.automation.proposal.ManualCapabilityService service) {
+        this.manualCapabilityService = service;
+    }
 
     @Autowired
     public K8sCapabilitiesService(K8sAutomationAccessService accessService,
@@ -227,7 +234,21 @@ public class K8sCapabilitiesService {
 
         return new Cluster(config.getClusterName(), true, connection(gateRows), writeGate(gate),
                 config.getDataSourceMode(), agent, automationAgent, nodeAutomation, dataSources, onboarding,
-                writeGate(nodeAutomationGate));
+                writeGate(nodeAutomationGate), manual(config));
+    }
+
+    /** The Manual-mode object, or null (read as "not available") when it can't be built. */
+    private com.xammer.cloud.dto.autoscaling.ProposalDtos.ManualCapabilityDto manual(KubernetesClusterConfig config) {
+        if (manualCapabilityService == null) {
+            return null;
+        }
+        try {
+            return manualCapabilityService.forCluster(config);
+        } catch (RuntimeException e) {
+            log.warn("Capabilities: manual mode summary failed for cluster config {}: {}", config.getId(),
+                    e.getClass().getSimpleName());
+            return null;
+        }
     }
 
     /**

@@ -214,6 +214,7 @@ function ClusterPage({ link, debug }: { link: ClusterLink; debug: boolean }) {
           accountId={accountId}
           workloadsHref={route.hrefFor('automation', 'workload-autoscaler')}
           nodeAutoscalerHref={route.hrefFor('automation', 'node-autoscaler')}
+          pendingActionsHref={route.hrefFor('automation', 'pending-actions')}
         />
 
         {loading && !dashboard && <PageSkeleton />}

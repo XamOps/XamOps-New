@@ -101,6 +101,9 @@ public record K8sCapabilitiesDto(
      *        to {@code writeGate} except that {@code READ_ONLY_CONNECTION} is dropped once the
      *        cluster has completed Enable-automation and is verified fresh. ADDITIVE and last in the
      *        record: an older payload/consumer that omits it falls back to {@code writeGate}.
+     * @param manual Manual approval mode (Phase B): {@code {mode, effective, pending, available, reason,
+     *        workloadProposals}}. ADDITIVE and last; a consumer that finds it missing treats Manual as
+     *        not available (fail closed).
      */
     public record Cluster(
             String clusterName,
@@ -113,6 +116,7 @@ public record K8sCapabilitiesDto(
             NodeAutomation nodeAutomation,
             List<DataSource> dataSources,
             Onboarding onboarding,
-            WriteGate nodeAutomationWriteGate) {
+            WriteGate nodeAutomationWriteGate,
+            com.xammer.cloud.dto.autoscaling.ProposalDtos.ManualCapabilityDto manual) {
     }
 }

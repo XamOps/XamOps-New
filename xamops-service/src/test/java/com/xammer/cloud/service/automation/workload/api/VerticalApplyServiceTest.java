@@ -1225,6 +1225,149 @@ class VerticalApplyServiceTest {
         assertThat(refusal.field()).isEqualTo(field);
     }
 
+    // ---------------------------------------------------------------- Manual mode (Phase B)
+
+    private static final com.xammer.cloud.service.automation.workload.ActionTrigger AUTO_TRIGGER =
+            com.xammer.cloud.service.automation.workload.ActionTrigger.AUTO;
+
+    private void givenDryRunProof() {
+        when(executor.submit(any(), any(), any())).thenReturn(ActionSubmission.accepted("ignored"));
+        when(executor.proof(anyString())).thenReturn(Optional.of(new ResizeProof(
+                ResizeProof.Outcome.DRY_RUN, "Dry run: no patch was sent to the cluster.", false,
+                List.of(new ResizeProof.ContainerResult("api", ResizeProof.ContainerState.DRY_RUN,
+                        null, new ResourceEnvelope(25, 25, 262_144_000L, 262_144_000L), false)),
+                List.of())));
+    }
+
+    private VerticalApplyService serviceWithMode(boolean autonomous) {
+        com.xammer.cloud.service.automation.proposal.ApprovalModeReader reader =
+                mock(com.xammer.cloud.service.automation.proposal.ApprovalModeReader.class);
+        when(reader.isAutonomous(any(Long.class))).thenReturn(autonomous);
+        VerticalApplyService service = service();
+        service.setApprovalModeReader(reader);
+        return service;
+    }
+
+    @Test
+    @DisplayName("an AUTO apply on a cluster whose stored mode is not AUTONOMOUS is refused MANUAL_MODE before anything is read")
+    void anAutoApplyIsRefusedOnAManualCluster() {
+        VerticalApplyService.ApplyRefusedException refusal = catchRefusal(() ->
+                serviceWithMode(false).apply(principal(), readWriteAccount(), TARGET, REF, body(false), AUTO_TRIGGER));
+        assertThat(refusal.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(refusal.code()).isEqualTo("MANUAL_MODE");
+        verifyNoInteractions(inventory, executor);
+        verify(actionRecorder, never()).recordRefusal(any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("the same AUTO apply proceeds on an AUTONOMOUS cluster")
+    void anAutoApplyProceedsOnAnAutonomousCluster() {
+        givenDryRunProof();
+        ApplyResponseDto response = serviceWithMode(true).apply(principal(), readWriteAccount(), TARGET, REF,
+                body(true), AUTO_TRIGGER);
+        assertThat(response.state()).isEqualTo("ACCEPTED");
+    }
+
+    @Test
+    @DisplayName("APPROVED and PROPOSAL applies are not subject to the AUTO mode guard (they run the full gate chain themselves)")
+    void approvedAndProposalTriggersAreNotBlockedByTheModeGuard() {
+        givenDryRunProof();
+        for (com.xammer.cloud.service.automation.workload.ActionTrigger trigger : List.of(
+                com.xammer.cloud.service.automation.workload.ActionTrigger.APPROVED,
+                com.xammer.cloud.service.automation.workload.ActionTrigger.PROPOSAL)) {
+            ApplyResponseDto response = serviceWithMode(false).apply(principal(), readWriteAccount(), TARGET, REF,
+                    body(true), trigger);
+            assertThat(response.state()).as(trigger.name()).isEqualTo("ACCEPTED");
+        }
+    }
+
+    @Test
+    @DisplayName("recordsRefusal: a user's MANUAL or APPROVED refusal is recorded; AUTO, PROPOSAL and DEMO are not")
+    void recordsRefusalTruthTable() {
+        com.xammer.cloud.service.automation.workload.ActionTrigger[] all =
+                com.xammer.cloud.service.automation.workload.ActionTrigger.values();
+        for (com.xammer.cloud.service.automation.workload.ActionTrigger t : all) {
+            boolean expected = t == com.xammer.cloud.service.automation.workload.ActionTrigger.MANUAL
+                    || t == com.xammer.cloud.service.automation.workload.ActionTrigger.APPROVED;
+            assertThat(VerticalApplyService.recordsRefusal(t, "K8S_CONTROLLER_NOT_READY")).as(t.name()).isEqualTo(expected);
+        }
+        assertThat(VerticalApplyService.recordsRefusal(null, "K8S_CONTROLLER_NOT_READY")).isTrue();
+        assertThat(VerticalApplyService.recordsRefusal(com.xammer.cloud.service.automation.workload.ActionTrigger.APPROVED,
+                "K8S_DEMO")).isFalse();
+    }
+
+    @Test
+    @DisplayName("a PROPOSAL probe records no attempt, so a 15-minute cycle does not flood the activity log; a MANUAL dry run still does")
+    void aProposalProbeRecordsNoAttempt() {
+        givenDryRunProof();
+        service().apply(principal(), readWriteAccount(), TARGET, REF, body(true),
+                com.xammer.cloud.service.automation.workload.ActionTrigger.PROPOSAL);
+        verify(actionRecorder, never()).recordAttempt(any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), any());
+
+        service().apply(principal(), readWriteAccount(), TARGET, REF, body(true));
+        verify(actionRecorder).recordAttempt(any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("an APPROVED refusal is recorded in the activity log like a MANUAL one")
+    void anApprovedRefusalIsRecorded() {
+        when(writePermission.decide(any(), any()))
+                .thenReturn(new AutomationWritePermission.Decision(false, null,
+                        AutomationWritePermission.Detail.ROLE, "Refused", "K8S_NO_USER_PERMISSION"));
+        catchRefusal(() -> service().apply(principal(), readWriteAccount(), TARGET, REF, body(true),
+                com.xammer.cloud.service.automation.workload.ActionTrigger.APPROVED));
+        verify(actionRecorder).recordRefusal(any(), any(), any(),
+                org.mockito.ArgumentMatchers.eq(com.xammer.cloud.service.automation.workload.ActionTrigger.APPROVED),
+                org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a live resource set that no longer matches what was approved is refused PROPOSAL_STALE with nothing sent")
+    void aStaleApprovalIsRefusedBeforeAnyPatch() {
+        PreApplyCheck changed = PreApplyCheck.currentMatches(
+                List.of(new PreApplyCheck.Expected("api", 500, 1000, 1024L, 1024L)));
+        VerticalApplyService.ApplyRefusedException refusal = catchRefusal(() -> service().apply(principal(),
+                readWriteAccount(), TARGET, REF, body(false),
+                com.xammer.cloud.service.automation.workload.ActionTrigger.APPROVED, changed));
+        assertThat(refusal.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(refusal.code()).isEqualTo(PreApplyCheck.STALE_CODE);
+        verify(executor, never()).submit(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a container missing live, or an extra one live, is stale; an unchanged set proceeds to the full chain")
+    void thePreApplyCheckComparesTheWholeContainerSetByName() {
+        PreApplyCheck extraExpected = PreApplyCheck.currentMatches(List.of(
+                new PreApplyCheck.Expected("api", 1000, 1000, 1024L, 1024L),
+                new PreApplyCheck.Expected("sidecar", 10, 10, 16L, 16L)));
+        assertThat(catchRefusal(() -> service().apply(principal(), readWriteAccount(), TARGET, REF, body(true),
+                com.xammer.cloud.service.automation.workload.ActionTrigger.APPROVED, extraExpected)).code())
+                .isEqualTo(PreApplyCheck.STALE_CODE);
+
+        PreApplyCheck unchanged = PreApplyCheck.currentMatches(
+                List.of(new PreApplyCheck.Expected("api", 1000, 1000, 1024L, 1024L)));
+        givenDryRunProof();
+        assertThat(service().apply(principal(), readWriteAccount(), TARGET, REF, body(true),
+                com.xammer.cloud.service.automation.workload.ActionTrigger.APPROVED, unchanged).state())
+                .isEqualTo("ACCEPTED");
+    }
+
+    @Test
+    @DisplayName("a memory request that is not a whole MiB does not look stale to itself (MiB-ceil mapping)")
+    void aFractionalMibRequestIsComparedInTheProposersUnit() {
+        // 1 GiB + 1 byte reads as 1025 MiB (ceil), the value the proposer stored in params.current
+        givenInventory(workload(new ResourceEnvelope(1000, 1000, 1_073_741_825L, 1_073_741_825L)));
+        PreApplyCheck check = PreApplyCheck.currentMatches(
+                List.of(new PreApplyCheck.Expected("api", 1000, 1000, 1025L, 1025L)));
+        givenDryRunProof();
+        assertThat(service().apply(principal(), readWriteAccount(), TARGET, REF, body(true),
+                com.xammer.cloud.service.automation.workload.ActionTrigger.APPROVED, check).state())
+                .isEqualTo("ACCEPTED");
+    }
+
     private VerticalApplyService.ApplyRefusedException refuse(ClientUserDetails principal,
                                                               CloudAccount account,
                                                               ApplyRequestDto request) {

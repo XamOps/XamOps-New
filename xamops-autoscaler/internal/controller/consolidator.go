@@ -86,7 +86,28 @@ func (c *Consolidator) Execute(
 	budget *drain.Budget,
 	now time.Time,
 ) (ConsolidationResult, error) {
-	runID := fmt.Sprintf("consolidation-%d", now.UTC().Unix())
+	return c.ExecuteWithRunID(ctx, in, plan, mode, opts, pol, budget, now, "")
+}
+
+// ExecuteWithRunID is Execute with a caller-chosen run id. Manual mode passes
+// "proposal-<id>" so the drained node's xamops.io/drain-operation annotation, every
+// action record's operation id and the run record's RunID carry the one idempotency
+// key reconcile uses after a crash. An empty runID falls back to
+// "consolidation-<unix>", which is what Execute always used.
+func (c *Consolidator) ExecuteWithRunID(
+	ctx context.Context,
+	in consolidation.Input,
+	plan consolidation.Plan,
+	mode gate.Mode,
+	opts fitsim.Options,
+	pol policy.ConsolidationPolicy,
+	budget *drain.Budget,
+	now time.Time,
+	runID string,
+) (ConsolidationResult, error) {
+	if runID == "" {
+		runID = fmt.Sprintf("consolidation-%d", now.UTC().Unix())
+	}
 	run := &consolidation.ConsolidationRunDto{
 		SchemaVersion: consolidation.RunSchemaVersion,
 		RunID:         runID,

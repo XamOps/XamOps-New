@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -35,6 +36,11 @@ import (
 )
 
 const version = "1.0.0-automation"
+
+// isLeader mirrors the leader-election state for the heartbeat: only the replica that
+// runs the control loop may advertise Manual-mode features, so a standby sharing the
+// key can never make the backend believe a dead leader is alive.
+var isLeader atomic.Bool
 
 func main() {
 	log.Printf("Starting XamOps Automation Agent %s", version)
@@ -81,6 +87,7 @@ func main() {
 	// ── Shared components ────────────────────────────────────────────────
 	policyClient := policy.NewClient(cfg.ServerURL, cfg.APIKey, cfg.ClusterName, cfg.CloudAccountID)
 	push := pusher.New(cfg.ServerURL, cfg.APIKey, cfg.ClusterName, cfg.CloudAccountID, cfg.MaxRetries, cfg.RetryDelay)
+	push.SetHeartbeatExtras(heartbeatExtras(cfg))
 
 	// Observability baseline (FEAT-001): one metric set for the whole process, served
 	// on :9090 /metrics; handles are passed into the control loop.
@@ -129,6 +136,7 @@ func main() {
 		// Single-replica / dev: run the loop directly as before.
 		log.Println("Leader election disabled — running the control loop directly")
 		mset.SetLeader(true)
+		isLeader.Store(true)
 		loopDone := make(chan struct{})
 		go func() {
 			defer close(loopDone)
@@ -165,6 +173,7 @@ func main() {
 	}
 	mset.SetLeaderIdentity(identity)
 	mset.SetLeader(false)
+	isLeader.Store(false)
 
 	lock := &resourcelock.LeaseLock{
 		LeaseMeta:  metav1.ObjectMeta{Name: leaderElectionLeaseName, Namespace: cfg.PodNamespace},
@@ -188,26 +197,35 @@ func main() {
 		RenewDeadline:   renewDeadline,
 		RetryPeriod:     retryPeriod,
 		Name:            leaderElectionLeaseName,
-		Callbacks: leaderelection.LeaderCallbacks{
-			OnStartedLeading: func(c context.Context) {
-				log.Printf("Became leader (%s) — starting the control loop", identity)
-				mset.SetLeader(true)
-				lc.start(c) // runs the loop ONLY while leading
-			},
-			OnStoppedLeading: func() {
-				log.Printf("Lost/released leadership (%s) — control loop stopping; serving health + heartbeat + /metrics only", identity)
-				mset.SetLeader(false)
-				lc.stop()
-			},
-			OnNewLeader: func(leader string) {
-				if leader != identity {
-					log.Printf("Standby — current leader is %s", leader)
-				}
-			},
-		},
+		Callbacks:       leadershipCallbacks(identity, mset, lc),
 	})
 	cancel()
 	log.Println("Automation agent stopped")
+}
+
+// leadershipCallbacks are the leader-election callbacks. They are a function so a unit
+// test can drive them and assert that isLeader (the heartbeat's leader flag) flips with
+// the Lease.
+func leadershipCallbacks(identity string, mset *metrics.Set, lc *loopController) leaderelection.LeaderCallbacks {
+	return leaderelection.LeaderCallbacks{
+		OnStartedLeading: func(c context.Context) {
+			log.Printf("Became leader (%s) — starting the control loop", identity)
+			mset.SetLeader(true)
+			isLeader.Store(true)
+			lc.start(c) // runs the loop ONLY while leading
+		},
+		OnStoppedLeading: func() {
+			log.Printf("Lost/released leadership (%s) — control loop stopping; serving health + heartbeat + /metrics only", identity)
+			mset.SetLeader(false)
+			isLeader.Store(false)
+			lc.stop()
+		},
+		OnNewLeader: func(leader string) {
+			if leader != identity {
+				log.Printf("Standby — current leader is %s", leader)
+			}
+		},
+	}
 }
 
 // loopController starts/stops a leader-gated loop. It is the small testable unit
@@ -493,6 +511,16 @@ func runCycle(
 	// 'policy-fetched' substring is relied on by the node-regression — keep it.
 	log.Printf("policy-fetched: mode=%s", bundle.AutoscalerMode)
 
+	// Manual mode: deliver queued outcomes and resolve DISPATCHED rows BEFORE the
+	// disabled early return. It does HTTP and node reads only (no cluster write), so
+	// it is safe while paused, and a pause must not strand an outcome. Independent of
+	// approvalMode and autoscalerMode; guarded only by ENABLE_MANUAL_APPROVAL.
+	var rt *manualRT
+	if cfg.EnableManualApproval {
+		rt = newManualRT(cfg, mset, k8s)
+		flushAndReconcile(ctx, rt)
+	}
+
 	if bundle.AutoscalerMode == "disabled" {
 		log.Println("Automation mode=disabled — idle this cycle")
 		return
@@ -530,9 +558,11 @@ func runCycle(
 	var batches []pusher.Batch
 	acts := &cycleActions{mset: mset}
 	var drainReports []controller.DrainProgressReport
+	var mi manualInputs // look-only results Manual mode proposes from
 
-	// Orphaned drains from an earlier process are handled before anything else.
-	orphanRecs := exec.RecoverOrphans(ctx, d.nodeActionMode())
+	// Orphaned drains from an earlier process are handled before anything else. A
+	// Manual cluster recovers at the strongest of the served and the intent mode.
+	orphanRecs := exec.RecoverOrphans(ctx, recoveryMode(cfg, bundle, d))
 	acts.add("scale-in", 1, orphanRecs...)
 	// xamops_orphans_recovered_total — count the orphaned drains this cycle recovered.
 	mset.AddOrphansRecovered(drain.CountRecovered(orphanRecs))
@@ -583,6 +613,7 @@ func runCycle(
 		}
 		acts.add("scale-in", 1, recs...)
 		if result != nil {
+			mi.Evictor = result
 			drainReports = append(drainReports, result.DrainReports...)
 		}
 		if result != nil && len(result.CandidateNodes) > 0 {
@@ -670,6 +701,7 @@ func runCycle(
 			log.Printf("ERROR: node-optimizer analyse: %v", err)
 		}
 		if report != nil {
+			mi.Report = report
 			report.DryRun = cfg.DryRun
 			dec := d.Interruption
 			report.InterruptionHandling = &dec
@@ -753,6 +785,8 @@ func runCycle(
 			cancel()
 		} else {
 			plan := consolidation.Analyze(in, copts, now)
+			inCopy := in
+			mi.ConsInput, mi.ConsPlan = &inCopy, &plan
 			batches = append(batches, pusher.Batch{
 				Collector:   "autoscaling-consolidation-plan",
 				Items:       []interface{}{plan},
@@ -784,6 +818,17 @@ func runCycle(
 				}
 			}
 			cancel()
+		}
+	}
+
+	// ── 8. Manual mode: propose, and execute at most one approved action ─────────
+	if bundle.IsManual() {
+		if cfg.EnableManualApproval && rt != nil {
+			rt.planner, rt.exec, rt.budget, rt.acts = planner, exec, budget, acts
+			rt.drainReports, rt.batches, rt.orphanRecs = &drainReports, &batches, len(orphanRecs)
+			runManual(ctx, rt, bundle, mi)
+		} else if manualProc.warnFlagOffOnce() {
+			log.Println("Manual cluster but ENABLE_MANUAL_APPROVAL=false: not proposing")
 		}
 	}
 

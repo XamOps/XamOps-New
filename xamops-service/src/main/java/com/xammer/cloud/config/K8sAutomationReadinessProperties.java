@@ -31,6 +31,7 @@ public class K8sAutomationReadinessProperties {
     private boolean nodeTemplates = false;
     private boolean spotInterruptionActions = false;
     private boolean consolidationActions = false;
+    private boolean manualApproval = false;
 
     /** @return whether the key is ready; unknown keys are never ready. */
     public boolean isReady(String kebabKey) {
@@ -49,6 +50,7 @@ public class K8sAutomationReadinessProperties {
             case NODE_TEMPLATES -> nodeTemplates;
             case SPOT_INTERRUPTION_ACTIONS -> spotInterruptionActions;
             case CONSOLIDATION_ACTIONS -> consolidationActions;
+            case MANUAL_APPROVAL -> manualApproval;
         };
     }
 
@@ -89,4 +91,6 @@ public class K8sAutomationReadinessProperties {
 
     public boolean isConsolidationActions() { return consolidationActions; }
     public void setConsolidationActions(boolean v) { this.consolidationActions = v; }
+    public boolean isManualApproval() { return manualApproval; }
+    public void setManualApproval(boolean v) { this.manualApproval = v; }
 }

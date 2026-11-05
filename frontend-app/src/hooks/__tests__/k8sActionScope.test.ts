@@ -17,9 +17,9 @@ import { navAccessFor } from '../useK8sNavAccess';
 // ── Scope partition (BP-9 / OQ-6): the 17 ACTION_IDS split 12 + 5 ──────────────
 
 describe('action scope partition', () => {
-  it('splits the 17 ACTION_IDS into 12 node-agent + 5 account scope', () => {
-    expect(NODE_AGENT_SCOPE_ACTIONS).toHaveLength(12);
-    expect(ACCOUNT_SCOPE_ACTIONS).toHaveLength(5);
+  it('splits the 19 ACTION_IDS into 13 node-agent + 6 account scope', () => {
+    expect(NODE_AGENT_SCOPE_ACTIONS).toHaveLength(13);
+    expect(ACCOUNT_SCOPE_ACTIONS).toHaveLength(6);
   });
 
   it('is exhaustive and disjoint — every action is in exactly one scope', () => {

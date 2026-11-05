@@ -27,6 +27,8 @@ import com.xammer.cloud.service.EksAutoscalingService;
 import com.xammer.cloud.service.K8sAutomationPolicyNormalizer;
 import com.xammer.cloud.service.OpenObserveService;
 import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.service.automation.proposal.ManualBookkeeping;
+import com.xammer.cloud.service.automation.proposal.ManualModeServePolicy;
 import com.xammer.cloud.service.sre.SreInvestigationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -93,6 +95,16 @@ public class AgentController {
     private final K8sAutomationPolicyNormalizer policyNormalizer;
     private final K8sAutomationAccessService automationAccessService;
     private final DbOpsFeatureFlags dbOpsFeatureFlags;
+
+    /** Manual mode collaborators: optional so existing constructions keep working; always wired by Spring. */
+    private ManualModeServePolicy manualModeServePolicy;
+    private ManualBookkeeping manualBookkeeping;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setManualSupport(ManualModeServePolicy manualModeServePolicy, ManualBookkeeping manualBookkeeping) {
+        this.manualModeServePolicy = manualModeServePolicy;
+        this.manualBookkeeping = manualBookkeeping;
+    }
 
     public AgentController(
             AgentIngestService agentIngestService,
@@ -357,6 +369,11 @@ public class AgentController {
         // identity. Nothing here acts on the cluster.
         applyAutomationIdentity(clusterConfig, principal, agentVersion, body);
         clusterConfigRepository.save(clusterConfig);
+        // Manual mode (design 3.8): a leader automation beat advertises features/drainTimeoutSeconds.
+        // A separate @Modifying statement: the save above never writes those columns (updatable=false).
+        if (manualBookkeeping != null) {
+            manualBookkeeping.recordHeartbeat(clusterConfig, principal, body);
+        }
 
         AgentEvent event = new AgentEvent(clusterConfig.getId(), "checkin");
         event.setAgentVersion(agentVersion);
@@ -833,9 +850,14 @@ public class AgentController {
                 .orElse(null);
         boolean ownerAllows = automationAccessService.agentPolicyBlock(config) == null;
         AutomationPolicyBundle bundle = policyNormalizer.forAgent(storedPolicy, config.getId(), ownerAllows);
+        // Manual mode (design 3.3 layer 1): an AUTONOMOUS cluster is served exactly the bytes the
+        // normalizer produced; a MANUAL one is served the neutered copy plus approvalMode/manualIntent.
+        String served = manualModeServePolicy != null
+                ? manualModeServePolicy.serve(config, principal, bundle)
+                : policyNormalizer.toJson(bundle);
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(policyNormalizer.toJson(bundle));
+                .body(served);
     }
 
     // =========================================================================

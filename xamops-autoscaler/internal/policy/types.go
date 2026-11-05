@@ -1,6 +1,10 @@
 package policy
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+)
 
 // PolicyBundle mirrors EksAutoscalingService.PolicyBundle on the backend.
 // The autoscaler reads this from /api/v1/agent/autoscaling-policy to know
@@ -17,6 +21,67 @@ type PolicyBundle struct {
 	Rebalancer               RebalancerConfig         `json:"rebalancer"`
 	ConsolidationPolicy      ConsolidationPolicy      `json:"consolidationPolicy"`
 	SafetyGuards             SafetyGuards             `json:"safetyGuards"`
+
+	// ApprovalMode is "autonomous" (default, also when the backend omits the field) or
+	// "manual". In manual the backend serves every acting section neutered and carries
+	// the user's configured sections in ManualIntent; see Intent().
+	ApprovalMode string `json:"approvalMode"`
+	// ManualIntent holds the four acting sections as the user configured them. It is
+	// present only when ApprovalMode is "manual".
+	ManualIntent *ManualIntent `json:"manualIntent,omitempty"`
+}
+
+// Approval modes.
+const (
+	ApprovalAutonomous = "autonomous"
+	ApprovalManual     = "manual"
+)
+
+// ManualIntent is the user's configured acting policy while a cluster is Manual. Each
+// section is kept raw so Intent() can decode it ONTO the neutered served section: a
+// field the intent omits keeps its neutered value, never a zero value that could be
+// more permissive.
+type ManualIntent struct {
+	EvictorPolicy       json.RawMessage `json:"evictorPolicy,omitempty"`
+	NodeOptimizerPolicy json.RawMessage `json:"nodeOptimizerPolicy,omitempty"`
+	Rebalancer          json.RawMessage `json:"rebalancer,omitempty"`
+	ConsolidationPolicy json.RawMessage `json:"consolidationPolicy,omitempty"`
+}
+
+// decodeOnto decodes raw onto a copy of base and returns it. Absent, null or
+// undecodable input returns base unchanged (never a half-applied section).
+func decodeOnto[T any](name string, raw json.RawMessage, base T) T {
+	if len(raw) == 0 || string(raw) == "null" {
+		return base
+	}
+	scratch := base
+	if err := json.Unmarshal(raw, &scratch); err != nil {
+		log.Printf("WARN: manualIntent.%s undecodable (%v) — keeping the neutered value", name, err)
+		return base
+	}
+	return scratch
+}
+
+// IsManual reports whether the served bundle is for a Manual-approval cluster.
+func (b PolicyBundle) IsManual() bool { return b.ApprovalMode == ApprovalManual }
+
+// Intent returns a copy of the served bundle with each present intent section decoded
+// onto a copy of the corresponding served (neutered) section. The gate functions run
+// over this copy to answer "what would the user's configuration allow", which is the
+// ceiling for proposals and for approved execution. A section that is absent or
+// undecodable keeps the neutered served value (fail closed). The returned bundle has
+// no ManualIntent of its own.
+func (b PolicyBundle) Intent() PolicyBundle {
+	out := b
+	out.ManualIntent = nil
+	if b.ManualIntent == nil {
+		return out
+	}
+	out.EvictorPolicy = decodeOnto("evictorPolicy", b.ManualIntent.EvictorPolicy, out.EvictorPolicy)
+	out.NodeOptimizerPolicy = decodeOnto("nodeOptimizerPolicy", b.ManualIntent.NodeOptimizerPolicy, out.NodeOptimizerPolicy)
+	out.Rebalancer = decodeOnto("rebalancer", b.ManualIntent.Rebalancer, out.Rebalancer)
+	out.ConsolidationPolicy = decodeOnto("consolidationPolicy", b.ManualIntent.ConsolidationPolicy, out.ConsolidationPolicy)
+	return out
 }
 
 // ConsolidationPolicy controls the consolidation controller (EMPTY + DRAIN moves
@@ -327,6 +392,7 @@ func (b *PolicyBundle) Normalize() []string {
 func DefaultBundle() PolicyBundle {
 	return PolicyBundle{
 		AutoscalerMode: "disabled",
+		ApprovalMode:   ApprovalAutonomous,
 		EvictorPolicy: EvictorPolicy{
 			Enabled:                  false,
 			AnalyseOnly:              true, // safe default — recommendations only

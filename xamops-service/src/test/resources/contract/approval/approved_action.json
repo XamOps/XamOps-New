@@ -1,0 +1,28 @@
+{
+  "proposalId": "b3f1c2d0-7e4a-4c1b-9d2e-5a6f7b8c9d0e",
+  "version": 3,
+  "actionType": "NODE_DRAIN",
+  "operation": "DRAIN",
+  "originController": "node-optimizer",
+  "dedupeKey": "NODE_DRAIN:DRAIN:node-optimizer:ip-10-0-1-5.ec2.internal",
+  "target": {
+    "kind": "NODE",
+    "name": "ip-10-0-1-5.ec2.internal",
+    "uid": "7c1e5f0a-2b6d-4a41-9d3e-0f8b1c2d3e4f",
+    "providerId": "aws:///us-east-1a/i-0abc123def4567890",
+    "nodeGroup": "ng-1"
+  },
+  "params": {
+    "trigger": "idle-drain",
+    "unschedulableAtProposal": false,
+    "providerId": "aws:///us-east-1a/i-0abc123def4567890",
+    "nodeGroup": "ng-1"
+  },
+  "planFingerprint": "sha256:9f2c1e5a7b3d4c6e8a0b1d2f3a4c5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f",
+  "firstSeenAt": "2026-11-01T09:20:00Z",
+  "dwellSeconds": null,
+  "approvedBy": { "id": 42, "name": "A. Admin" },
+  "approvedAt": "2026-11-01T10:02:11Z",
+  "approvedUntil": "2026-11-01T10:17:11Z",
+  "dryRunAtProposal": false
+}

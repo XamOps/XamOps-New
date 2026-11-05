@@ -582,8 +582,62 @@ public class EksAutoscalingService {
                 .orElse(null);
     }
 
+    /**
+     * Reads the stored bundle as the starting point of a write, under a row lock on the
+     * {@code autoscaling-policy} row (design 3.9 rule 4) so a user save and the rebalance-request
+     * consume serialise. Every caller is a {@code @Transactional} public method.
+     */
     private AutomationPolicyBundle readForWrite(KubernetesClusterConfig config) {
-        return normalizer.readForWrite(storedPolicyJson(config.getId()), config.getId());
+        String stored = agentDataCacheRepository
+                .findForUpdateByClusterConfigIdAndDataType(config.getId(), DT_POLICY)
+                .map(AgentDataCache::getDataJson)
+                .orElse(null);
+        return normalizer.readForWrite(stored, config.getId());
+    }
+
+    /**
+     * The stored node automation scope ({@code full|scoped|disabled}) without taking the policy-row
+     * lock, parsed the same way {@code readForWrite} does. A missing or unparseable bundle reads as
+     * {@code "disabled"} (fail closed: the agent idles on it too).
+     */
+    public String storedAutoscalerMode(KubernetesClusterConfig config) {
+        if (config == null || config.getId() == null) {
+            return "disabled";
+        }
+        String stored = storedPolicyJson(config.getId());
+        if (stored == null) {
+            return "disabled";
+        }
+        try {
+            String mode = normalizer.readForWrite(stored, config.getId()).getAutoscalerMode();
+            return mode == null ? "disabled" : mode;
+        } catch (RuntimeException e) {
+            return "disabled";
+        }
+    }
+
+    /**
+     * Consumes a rebalance request after Manual mode turned it into per-node proposals: if the stored
+     * {@code rebalancer.status} is still {@code "running"} it is written back to {@code "idle"}, and
+     * only that field. Joins the caller's transaction; takes the policy-row lock through
+     * {@link #readForWrite} so it cannot lose a concurrent user save (nor the reverse).
+     *
+     * @return true when the request was consumed, false when it was already reset (no-op)
+     */
+    @Transactional
+    public boolean consumeRebalanceRequest(KubernetesClusterConfig config) {
+        AutomationPolicyBundle bundle = readForWrite(config);
+        if (bundle.getRebalancer() == null || !"running".equals(bundle.getRebalancer().getStatus())) {
+            return false;
+        }
+        bundle.getRebalancer().setStatus("idle");
+        writePolicyBundle(config.getId(), bundle);
+        return true;
+    }
+
+    /** Records a configuration change in the automation Activity feed (public for Manual-mode services). */
+    public void recordConfigChange(Long clusterConfigId, String details) {
+        logEvent(clusterConfigId, "autoscaling_config_change", details);
     }
 
     /** Persists the bundle normalized: every stored bundle is complete and safe. */

@@ -60,6 +60,9 @@ class EksAutoscalingServiceNodeFleetTest {
         AgentDataCacheRepository cacheRepository = mock(AgentDataCacheRepository.class);
         when(cacheRepository.findByClusterConfigIdAndDataType(anyLong(), anyString()))
                 .thenAnswer(inv -> Optional.ofNullable(cache.get(inv.getArgument(0) + "|" + inv.getArgument(1))));
+        // Writes read the policy row through the locking variant (Manual mode, design 3.9 rule 4).
+        when(cacheRepository.findForUpdateByClusterConfigIdAndDataType(anyLong(), anyString()))
+                .thenAnswer(inv -> Optional.ofNullable(cache.get(inv.getArgument(0) + "|" + inv.getArgument(1))));
         service = new EksAutoscalingService(mock(KubernetesClusterConfigRepository.class), cacheRepository,
                 mock(AgentEventRepository.class), mock(EksDashboardCacheRepository.class),
                 mock(CloudAccountRepository.class), new K8sAutomationPolicyNormalizer(new K8sAutomationReadinessProperties()),

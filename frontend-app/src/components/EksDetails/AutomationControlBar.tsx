@@ -9,6 +9,7 @@
  * accepted the write, and "Acting" only when the agent said so.
  */
 import { useId, useState } from 'react';
+import { SWITCHING_LINE, UNKNOWN_EFFECTIVE_LINE, unavailableLine } from './sections/automation/pending/proposalCopy';
 import { useNodeAutomationControl } from '../../hooks/useNodeAutomationControl';
 import { canPersistPauseMarker } from '../../utils/k8sPauseMarker';
 import { ConfirmDialog } from '../CloudK8s/shared/ConfirmDialog';
@@ -24,6 +25,12 @@ export const PAUSE_SCOPE_TEXT =
 export const MANUAL_COMING_TEXT =
   "Manual approval isn't available yet. XamOps will recommend and wait for you to approve each action. "
   + 'Until then it either acts within the gate (Autonomous) or only recommends.';
+export const MANUAL_CONFIRM_TEXT =
+  'Manual mode: XamOps will propose each action and wait for your approval. The change takes effect when the automation agent next checks in, usually within a minute. '
+  + 'Spot-interruption handling is paused while a cluster is in Manual.';
+export const AUTONOMOUS_CONFIRM_TEXT = (waiting: number | null): string =>
+  `${waiting === null ? 'Any waiting proposals' : waiting === 1 ? '1 waiting proposal' : `${waiting} waiting proposals`} will be marked stale. `
+  + 'The cluster acts on its own again, within the gate, when the automation agent next checks in.';
 export const OFF_NOTE = "Mode is disabled. This page can't turn it on; node automation is enabled outside the UI.";
 export const NOT_ENABLED_NOTE = "Node automation isn't turned on. This page can't turn it on.";
 export const PAUSE_SENT_WORD = 'Pause sent';
@@ -42,15 +49,17 @@ export interface AutomationControlBarProps {
   workloadsHref: string;
   /** `route.hrefFor('automation','node-autoscaler')`. */
   nodeAutoscalerHref: string;
+  /** `route.hrefFor('automation','pending-actions')`; the Manual queue. Optional so older callers still render. */
+  pendingActionsHref?: string;
 }
 
 const primary = `rounded-[6px] bg-[rgba(0,0,0,0.88)] px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-black dark:bg-[rgba(255,255,255,0.92)] dark:text-[rgba(0,0,0,0.88)] ${FOCUS} focus-visible:ring-offset-2`;
 const segment = `px-3 py-1.5 text-[12px] font-semibold ${FOCUS}`;
 
-export function AutomationControlBar({ clusterName, accountId, workloadsHref, nodeAutoscalerHref }: AutomationControlBarProps) {
+export function AutomationControlBar({ clusterName, accountId, workloadsHref, nodeAutoscalerHref, pendingActionsHref }: AutomationControlBarProps) {
   const ctl = useNodeAutomationControl({ clusterName, accountId });
   const { view, capability, pending, error, marker } = ctl;
-  const [dialog, setDialog] = useState<'pause' | 'resume' | null>(null);
+  const [dialog, setDialog] = useState<'pause' | 'resume' | 'manual' | 'autonomous' | null>(null);
   const [storageBlocked, setStorageBlocked] = useState(false);
   const [manualNote, setManualNote] = useState(false);
   const noteId = useId();
@@ -70,6 +79,7 @@ export function AutomationControlBar({ clusterName, accountId, workloadsHref, no
   let word = 'Unknown';
   let note: string | null = null;
   let showNodeLink = false;
+  let showPendingLink = false;
   const settling = view.stillActingAfterPause;
   const stale = view.lastRunPredatesPause;
   const pausedOn = marker ? new Date(marker.pausedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : null;
@@ -101,7 +111,24 @@ export function AutomationControlBar({ clusterName, accountId, workloadsHref, no
       break;
     }
     case 'autonomous':
-      if (view.acting === 'acting') { tone = 'good'; word = 'Acting'; }
+      if (view.storedApproval === 'MANUAL' || view.approval === 'switching') {
+        // Manual mode (Phase B): the agent proposes and waits. The word follows the agent's own
+        // confirmation (view.approval), the same tri-state as "Acting".
+        if (view.approval === 'switching') {
+          tone = 'warn';
+          word = view.storedApproval === 'MANUAL' ? 'Switching to Manual' : 'Switching to Autonomous';
+          note = view.storedApproval === 'MANUAL' ? SWITCHING_LINE : 'Waiting for the automation agent to confirm. It may still wait for approvals until it does.';
+        } else if (view.approval === 'manual') {
+          tone = 'info';
+          word = 'Manual';
+          note = 'XamOps proposes each action and waits for your approval.';
+          showPendingLink = true;
+        } else {
+          word = 'Manual, not confirmed';
+          note = UNKNOWN_EFFECTIVE_LINE;
+          showPendingLink = true;
+        }
+      } else if (view.acting === 'acting') { tone = 'good'; word = 'Acting'; }
       else if (view.acting === 'ready-to-enable') {
         tone = 'warn'; word = 'Ready to enable';
         note = 'Configured but not acting in this environment (DRY_RUN or controller off).';
@@ -118,9 +145,14 @@ export function AutomationControlBar({ clusterName, accountId, workloadsHref, no
   }
 
   // ── Toggle ──────────────────────────────────────────────────────────────────
-  const autonomousPressed = view.kind === 'autonomous';
+  const manualPressed = view.kind === 'autonomous' && view.storedApproval === 'MANUAL';
+  const autonomousPressed = view.kind === 'autonomous' && !manualPressed;
   const fromPaused = view.kind === 'paused';
-  const autonomousDisabled = !autonomousPressed && !(fromPaused && capability.allowed);
+  const autonomousDisabled = !autonomousPressed && !(fromPaused && capability.allowed) && !(manualPressed && capability.allowed);
+  // Manual is live only when the server says it can be switched on (or the cluster already is Manual).
+  const manualEnabled = view.kind === 'autonomous' && (view.manualAvailable || manualPressed);
+  const manualBlocked = manualEnabled && !capability.allowed;
+  const manualUnavailableText = view.manualReason || view.manualAvailable ? unavailableLine(view.manualReason) : MANUAL_COMING_TEXT;
   const autonomousReason = fromPaused ? undefined : view.kind === 'off' ? OFF_NOTE : note ?? undefined;
 
   const openPause = () => {
@@ -135,6 +167,19 @@ export function AutomationControlBar({ clusterName, accountId, workloadsHref, no
   const onAutonomous = () => {
     if (autonomousPressed) return;
     if (fromPaused && capability.allowed) openResume();
+    else if (manualPressed && capability.allowed) {
+      ctl.clearError();
+      setDialog('autonomous');
+    }
+  };
+  const onManual = () => {
+    if (!manualEnabled) {
+      setManualNote(true);
+      return;
+    }
+    if (manualPressed || !capability.allowed) return;
+    ctl.clearError();
+    setDialog('manual');
   };
 
   const modeWord = MODE_WORD[view.mode ?? ''] ?? 'the previous mode';
@@ -164,6 +209,14 @@ export function AutomationControlBar({ clusterName, accountId, workloadsHref, no
                   <InPageLink to={nodeAutoscalerHref}>{VIEW_NODE_AUTOMATION}</InPageLink>
                 </>
               )}
+              {showPendingLink && pendingActionsHref && (
+                <>
+                  {' '}
+                  <InPageLink to={pendingActionsHref}>
+                    {`Pending actions (${view.pendingProposals === null ? '—' : view.pendingProposals})`}
+                  </InPageLink>
+                </>
+              )}
             </p>
           )}
         </div>
@@ -183,15 +236,16 @@ export function AutomationControlBar({ clusterName, accountId, workloadsHref, no
             </button>
             <button
               type="button"
-              aria-pressed="false"
-              aria-disabled="true"
-              aria-describedby={manualId}
-              onClick={() => setManualNote(true)}
-              className={`${segment} border-l border-[rgba(0,0,0,0.12)] bg-white ${MUTED} cursor-not-allowed dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414]`}
+              aria-pressed={manualPressed}
+              aria-disabled={!manualEnabled || manualBlocked || undefined}
+              aria-describedby={manualEnabled ? (manualBlocked ? noteId : undefined) : manualId}
+              onClick={onManual}
+              title={manualEnabled ? 'Proposes each action and waits for your approval' : undefined}
+              className={`${segment} border-l border-[rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.16)] ${manualPressed ? 'bg-[rgba(0,0,0,0.88)] text-white dark:bg-[rgba(255,255,255,0.92)] dark:text-[rgba(0,0,0,0.88)]' : manualEnabled ? `bg-white ${INK} dark:bg-[#141414]` : `bg-white ${MUTED} dark:bg-[#141414]`} ${!manualEnabled || manualBlocked ? 'cursor-not-allowed' : ''}`}
             >
-              Manual <span className={`ml-1 text-[11px] font-normal ${FAINT}`}>Coming</span>
+              Manual{!manualEnabled && <span className={`ml-1 text-[11px] font-normal ${FAINT}`}>Coming</span>}
             </button>
-            <span id={manualId} className="sr-only">{MANUAL_COMING_TEXT}</span>
+            {!manualEnabled && <span id={manualId} className="sr-only">{manualUnavailableText}</span>}
           </div>
 
           {view.kind === 'autonomous' && (
@@ -248,7 +302,7 @@ export function AutomationControlBar({ clusterName, accountId, workloadsHref, no
 
       {manualNote && (
         <div role="status" className={`flex items-center gap-3 text-[12px] ${INK}`} data-testid="manual-note">
-          <span>{MANUAL_COMING_TEXT}</span>
+          <span>{manualUnavailableText}</span>
           <button type="button" onClick={() => setManualNote(false)} className={BUTTON}>Dismiss</button>
         </div>
       )}
@@ -297,6 +351,36 @@ export function AutomationControlBar({ clusterName, accountId, workloadsHref, no
             + 'The agent still acts only where its own switches, readiness and DRY_RUN allow.'}
         </p>
         {dialog === 'resume' && errorLine && <div className="mt-2">{errorLine}</div>}
+      </ConfirmDialog>
+      <ConfirmDialog
+        isOpen={dialog === 'manual'}
+        title={`Switch ${clusterName} to Manual?`}
+        confirmLabel="Switch to Manual"
+        pending={ctl.approvalPending}
+        onCancel={() => {
+          if (ctl.approvalPending) return;
+          setDialog(null);
+          ctl.clearError();
+        }}
+        onConfirm={() => { void ctl.switchApproval('MANUAL').then((ok) => { if (ok) setDialog(null); }); }}
+      >
+        <p>{MANUAL_CONFIRM_TEXT}</p>
+        {dialog === 'manual' && errorLine && <div className="mt-2">{errorLine}</div>}
+      </ConfirmDialog>
+      <ConfirmDialog
+        isOpen={dialog === 'autonomous'}
+        title={`Switch ${clusterName} back to Autonomous?`}
+        confirmLabel="Switch to Autonomous"
+        pending={ctl.approvalPending}
+        onCancel={() => {
+          if (ctl.approvalPending) return;
+          setDialog(null);
+          ctl.clearError();
+        }}
+        onConfirm={() => { void ctl.switchApproval('AUTONOMOUS').then((ok) => { if (ok) setDialog(null); }); }}
+      >
+        <p>{AUTONOMOUS_CONFIRM_TEXT(view.pendingProposals)}</p>
+        {dialog === 'autonomous' && errorLine && <div className="mt-2">{errorLine}</div>}
       </ConfirmDialog>
     </section>
   );

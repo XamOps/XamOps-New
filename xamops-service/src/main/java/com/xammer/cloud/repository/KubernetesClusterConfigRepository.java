@@ -1,13 +1,16 @@
 package com.xammer.cloud.repository;
 
 import com.xammer.cloud.domain.KubernetesClusterConfig;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -97,4 +100,36 @@ public interface KubernetesClusterConfigRepository extends JpaRepository<Kuberne
            nativeQuery = true)
     void lockAccountCluster(@Param("cloudAccountPk") Long cloudAccountPk,
                             @Param("clusterName") String clusterName);
+
+    // ===== Manual approval mode (Phase B) =====
+    //
+    // The only writers of the eight updatable=false columns on KubernetesClusterConfig (see the
+    // entity). Each is its own statement and must be called from a @Transactional service method;
+    // none is called from the agent heartbeat's wholesale save(config).
+
+    /** Clusters whose stored approval mode is the given value (the workload proposer's selector). */
+    List<KubernetesClusterConfig> findByAutomationApprovalMode(String automationApprovalMode);
+
+    /** The cluster row under a write lock: serialises proposal upserts, claims and mode changes. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM KubernetesClusterConfig c WHERE c.id = :id")
+    Optional<KubernetesClusterConfig> findByIdForUpdate(@Param("id") Long id);
+
+    @Modifying(flushAutomatically = true)
+    @Query("update KubernetesClusterConfig c set c.automationApprovalMode = :mode, "
+            + "c.approvalModeChangedAt = :at, c.approvalModeChangedBy = :by where c.id = :id")
+    int setApprovalMode(@Param("id") Long id, @Param("mode") String mode, @Param("at") Instant at,
+                        @Param("by") Long by);
+
+    @Modifying(flushAutomatically = true)
+    @Query("update KubernetesClusterConfig c set c.policyServedApprovalMode = :mode, "
+            + "c.policyServedAt = :at where c.id = :id")
+    int recordPolicyServed(@Param("id") Long id, @Param("mode") String mode, @Param("at") Instant at);
+
+    @Modifying(flushAutomatically = true)
+    @Query("update KubernetesClusterConfig c set c.automationAgentFeatures = :features, "
+            + "c.automationAgentFeaturesSeenAt = :at, c.automationAgentDrainTimeoutSeconds = :drainTimeout "
+            + "where c.id = :id")
+    int recordAgentFeatures(@Param("id") Long id, @Param("features") String features, @Param("at") Instant at,
+                            @Param("drainTimeout") Integer drainTimeoutSeconds);
 }
