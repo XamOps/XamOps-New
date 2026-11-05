@@ -1,0 +1,38 @@
+{
+  "id" : 3,
+  "version" : 1,
+  "name" : "CPU above 90%",
+  "enabled" : true,
+  "severity" : "HIGH",
+  "scope" : {
+    "accountIds" : [ 1 ],
+    "instanceIds" : [ "i-0abc" ],
+    "tag" : "env=prod"
+  },
+  "condition" : {
+    "type" : "METRIC_THRESHOLD",
+    "metric" : "system.cpu.utilization",
+    "filters" : [ {
+      "k" : "state",
+      "op" : "=",
+      "v" : "idle"
+    } ],
+    "query" : "q",
+    "agg" : "avg",
+    "window" : "5m",
+    "op" : ">",
+    "value" : 90.0,
+    "for" : "10m",
+    "noData" : "KEEP",
+    "forecastDays" : 7
+  },
+  "grouping" : {
+    "by" : [ "instance_id" ],
+    "dedupeWindow" : "30m"
+  },
+  "routing" : {
+    "channelIds" : [ 1 ],
+    "createTicket" : false,
+    "runbookUrl" : "https://runbook.example.com"
+  }
+}

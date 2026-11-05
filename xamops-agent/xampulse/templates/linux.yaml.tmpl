@@ -1,0 +1,149 @@
+# Rendered by xampulse-agent from the server-provided AgentConfig. Do not edit by hand.
+# Contains no secret: the gateway bearer token is read from a file by the bearertokenauth extension.
+extensions:
+  health_check:
+    endpoint: localhost:13133
+  file_storage:
+    directory: {{ .QueueDir | yq }}
+    create_directory: true
+    timeout: 2s
+  bearertokenauth:
+    filename: {{ .AccessTokenFile | yq }}
+
+receivers:
+{{- if .Metrics }}
+  hostmetrics:
+    collection_interval: {{ .MetricsInterval }}
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      load: {}
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+      paging:
+        metrics:
+          system.paging.utilization:
+            enabled: true
+      filesystem:
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
+      disk: {}
+      network: {}
+      processes: {}
+{{- if .ProcessMetrics }}
+      process:
+        mute_process_name_error: true
+        mute_process_exe_error: true
+        mute_process_io_error: true
+        mute_process_user_error: true
+        metrics:
+          process.cpu.utilization:
+            enabled: true
+          process.memory.utilization:
+            enabled: true
+{{- end }}
+{{- end }}
+{{- if and .Metrics .DockerEnabled }}
+  docker_stats:
+    endpoint: unix:///var/run/docker.sock
+    collection_interval: {{ .MetricsInterval }}
+{{- end }}
+{{- range .FileLogs }}
+  filelog/{{ .Name }}:
+    include:
+{{- range .Paths }}
+      - {{ . | yq }}
+{{- end }}
+    start_at: end
+    include_file_path: true
+    storage: file_storage
+{{- if .Multiline }}
+    multiline:
+      line_start_pattern: {{ .Multiline | yq }}
+{{- end }}
+{{- if .Docker }}
+    operators:
+      - type: json_parser
+        timestamp:
+          parse_from: attributes.time
+          layout: '%Y-%m-%dT%H:%M:%S.%LZ'
+      - type: move
+        from: attributes.log
+        to: body
+{{- end }}
+{{- end }}
+{{- if .Journald }}
+  journald:
+    directory: /var/log/journal
+    start_at: end
+    storage: file_storage
+{{- end }}
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: {{ .MemoryLimitMiB }}
+    spike_limit_mib: {{ .SpikeLimitMiB }}
+  resourcedetection:
+    detectors: [ec2]
+    timeout: 2s
+    override: false
+{{- if .Redaction }}
+  transform/redact:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+{{- range .Redaction }}
+          - {{ ottlReplace .Pattern .Replacement | yq }}
+{{- end }}
+{{- end }}
+  batch:
+    send_batch_size: 8192
+    timeout: 5s
+
+exporters:
+  otlphttp:
+    endpoint: {{ .GatewayURL | yq }}
+    compression: gzip
+    auth:
+      authenticator: bearertokenauth
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 60s
+      max_elapsed_time: 0s
+    sending_queue:
+      enabled: true
+      storage: file_storage
+      queue_size: {{ .QueueSize }}
+
+service:
+  extensions: [health_check, file_storage, bearertokenauth]
+  telemetry:
+    metrics:
+      level: basic
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: localhost
+                port: 8888
+  pipelines:
+{{- if .Metrics }}
+    metrics:
+      receivers: [{{ join .MetricReceivers ", " }}]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [otlphttp]
+{{- end }}
+{{- if .LogReceivers }}
+    logs:
+      receivers: [{{ join .LogReceivers ", " }}]
+      processors: [memory_limiter, resourcedetection{{ if .Redaction }}, transform/redact{{ end }}, batch]
+      exporters: [otlphttp]
+{{- end }}

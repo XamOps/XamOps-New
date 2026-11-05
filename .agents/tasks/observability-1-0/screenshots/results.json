@@ -1,0 +1,146 @@
+[
+  {
+    "tab": "overview",
+    "theme": "light",
+    "url": "/xampulse/overview",
+    "banner": true,
+    "h1": "Your fleet is mostly healthy, but 1 of 6 hosts needs attention now.",
+    "dataTheme": "light",
+    "errors": []
+  },
+  {
+    "tab": "hosts",
+    "theme": "light",
+    "url": "/xampulse/hosts",
+    "banner": true,
+    "h1": "Hosts",
+    "dataTheme": "light",
+    "errors": []
+  },
+  {
+    "tab": "containers",
+    "theme": "light",
+    "url": "/xampulse/containers",
+    "banner": true,
+    "h1": "Containers",
+    "dataTheme": "light",
+    "errors": []
+  },
+  {
+    "tab": "logs",
+    "theme": "light",
+    "url": "/xampulse/logs",
+    "banner": true,
+    "h1": "Logs",
+    "dataTheme": "light",
+    "errors": []
+  },
+  {
+    "tab": "metrics",
+    "theme": "light",
+    "url": "/xampulse/metrics",
+    "banner": true,
+    "h1": "Metrics Explorer",
+    "dataTheme": "light",
+    "errors": []
+  },
+  {
+    "tab": "alerts",
+    "theme": "light",
+    "url": "/xampulse/alerts",
+    "banner": true,
+    "h1": "Alerts",
+    "dataTheme": "light",
+    "errors": []
+  },
+  {
+    "tab": "insights",
+    "theme": "light",
+    "url": "/xampulse/insights",
+    "banner": true,
+    "h1": "Insights",
+    "dataTheme": "light",
+    "errors": []
+  },
+  {
+    "tab": "setup",
+    "theme": "light",
+    "url": "/xampulse/setup",
+    "banner": true,
+    "h1": "Setup & Storage",
+    "dataTheme": "light",
+    "errors": []
+  },
+  {
+    "tab": "overview",
+    "theme": "dark",
+    "url": "/xampulse/overview",
+    "banner": true,
+    "h1": "Your fleet is mostly healthy, but 1 of 6 hosts needs attention now.",
+    "dataTheme": "dark",
+    "errors": []
+  },
+  {
+    "tab": "hosts",
+    "theme": "dark",
+    "url": "/xampulse/hosts",
+    "banner": true,
+    "h1": "Hosts",
+    "dataTheme": "dark",
+    "errors": []
+  },
+  {
+    "tab": "containers",
+    "theme": "dark",
+    "url": "/xampulse/containers",
+    "banner": true,
+    "h1": "Containers",
+    "dataTheme": "dark",
+    "errors": []
+  },
+  {
+    "tab": "logs",
+    "theme": "dark",
+    "url": "/xampulse/logs",
+    "banner": true,
+    "h1": "Logs",
+    "dataTheme": "dark",
+    "errors": []
+  },
+  {
+    "tab": "metrics",
+    "theme": "dark",
+    "url": "/xampulse/metrics",
+    "banner": true,
+    "h1": "Metrics Explorer",
+    "dataTheme": "dark",
+    "errors": []
+  },
+  {
+    "tab": "alerts",
+    "theme": "dark",
+    "url": "/xampulse/alerts",
+    "banner": true,
+    "h1": "Alerts",
+    "dataTheme": "dark",
+    "errors": []
+  },
+  {
+    "tab": "insights",
+    "theme": "dark",
+    "url": "/xampulse/insights",
+    "banner": true,
+    "h1": "Insights",
+    "dataTheme": "dark",
+    "errors": []
+  },
+  {
+    "tab": "setup",
+    "theme": "dark",
+    "url": "/xampulse/setup",
+    "banner": true,
+    "h1": "Setup & Storage",
+    "dataTheme": "dark",
+    "errors": []
+  }
+]

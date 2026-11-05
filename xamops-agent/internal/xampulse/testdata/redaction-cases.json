@@ -1,0 +1,61 @@
+[
+  {
+    "rule": "card-number",
+    "pattern": "\\b\\d(?:[ -]?\\d){12,15}\\b",
+    "replacement": "[REDACTED_CARD]",
+    "positives": [
+      {"input": "payment card 4111 1111 1111 1111 declined", "output": "payment card [REDACTED_CARD] declined"},
+      {"input": "pan=4111-1111-1111-1111", "output": "pan=[REDACTED_CARD]"}
+    ],
+    "negatives": ["order 12345 shipped", "ts=2026-10-30T14:00:00Z", "pid 4242 started"]
+  },
+  {
+    "rule": "aws-access-key",
+    "pattern": "\\b(?:AKIA|ASIA)[A-Z0-9]{16}\\b",
+    "replacement": "[REDACTED_AWS_KEY]",
+    "positives": [
+      {"input": "using key AKIAIOSFODNN7EXAMPLE now", "output": "using key [REDACTED_AWS_KEY] now"},
+      {"input": "ASIAIOSFODNN7EXAMPLE", "output": "[REDACTED_AWS_KEY]"}
+    ],
+    "negatives": ["AKIA is a prefix", "akiaiosfodnn7example", "ASIAshort"]
+  },
+  {
+    "rule": "jwt",
+    "pattern": "\\beyJ[A-Za-z0-9_-]{5,}\\.[A-Za-z0-9_-]{5,}\\.[A-Za-z0-9_-]{5,}\\b",
+    "replacement": "[REDACTED_JWT]",
+    "positives": [
+      {"input": "token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U end", "output": "token [REDACTED_JWT] end"}
+    ],
+    "negatives": ["eyJ only", "version 1.2.3", "a.b.c"]
+  },
+  {
+    "rule": "bearer-token",
+    "pattern": "(?i)\\bbearer\\s+[A-Za-z0-9._~+/=-]{8,}",
+    "replacement": "Bearer [REDACTED]",
+    "positives": [
+      {"input": "Authorization: Bearer abcdef1234567890", "output": "Authorization: Bearer [REDACTED]"},
+      {"input": "bearer ABCDEFGH12345678", "output": "Bearer [REDACTED]"}
+    ],
+    "negatives": ["the bearer of this letter", "bearer short"]
+  },
+  {
+    "rule": "email",
+    "pattern": "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b",
+    "replacement": "[REDACTED_EMAIL]",
+    "positives": [
+      {"input": "contact jane.doe@example.com today", "output": "contact [REDACTED_EMAIL] today"}
+    ],
+    "negatives": ["user@host", "no email here", "@mention"]
+  },
+  {
+    "rule": "secret-key-value",
+    "pattern": "(?i)\\b(password|passwd|secret|token|api[_-]?key)\\s*[=:]\\s*[^\\s,;&\"']+",
+    "replacement": "$1=[REDACTED]",
+    "positives": [
+      {"input": "login password=hunter2 ok", "output": "login password=[REDACTED] ok"},
+      {"input": "api_key: abc123", "output": "api_key=[REDACTED]"},
+      {"input": "SECRET=xyz&next=1", "output": "SECRET=[REDACTED]&next=1"}
+    ],
+    "negatives": ["password reset requested", "the token bucket is full", "secretary=bob"]
+  }
+]

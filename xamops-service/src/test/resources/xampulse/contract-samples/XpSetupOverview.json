@@ -1,0 +1,34 @@
+{
+  "state" : "CONNECTED",
+  "demo" : false,
+  "homeRegion" : "us-east-1",
+  "bucket" : {
+    "name" : "bucket",
+    "region" : "us-east-1",
+    "mode" : "CREATE"
+  },
+  "regions" : [ {
+    "region" : "us-east-1",
+    "candidateInstances" : 4,
+    "stackState" : "OK",
+    "targetMode" : "INSTANCES",
+    "covered" : 3,
+    "reporting" : 3
+  } ],
+  "instances" : {
+    "total" : 4,
+    "ssmManaged" : 4,
+    "inScope" : 3,
+    "enrolled" : 3,
+    "reporting" : 3,
+    "notCovered" : 1
+  },
+  "coveragePct" : 75,
+  "lastDataAt" : "2026-10-30T10:00:00Z",
+  "archive" : {
+    "state" : "FAILING",
+    "failures" : 3,
+    "lastError" : "IllegalStateException",
+    "watermark" : "2026-10-30T10:00:00Z"
+  }
+}

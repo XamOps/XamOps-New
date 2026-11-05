@@ -1,0 +1,10 @@
+{
+  "approx" : false,
+  "facets" : [ {
+    "field" : "service",
+    "values" : [ {
+      "value" : "nginx",
+      "count" : 5
+    } ]
+  } ]
+}

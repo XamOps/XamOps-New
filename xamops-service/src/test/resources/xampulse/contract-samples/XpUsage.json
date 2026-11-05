@@ -1,0 +1,18 @@
+{
+  "range" : "7d",
+  "byDay" : [ {
+    "day" : "2026-10-30",
+    "signal" : "LOGS",
+    "bytesIn" : 10,
+    "bytesStored" : 5
+  } ],
+  "bySource" : [ {
+    "source" : "system",
+    "bytes" : 10,
+    "pct" : 100.0
+  } ],
+  "hotBytes" : 1,
+  "archiveBytes" : 2,
+  "projectedMonthlyCustomerAwsUsd" : 1.5,
+  "quotaGbPerDay" : 10.0
+}

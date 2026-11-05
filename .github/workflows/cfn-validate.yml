@@ -49,4 +49,8 @@ jobs:
             cloudformation/xamops-readwrite-role.yml \
             cloudformation/xamops-readwrite-role.local.yml \
             cloudformation/xamops-readwrite-role.live.yml \
-            cloudformation/xamops-readwrite-role-uat.yml
+            cloudformation/xamops-readwrite-role-uat.yml \
+            cloudformation/xamops-xampulse.yml \
+            cloudformation/xamops-xampulse-uat.yml \
+            cloudformation/xamops-xampulse-region.yml \
+            cloudformation/xamops-xampulse-region-uat.yml

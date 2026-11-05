@@ -1,0 +1,39 @@
+{
+  "demo" : false,
+  "state" : "CONNECTED",
+  "lastDataAt" : "2026-10-30T10:00:00Z",
+  "healthScore" : 91,
+  "kpis" : {
+    "hostsReporting" : 3,
+    "hostsTotal" : 4,
+    "errorsPerMin" : 1.5,
+    "ingestBytes24h" : 1024,
+    "openIncidents" : 1,
+    "coveragePct" : 75.0
+  },
+  "narrative" : [ "All quiet." ],
+  "attention" : [ {
+    "id" : "a1",
+    "severity" : "HIGH",
+    "title" : "Disk filling",
+    "detail" : "detail",
+    "accountId" : 1,
+    "instanceId" : "i-0abc",
+    "since" : "2026-10-30T10:00:00Z",
+    "confidence" : "HIGH",
+    "evidence" : [ {
+      "kind" : "METRIC",
+      "label" : "cpu",
+      "deepLink" : "/xampulse/metrics"
+    } ]
+  } ],
+  "tiles" : [ {
+    "accountId" : 1,
+    "instanceId" : "i-0abc",
+    "name" : "web-1",
+    "health" : "OK",
+    "score" : 92,
+    "cpuPct" : 12.5,
+    "memPct" : 40.0
+  } ]
+}

@@ -22,6 +22,7 @@ public class XamPulseProperties {
     private final Archive archive = new Archive();
     private final Baseline baseline = new Baseline();
     private final Usage usage = new Usage();
+    private final Quota quota = new Quota();
     private String internalSecret = "";
     private String hotRegion = "";
 
@@ -37,6 +38,7 @@ public class XamPulseProperties {
     public Archive getArchive() { return archive; }
     public Baseline getBaseline() { return baseline; }
     public Usage getUsage() { return usage; }
+    public Quota getQuota() { return quota; }
     public String getInternalSecret() { return internalSecret; }
     public void setInternalSecret(String internalSecret) { this.internalSecret = internalSecret; }
     public String getHotRegion() { return hotRegion; }
@@ -165,6 +167,9 @@ public class XamPulseProperties {
         private double iaUsdPerGbMonth = 0.0125;
         private double glacierIrUsdPerGbMonth = 0.004;
         private double getUsdPer1000 = 0.0004;
+        private int maxSearchFiles = 2000;
+        private int maxSearchRows = 1000;
+        private int searchTimeoutSec = 120;
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean v) { this.enabled = v; }
         public String getClickhouseHttpUrl() { return clickhouseHttpUrl; }
@@ -187,6 +192,12 @@ public class XamPulseProperties {
         public void setGlacierIrUsdPerGbMonth(double v) { this.glacierIrUsdPerGbMonth = v; }
         public double getGetUsdPer1000() { return getUsdPer1000; }
         public void setGetUsdPer1000(double v) { this.getUsdPer1000 = v; }
+        public int getMaxSearchFiles() { return maxSearchFiles; }
+        public void setMaxSearchFiles(int v) { this.maxSearchFiles = v; }
+        public int getMaxSearchRows() { return maxSearchRows; }
+        public void setMaxSearchRows(int v) { this.maxSearchRows = v; }
+        public int getSearchTimeoutSec() { return searchTimeoutSec; }
+        public void setSearchTimeoutSec(int v) { this.searchTimeoutSec = v; }
     }
 
     /**
@@ -225,5 +236,20 @@ public class XamPulseProperties {
         public void setLookbackDays(int v) { this.lookbackDays = v; }
         public String getCron() { return cron; }
         public void setCron(String v) { this.cron = v; }
+    }
+    /**
+     * Ingest quota enforcement at the auth path: when today's (UTC) ingested bytes reach the account's
+     * {@code ingestQuotaGbDay}, ingest is answered with 429 + Retry-After. Fails open when ClickHouse errors.
+     */
+    public static class Quota {
+        private boolean enabled = true;
+        private int cacheSeconds = 60;
+        private int maxRetryAfterSeconds = 300;
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean v) { this.enabled = v; }
+        public int getCacheSeconds() { return cacheSeconds; }
+        public void setCacheSeconds(int v) { this.cacheSeconds = v; }
+        public int getMaxRetryAfterSeconds() { return maxRetryAfterSeconds; }
+        public void setMaxRetryAfterSeconds(int v) { this.maxRetryAfterSeconds = v; }
     }
 }

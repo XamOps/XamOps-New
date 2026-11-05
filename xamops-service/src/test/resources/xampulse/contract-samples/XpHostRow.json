@@ -1,0 +1,25 @@
+{
+  "accountId" : 1,
+  "instanceId" : "i-0abc",
+  "name" : "web-1",
+  "region" : "us-east-1",
+  "platform" : "LINUX",
+  "instanceType" : "t3.large",
+  "state" : "running",
+  "health" : "OK",
+  "score" : 92,
+  "reason" : "ok",
+  "cpuPct" : 12.5,
+  "memPct" : 40.0,
+  "diskPct" : 55.0,
+  "netInBps" : 1000.0,
+  "netOutBps" : 2000.0,
+  "load1" : 0.4,
+  "cpuSpark" : [ 10.0, 12.0 ],
+  "lastSeenAt" : "2026-10-30T10:00:00Z",
+  "agentStatus" : "ACTIVE",
+  "collectionLevel" : "T1",
+  "tags" : {
+    "env" : "prod"
+  }
+}

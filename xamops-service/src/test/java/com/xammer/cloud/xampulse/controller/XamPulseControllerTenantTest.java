@@ -62,6 +62,8 @@ class XamPulseControllerTenantTest {
         final Map<String, String> data = new HashMap<>();
         public void put(String k, String v, Duration ttl) { data.put(k, v); }
         public Optional<String> getAndDelete(String k) { return Optional.ofNullable(data.remove(k)); }
+        public Optional<String> get(String k) { return Optional.ofNullable(data.get(k)); }
+        public boolean putIfAbsent(String k, String v, Duration ttl) { return data.putIfAbsent(k, v) == null; }
     }
 
     @BeforeEach

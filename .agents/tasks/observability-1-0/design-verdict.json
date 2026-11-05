@@ -1,0 +1,4 @@
+{"verdict":"APPROVED","findings":[
+{"id":"L1","severity":"NIT","title":"repo-recon.md ~line 127 still says the new installer must pull the xak_ key; mark SUPERSEDED (plan 3.3 uses no xak_ key)"},
+{"id":"L2","severity":"NIT","title":"repo-recon.md ~lines 59-60, 63 present nested-stack/updater-policy additions without a SUPERSEDED marker"}
+],"reviewDoc":"/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/observability-1-0/design-review.md"}

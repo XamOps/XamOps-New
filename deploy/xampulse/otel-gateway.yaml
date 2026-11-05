@@ -1,0 +1,81 @@
+# XamPulse OTLP/HTTP gateway (OpenTelemetry Collector contrib). Local dev copy.
+# Trust model: in production nginx authenticates the agent token and overwrites X-Xp-Tenant / X-Xp-Instance /
+# X-Xp-Retain-Days / X-Xp-Demo before the request gets here. This gateway then
+#   1. deletes the trusted xp.* resource attributes (tenant_id, instance_id, retain_days, demo) a client may have sent, and
+#   2. stamps them from those headers. (xp.source is agent-supplied and is kept.)
+# A client can therefore never choose its own tenant. Rows with no tenant are dropped by the ClickHouse views.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+        include_metadata: true
+
+processors:
+  transform/strip_client_xp:
+    error_mode: ignore
+    log_statements:
+      - context: resource
+        statements:
+          - delete_key(attributes, "xp.tenant_id")
+          - delete_key(attributes, "xp.instance_id")
+          - delete_key(attributes, "xp.retain_days")
+          - delete_key(attributes, "xp.demo")
+    metric_statements:
+      - context: resource
+        statements:
+          - delete_key(attributes, "xp.tenant_id")
+          - delete_key(attributes, "xp.instance_id")
+          - delete_key(attributes, "xp.retain_days")
+          - delete_key(attributes, "xp.demo")
+  resource/stamp_trusted_xp:
+    attributes:
+      - key: xp.tenant_id
+        from_context: x-xp-tenant
+        action: upsert
+      - key: xp.instance_id
+        from_context: x-xp-instance
+        action: upsert
+      - key: xp.retain_days
+        from_context: x-xp-retain-days
+        action: upsert
+      - key: xp.demo
+        from_context: x-xp-demo
+        action: upsert
+  batch:
+    timeout: 2s
+    send_batch_size: 5000
+
+exporters:
+  clickhouse:
+    endpoint: tcp://clickhouse:9000
+    database: xampulse
+    username: xp_writer
+    password: ${env:XP_CH_WRITER_PASSWORD}
+    create_schema: false
+    logs_table_name: xp_land_logs
+    metrics_tables:
+      gauge:
+        name: xp_land_metrics_gauge
+      sum:
+        name: xp_land_metrics_sum
+    timeout: 10s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 2s
+      max_interval: 30s
+      max_elapsed_time: 120s
+
+service:
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [transform/strip_client_xp, resource/stamp_trusted_xp, batch]
+      exporters: [clickhouse]
+    metrics:
+      receivers: [otlp]
+      processors: [transform/strip_client_xp, resource/stamp_trusted_xp, batch]
+      exporters: [clickhouse]

@@ -138,6 +138,16 @@ const COMMANDS: RouteCommand[] = [
   { path: '/billops-admin-user-manager',    label: 'Admin User Manager',      group: 'Admin',  icon: HiOutlineUserGroup },
   { path: '/autospotting-admin',            label: 'AutoSpotting Admin',      group: 'Admin',  icon: HiOutlineLightningBolt },
 
+  // XamPulse (Observability 1.0)
+  { path: '/xampulse/overview',   label: 'XamPulse Mission Control',  group: 'XamPulse',         icon: HiOutlineViewGrid, keywords: 'observability fleet health' },
+  { path: '/xampulse/hosts',      label: 'XamPulse Hosts',            group: 'XamPulse',         icon: HiOutlineServer, keywords: 'ec2 resource 360 cpu memory disk' },
+  { path: '/xampulse/containers', label: 'XamPulse Containers',       group: 'XamPulse',         icon: HiOutlineChip, keywords: 'docker' },
+  { path: '/xampulse/logs',       label: 'XamPulse Logs',             group: 'XamPulse',         icon: HiOutlineTerminal, keywords: 'search explorer patterns' },
+  { path: '/xampulse/logs?live=1', label: 'XamPulse Live tail',       group: 'XamPulse',         icon: HiOutlineTerminal, keywords: 'stream tail logs' },
+  { path: '/xampulse/metrics',    label: 'XamPulse Metrics',          group: 'XamPulse',         icon: HiOutlineTrendingUp, keywords: 'explorer chart' },
+  { path: '/xampulse/alerts',     label: 'XamPulse Alerts',           group: 'XamPulse',         icon: HiOutlineBell, keywords: 'rules incidents silences channels' },
+  { path: '/xampulse/insights',   label: 'XamPulse Insights',         group: 'XamPulse',         icon: HiOutlineSearch, keywords: 'forecast anomaly what changed' },
+  { path: '/xampulse/setup',      label: 'XamPulse Setup & Storage',  group: 'XamPulse',         icon: HiOutlineCog, keywords: 'connect onboarding s3 retention trust' },
   // Settings & Profile
   { path: '/tickets',             label: 'Support Tickets',           group: 'Settings',         icon: HiOutlineDocumentText },
   // Points straight at the tab rather than the retired /user-management route, so the palette
@@ -146,7 +156,7 @@ const COMMANDS: RouteCommand[] = [
   { path: '/my-profile',          label: 'My Profile',                group: 'Settings',         icon: HiOutlineUser },
 ];
 
-const GROUPS = ['Dashboards', 'AWS', 'GCP', 'Azure', 'DevOps & Tools', 'BillOps', 'Admin', 'Settings'];
+const GROUPS = ['Dashboards', 'AWS', 'GCP', 'Azure', 'DevOps & Tools', 'XamPulse', 'BillOps', 'Admin', 'Settings'];
 
 
 export const CommandPalette: React.FC = () => {

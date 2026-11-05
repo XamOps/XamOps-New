@@ -76,6 +76,6 @@ class ClickHouseMigrationRunnerTest {
     void shippedScriptsLoadFromTheClasspathInOrder() throws Exception {
         List<Script> shipped = ClickHouseMigrationRunner.loadClasspathScripts();
         List<String> versions = shipped.stream().map(Script::version).sorted().toList();
-        assertEquals(List.of("V001", "V002", "V004", "V005", "V006", "V007", "V008"), versions);
+        assertEquals(List.of("V001", "V002", "V004", "V005", "V006", "V007", "V008", "V009"), versions);
     }
 }

@@ -1,0 +1,16 @@
+{
+  "id" : "i1",
+  "kind" : "ANOMALY",
+  "severity" : "LOW",
+  "title" : "Title",
+  "body" : "Body",
+  "accountId" : 1,
+  "instanceId" : "i-0abc",
+  "evidence" : [ {
+    "kind" : "METRIC",
+    "label" : "cpu",
+    "deepLink" : "/xampulse/metrics"
+  } ],
+  "confidence" : "HIGH",
+  "asOf" : "2026-10-30T10:00:00Z"
+}

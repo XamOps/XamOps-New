@@ -103,6 +103,17 @@ class XamPulseClickHouseScriptsTest {
     }
 
     @Test
+    void v009ConstrainsTheReaderProfileIdempotentlyAndSortsAfterV008() throws Exception {
+        String v009 = script("V009");
+        assertTrue(v009.contains("ALTER SETTINGS PROFILE IF EXISTS xp_reader_profile"));
+        assertTrue(v009.contains("max_execution_time = 30 MAX 30"));
+        assertTrue(v009.contains("max_result_rows = 100000 READONLY"));
+        assertTrue(v009.contains("SQL_xp_tenant = '0'"));
+        assertFalse(v009.toLowerCase().contains("password"));
+        List<String> versions = ClickHouseMigrationRunner.loadClasspathScripts().stream().map(s -> s.version()).sorted().toList();
+        assertTrue(versions.indexOf("V009") > versions.indexOf("V008"));
+    }
+    @Test
     void noSecretsOrPasswordsAreInTheScripts() throws Exception {
         String all = ClickHouseMigrationRunner.loadClasspathScripts().stream().map(s -> s.content().toLowerCase()).collect(Collectors.joining("\n"));
         assertFalse(all.contains("password"));

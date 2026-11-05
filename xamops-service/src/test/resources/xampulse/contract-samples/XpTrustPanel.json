@@ -1,0 +1,24 @@
+{
+  "collected" : [ "cpu" ],
+  "neverCollected" : [ "secrets" ],
+  "redaction" : [ {
+    "rule" : "email",
+    "example" : "a@b.c"
+  } ],
+  "where" : {
+    "hotRegion" : "us-east-1",
+    "hotDays" : 7,
+    "archiveBucket" : "bucket",
+    "archiveRegion" : "us-east-1",
+    "kms" : "alias/key"
+  },
+  "access" : [ "admins" ],
+  "controls" : [ "TLS" ],
+  "permissionsDiff" : {
+    "archiveRole" : [ "s3:PutObject" ],
+    "connectionRoleNote" : "note",
+    "connectionRoleGrants" : [ "grant" ],
+    "noRunCommand" : "none"
+  },
+  "templateSha256" : "sha"
+}

@@ -64,7 +64,7 @@ public class AlertEvaluator {
 
     public AlertEvaluator(XpAlertRuleRepository rules, XpAlertStateRepository states, ConditionEvaluator conditions,
                           IncidentService incidents, IncidentCorrelator correlator, SilenceService silences,
-                          NotificationRouter router, SchedulingEnvironmentConfig scheduling, ObjectMapper mapper) {
+                          NotificationRouter router, SchedulingEnvironmentConfig scheduling, ObjectMapper objectMapper) {
         this.rules = rules;
         this.states = states;
         this.conditions = conditions;
@@ -73,7 +73,7 @@ public class AlertEvaluator {
         this.silences = silences;
         this.router = router;
         this.scheduling = scheduling;
-        this.mapper = mapper;
+        this.mapper = objectMapper;
     }
 
     @Scheduled(fixedDelay = 60_000, initialDelay = 60_000)

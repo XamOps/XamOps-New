@@ -451,7 +451,7 @@ public class AwsClientProvider {
      * background refresh thread per instance — building one per call would leak a
      * thread on every query.
      */
-    private AwsCredentialsProvider getRoleCredentialsProvider(String roleArn, String externalId) {
+    public AwsCredentialsProvider getRoleCredentialsProvider(String roleArn, String externalId) {
         String cacheKey = "ROLE_CREDS:" + roleArn + ":" + (externalId == null ? "" : externalId);
         return (AwsCredentialsProvider) clientCache.get(cacheKey, k -> {
             logger.info("🚀 [AwsClientProvider] Creating credentials provider for role {}", roleArn);
