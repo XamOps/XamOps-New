@@ -2,7 +2,7 @@ import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ALL_CLUSTERS_LABEL, CLUSTER_SECTIONS_LABEL, ClusterSectionsNav, FLEET_HREF, FLEET_PATH } from '../ClusterSectionsNav';
+import { CLUSTER_SECTIONS_LABEL, ClusterSectionsNav } from '../ClusterSectionsNav';
 import { EKS_SECTIONS, LEGACY_TAB_MAP, resolveSectionRoute } from '../../../../hooks/useEksSectionRoute';
 import { publishClusterNavAccess } from '../../../../utils/k8sNavAccess';
 import { pageKeyOf } from '../../../../utils/inPageNavigation';
@@ -43,32 +43,19 @@ describe('ClusterSectionsNav (Addendum 1)', () => {
     expect(screen.queryAllByRole('link')).toHaveLength(0);
   });
 
-  it('keeps FLEET_PATH as the sidebar active path but links All clusters at the on-demand fleet view', () => {
-    expect(FLEET_PATH).toBe('/cloudk8s');
-    expect(FLEET_HREF).toBe('/cloudk8s?view=all');
-    renderAt(`${BASE}&tab=overview&sub=summary`);
-    expect(within(nav()).getByRole('link', { name: ALL_CLUSTERS_LABEL })).toHaveAttribute('href', FLEET_HREF);
-  });
-
-  it('shows the cluster in context from the link, with All clusters', () => {
+  it('no longer renders a cluster context row or All clusters link', () => {
     renderAt(`${BASE}&tab=nodes&sub=karpenter`);
-    expect(nav().querySelector('[data-cluster-name]')).toHaveTextContent('prod-eks');
-    expect(nav().querySelector('[data-cluster-region]')).toHaveTextContent('eu-west-1');
-    expect(within(nav()).getByRole('link', { name: ALL_CLUSTERS_LABEL })).toHaveAttribute('href', '/cloudk8s?view=all');
+    expect(nav().querySelector('[data-cluster-name]')).toBeNull();
+    expect(nav().querySelector('[data-cluster-region]')).toBeNull();
+    expect(within(nav()).queryByRole('link', { name: /All clusters/ })).toBeNull();
     // Greyscale only: a bundled mdi glyph, not the coloured AWS service image.
     expect(nav().querySelector('img')).toBeNull();
-  });
-
-  it('shows no region when the link has none, rather than a default', () => {
-    renderAt(`/eks-details?name=prod-eks&accountIds=${ACCOUNT}`);
-    expect(nav().querySelector('[data-cluster-region]')).toBeNull();
-    expect(nav()).not.toHaveTextContent('us-east-1');
   });
 
   it('accepts a demo account in a demo session', () => {
     sessionStorage.setItem(DEMO_MODE_KEY, 'true');
     renderAt('/eks-details?name=prod-eks-cluster&region=us-east-1&accountIds=demo-aws-001');
-    expect(nav().querySelector('[data-cluster-name]')).toHaveTextContent('prod-eks-cluster');
+    expect(screen.getByRole('navigation', { name: CLUSTER_SECTIONS_LABEL })).toBeInTheDocument();
   });
 
   it('lists every registered section in registry order, each a link that resolves to itself', () => {
@@ -102,7 +89,7 @@ describe('ClusterSectionsNav (Addendum 1)', () => {
     }
     // The subtabs follow their section in DOM order, so the keyboard reaches them next.
     const order = [...nav().querySelectorAll('a')].map((a) => a.dataset.section ?? a.dataset.sub ?? a.textContent);
-    expect(order).toEqual([ALL_CLUSTERS_LABEL, 'overview', 'cost', 'workloads', 'workloads', 'pods', 'containers', 'resources', 'nodes', 'automation', 'security']);
+    expect(order).toEqual(['overview', 'cost', 'workloads', 'workloads', 'pods', 'containers', 'resources', 'nodes', 'automation', 'security']);
   });
 
   it('marks what the page shows for a legacy link', () => {
@@ -164,14 +151,14 @@ describe('ClusterSectionsNav (Addendum 1)', () => {
     const user = userEvent.setup();
     renderAt(`${BASE}&tab=workloads&sub=pods`);
     const reached: string[] = [];
-    for (let i = 0; i < 11; i += 1) {
+    for (let i = 0; i < 10; i += 1) {
       await user.tab();
       const el = document.activeElement as HTMLElement;
       expect(el.tagName).toBe('A');
       expect(el.className).toContain('focus-visible:ring-2');
       reached.push(el.dataset.section ?? el.dataset.sub ?? el.textContent ?? '');
     }
-    expect(reached).toEqual([ALL_CLUSTERS_LABEL, 'overview', 'cost', 'workloads', 'workloads', 'pods', 'containers', 'resources', 'nodes', 'automation', 'security']);
+    expect(reached).toEqual(['overview', 'cost', 'workloads', 'workloads', 'pods', 'containers', 'resources', 'nodes', 'automation', 'security']);
     // Navigation semantics, not a tablist.
     expect(screen.queryByRole('tablist')).toBeNull();
     expect(screen.queryByRole('tab')).toBeNull();
@@ -217,7 +204,7 @@ describe('ClusterSectionsNav: Automation groups at the third level (automation-v
     const leaf = nav().querySelector<HTMLAnchorElement>('a[data-sub="workload-autoscaler"]')!;
     expect(group.closest('li')!.contains(leaf)).toBe(true);
     expect(order()).toEqual([
-      ALL_CLUSTERS_LABEL, 'overview', 'cost', 'workloads', 'nodes', 'automation',
+      'overview', 'cost', 'workloads', 'nodes', 'automation',
       'overview', 'group:workload-autoscaler', 'workload-autoscaler', 'workload-autoscaler-policies', 'node-autoscaler', 'consolidation', 'spot-interruptions', 'hpa', 'vpa', 'activity', 'security',
     ]);
     // At 220 px a label may wrap, never truncate.

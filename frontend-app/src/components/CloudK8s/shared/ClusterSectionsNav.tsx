@@ -3,9 +3,9 @@
  * (implementation plan, Addendum 1; design §4.2, §5, §14).
  *
  * Rendered by the Sidebar right after the CloudK8s entry, the way XamSecure and XamLens list their
- * tabs. It shows only while a cluster the page accepts is in the URL: a context row (cluster name and
- * region from the link, and "All clusters"), one link per registered section in registry order, and
- * the current section's registered subtabs. A group of subtabs (Automation › Workload autoscaler) is
+ * tabs. It shows only while a cluster the page accepts is in the URL: one link per registered section
+ * in registry order, and the current section's registered subtabs (cluster selection itself lives in
+ * the in-page dropdown, not here). A group of subtabs (Automation › Workload autoscaler) is
  * one plain link row; its subtabs show at a third level only while the group is current. Every entry
  * is a real link built by the page's own
  * resolver and serializer, so open-in-new-tab works and the sidebar and the page can't disagree.
@@ -22,17 +22,12 @@ import { Link, useLocation } from 'react-router-dom';
 import SubNav from '../../Sidebar/SubNav';
 import { EKS_SECTIONS, LEGACY_TAB_MAP, sectionNavEntries, type SectionNavSub } from '../../../hooks/useEksSectionRoute';
 import { isDemoMode } from '../../../demo/demoConfig';
-import { parseClusterLink, fleetHref } from '../../../utils/k8sClusterLink';
+import { parseClusterLink } from '../../../utils/k8sClusterLink';
 import { inPageState } from '../../../utils/inPageNavigation';
 import { VIEW_ONLY_TEXT, useClusterNavAccess } from '../../../utils/k8sNavAccess';
 
 export const CLUSTER_PAGE_PATH = '/eks-details';
-/** The sidebar's CloudK8s entry stays active for the whole `/cloudk8s` route (fleet or resolver). */
-export const FLEET_PATH = '/cloudk8s';
-/** The "All clusters" link forces the on-demand fleet view (`/cloudk8s?view=all`), never the resolver. */
-export const FLEET_HREF = fleetHref();
 export const CLUSTER_SECTIONS_LABEL = 'Cluster sections';
-export const ALL_CLUSTERS_LABEL = 'All clusters';
 
 /** The section whose entry carries "View only" (J-5). */
 const AUTOMATION_SECTION = 'automation';
@@ -107,40 +102,11 @@ export function ClusterSectionsNav({ dark }: ClusterSectionsNavProps) {
 
   const entries = sectionNavEntries(EKS_SECTIONS, LEGACY_TAB_MAP, location.pathname, location.search);
   const state = inPageState(location);
-  // The link's own region, never a default (Addendum 1, A3).
-  const region = new URLSearchParams(location.search).get('region');
   const viewOnly = access?.viewOnly === true;
 
   return (
     <SubNav isOpen dark={dark}>
       <nav aria-label={CLUSTER_SECTIONS_LABEL} data-cluster-sections="">
-        <div className="px-2.5 pb-1 pt-1.5">
-          <p className="flex min-w-0 items-center gap-2">
-            <Icon icon="mdi:kubernetes" width={16} aria-hidden="true" className={`shrink-0 ${iconClass(dark, false)}`} />
-            <span className="sr-only">Cluster </span>
-            <span
-              className={`truncate text-[13px] font-semibold ${dark ? 'text-white' : 'text-[rgba(0,0,0,0.88)]'}`}
-              title={link.clusterName}
-              data-cluster-name=""
-            >
-              {link.clusterName}
-            </span>
-          </p>
-          {region && (
-            <p className={`truncate pl-6 text-[12px] ${secondary(dark)}`} data-cluster-region="">
-              <span className="sr-only">Region </span>
-              {region}
-            </p>
-          )}
-          <Link
-            to={FLEET_HREF}
-            className={`mt-1 inline-flex items-center gap-1 rounded text-[12px] font-medium underline-offset-2 hover:underline ${secondary(dark)} ${focus(dark)}`}
-          >
-            <Icon icon="mdi:arrow-left" width={13} aria-hidden="true" />
-            {ALL_CLUSTERS_LABEL}
-          </Link>
-        </div>
-
         <ul className="space-y-0.5">
           {entries.map((entry) => {
             const describe = entry.id === AUTOMATION_SECTION && viewOnly && access?.reason ? descriptionId : undefined;
