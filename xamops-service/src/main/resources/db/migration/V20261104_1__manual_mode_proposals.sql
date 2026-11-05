@@ -5,6 +5,11 @@
 -- Column types equal Hibernate's mapping of the entity fields (TEXT via columnDefinition, no @Lob).
 
 ALTER TABLE kubernetes_cluster_config ADD COLUMN IF NOT EXISTS automation_approval_mode          VARCHAR(16) NOT NULL DEFAULT 'AUTONOMOUS'; -- AUTONOMOUS|MANUAL
+-- When Hibernate (ddl-auto=update) created the column first it emitted NOT NULL with no DB-level
+-- default (the default lives on the entity field, so only entity INSERTs get it). In that case the
+-- ADD COLUMN above is a skipped no-op, so re-assert the default and backfill any NULL/raw-insert rows.
+ALTER TABLE kubernetes_cluster_config ALTER COLUMN automation_approval_mode SET DEFAULT 'AUTONOMOUS';
+UPDATE kubernetes_cluster_config SET automation_approval_mode = 'AUTONOMOUS' WHERE automation_approval_mode IS NULL;
 ALTER TABLE kubernetes_cluster_config ADD COLUMN IF NOT EXISTS approval_mode_changed_at          TIMESTAMPTZ;
 ALTER TABLE kubernetes_cluster_config ADD COLUMN IF NOT EXISTS approval_mode_changed_by          BIGINT;       -- users.id, no FK
 ALTER TABLE kubernetes_cluster_config ADD COLUMN IF NOT EXISTS policy_served_approval_mode       VARCHAR(16);  -- what the automation agent was last served
