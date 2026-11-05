@@ -18,7 +18,8 @@ export const DBOPS_REDIS_UI_ENABLED = false;
 
 /**
  * Phase 2 DbOps console — the Health view and the access/FK cytoscape graph tabs. Mirrors the
- * backend `xamops.dbops.console.enabled` flag (default false). Flip in step with the backend when
- * the console (and the SEC-9 gate for the sensitive endpoints) is ready to expose.
+ * backend `xamops.dbops.console.enabled` flag, which is turned on for the UAT profile only (the
+ * backend default stays false). Enabled here globally so the console UI renders wherever the
+ * backend serves it; outside UAT the backend answers empty documents until its own flag is set.
  */
-export const DBOPS_CONSOLE_UI_ENABLED = false;
+export const DBOPS_CONSOLE_UI_ENABLED = true;
