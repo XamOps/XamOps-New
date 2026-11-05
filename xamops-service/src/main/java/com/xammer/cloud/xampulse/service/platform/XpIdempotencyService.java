@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
  */
 @Service("xpIdempotencyService")
 @ConditionalOnProperty(name = "xampulse.enabled", havingValue = "true")
-public class IdempotencyService {
+public class XpIdempotencyService {
 
     public static final Duration TTL = Duration.ofMinutes(10);
     static final Pattern KEY_FORMAT = Pattern.compile("^[A-Za-z0-9_.:-]{8,80}$");
@@ -36,7 +36,7 @@ public class IdempotencyService {
     private final TicketStore store;
     private final ObjectMapper mapper;
 
-    public IdempotencyService(TicketStore store, ObjectMapper objectMapper) {
+    public XpIdempotencyService(TicketStore store, ObjectMapper objectMapper) {
         this.store = store;
         this.mapper = objectMapper;
     }

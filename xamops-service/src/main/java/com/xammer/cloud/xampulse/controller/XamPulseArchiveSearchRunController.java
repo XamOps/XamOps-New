@@ -11,7 +11,7 @@ import com.xammer.cloud.xampulse.repository.XpAccountConfigRepository;
 import com.xammer.cloud.xampulse.service.archive.ArchiveSearchJobStore;
 import com.xammer.cloud.xampulse.service.archive.ArchiveSearchRunner;
 import com.xammer.cloud.xampulse.service.platform.AuditService;
-import com.xammer.cloud.xampulse.service.platform.IdempotencyService;
+import com.xammer.cloud.xampulse.service.platform.XpIdempotencyService;
 import com.xammer.cloud.xampulse.service.query.XamPulseAccessGuard;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -35,11 +35,11 @@ public class XamPulseArchiveSearchRunController {
     private final XpAccountConfigRepository configs;
     private final ArchiveSearchRunner runner;
     private final ArchiveSearchJobStore jobs;
-    private final IdempotencyService idempotency;
+    private final XpIdempotencyService idempotency;
     private final AuditService audit;
 
     public XamPulseArchiveSearchRunController(XamPulseAccessGuard guard, XpAccountConfigRepository configs, ArchiveSearchRunner runner,
-                                              ArchiveSearchJobStore jobs, IdempotencyService idempotency, AuditService audit) {
+                                              ArchiveSearchJobStore jobs, XpIdempotencyService idempotency, AuditService audit) {
         this.guard = guard;
         this.configs = configs;
         this.runner = runner;

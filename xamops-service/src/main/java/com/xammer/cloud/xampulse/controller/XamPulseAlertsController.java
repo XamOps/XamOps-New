@@ -7,7 +7,7 @@ import com.xammer.cloud.xampulse.service.alert.AlertRuleService;
 import com.xammer.cloud.xampulse.service.alert.ChannelService;
 import com.xammer.cloud.xampulse.service.alert.SilenceService;
 import com.xammer.cloud.xampulse.service.platform.AuditService;
-import com.xammer.cloud.xampulse.service.platform.IdempotencyService;
+import com.xammer.cloud.xampulse.service.platform.XpIdempotencyService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,7 +32,7 @@ public class XamPulseAlertsController {
     private final SilenceService silences;
     private final ChannelService channels;
     private final AuditService audit;
-    private final IdempotencyService idempotency;
+    private final XpIdempotencyService idempotency;
 
     public XamPulseAlertsController(AlertRuleService rules, AlertPreviewService preview, SilenceService silences,
                                     ChannelService channels, AuditService audit) {
@@ -41,7 +41,7 @@ public class XamPulseAlertsController {
 
     @Autowired
     public XamPulseAlertsController(AlertRuleService rules, AlertPreviewService preview, SilenceService silences,
-                                    ChannelService channels, AuditService audit, IdempotencyService idempotency) {
+                                    ChannelService channels, AuditService audit, XpIdempotencyService idempotency) {
         this.idempotency = idempotency;
         this.rules = rules;
         this.preview = preview;

@@ -2,7 +2,7 @@ package com.xammer.cloud.xampulse.controller;
 
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.xampulse.dto.XpSavedView;
-import com.xammer.cloud.xampulse.service.platform.IdempotencyService;
+import com.xammer.cloud.xampulse.service.platform.XpIdempotencyService;
 import com.xammer.cloud.xampulse.service.query.SavedViewService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,14 +20,14 @@ import java.util.List;
 public class XamPulseViewsController {
 
     private final SavedViewService views;
-    private final IdempotencyService idempotency;
+    private final XpIdempotencyService idempotency;
 
     public XamPulseViewsController(SavedViewService views) {
         this(views, null);
     }
 
     @Autowired
-    public XamPulseViewsController(SavedViewService views, IdempotencyService idempotency) {
+    public XamPulseViewsController(SavedViewService views, XpIdempotencyService idempotency) {
         this.views = views;
         this.idempotency = idempotency;
     }

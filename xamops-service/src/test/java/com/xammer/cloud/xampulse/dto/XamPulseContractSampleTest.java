@@ -81,8 +81,8 @@ class XamPulseContractSampleTest {
     }
 
     /**
-     * Pass-2 response types. Pinned like the others, but kept out of {@link #samples()} until
-     * {@code xampulseGuards.ts} has a guard for each (that test requires the two sets to be equal).
+     * Pass-2 response types, pinned like the others. Kept as a separate map, but included in the
+     * TS-guard parity check now that {@code xampulseGuards.ts} has a guard for each.
      */
     private static Map<String, Object> pass2Samples() {
         XpLogRow row = new XpLogRow("row-1", T, 1L, "us-east-1", "i-0abc", "nginx", "file", XpSeverity.ERROR, "boom",
@@ -140,7 +140,8 @@ class XamPulseContractSampleTest {
         }
         Map<String, List<String>> required = parseGuards(Files.readString(TS_GUARDS));
         assertThat(required.keySet()).as("guard types parsed from xampulseGuards.ts").isNotEmpty();
-        Map<String, Object> samples = samples();
+        Map<String, Object> samples = new LinkedHashMap<>(samples());
+        samples.putAll(pass2Samples());
         assertThat(new TreeSet<>(samples.keySet())).as("every guarded type has a Java sample and vice versa").isEqualTo(new TreeSet<>(required.keySet()));
         for (Map.Entry<String, List<String>> e : required.entrySet()) {
             JsonNode json = mapper.valueToTree(samples.get(e.getKey()));

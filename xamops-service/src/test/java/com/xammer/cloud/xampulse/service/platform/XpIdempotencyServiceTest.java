@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class IdempotencyServiceTest {
+class XpIdempotencyServiceTest {
 
     record Req(String name) {}
     record Res(long id, String name) {}
@@ -29,7 +29,7 @@ class IdempotencyServiceTest {
     }
 
     private final MemoryStore store = new MemoryStore();
-    private final IdempotencyService svc = new IdempotencyService(store, new ObjectMapper().registerModule(new JavaTimeModule()));
+    private final XpIdempotencyService svc = new XpIdempotencyService(store, new ObjectMapper().registerModule(new JavaTimeModule()));
     private final AtomicInteger runs = new AtomicInteger();
 
     private Res create(String name) {

@@ -173,7 +173,7 @@ class XamPulseWiringTest {
             assertNotNull(ctx.getBean(com.xammer.cloud.xampulse.controller.XamPulseAgentFleetController.class));
             assertNotNull(ctx.getBean(com.xammer.cloud.xampulse.service.agent.AgentFleetService.class));
             assertNotNull(ctx.getBean(com.xammer.cloud.xampulse.service.agent.IngestQuotaService.class));
-            assertNotNull(ctx.getBean(com.xammer.cloud.xampulse.service.platform.IdempotencyService.class));
+            assertNotNull(ctx.getBean(com.xammer.cloud.xampulse.service.platform.XpIdempotencyService.class));
             assertNotNull(ctx.getBean(com.xammer.cloud.xampulse.service.stream.TailAccessRevalidator.class));
             assertNotNull(ctx.getBean(com.xammer.cloud.xampulse.config.ClickHouseSettingsBootCheck.class));
             // the estimate endpoint is always there; the run side is flag gated and OFF by default

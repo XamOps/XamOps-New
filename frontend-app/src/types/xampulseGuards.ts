@@ -19,6 +19,9 @@ export const REQUIRED_KEYS: Record<string, string[]> = {
   XpSetupOverview: ['state', 'demo', 'regions', 'instances', 'coveragePct', 'lastDataAt'],
   XpUsage: ['range', 'byDay', 'bySource', 'hotBytes', 'archiveBytes'],
   XpAccountRef: ['cloudAccountId', 'awsAccountId', 'name', 'state', 'demo'],
+  // Only always-present keys: rows/truncated (DONE), errorCode (FAILED) and finishedAt are state-dependent.
+  XpArchiveSearchJob: ['id', 'state', 'estimate', 'filesDone', 'filesTotal', 'createdAt'],
+  XpAgentFleet: ['counts', 'agents'],
 };
 
 /** Returns the keys missing from `value` for the named contract type (empty means it conforms). */

@@ -16,7 +16,7 @@ import com.xammer.cloud.xampulse.service.archive.ArchiveSearchJobStore;
 import com.xammer.cloud.xampulse.service.archive.ArchiveSearchJobStoreTest;
 import com.xammer.cloud.xampulse.service.archive.ArchiveSearchRunner;
 import com.xammer.cloud.xampulse.service.platform.AuditService;
-import com.xammer.cloud.xampulse.service.platform.IdempotencyService;
+import com.xammer.cloud.xampulse.service.platform.XpIdempotencyService;
 import com.xammer.cloud.xampulse.service.query.XamPulseAccessGuard;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -78,7 +78,7 @@ class ArchiveSearchRunControllerTest {
         cfg.setCloudAccountId(MINE);
         when(configs.findByCloudAccountId(MINE)).thenReturn(Optional.of(cfg));
         runner = mock(ArchiveSearchRunner.class);
-        IdempotencyService idem = new IdempotencyService(memory, mapper);
+        XpIdempotencyService idem = new XpIdempotencyService(memory, mapper);
         mvc = MockMvcBuilders.standaloneSetup(new XamPulseArchiveSearchRunController(guard, configs, runner, jobs, idem,
                         new AuditService(mock(com.xammer.cloud.xampulse.repository.XpAuditRepository.class))))
                 .setControllerAdvice(new XamPulseExceptionHandler())
