@@ -71,14 +71,16 @@ describe('substituteTokens', () => {
     expect(substituteTokens(code, filled)).toBe(code);
   });
 
-  it('substitutes the environment-derived server url and api key', () => {
-    const code = 'XAMOPS_SERVER_URL: "<XAMOPS_SERVER_URL>"\n  XAMOPS_API_KEY: "<XAMOPS_API_KEY>"';
+  it('substitutes the environment-derived server url alongside a user token', () => {
+    // The long-lived API key placeholder was retired (the agent now uses a short-lived connect
+    // token), so this exercises the environment-derived server url with one user-filled token.
+    const code = 'XAMOPS_SERVER_URL: "<XAMOPS_SERVER_URL>"\n  CLUSTER_NAME: "<CLUSTER_NAME>"';
     const out = substituteTokens(code, {
       [EKS_PLACEHOLDERS.serverUrl]: 'http://localhost:8080',
-      [EKS_PLACEHOLDERS.apiKey]: 'local-key',
+      [EKS_PLACEHOLDERS.clusterName]: 'my-prod-cluster',
     });
     expect(out).toContain('XAMOPS_SERVER_URL: "http://localhost:8080"');
-    expect(out).toContain('XAMOPS_API_KEY: "local-key"');
+    expect(out).toContain('CLUSTER_NAME: "my-prod-cluster"');
   });
 });
 

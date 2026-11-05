@@ -17,7 +17,7 @@ const { getCapabilities, useEksDashboard, apiGet, apiFetch, flags } = vi.hoisted
   // read" answer the pages already handle gracefully — so no relative-url fetch ever reaches jsdom. This
   // page asserts only section headings and URLs, never automation data, so the fixture body is irrelevant.
   apiFetch: vi.fn(),
-  flags: { podsThrows: false, guideRendered: false },
+  flags: { podsThrows: false, guideRendered: false, enableAutomationRendered: false },
 }));
 
 /** A backend without the automation reads: an untyped 404, which every Automation page reads as not-deployed. */
@@ -80,10 +80,18 @@ vi.mock('../../components/EksDetails/sections/workloads/ResourcesPanel', () => (
 vi.mock('../../components/EksDetails/tabs/EksKarpenterTab', () => ({ default: () => <div>Karpenter tab content</div> }));
 vi.mock('../../components/EksDetails/EksDiagnosticsPanel', () => ({ default: () => <div>Diagnostics panel</div> }));
 vi.mock('../../components/EksDetails/tabs/EksAutomationTab', () => ({ default: () => <div>Workload autoscaler content</div> }));
-vi.mock('../../components/EksDetails/EksIntegrationModal', () => ({
-  default: ({ isOpen }: { isOpen: boolean }) => {
+// The two-phase onboarding drawers the page now routes the Guide to (FEAT-003). Which one mounts is
+// chosen from the cluster's onboarding state; each renders a labelled dialog only while `open`.
+vi.mock('../../components/CloudK8s/onboarding/ConnectClusterDrawer', () => ({
+  default: ({ open }: { open: boolean }) => {
     flags.guideRendered = true;
-    return isOpen ? <div role="dialog" aria-label="Integration guide" /> : null;
+    return open ? <div role="dialog" aria-label="Connect cluster" /> : null;
+  },
+}));
+vi.mock('../../components/CloudK8s/onboarding/EnableAutomationDrawer', () => ({
+  default: ({ open }: { open: boolean }) => {
+    flags.enableAutomationRendered = true;
+    return open ? <div role="dialog" aria-label="Enable automation" /> : null;
   },
 }));
 vi.mock('../../components/CloudK8s/CloudK8sHeader', () => ({ default: () => <div>Fleet header</div> }));
@@ -205,6 +213,7 @@ beforeEach(() => {
   apiFetch.mockReset().mockResolvedValue(automationNotDeployed());
   flags.podsThrows = false;
   flags.guideRendered = false;
+  flags.enableAutomationRendered = false;
   accountState.selectedAccountIds = ['123456789012'];
   accountState.accounts = [{ id: '123456789012', name: 'Prod', provider: 'AWS' }];
   accountState.isLoading = false;
@@ -471,13 +480,41 @@ describe('cluster page shell', () => {
     expect(await find(SYNC_TIMEOUT_TEXT)).toBeInTheDocument();
   });
 
-  it('loads the integration guide only when it is first opened', async () => {
+  it('loads the onboarding guide only when it is first opened', async () => {
     const user = userEvent.setup();
     renderAt(BASE);
     await find('Overview tab content');
+    // Neither drawer chunk mounts until Guide is opened (§15).
     expect(flags.guideRendered).toBe(false);
+    expect(flags.enableAutomationRendered).toBe(false);
+    // The default fixture has no onboarding block, so presentOnboarding → 'Connect' → Phase-1 drawer.
     await user.click(within(topbar()).getByRole('button', { name: 'Guide' }));
-    expect(await screen.findByRole('dialog', { name: 'Integration guide' }, { timeout: 4000 })).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: 'Connect cluster' }, { timeout: 4000 })).toBeInTheDocument();
+  });
+
+  it('routes the Guide to the Enable-automation drawer for a read-only-connected cluster (§9.1)', async () => {
+    const user = userEvent.setup();
+    // A CONNECTED_READ_ONLY onboarding block maps to nextAction 'Enable automation' → Phase-2 drawer.
+    getCapabilities.mockReset().mockResolvedValue(capabilities((dto) => {
+      dto.clusters[0].onboarding = {
+        state: 'CONNECTED_READ_ONLY',
+        awaitingAgent: false,
+        stale: false,
+        automationDisabled: false,
+        automationSubState: null,
+        automationVerified: false,
+        identitySeenAt: null,
+        identityMode: null,
+        nodeScaler: null,
+        dataKeyScope: null,
+        dataKey: null,
+        automationKey: null,
+      };
+    }));
+    renderAt(BASE);
+    await find('Overview tab content');
+    await user.click(within(topbar()).getByRole('button', { name: 'Guide' }));
+    expect(await screen.findByRole('dialog', { name: 'Enable automation' }, { timeout: 4000 })).toBeInTheDocument();
   });
 
   it('a capabilities error shows the banner and blocks every apply', async () => {

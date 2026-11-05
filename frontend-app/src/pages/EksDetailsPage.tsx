@@ -19,7 +19,8 @@ import { writeLastCluster } from '../utils/k8sLastCluster';
 import { useEksDashboard } from '../hooks/useEksDashboard';
 import { useEksSectionRoute } from '../hooks/useEksSectionRoute';
 import { useK8sCacheIdentity } from '../hooks/useK8sCacheIdentity';
-import { K8sCapabilitiesProvider } from '../hooks/useK8sCapabilities';
+import { K8sCapabilitiesProvider, useK8sCapabilities } from '../hooks/useK8sCapabilities';
+import { presentOnboarding } from '../components/CloudK8s/onboarding/onboardingPresentation';
 import { usePublishClusterNavAccess } from '../hooks/useK8sNavAccess';
 import { isDemoMode } from '../demo/demoConfig';
 import { resolveClusterVersion } from '../utils/k8sVersion';
@@ -33,8 +34,12 @@ import EksDiagnosticsPanel from '../components/EksDetails/EksDiagnosticsPanel';
 import type { EksSectionProps } from '../components/EksDetails/sections/sectionTypes';
 import type { EksSectionId } from '../types/eksTypes';
 
-/** 69 KB of guide; loaded the first time Guide is opened (§15). */
-const EksIntegrationModal = lazy(() => import('../components/EksDetails/EksIntegrationModal'));
+/**
+ * The two-phase onboarding guide (design §9.1). Loaded the first time Guide / Set-up-monitoring is
+ * opened (§15); which drawer opens is chosen from the cluster's onboarding state (see guideKind).
+ */
+const ConnectClusterDrawer = lazy(() => import('../components/CloudK8s/onboarding/ConnectClusterDrawer'));
+const EnableAutomationDrawer = lazy(() => import('../components/CloudK8s/onboarding/EnableAutomationDrawer'));
 
 type SectionComponent = React.LazyExoticComponent<React.ComponentType<EksSectionProps>>;
 
@@ -241,6 +246,24 @@ function useAccountSwitchReconciler(link: ClusterLink): void {
   }, [reconcile]);
 }
 
+/**
+ * Which onboarding drawer the Guide opens, keyed off presentOnboarding().nextAction (design §9.1).
+ *
+ * The read-only/automation family — a cluster that is already connected read-only ('Enable
+ * automation'), or automation is enabled and being viewed/opened ('View', 'Open automation') —
+ * opens the Phase-2 EnableAutomationDrawer. Everything else (the not-installed / waiting-for-agent /
+ * retry / troubleshoot family, whose action is 'Connect' or a recovery of the Phase-1 connect)
+ * opens the Phase-1 ConnectClusterDrawer. 'Open automation' falls back to EnableAutomationDrawer
+ * rather than deep-linking the Automation section, so the Guide entry point stays a single surface.
+ */
+type GuideKind = 'connect' | 'automation';
+
+const AUTOMATION_FAMILY: ReadonlySet<string> = new Set(['Enable automation', 'View', 'Open automation']);
+
+function guideKind(nextAction: string): GuideKind {
+  return AUTOMATION_FAMILY.has(nextAction) ? 'automation' : 'connect';
+}
+
 function ClusterPage({ link, debug }: { link: ClusterLink; debug: boolean }) {
   const { clusterName, accountId, region, version } = link;
   useK8sCacheIdentity();
@@ -248,6 +271,12 @@ function ClusterPage({ link, debug }: { link: ClusterLink; debug: boolean }) {
   useAccountSwitchReconciler(link);
   // The sidebar's "View only" marker reads this page's capabilities (Addendum 1, A4).
   usePublishClusterNavAccess(clusterName, accountId);
+  // State-aware guide routing (design §9.1): read the server-derived onboarding block and map its
+  // next action to the drawer to open. lastExchangeAt is not read on this page, so pass null — the
+  // helper tolerates it (it only affects the awaiting-agent age word, never the next action family).
+  const caps = useK8sCapabilities();
+  const onboarding = caps.forCluster(clusterName)?.onboarding;
+  const guide = guideKind(presentOnboarding(onboarding, null, Date.now()).nextAction);
   const eksData = useEksDashboard({ clusterName, accountId, region, version });
   const route = useEksSectionRoute();
   const [guideLoaded, setGuideLoaded] = useState(false);
@@ -340,7 +369,23 @@ function ClusterPage({ link, debug }: { link: ClusterLink; debug: boolean }) {
 
       {guideLoaded && (
         <Suspense fallback={null}>
-          <EksIntegrationModal isOpen={guideOpen} onClose={closeGuide} clusterName={clusterName} region={region} />
+          {guide === 'automation' ? (
+            <EnableAutomationDrawer
+              open={guideOpen}
+              onClose={closeGuide}
+              clusterName={clusterName}
+              region={region}
+              accountId={accountId}
+            />
+          ) : (
+            <ConnectClusterDrawer
+              open={guideOpen}
+              onClose={closeGuide}
+              clusterName={clusterName}
+              region={region}
+              accountId={accountId}
+            />
+          )}
         </Suspense>
       )}
     </main>
