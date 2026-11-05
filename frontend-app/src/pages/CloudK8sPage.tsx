@@ -30,7 +30,6 @@ import { serializeClusterLink, FLEET_VIEW_PARAM, FLEET_VIEW_ALL } from '../utils
 import { inPageState } from '../utils/inPageNavigation';
 import CloudK8sHeader from '../components/CloudK8s/CloudK8sHeader';
 import CloudK8sClusterTable from '../components/CloudK8s/CloudK8sClusterTable';
-import CloudK8sIntegrations from '../components/CloudK8s/CloudK8sIntegrations';
 
 export interface EKSCluster {
   name: string;
@@ -294,28 +293,17 @@ const CloudK8sPage: React.FC = () => {
         onRefresh={rescan}
       />
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }} className="space-y-5">
-        {errorKind && status === 'error' ? (
-          <div role="alert" className="flex items-start gap-3 rounded-lg border border-[rgba(0,0,0,0.88)] bg-white p-5">
-            <Icon icon="mdi:alert-octagon" width={18} aria-hidden="true" className="mt-0.5 shrink-0 text-[rgba(0,0,0,0.88)]" />
-            <div className="min-w-0 flex-1">
-              <h2 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">Couldn't load your clusters</h2>
-              <p className="mt-0.5 text-[13px] text-[rgba(0,0,0,0.6)]">The cluster list didn't load. Try again.</p>
-              <button type="button" onClick={reload} className={`mt-3 ${linkClass}`}>
-                <Icon icon="mdi:refresh" width={14} aria-hidden="true" />
-                Retry
-              </button>
-            </div>
-          </div>
-        ) : (
-          <CloudK8sClusterTable
-            clusters={fleetClusters}
-            isLoading={fleetLoading}
-            onViewDetails={(cluster) => navigate(serializeClusterLink({
-              clusterName: cluster.name, region: cluster.region, accountId: String(selectedAccountId), version: cluster.version,
-            }))}
-          />
-        )}
-        <CloudK8sIntegrations />
+        <CloudK8sClusterTable
+          clusters={fleetClusters}
+          isLoading={fleetLoading}
+          error={status === 'error' ? errorKind : null}
+          onRetry={reload}
+          onRescan={rescan}
+          isRefreshing={isRefreshing}
+          onViewDetails={(cluster) => navigate(serializeClusterLink({
+            clusterName: cluster.name, region: cluster.region, accountId: String(selectedAccountId), version: cluster.version,
+          }))}
+        />
       </motion.div>
     </main>
   );

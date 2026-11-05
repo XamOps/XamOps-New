@@ -76,13 +76,18 @@ vi.mock('../../utils/k8sLastCluster', async (importOriginal) => {
 });
 vi.mock('../../components/CloudK8s/CloudK8sHeader', () => ({ default: () => <div data-testid="fleet-header">Fleet header</div> }));
 vi.mock('../../components/CloudK8s/CloudK8sClusterTable', () => ({
-  default: ({ clusters, isLoading }: { clusters: Array<{ name: string }>; isLoading: boolean }) => (
-    <div data-testid="fleet-table" data-loading={String(isLoading)} data-count={clusters.length}>
-      Fleet table
-    </div>
-  ),
+  default: ({ clusters, isLoading, error, onRetry }: { clusters: Array<{ name: string }>; isLoading: boolean; error?: string | null; onRetry?: () => void }) =>
+    error ? (
+      <div data-testid="fleet-error">
+        Couldn't load your clusters
+        <button type="button" onClick={onRetry}>Retry</button>
+      </div>
+    ) : (
+      <div data-testid="fleet-table" data-loading={String(isLoading)} data-count={clusters.length}>
+        Fleet table
+      </div>
+    ),
 }));
-vi.mock('../../components/CloudK8s/CloudK8sIntegrations', () => ({ default: () => <div>Fleet integrations</div> }));
 
 import CloudK8sPage, { OPENING_TEXT, ACCOUNT_UNAVAILABLE_TITLE, CONNECT_ACCOUNT_TITLE, SELF_HEAL_MS, pickLandingCluster, type EKSCluster } from '../CloudK8sPage';
 import { TopbarProvider } from '../../contexts/TopbarContext';
@@ -367,5 +372,15 @@ describe('fleet view states', () => {
     const table = await screen.findByTestId('fleet-table');
     expect(table).toHaveAttribute('data-count', '0');
     landedOn('/cloudk8s');
+  });
+
+  it('never mounts the COMING SOON integrations tiles or a roadmap line', async () => {
+    clustersState.status = 'ready';
+    clustersState.clusters = [cluster({ name: 'only' })];
+    renderAt('/cloudk8s?view=all');
+    await screen.findByTestId('fleet-table');
+    expect(screen.queryByText(/coming soon/i)).toBeNull();
+    expect(screen.queryByText(/integration pending/i)).toBeNull();
+    expect(screen.queryByText(/roadmap/i)).toBeNull();
   });
 });
