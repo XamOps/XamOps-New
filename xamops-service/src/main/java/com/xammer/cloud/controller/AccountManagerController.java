@@ -474,7 +474,7 @@ public class AccountManagerController {
         // 3. Fetch Accounts
         boolean isAdmin = userDetails.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role) || "ROLE_XAMOPS_ADMIN".equals(role)
+                .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role) || "ROLE_XAMOPS".equals(role)
                         || "ROLE_SUPER_ADMIN".equals(role));
 
         List<CloudAccount> accounts;

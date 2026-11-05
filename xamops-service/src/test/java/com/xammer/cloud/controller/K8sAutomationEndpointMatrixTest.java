@@ -267,7 +267,7 @@ class K8sAutomationEndpointMatrixTest {
     @MethodSource("all")
     void aReadWriteAdminReachesTheServiceWhereReadinessAllows(Endpoint e) throws Exception {
         K8sAutomationTestWorld.signIn(world.addUser(50L, 1L, "admin@xamops.example", "XAMOPS_ADMIN",
-                "ROLE_XAMOPS_ADMIN", List.of()));
+                "ROLE_XAMOPS", List.of()));
         MockHttpServletResponse r = call(e, CLUSTER, TENANT_A_AWS);
 
         if (!e.mutation() || READINESS_ALLOWED.contains(e.suffix())) {

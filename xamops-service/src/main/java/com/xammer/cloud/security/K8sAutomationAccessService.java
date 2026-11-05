@@ -82,7 +82,7 @@ public class K8sAutomationAccessService {
 
     /** XamOps-product roles that may change automation, after {@code ROLE_} normalisation. */
     static final Set<String> AUTOMATION_ROLES = Set.of(
-            "ROLE_XAMOPS", "ROLE_XAMOPS_ADMIN", "ROLE_SUPER_ADMIN", "ROLE_ADMIN", "ROLE_USER");
+            "ROLE_XAMOPS", "ROLE_SUPER_ADMIN", "ROLE_ADMIN", "ROLE_USER");
 
     private static final Pattern AWS_ACCOUNT_ID = Pattern.compile("^[0-9]{1,12}$");
 

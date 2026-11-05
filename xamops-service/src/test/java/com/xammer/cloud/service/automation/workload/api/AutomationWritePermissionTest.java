@@ -78,7 +78,7 @@ class AutomationWritePermissionTest {
     @DisplayName("every permitted role is permitted, and only those five")
     void onlyXamopsProductRolesMayWrite() {
         assertThat(AutomationWritePermission.WRITE_ROLES).containsExactlyInAnyOrder(
-                "ROLE_XAMOPS", "ROLE_XAMOPS_ADMIN", "ROLE_SUPER_ADMIN", "ROLE_ADMIN", "ROLE_USER");
+                "ROLE_XAMOPS", "ROLE_SUPER_ADMIN", "ROLE_ADMIN", "ROLE_USER");
 
         for (String role : AutomationWritePermission.WRITE_ROLES) {
             givenUser("real.user@example.com", role);

@@ -264,7 +264,7 @@ public class CloudAccountAccessService {
         return userDetails.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .anyMatch(role -> "ROLE_SUPER_ADMIN".equals(role)
-                        || "ROLE_XAMOPS_ADMIN".equals(role)
+                        || "ROLE_XAMOPS".equals(role)
                         || "ROLE_BILLOPS_ADMIN".equals(role));
     }
 }

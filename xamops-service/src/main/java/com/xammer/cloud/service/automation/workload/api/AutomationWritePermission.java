@@ -84,7 +84,7 @@ public class AutomationWritePermission {
 
     /** Roles that may change automation. BillOps-only principals are deliberately absent. */
     public static final Set<String> WRITE_ROLES = Set.of(
-            "ROLE_XAMOPS", "ROLE_XAMOPS_ADMIN", "ROLE_SUPER_ADMIN", "ROLE_ADMIN", "ROLE_USER");
+            "ROLE_XAMOPS", "ROLE_SUPER_ADMIN", "ROLE_ADMIN", "ROLE_USER");
 
     /** The existing CloudK8s sidebar key. */
     public static final String TAB_CLOUDK8S = "cloudops-cloudk8s";

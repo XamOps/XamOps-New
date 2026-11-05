@@ -112,7 +112,7 @@ class CloudAccountAccessServiceTest {
 
     @Test
     void xamopsAdmin_reachesAnyAccount() {
-        assertThat(service.canAccess(caller("ROLE_XAMOPS_ADMIN"), account(ACCOUNT_ID, OTHER_CLIENT_ID)))
+        assertThat(service.canAccess(caller("ROLE_XAMOPS"), account(ACCOUNT_ID, OTHER_CLIENT_ID)))
                 .isTrue();
     }
 
