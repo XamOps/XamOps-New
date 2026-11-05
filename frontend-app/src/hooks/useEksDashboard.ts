@@ -5,7 +5,7 @@
  * Converted from: eks-details.html Alpine.js logic
  */
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import apiClient from '../utils/apiClient';
 // The parsers return null for a missing or unparseable quantity (D10). The request sums below add
 // an unset request as 0 on purpose, since it reserves nothing, and count those containers.
@@ -113,6 +113,12 @@ export const useEksDashboard = ({
   const [containerSearchQuery, setContainerSearchQuery] = useState('');
   const [containerNamespaceFilter, setContainerNamespaceFilter] = useState('');
 
+  // Per-cluster isolation (FEAT-004). The token is the guarantee that a late response from a
+  // previous cluster never lands on the current one; the AbortSignal is best-effort cancellation
+  // on top of it. A response is applied only when its token still matches the latest request.
+  const requestSeq = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+
   /**
    * Fetch dashboard data from API
    * Uses frontend cache to avoid re-fetching on navigation
@@ -124,11 +130,19 @@ export const useEksDashboard = ({
       return;
     }
 
+    // Claim a monotonic token for this request and abort any in-flight fetch for the previous key.
+    const token = ++requestSeq.current;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const isStale = () => token !== requestSeq.current;
+
     // Check frontend cache first (for navigation scenarios)
     // Skip cache if forceRefresh is true
     if (!forceRefresh && dashboardCache.isCacheValid(clusterName, accountId, region)) {
       const cached = dashboardCache.getCachedDashboard(clusterName, accountId, region);
       if (cached) {
+        if (isStale()) return;
         console.log('Using frontend cached dashboard data');
         setDashboard(cached.data);
         setLastUpdateTimestamp(cached.lastSyncedAt);
@@ -143,8 +157,12 @@ export const useEksDashboard = ({
 
     try {
       const data = await apiClient.get<EksDashboard>(
-        `/api/xamops/eks/${clusterName}/dashboard?accountId=${accountId}&region=${region}${versionParam(version)}&forceRefresh=${forceRefresh}`
+        `/api/xamops/eks/${clusterName}/dashboard?accountId=${accountId}&region=${region}${versionParam(version)}&forceRefresh=${forceRefresh}`,
+        { signal: controller.signal }
       );
+
+      // Drop a response that belongs to a previous cluster/account/region.
+      if (isStale()) return;
 
       setDashboard(data);
 
@@ -161,11 +179,16 @@ export const useEksDashboard = ({
       // Store metric snapshot for trends
       storeMetricSnapshot(clusterName, data);
     } catch (err: any) {
+      // A stale or aborted request must not surface its error on the current cluster.
+      if (isStale()) return;
+      if (err?.name === 'AbortError') return;
       console.error('Error fetching dashboard:', err);
       setError(err.message);
     } finally {
-      setLoading(false);
-      setIsRefreshing(false);
+      if (!isStale()) {
+        setLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, [accountId, clusterName, region, version, dashboardCache]);
 
@@ -704,6 +727,25 @@ export const useEksDashboard = ({
     const hours = Math.floor(minutes / 60);
     if (hours < 24) return `${hours}h ago`;
     return `${Math.floor(hours / 24)}d ago`;
+  }, []);
+
+  // Per-cluster isolation (FEAT-004): when the cluster/account/region key changes, invalidate any
+  // in-flight request (bump the token + abort) and reset the view state so no panel ever shows the
+  // previous cluster's data or error, and the container search/namespace filters start clean.
+  useEffect(() => {
+    requestSeq.current += 1;
+    abortRef.current?.abort();
+    setDashboard(null);
+    setError(null);
+    setLastUpdateTimestamp(Date.now());
+    setContainerSearchQuery('');
+    setContainerNamespaceFilter('');
+  }, [clusterName, accountId, region]);
+
+  // Abort any in-flight request on unmount.
+  useEffect(() => () => {
+    requestSeq.current += 1;
+    abortRef.current?.abort();
   }, []);
 
   // Initial fetch
