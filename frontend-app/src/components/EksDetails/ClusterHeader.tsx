@@ -16,6 +16,8 @@ import { useK8sCapabilities, type K8sCapabilitiesValue } from '../../hooks/useK8
 import type { AgentStatus } from '../../types/k8sAutomation';
 import { SourceLabel } from '../CloudK8s/shared/SourceLabel';
 import { displayVersion } from '../../utils/k8sVersion';
+import { fleetHref } from '../../utils/k8sClusterLink';
+import { ClusterSwitcher } from './ClusterSwitcher';
 
 export const SYNC_TIMEOUT_TEXT = 'Sync is taking longer than expected. The latest data will appear when it finishes.';
 export const VERSION_NOT_REPORTED = 'Version not reported';
@@ -63,16 +65,17 @@ function syncedLabel(since: string): string {
 export function ClusterHeader({
   clusterName, accountId, region, version, isSyncing, syncTimedOut, lastUpdateTimestamp, getTimeSince, onSync, onOpenGuide,
 }: ClusterHeaderProps) {
-  const { setTitle, setActions, clearActions } = useTopbarActions();
+  const { setTitle, setTitleAdornment, setActions, clearActions } = useTopbarActions();
   const caps = useK8sCapabilities();
   const cluster = caps.forCluster(clusterName);
 
   useEffect(() => {
     setTitle(clusterName);
+    setTitleAdornment(<ClusterSwitcher accountId={accountId} clusterName={clusterName} region={region} version={version} />);
     setActions(
       <div className="flex items-center gap-3">
         <Link
-          to={`/cloudk8s?accountIds=${encodeURIComponent(accountId)}`}
+          to={fleetHref()}
           aria-label="Back to clusters"
           title="Back to clusters"
           className={`flex h-9 w-9 items-center justify-center rounded-xl border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.6)] transition-colors hover:border-[rgba(0,0,0,0.25)] hover:text-[rgba(0,0,0,0.88)] ${focusRing}`}
@@ -115,9 +118,10 @@ export function ClusterHeader({
     );
     return () => {
       clearActions();
+      setTitleAdornment(null);
       setTitle(null);
     };
-  }, [setTitle, setActions, clearActions, clusterName, accountId, version, region, isSyncing, lastUpdateTimestamp, getTimeSince, onSync, onOpenGuide]);
+  }, [setTitle, setTitleAdornment, setActions, clearActions, clusterName, accountId, version, region, isSyncing, lastUpdateTimestamp, getTimeSince, onSync, onOpenGuide]);
 
   // A malformed / partial capabilities payload can list a cluster with no agent / automationAgent
   // (BUG-2): fall back to null (an Unknown clock) rather than dereferencing undefined and crashing.

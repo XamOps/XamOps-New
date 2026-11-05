@@ -51,7 +51,6 @@ export const EKS_PLACEHOLDERS = {
   accountId: '<AWS_ACCOUNT_ID>',
   nodegroupRole: '<NODEGROUP_ROLE_NAME>',
   serverUrl: '<XAMOPS_SERVER_URL>',
-  apiKey: '<XAMOPS_API_KEY>',
 } as const;
 
 const EKS_VAR_SPECS: GuideVarSpec[] = [
@@ -86,6 +85,7 @@ const EKS_VAR_SPECS: GuideVarSpec[] = [
  * already published, and there was no way to tell from the UI.
  *
  * Keep in step with AGENT_IMAGE in resources/agent-install/install-k8s.sh; CI asserts they match.
+ * The agent authenticates with a short-lived connect token, not a long-lived API key.
  */
 export const AGENT_IMAGE_TAG = 'v2.1.0';
 
@@ -236,8 +236,7 @@ const EksIntegrationModal: React.FC<EksIntegrationModalProps> = ({
   const tokens = useMemo<GuideTokenValues>(() => ({
     ...vars,
     [EKS_PLACEHOLDERS.serverUrl]: effectiveServerUrl,
-    [EKS_PLACEHOLDERS.apiKey]: config.apiKey,
-  }), [vars, effectiveServerUrl, config.apiKey]);
+  }), [vars, effectiveServerUrl]);
 
   useEffect(() => {
     const mainContent = document.getElementById('main-content');
@@ -360,16 +359,14 @@ const QuickInstallTab: React.FC<{
     `curl -sSL ${scriptUrl} | bash -s -- \\`,
     `  --cluster ${q(cluster)} \\`,
     `  --region ${q(region)} \\`,
-    `  --server-url ${serverUrl} \\`,
-    `  --api-key ${config.apiKey}`,
+    `  --server-url ${serverUrl}`,
   ].join('\n');
 
   const allClusters = [
     `curl -sSL ${scriptUrl} | bash -s -- \\`,
     `  --all \\`,
     `  --region ${q(region)} \\`,
-    `  --server-url ${serverUrl} \\`,
-    `  --api-key ${config.apiKey}`,
+    `  --server-url ${serverUrl}`,
   ].join('\n');
 
   const inspectFirst = [
@@ -378,7 +375,7 @@ const QuickInstallTab: React.FC<{
     'less xamops-install-eks.sh          # review it',
     'chmod +x xamops-install-eks.sh',
     `./xamops-install-eks.sh --cluster ${q(cluster)} --region ${q(region)} \\`,
-    `  --server-url ${serverUrl} --api-key ${config.apiKey}`,
+    `  --server-url ${serverUrl}`,
   ].join('\n');
 
   return (
@@ -464,7 +461,7 @@ const QuickInstallTab: React.FC<{
             ['Step 2.1', 'Trivy Operator'],
             ['Step 2.2', 'Kubescape, plus a first scan so results appear today rather than tomorrow'],
             ['Step 3.1', 'read-only RBAC for the agent'],
-            ['Step 3.2', 'agent ConfigMap and Secret for this environment'],
+            ['Step 3.2', 'agent ConfigMap for this environment'],
             ['Step 3.3', `the agent itself (${AGENT_IMAGE_TAG}), with the Karpenter collector enabled`],
             ['Part 4', 'verification of all of the above'],
           ].map(([step, what]) => (
@@ -1089,11 +1086,11 @@ EOF`}
       />
     </CollapsibleSection>
 
-    <CollapsibleSection title="Step 3.2: Create ConfigMap and Secret" icon="fas fa-cog" iconColor="text-blue-500">
+    <CollapsibleSection title="Step 3.2: Create ConfigMap" icon="fas fa-cog" iconColor="text-blue-500">
       <VariableNote variables={[EKS_PLACEHOLDERS.clusterName, EKS_PLACEHOLDERS.accountId]} />
       <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 mb-3 text-sm text-indigo-800">
         <i className="fas fa-server mr-2"></i>
-        <code className="bg-indigo-100 px-1 rounded">XAMOPS_SERVER_URL</code> and the API key below are filled in for
+        <code className="bg-indigo-100 px-1 rounded">XAMOPS_SERVER_URL</code> is filled in for
         the XamOps instance you are currently signed in to (<code className="bg-indigo-100 px-1 rounded">{serverUrl}</code>),
         so a cluster set up from a local or UAT instance does not end up reporting into production.
       </div>
@@ -1123,21 +1120,12 @@ data:
   COLLECTOR_KUBESCAPE: "true"
   COLLECTOR_KARPENTER: "true"
   COLLECTOR_OPENCOST: "true"
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: xamops-agent-secret
-  namespace: xamops-system
-type: Opaque
-stringData:
-  XAMOPS_API_KEY: "<XAMOPS_API_KEY>"
 EOF`}
       />
       <div className="bg-indigo-50 border border-indigo-200 rounded p-3 text-sm text-indigo-800 mt-2">
         <i className="fas fa-lock mr-2"></i>
-        The API key is a global shared key pre-configured for all clusters in this environment. Your cluster is
-        identified by CLUSTER_NAME + CLOUD_ACCOUNT_ID, so those two values must match what you used for Kubescape.
+        Your cluster is identified by CLUSTER_NAME + CLOUD_ACCOUNT_ID, so those two values must match what you used
+        for Kubescape.
       </div>
     </CollapsibleSection>
 
@@ -1179,8 +1167,6 @@ spec:
           envFrom:
             - configMapRef:
                 name: xamops-agent-config
-            - secretRef:
-                name: xamops-agent-secret
           livenessProbe:
             httpGet:
               path: /health

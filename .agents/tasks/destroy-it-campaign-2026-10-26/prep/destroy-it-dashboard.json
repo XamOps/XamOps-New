@@ -1,0 +1,173 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "tags": ["destroy-it", "xamops", "chaos"],
+  "time": { "from": "now-10m", "to": "now" },
+  "timepicker": { "refresh_intervals": ["10s", "30s", "1m"] },
+  "refresh": "15s",
+  "title": "Destroy-It — xamops-test-1 campaign",
+  "uid": "destroy-it-campaign",
+  "templating": {
+    "list": [
+      {
+        "name": "ns",
+        "label": "fleet namespace",
+        "type": "custom",
+        "query": "stress,stress-db,xamops-system",
+        "current": { "text": "stress", "value": "stress" },
+        "includeAll": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Chaos active now? (reconcile rate, 5m)",
+      "description": "Sum of Chaos Mesh controller reconcile rate across chaos controllers. >0 means chaos experiments are actively being driven right now. Use this to tell chaos-induced damage from tool-caused bugs.",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(controller_runtime_reconcile_total{job=\"chaos-mesh-controller-manager\", controller=~\".*chaos.*\"}[5m]))", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "0": { "text": "IDLE", "color": "green" } } }],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "red", "value": 0.01 }
+          ] },
+          "unit": "ops"
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "area", "textMode": "value_and_name" }
+    },
+    {
+      "id": 2,
+      "type": "state-timeline",
+      "title": "Chaos reconcile activity (per controller)",
+      "description": "Which chaos kinds are active (podchaos/stresschaos/networkchaos/iochaos/...). Lit = chaos being reconciled.",
+      "gridPos": { "h": 5, "w": 12, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum by (controller) (rate(controller_runtime_reconcile_total{job=\"chaos-mesh-controller-manager\", controller=~\"(podchaos|stresschaos|networkchaos|iochaos|httpchaos|dnschaos|timechaos|kernelchaos|jvmchaos|blockchaos)\"}[2m])) > 0", "legendFormat": "{{controller}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 70 }, "color": { "mode": "continuous-RdYlGr" } } }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Agent leader (HA)",
+      "description": "xamops automation leader. One leader expected; flaps here = leader election churn (possibly chaos-induced).",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "count(xamops_leader == 1)", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": {
+        "thresholds": { "mode": "absolute", "steps": [
+          { "color": "red", "value": null },
+          { "color": "green", "value": 1 },
+          { "color": "orange", "value": 2 }
+        ] },
+        "unit": "none"
+      } },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value" }
+    },
+
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "xamops gate decisions (live=1 / analyse=0.5 / off=0)",
+      "description": "The 5 acting controllers should read live. A gate flipping off mid-run that wasn't a tool action is a signal.",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "max by (controller) (xamops_gate_decision{mode=\"live\"})", "legendFormat": "{{controller}} live", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "stepAfter": true, "fillOpacity": 10 }, "min": 0, "max": 1 } }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "xamops activity — drains / evictions / cycle",
+      "description": "Real agent actions. Spikes correlate with evictor/consolidation/rebalancer acting on the fleet & DB nodes.",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(xamops_drains_total[5m]))", "legendFormat": "drains/s", "refId": "A" },
+        { "expr": "sum(rate(xamops_consolidation_pods_evicted_total[5m]))", "legendFormat": "consolidation evicted/s", "refId": "B" },
+        { "expr": "sum(rate(xamops_consolidation_runs_total[5m]))", "legendFormat": "consolidation runs/s", "refId": "C" },
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(xamops_cycle_duration_seconds_bucket[5m])))", "legendFormat": "cycle p95 (s)", "refId": "D" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10 } } }
+    },
+
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Pod restarts (increase, by ns)",
+      "description": "Restarts in the stress / stress-db / xamops-system namespaces.",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum by (namespace) (increase(kube_pod_container_status_restarts_total{namespace=~\"stress|stress-db|xamops-system\"}[5m]))", "legendFormat": "{{namespace}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60 } } }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "OOMKills (5m increase, by ns)",
+      "description": "Containers terminated OOMKilled — under/over-provisioned fleet + chaos stressors.",
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum by (namespace) (increase(kube_pod_container_status_last_terminated_reason{reason=\"OOMKilled\", namespace=~\"stress|stress-db|xamops-system\"}[5m]))", "legendFormat": "{{namespace}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60 }, "color": { "mode": "fixed", "fixedColor": "red" } } }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "REAL CFS throttling (% of periods, top pods)",
+      "description": "container_cpu_cfs_throttled_periods_total / cfs_periods_total — genuine CPU-limit throttling, not tool noise.",
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "topk(10, sum by (namespace, pod) (rate(container_cpu_cfs_throttled_periods_total{namespace=~\"stress|stress-db|xamops-system\"}[5m])) / clamp_min(sum by (namespace, pod) (rate(container_cpu_cfs_periods_total{namespace=~\"stress|stress-db|xamops-system\"}[5m])), 1))", "legendFormat": "{{namespace}}/{{pod}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10 }, "unit": "percentunit", "max": 1 } }
+    },
+
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "k6 HTTP latency (ms)",
+      "description": "k6 load against fleet-http, remote-written to Prometheus.",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "k6_http_req_duration_p95", "legendFormat": "p95", "refId": "A" },
+        { "expr": "k6_http_req_duration_p99", "legendFormat": "p99", "refId": "B" },
+        { "expr": "k6_http_req_duration_avg", "legendFormat": "avg", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10 }, "unit": "ms" } }
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "k6 request rate & error rate",
+      "description": "Throughput and failed-request ratio against the fleet.",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(k6_http_reqs_total[1m]))", "legendFormat": "reqs/s", "refId": "A" },
+        { "expr": "k6_http_req_failed_rate", "legendFormat": "failed ratio", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10 } } }
+    }
+  ]
+}

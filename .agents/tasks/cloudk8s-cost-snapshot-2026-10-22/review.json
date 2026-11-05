@@ -1,0 +1,15 @@
+{
+  "verdict": "APPROVED",
+  "summary": "CloudK8s daily cluster-cost snapshot fully meets intent. New ClusterCostSnapshot entity + repository, idempotent non-destructive Flyway migration (V20261022_1, CREATE TABLE/INDEX IF NOT EXISTS, FK to kubernetes_cluster_config(id) ON DELETE CASCADE, column types matching Hibernate), scheduled ClusterCostSnapshotService using the authoritative VerticalAutomationReadService.read -> cost().clusterMonthlyCost(), and read-back into CostSummaryDto.previousClusterMonthlyCost via a new withPreviousClusterMonthlyCost wither applied in VerticalAutomationReadService.evaluate(...) right after withRollups.",
+  "intent_checks": {
+    "authoritative_engine": "PASS - snapshot job and read-back both go through VerticalAutomationReadService; no recompute, agent-dashboard path untouched.",
+    "real_data_only": "PASS - skips (no row) when cost()==null or clusterMonthlyCost()==null; never a fabricated 0; prior stays null when no history (confirmed in tests and run logs).",
+    "migration_safe": "PASS - idempotent CREATE TABLE/INDEX IF NOT EXISTS, no destructive DDL, types match Hibernate so Flyway/ddl-auto never fight on shared UAT DB; version V20261022_1 is unique (latest prior was V20261016_1).",
+    "master_switch": "PASS - xamops.k8s.cost.snapshot.enabled defaults false (inline @Value), declared true only in application-uat.properties; runCycle returns early unless snapshot switch AND K8sCostProperties.enabled() both on.",
+    "summary_pure": "PASS - WorkloadCostAttributionService untouched; summary(...) still passes null; read-back lives in evaluate(...) scoped by target.clusterConfigId().",
+    "scoping_B4": "PASS - entity/repo/migration scope by kubernetes_cluster_config.id, never cloud_account_id; resolveAccount copies AutomaticApplyService findById-then-findByAwsAccountId; no AWS account number logged (uses target.describe()).",
+    "unrelated_surfaces_untouched": "PASS - no AutoSpotting / /k8opt / unrelated files in the diff.",
+    "tests": "PASS - targeted 55 tests (ClusterCostSnapshotRepositoryTest 6, ClusterCostSnapshotServiceTest 6, VerticalAutomationReadServiceTest 41, VerticalAutomationReadServiceContextTest 2) all green. Full module suite: 3738 run, 1 failure, 0 errors; the ONLY failure is the known-unrelated AwsPermissionCatalogKubernetesTest.logsDegradesKubernetes_andKeepsItsOtherFeatures. No new failures."
+  },
+  "findings": []
+}

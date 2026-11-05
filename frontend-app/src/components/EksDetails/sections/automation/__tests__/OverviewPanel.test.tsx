@@ -141,6 +141,7 @@ function serve(
       return json(a.status, a.body);
     }
     if (/\/api\/eks\/autoscaling\/[^/]+\/rebalance-status$/.test(u.pathname)) return json(200, { status: 'idle' });
+    if (/\/api\/eks\/autoscaling\/[^/]+\/consolidation-runs$/.test(u.pathname)) return json(200, { status: 'NO_RUNS', runs: [], realizedSavings: null });
     if (/\/api\/eks\/autoscaling\/[^/]+$/.test(u.pathname)) return json(404, null);
     throw new Error(`unexpected request ${url}`);
   });
@@ -361,7 +362,8 @@ describe('Automation › Overview (§9.1)', () => {
     await screen.findByText(/XamOps is watching 3 workloads/);
     // The five Phase-1/2 reads plus the three Node autoscaler reads the spot-interruption row shares
     // (FEAT-003): the agent dashboard, the node fleet (interruptedNodes) and the rebalance status.
-    await waitFor(() => expect(mockedFetch).toHaveBeenCalledTimes(8));
+    // Plus the consolidation-runs read behind the Proof of no harm panel (Phase A).
+    await waitFor(() => expect(mockedFetch).toHaveBeenCalledTimes(9));
     expect(getCapabilities).toHaveBeenCalledTimes(1);
     expect(endpointOneGets()).toHaveLength(1);
     expect(String(endpointOneGets()[0][0])).toBe('/api/eks/automation/vertical/prod-eks-cluster?accountId=demo-aws-001&region=us-east-1');
@@ -376,6 +378,20 @@ describe('Automation › Overview (§9.1)', () => {
     expect(usage).toEqual(['cluster:cpu:72h', 'namespace:cpu:72h']);
     // The spot-interruption row reads the node fleet once.
     expect(getsTo(/\/api\/eks\/autoscaling\/prod-eks-cluster\/node-fleet$/)).toHaveLength(1);
+    // The Proof of no harm panel reuses the Overview's own activity feed (no second request) and reads
+    // the consolidation runs once.
+    expect(getsTo(/\/api\/eks\/autoscaling\/prod-eks-cluster\/consolidation-runs$/)).toHaveLength(1);
+  });
+
+  it('renders the Proof of no harm panel once, in the detail column', async () => {
+    await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', { eksData: DASHBOARD });
+    const panels = await screen.findAllByTestId('proof-of-no-harm');
+    expect(panels).toHaveLength(1);
+    expect(panels[0].getAttribute('data-proof-scope')).toBe('cluster');
+    // It sits in the detail column ahead of the feature cards and the "today" table that follow the timeline.
+    const table = screen.getByRole('table', { name: 'What automation can do on this cluster today' });
+    expect(panels[0].compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(panels[0]).getByText('Consolidation runs')).toBeInTheDocument();
   });
 
   describe('v3 visuals from endpoint 1, the agent and capabilities (FEAT-002)', () => {

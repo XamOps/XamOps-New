@@ -10,6 +10,7 @@ import type {
   ActivityContainerChange,
   ActivityEntryView,
   ActivityHpaBounds,
+  ActivityPodProof,
   ActivityResultKey,
   ActivitySizes,
 } from '../../../../../types/automationActivity';
@@ -85,6 +86,10 @@ export function resultDetail(e: ActivityEntryView): { short: string; full: strin
 export const touchedPods = (e: ActivityEntryView): boolean =>
   e.action === 'resize' && !e.dryRun && e.result !== 'refused' && e.result !== 'test-run';
 
+/** Whether a pod was replaced (its UID changed) or its restart count went up. */
+export const podRestarted = (p: ActivityPodProof): boolean =>
+  p.uidChanged === true || (p.restartsBefore !== null && p.restartsAfter !== null && p.restartsAfter > p.restartsBefore);
+
 /**
  * The restart-free proof as a chip, or null when the entry touched no pod. "Restart-free" only when
  * the server says every pod touched was proved not to have restarted; a pod that was replaced or
@@ -93,9 +98,7 @@ export const touchedPods = (e: ActivityEntryView): boolean =>
 export function proofChip(e: ActivityEntryView): ActivityChip | null {
   if (!touchedPods(e)) return null;
   if (e.restartFree) return { tone: 'good', icon: 'mdi:shield-check-outline', label: 'Restart-free' };
-  const restarted = e.proof?.pods.some(
-    (p) => p.uidChanged === true || (p.restartsBefore !== null && p.restartsAfter !== null && p.restartsAfter > p.restartsBefore),
-  );
+  const restarted = e.proof?.pods.some(podRestarted);
   if (restarted) return { tone: 'bad', icon: 'mdi:alert-octagon-outline', label: 'Restarted' };
   return { tone: 'warn', icon: 'mdi:progress-question', label: 'Not proved' };
 }

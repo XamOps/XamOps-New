@@ -57,6 +57,17 @@ type Config struct {
 	DBDSNs          []string
 	DBQueryLimit    int // max queries to collect per DB instance (default 50)
 	DBCollectInterval int // seconds between DB query stat collections (default 300)
+	// PERF-7: per-collector deadline so one DB collector stalled on an ACCESS EXCLUSIVE lock cannot
+	// burn the whole cycle budget and zero the collectors that run after it (default 30s).
+	DBCollectorTimeoutSeconds int
+	// Phase 2 console: the governance catalog collectors (db-access-grants, db-fk-graph) are
+	// hourly, not per-cycle — they read the whole role/FK catalog, so the Manager gates them to
+	// this cadence and serves the last cached batch between runs (default 3600s).
+	DBCatalogCollectInterval int
+	// Phase 2 console: a single collector-side threshold (seconds) that bounds which sessions the
+	// lock-waits collector emits as long-running/idle-in-transaction; the health service classifies
+	// severity from the same value so the two can never disagree (LOW-5b, default 60s).
+	DBLongXactSecs int
 
 	// OpenCost settings
 	OpenCostServiceURL string
@@ -119,6 +130,9 @@ func Load() (*Config, error) {
 		DBDSNs:            getEnvDSNs(),
 		DBQueryLimit:      getEnvInt("DB_QUERY_LIMIT", 50),
 		DBCollectInterval: getEnvInt("DB_COLLECT_INTERVAL", 300),
+		DBCollectorTimeoutSeconds: getEnvInt("DB_COLLECTOR_TIMEOUT_SECONDS", 30),
+		DBCatalogCollectInterval:  getEnvInt("DB_CATALOG_COLLECT_INTERVAL", 3600),
+		DBLongXactSecs:            getEnvInt("DB_LONGXACT_SECS", 60),
 
 		// OpenCost
 		OpenCostServiceURL: getEnv("OPENCOST_SERVICE_URL", "http://opencost.opencost.svc.cluster.local:9003"),

@@ -1,0 +1,2 @@
+stresschaos.chaos-mesh.org/e3-mem-stress-oom created
+stresschaos.chaos-mesh.org "e3-mem-stress-oom" deleted from chaos-testing namespace

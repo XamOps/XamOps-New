@@ -5,6 +5,7 @@ import com.xammer.cloud.service.cur.CostSourceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.TaskDecorator;
@@ -171,6 +172,35 @@ public class AsyncConfig implements AsyncConfigurer {
         executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
         executor.initialize();
         log.info("envAllocationExecutor created: core={} max={} queue={}", 2, 2, 50);
+        return executor;
+    }
+
+    /**
+     * PERF-1: dedicated bounded pool for all DbOps cloud/DB I/O (the ~30 {@code supplyAsync} fan-out
+     * across the AWS/GCP/Azure DbOps services). Those tasks previously ran on
+     * {@code ForkJoinPool.commonPool()}, which is sized to {@code CPU-1} (one worker on the 2-CPU
+     * limit) and is shared process-wide — a cold DbOps page open could starve every other parallel
+     * stream. The work is I/O-bound (blocked on cloud APIs), so the pool is sized by expected
+     * in-flight I/O rather than CPU count. {@code CallerRunsPolicy} degrades to synchronous execution
+     * under saturation instead of dropping work, and {@code tenantTaskDecorator} propagates the
+     * tenant/MDC/cost-source context exactly as the other named executors do. Sizes are
+     * {@code xamops.dbops.executor.*} configurable — tune under load (flagged for the PR).
+     */
+    @Bean(name = "dbOpsTaskExecutor")
+    public Executor dbOpsTaskExecutor(
+            TaskDecorator tenantTaskDecorator,
+            @Value("${xamops.dbops.executor.core-size:8}") int coreSize,
+            @Value("${xamops.dbops.executor.max-size:16}") int maxSize,
+            @Value("${xamops.dbops.executor.queue-capacity:500}") int queueCapacity) {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(coreSize);
+        executor.setMaxPoolSize(maxSize);
+        executor.setQueueCapacity(queueCapacity);
+        executor.setThreadNamePrefix("dbops-io-");
+        executor.setTaskDecorator(tenantTaskDecorator);
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        log.info("dbOpsTaskExecutor created: core={} max={} queue={}", coreSize, maxSize, queueCapacity);
         return executor;
     }
 

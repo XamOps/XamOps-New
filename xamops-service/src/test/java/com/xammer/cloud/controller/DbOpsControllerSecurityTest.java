@@ -112,7 +112,10 @@ class DbOpsControllerSecurityTest {
                 mock(DbAgentConfigRepository.class), mock(DbAgentDataCacheRepository.class),
                 mock(ExplainRequestRepository.class), mock(DbHealthSnapshotRepository.class),
                 mock(DbHealthAlertRepository.class), accessService,
-                new DbOpsFeatureFlags(false)); // Explain disabled (default)
+                new DbOpsFeatureFlags(false), // Explain disabled (default)
+                mock(com.xammer.cloud.service.DbHealthConsoleService.class),
+                mock(com.xammer.cloud.service.AccessGraphService.class),
+                mock(com.xammer.cloud.service.FkGraphService.class));
 
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())

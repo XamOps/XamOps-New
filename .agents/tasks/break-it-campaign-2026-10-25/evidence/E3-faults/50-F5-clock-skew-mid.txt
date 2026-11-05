@@ -1,0 +1,7 @@
+=== 50-F5-clock-skew-mid @ 2026-10-27T05:47:10Z ===
+--- pods ---
+NAME                                 READY   STATUS    RESTARTS      AGE   IP              NODE                                           NOMINATED NODE   READINESS GATES
+xamops-automation-7fd5b5749d-f2fkk   1/1     Running   3 (13h ago)   15h   172.31.41.245   ip-172-31-38-131.ap-south-1.compute.internal   <none>           <none>
+xamops-automation-7fd5b5749d-sl5gw   1/1     Running   2 (15h ago)   15h   172.31.26.119   ip-172-31-26-143.ap-south-1.compute.internal   <none>           <none>
+--- lease ---
+xamops-automation-7fd5b5749d-f2fkk

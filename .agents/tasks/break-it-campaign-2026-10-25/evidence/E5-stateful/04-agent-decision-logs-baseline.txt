@@ -1,0 +1,211 @@
+----- xamops-automation-7fd5b5749d-f2fkk (tail 250, filtered) -----
+2026/10/27 06:42:44 policy-fetched: mode=full
+2026/10/27 06:42:44 Gates — rebalancer=off (ENABLE_REBALANCER=false) | evictor=off (ENABLE_EVICTOR=false) | nodeopt=analyse (analysis only) cordon=off (nodeOptimizerPolicy.autoCordonIdleNodes not set) idleDrain=off (nodeOptimizerPolicy.autoDrainIdleNodes not set) spotRatio=off (nodeOptimizerPolicy.spotRatioTargetPct not set) karpenter=off (nodeOptimizerPolicy.karpenterEnabled not set) interruption=off (nodeOptimizerPolicy.handleSpotInterruptions not set) | rightsizer=off (ENABLE_RIGHTSIZER=false) apply=off (ENABLE_RIGHTSIZER=false) | hpa=off (ENABLE_HPA_MANAGER=false) | consolidation=analyse (look-only: consolidation never acts)
+{"time":"2026-10-27T06:42:44.95601282Z","level":"INFO","msg":"Gates — evictor","event":"gate","controller":"evictor","mode":"off"}
+{"time":"2026-10-27T06:42:44.956021075Z","level":"INFO","msg":"Gates — karpenter","event":"gate","controller":"karpenter","mode":"off"}
+{"time":"2026-10-27T06:42:44.956026863Z","level":"INFO","msg":"Gates — rightsizer-apply","event":"gate","controller":"rightsizer-apply","mode":"off"}
+{"time":"2026-10-27T06:42:44.956033865Z","level":"INFO","msg":"Gates — rebalancer","event":"gate","controller":"rebalancer","mode":"off"}
+{"time":"2026-10-27T06:42:44.956039598Z","level":"INFO","msg":"Gates — cordon","event":"gate","controller":"cordon","mode":"off"}
+{"time":"2026-10-27T06:42:44.956045885Z","level":"INFO","msg":"Gates — idle-drain","event":"gate","controller":"idle-drain","mode":"off"}
+{"time":"2026-10-27T06:42:44.956060176Z","level":"INFO","msg":"Gates — spot-ratio","event":"gate","controller":"spot-ratio","mode":"off"}
+{"time":"2026-10-27T06:42:44.956065537Z","level":"INFO","msg":"Gates — interruption","event":"gate","controller":"interruption","mode":"off"}
+{"time":"2026-10-27T06:42:44.956070628Z","level":"INFO","msg":"Gates — rightsizer","event":"gate","controller":"rightsizer","mode":"off"}
+{"time":"2026-10-27T06:42:44.956075868Z","level":"INFO","msg":"Gates — hpa-manager","event":"gate","controller":"hpa-manager","mode":"off"}
+{"time":"2026-10-27T06:42:44.956080168Z","level":"INFO","msg":"Gates — consolidation","event":"gate","controller":"consolidation","mode":"analyse"}
+{"time":"2026-10-27T06:42:44.95608483Z","level":"INFO","msg":"Gates — node-optimizer","event":"gate","controller":"node-optimizer","mode":"analyse"}
+2026/10/27 06:42:44 Drain budget capacity=1 inflight=[] planner=fitsim selfNamespace=xamops-system
+2026/10/27 06:42:45 Consolidation (look-only): 0 empty, 0 drain, 3 blocked, 6 kept of 9 node(s) — actor=NONE
+2026/10/27 06:43:44 INFO: policy fetched — mode=full evictor=false rightsizer=false rebalancer_status=idle hpa=false vpa=false nodeopt=true guards(pdb=true single=true sts=true critical=true) criticalNamespaces=[kube-system monitoring ingress-nginx xamops-system] maxParallelDrains=1
+2026/10/27 06:43:44 policy-fetched: mode=full
+2026/10/27 06:43:44 Gates — rebalancer=off (ENABLE_REBALANCER=false) | evictor=off (ENABLE_EVICTOR=false) | nodeopt=analyse (analysis only) cordon=off (nodeOptimizerPolicy.autoCordonIdleNodes not set) idleDrain=off (nodeOptimizerPolicy.autoDrainIdleNodes not set) spotRatio=off (nodeOptimizerPolicy.spotRatioTargetPct not set) karpenter=off (nodeOptimizerPolicy.karpenterEnabled not set) interruption=off (nodeOptimizerPolicy.handleSpotInterruptions not set) | rightsizer=off (ENABLE_RIGHTSIZER=false) apply=off (ENABLE_RIGHTSIZER=false) | hpa=off (ENABLE_HPA_MANAGER=false) | consolidation=analyse (look-only: consolidation never acts)
+{"time":"2026-10-27T06:43:44.945469305Z","level":"INFO","msg":"Gates — rightsizer","event":"gate","controller":"rightsizer","mode":"off"}
+{"time":"2026-10-27T06:43:44.945477675Z","level":"INFO","msg":"Gates — cordon","event":"gate","controller":"cordon","mode":"off"}
+{"time":"2026-10-27T06:43:44.945485106Z","level":"INFO","msg":"Gates — idle-drain","event":"gate","controller":"idle-drain","mode":"off"}
+{"time":"2026-10-27T06:43:44.945490733Z","level":"INFO","msg":"Gates — spot-ratio","event":"gate","controller":"spot-ratio","mode":"off"}
+{"time":"2026-10-27T06:43:44.945497813Z","level":"INFO","msg":"Gates — interruption","event":"gate","controller":"interruption","mode":"off"}
+{"time":"2026-10-27T06:43:44.945504095Z","level":"INFO","msg":"Gates — rightsizer-apply","event":"gate","controller":"rightsizer-apply","mode":"off"}
+{"time":"2026-10-27T06:43:44.945509148Z","level":"INFO","msg":"Gates — hpa-manager","event":"gate","controller":"hpa-manager","mode":"off"}
+{"time":"2026-10-27T06:43:44.94551419Z","level":"INFO","msg":"Gates — consolidation","event":"gate","controller":"consolidation","mode":"analyse"}
+{"time":"2026-10-27T06:43:44.945519266Z","level":"INFO","msg":"Gates — rebalancer","event":"gate","controller":"rebalancer","mode":"off"}
+{"time":"2026-10-27T06:43:44.945524966Z","level":"INFO","msg":"Gates — evictor","event":"gate","controller":"evictor","mode":"off"}
+{"time":"2026-10-27T06:43:44.945531159Z","level":"INFO","msg":"Gates — node-optimizer","event":"gate","controller":"node-optimizer","mode":"analyse"}
+{"time":"2026-10-27T06:43:44.945537314Z","level":"INFO","msg":"Gates — karpenter","event":"gate","controller":"karpenter","mode":"off"}
+2026/10/27 06:43:44 Drain budget capacity=1 inflight=[] planner=fitsim selfNamespace=xamops-system
+2026/10/27 06:43:45 Consolidation (look-only): 0 empty, 0 drain, 4 blocked, 5 kept of 9 node(s) — actor=NONE
+2026/10/27 06:44:44 INFO: policy fetched — mode=full evictor=false rightsizer=false rebalancer_status=idle hpa=false vpa=false nodeopt=true guards(pdb=true single=true sts=true critical=true) criticalNamespaces=[kube-system monitoring ingress-nginx xamops-system] maxParallelDrains=1
+2026/10/27 06:44:44 policy-fetched: mode=full
+2026/10/27 06:44:44 Gates — rebalancer=off (ENABLE_REBALANCER=false) | evictor=off (ENABLE_EVICTOR=false) | nodeopt=analyse (analysis only) cordon=off (nodeOptimizerPolicy.autoCordonIdleNodes not set) idleDrain=off (nodeOptimizerPolicy.autoDrainIdleNodes not set) spotRatio=off (nodeOptimizerPolicy.spotRatioTargetPct not set) karpenter=off (nodeOptimizerPolicy.karpenterEnabled not set) interruption=off (nodeOptimizerPolicy.handleSpotInterruptions not set) | rightsizer=off (ENABLE_RIGHTSIZER=false) apply=off (ENABLE_RIGHTSIZER=false) | hpa=off (ENABLE_HPA_MANAGER=false) | consolidation=analyse (look-only: consolidation never acts)
+{"time":"2026-10-27T06:44:44.952989301Z","level":"INFO","msg":"Gates — spot-ratio","event":"gate","controller":"spot-ratio","mode":"off"}
+{"time":"2026-10-27T06:44:44.952999141Z","level":"INFO","msg":"Gates — karpenter","event":"gate","controller":"karpenter","mode":"off"}
+{"time":"2026-10-27T06:44:44.953004114Z","level":"INFO","msg":"Gates — rightsizer","event":"gate","controller":"rightsizer","mode":"off"}
+{"time":"2026-10-27T06:44:44.95300892Z","level":"INFO","msg":"Gates — rightsizer-apply","event":"gate","controller":"rightsizer-apply","mode":"off"}
+{"time":"2026-10-27T06:44:44.953051786Z","level":"INFO","msg":"Gates — rebalancer","event":"gate","controller":"rebalancer","mode":"off"}
+{"time":"2026-10-27T06:44:44.953068828Z","level":"INFO","msg":"Gates — node-optimizer","event":"gate","controller":"node-optimizer","mode":"analyse"}
+{"time":"2026-10-27T06:44:44.953080151Z","level":"INFO","msg":"Gates — cordon","event":"gate","controller":"cordon","mode":"off"}
+{"time":"2026-10-27T06:44:44.953086849Z","level":"INFO","msg":"Gates — idle-drain","event":"gate","controller":"idle-drain","mode":"off"}
+{"time":"2026-10-27T06:44:44.953093005Z","level":"INFO","msg":"Gates — hpa-manager","event":"gate","controller":"hpa-manager","mode":"off"}
+{"time":"2026-10-27T06:44:44.953137496Z","level":"INFO","msg":"Gates — evictor","event":"gate","controller":"evictor","mode":"off"}
+{"time":"2026-10-27T06:44:44.953148328Z","level":"INFO","msg":"Gates — interruption","event":"gate","controller":"interruption","mode":"off"}
+{"time":"2026-10-27T06:44:44.953153486Z","level":"INFO","msg":"Gates — consolidation","event":"gate","controller":"consolidation","mode":"analyse"}
+2026/10/27 06:44:44 Drain budget capacity=1 inflight=[] planner=fitsim selfNamespace=xamops-system
+2026/10/27 06:44:45 Consolidation (look-only): 0 empty, 0 drain, 4 blocked, 5 kept of 9 node(s) — actor=NONE
+2026/10/27 06:45:44 INFO: policy fetched — mode=full evictor=false rightsizer=false rebalancer_status=idle hpa=false vpa=false nodeopt=true guards(pdb=true single=true sts=true critical=true) criticalNamespaces=[kube-system monitoring ingress-nginx xamops-system] maxParallelDrains=1
+2026/10/27 06:45:44 policy-fetched: mode=full
+2026/10/27 06:45:44 Gates — rebalancer=off (ENABLE_REBALANCER=false) | evictor=off (ENABLE_EVICTOR=false) | nodeopt=analyse (analysis only) cordon=off (nodeOptimizerPolicy.autoCordonIdleNodes not set) idleDrain=off (nodeOptimizerPolicy.autoDrainIdleNodes not set) spotRatio=off (nodeOptimizerPolicy.spotRatioTargetPct not set) karpenter=off (nodeOptimizerPolicy.karpenterEnabled not set) interruption=off (nodeOptimizerPolicy.handleSpotInterruptions not set) | rightsizer=off (ENABLE_RIGHTSIZER=false) apply=off (ENABLE_RIGHTSIZER=false) | hpa=off (ENABLE_HPA_MANAGER=false) | consolidation=analyse (look-only: consolidation never acts)
+{"time":"2026-10-27T06:45:44.947027689Z","level":"INFO","msg":"Gates — evictor","event":"gate","controller":"evictor","mode":"off"}
+{"time":"2026-10-27T06:45:44.947036067Z","level":"INFO","msg":"Gates — idle-drain","event":"gate","controller":"idle-drain","mode":"off"}
+{"time":"2026-10-27T06:45:44.947045526Z","level":"INFO","msg":"Gates — karpenter","event":"gate","controller":"karpenter","mode":"off"}
+{"time":"2026-10-27T06:45:44.947053194Z","level":"INFO","msg":"Gates — hpa-manager","event":"gate","controller":"hpa-manager","mode":"off"}
+{"time":"2026-10-27T06:45:44.9470598Z","level":"INFO","msg":"Gates — rightsizer-apply","event":"gate","controller":"rightsizer-apply","mode":"off"}
+{"time":"2026-10-27T06:45:44.947066784Z","level":"INFO","msg":"Gates — consolidation","event":"gate","controller":"consolidation","mode":"analyse"}
+{"time":"2026-10-27T06:45:44.947072857Z","level":"INFO","msg":"Gates — rebalancer","event":"gate","controller":"rebalancer","mode":"off"}
+{"time":"2026-10-27T06:45:44.947079237Z","level":"INFO","msg":"Gates — node-optimizer","event":"gate","controller":"node-optimizer","mode":"analyse"}
+{"time":"2026-10-27T06:45:44.947084845Z","level":"INFO","msg":"Gates — cordon","event":"gate","controller":"cordon","mode":"off"}
+{"time":"2026-10-27T06:45:44.94708953Z","level":"INFO","msg":"Gates — spot-ratio","event":"gate","controller":"spot-ratio","mode":"off"}
+{"time":"2026-10-27T06:45:44.94709481Z","level":"INFO","msg":"Gates — interruption","event":"gate","controller":"interruption","mode":"off"}
+{"time":"2026-10-27T06:45:44.947100061Z","level":"INFO","msg":"Gates — rightsizer","event":"gate","controller":"rightsizer","mode":"off"}
+2026/10/27 06:45:44 Drain budget capacity=1 inflight=[] planner=fitsim selfNamespace=xamops-system
+2026/10/27 06:45:45 Consolidation (look-only): 0 empty, 0 drain, 4 blocked, 5 kept of 9 node(s) — actor=NONE
+2026/10/27 06:46:44 INFO: policy fetched — mode=full evictor=false rightsizer=false rebalancer_status=idle hpa=false vpa=false nodeopt=true guards(pdb=true single=true sts=true critical=true) criticalNamespaces=[kube-system monitoring ingress-nginx xamops-system] maxParallelDrains=1
+2026/10/27 06:46:44 policy-fetched: mode=full
+2026/10/27 06:46:44 Gates — rebalancer=off (ENABLE_REBALANCER=false) | evictor=off (ENABLE_EVICTOR=false) | nodeopt=analyse (analysis only) cordon=off (nodeOptimizerPolicy.autoCordonIdleNodes not set) idleDrain=off (nodeOptimizerPolicy.autoDrainIdleNodes not set) spotRatio=off (nodeOptimizerPolicy.spotRatioTargetPct not set) karpenter=off (nodeOptimizerPolicy.karpenterEnabled not set) interruption=off (nodeOptimizerPolicy.handleSpotInterruptions not set) | rightsizer=off (ENABLE_RIGHTSIZER=false) apply=off (ENABLE_RIGHTSIZER=false) | hpa=off (ENABLE_HPA_MANAGER=false) | consolidation=analyse (look-only: consolidation never acts)
+{"time":"2026-10-27T06:46:44.948147997Z","level":"INFO","msg":"Gates — karpenter","event":"gate","controller":"karpenter","mode":"off"}
+{"time":"2026-10-27T06:46:44.948155484Z","level":"INFO","msg":"Gates — rightsizer-apply","event":"gate","controller":"rightsizer-apply","mode":"off"}
+{"time":"2026-10-27T06:46:44.948160902Z","level":"INFO","msg":"Gates — consolidation","event":"gate","controller":"consolidation","mode":"analyse"}
+{"time":"2026-10-27T06:46:44.94816641Z","level":"INFO","msg":"Gates — node-optimizer","event":"gate","controller":"node-optimizer","mode":"analyse"}
+{"time":"2026-10-27T06:46:44.948171864Z","level":"INFO","msg":"Gates — cordon","event":"gate","controller":"cordon","mode":"off"}
+{"time":"2026-10-27T06:46:44.94817707Z","level":"INFO","msg":"Gates — idle-drain","event":"gate","controller":"idle-drain","mode":"off"}
+{"time":"2026-10-27T06:46:44.948181814Z","level":"INFO","msg":"Gates — spot-ratio","event":"gate","controller":"spot-ratio","mode":"off"}
+{"time":"2026-10-27T06:46:44.94818649Z","level":"INFO","msg":"Gates — interruption","event":"gate","controller":"interruption","mode":"off"}
+{"time":"2026-10-27T06:46:44.948191283Z","level":"INFO","msg":"Gates — rightsizer","event":"gate","controller":"rightsizer","mode":"off"}
+{"time":"2026-10-27T06:46:44.948196386Z","level":"INFO","msg":"Gates — hpa-manager","event":"gate","controller":"hpa-manager","mode":"off"}
+{"time":"2026-10-27T06:46:44.948201434Z","level":"INFO","msg":"Gates — rebalancer","event":"gate","controller":"rebalancer","mode":"off"}
+{"time":"2026-10-27T06:46:44.94820654Z","level":"INFO","msg":"Gates — evictor","event":"gate","controller":"evictor","mode":"off"}
+2026/10/27 06:46:44 Drain budget capacity=1 inflight=[] planner=fitsim selfNamespace=xamops-system
+2026/10/27 06:46:45 Consolidation (look-only): 0 empty, 0 drain, 4 blocked, 5 kept of 9 node(s) — actor=NONE
+2026/10/27 06:47:44 INFO: policy fetched — mode=full evictor=false rightsizer=false rebalancer_status=idle hpa=false vpa=false nodeopt=true guards(pdb=true single=true sts=true critical=true) criticalNamespaces=[kube-system monitoring ingress-nginx xamops-system] maxParallelDrains=1
+2026/10/27 06:47:44 policy-fetched: mode=full
+2026/10/27 06:47:44 Gates — rebalancer=off (ENABLE_REBALANCER=false) | evictor=off (ENABLE_EVICTOR=false) | nodeopt=analyse (analysis only) cordon=off (nodeOptimizerPolicy.autoCordonIdleNodes not set) idleDrain=off (nodeOptimizerPolicy.autoDrainIdleNodes not set) spotRatio=off (nodeOptimizerPolicy.spotRatioTargetPct not set) karpenter=off (nodeOptimizerPolicy.karpenterEnabled not set) interruption=off (nodeOptimizerPolicy.handleSpotInterruptions not set) | rightsizer=off (ENABLE_RIGHTSIZER=false) apply=off (ENABLE_RIGHTSIZER=false) | hpa=off (ENABLE_HPA_MANAGER=false) | consolidation=analyse (look-only: consolidation never acts)
+{"time":"2026-10-27T06:47:44.944897338Z","level":"INFO","msg":"Gates — rebalancer","event":"gate","controller":"rebalancer","mode":"off"}
+{"time":"2026-10-27T06:47:44.944904892Z","level":"INFO","msg":"Gates — node-optimizer","event":"gate","controller":"node-optimizer","mode":"analyse"}
+{"time":"2026-10-27T06:47:44.944910909Z","level":"INFO","msg":"Gates — cordon","event":"gate","controller":"cordon","mode":"off"}
+{"time":"2026-10-27T06:47:44.944916128Z","level":"INFO","msg":"Gates — karpenter","event":"gate","controller":"karpenter","mode":"off"}
+{"time":"2026-10-27T06:47:44.944920774Z","level":"INFO","msg":"Gates — interruption","event":"gate","controller":"interruption","mode":"off"}
+{"time":"2026-10-27T06:47:44.944925315Z","level":"INFO","msg":"Gates — rightsizer","event":"gate","controller":"rightsizer","mode":"off"}
+{"time":"2026-10-27T06:47:44.944930007Z","level":"INFO","msg":"Gates — hpa-manager","event":"gate","controller":"hpa-manager","mode":"off"}
+{"time":"2026-10-27T06:47:44.944934353Z","level":"INFO","msg":"Gates — evictor","event":"gate","controller":"evictor","mode":"off"}
+{"time":"2026-10-27T06:47:44.944938837Z","level":"INFO","msg":"Gates — idle-drain","event":"gate","controller":"idle-drain","mode":"off"}
+{"time":"2026-10-27T06:47:44.944943444Z","level":"INFO","msg":"Gates — spot-ratio","event":"gate","controller":"spot-ratio","mode":"off"}
+{"time":"2026-10-27T06:47:44.944948457Z","level":"INFO","msg":"Gates — rightsizer-apply","event":"gate","controller":"rightsizer-apply","mode":"off"}
+{"time":"2026-10-27T06:47:44.944953162Z","level":"INFO","msg":"Gates — consolidation","event":"gate","controller":"consolidation","mode":"analyse"}
+2026/10/27 06:47:44 Drain budget capacity=1 inflight=[] planner=fitsim selfNamespace=xamops-system
+2026/10/27 06:47:45 Consolidation (look-only): 0 empty, 0 drain, 4 blocked, 5 kept of 9 node(s) — actor=NONE
+2026/10/27 06:48:44 INFO: policy fetched — mode=full evictor=false rightsizer=false rebalancer_status=idle hpa=false vpa=false nodeopt=true guards(pdb=true single=true sts=true critical=true) criticalNamespaces=[kube-system monitoring ingress-nginx xamops-system] maxParallelDrains=1
+2026/10/27 06:48:44 policy-fetched: mode=full
+2026/10/27 06:48:44 Gates — rebalancer=off (ENABLE_REBALANCER=false) | evictor=off (ENABLE_EVICTOR=false) | nodeopt=analyse (analysis only) cordon=off (nodeOptimizerPolicy.autoCordonIdleNodes not set) idleDrain=off (nodeOptimizerPolicy.autoDrainIdleNodes not set) spotRatio=off (nodeOptimizerPolicy.spotRatioTargetPct not set) karpenter=off (nodeOptimizerPolicy.karpenterEnabled not set) interruption=off (nodeOptimizerPolicy.handleSpotInterruptions not set) | rightsizer=off (ENABLE_RIGHTSIZER=false) apply=off (ENABLE_RIGHTSIZER=false) | hpa=off (ENABLE_HPA_MANAGER=false) | consolidation=analyse (look-only: consolidation never acts)
+{"time":"2026-10-27T06:48:44.945709363Z","level":"INFO","msg":"Gates — karpenter","event":"gate","controller":"karpenter","mode":"off"}
+{"time":"2026-10-27T06:48:44.945765946Z","level":"INFO","msg":"Gates — interruption","event":"gate","controller":"interruption","mode":"off"}
+{"time":"2026-10-27T06:48:44.945772451Z","level":"INFO","msg":"Gates — hpa-manager","event":"gate","controller":"hpa-manager","mode":"off"}
+{"time":"2026-10-27T06:48:44.945777219Z","level":"INFO","msg":"Gates — rebalancer","event":"gate","controller":"rebalancer","mode":"off"}
+{"time":"2026-10-27T06:48:44.945784285Z","level":"INFO","msg":"Gates — evictor","event":"gate","controller":"evictor","mode":"off"}
+{"time":"2026-10-27T06:48:44.9457888Z","level":"INFO","msg":"Gates — idle-drain","event":"gate","controller":"idle-drain","mode":"off"}
+{"time":"2026-10-27T06:48:44.945793473Z","level":"INFO","msg":"Gates — spot-ratio","event":"gate","controller":"spot-ratio","mode":"off"}
+{"time":"2026-10-27T06:48:44.94579864Z","level":"INFO","msg":"Gates — consolidation","event":"gate","controller":"consolidation","mode":"analyse"}
+{"time":"2026-10-27T06:48:44.945804041Z","level":"INFO","msg":"Gates — node-optimizer","event":"gate","controller":"node-optimizer","mode":"analyse"}
+{"time":"2026-10-27T06:48:44.945809279Z","level":"INFO","msg":"Gates — cordon","event":"gate","controller":"cordon","mode":"off"}
+{"time":"2026-10-27T06:48:44.945813479Z","level":"INFO","msg":"Gates — rightsizer","event":"gate","controller":"rightsizer","mode":"off"}
+{"time":"2026-10-27T06:48:44.945818262Z","level":"INFO","msg":"Gates — rightsizer-apply","event":"gate","controller":"rightsizer-apply","mode":"off"}
+2026/10/27 06:48:44 Drain budget capacity=1 inflight=[] planner=fitsim selfNamespace=xamops-system
+2026/10/27 06:48:45 Consolidation (look-only): 0 empty, 0 drain, 4 blocked, 5 kept of 9 node(s) — actor=NONE
+2026/10/27 06:49:44 INFO: policy fetched — mode=full evictor=false rightsizer=false rebalancer_status=idle hpa=false vpa=false nodeopt=true guards(pdb=true single=true sts=true critical=true) criticalNamespaces=[kube-system monitoring ingress-nginx xamops-system] maxParallelDrains=1
+2026/10/27 06:49:44 policy-fetched: mode=full
+2026/10/27 06:49:44 Gates — rebalancer=off (ENABLE_REBALANCER=false) | evictor=off (ENABLE_EVICTOR=false) | nodeopt=analyse (analysis only) cordon=off (nodeOptimizerPolicy.autoCordonIdleNodes not set) idleDrain=off (nodeOptimizerPolicy.autoDrainIdleNodes not set) spotRatio=off (nodeOptimizerPolicy.spotRatioTargetPct not set) karpenter=off (nodeOptimizerPolicy.karpenterEnabled not set) interruption=off (nodeOptimizerPolicy.handleSpotInterruptions not set) | rightsizer=off (ENABLE_RIGHTSIZER=false) apply=off (ENABLE_RIGHTSIZER=false) | hpa=off (ENABLE_HPA_MANAGER=false) | consolidation=analyse (look-only: consolidation never acts)
+{"time":"2026-10-27T06:49:44.950110686Z","level":"INFO","msg":"Gates — rightsizer","event":"gate","controller":"rightsizer","mode":"off"}
+{"time":"2026-10-27T06:49:44.950163942Z","level":"INFO","msg":"Gates — rightsizer-apply","event":"gate","controller":"rightsizer-apply","mode":"off"}
+{"time":"2026-10-27T06:49:44.95017178Z","level":"INFO","msg":"Gates — rebalancer","event":"gate","controller":"rebalancer","mode":"off"}
+{"time":"2026-10-27T06:49:44.950176817Z","level":"INFO","msg":"Gates — idle-drain","event":"gate","controller":"idle-drain","mode":"off"}
+{"time":"2026-10-27T06:49:44.950181181Z","level":"INFO","msg":"Gates — interruption","event":"gate","controller":"interruption","mode":"off"}
+{"time":"2026-10-27T06:49:44.950185912Z","level":"INFO","msg":"Gates — spot-ratio","event":"gate","controller":"spot-ratio","mode":"off"}
+{"time":"2026-10-27T06:49:44.950190359Z","level":"INFO","msg":"Gates — karpenter","event":"gate","controller":"karpenter","mode":"off"}
+{"time":"2026-10-27T06:49:44.95022951Z","level":"INFO","msg":"Gates — hpa-manager","event":"gate","controller":"hpa-manager","mode":"off"}
+{"time":"2026-10-27T06:49:44.95023734Z","level":"INFO","msg":"Gates — consolidation","event":"gate","controller":"consolidation","mode":"analyse"}
+{"time":"2026-10-27T06:49:44.950242433Z","level":"INFO","msg":"Gates — evictor","event":"gate","controller":"evictor","mode":"off"}
+{"time":"2026-10-27T06:49:44.950247152Z","level":"INFO","msg":"Gates — node-optimizer","event":"gate","controller":"node-optimizer","mode":"analyse"}
+{"time":"2026-10-27T06:49:44.950251814Z","level":"INFO","msg":"Gates — cordon","event":"gate","controller":"cordon","mode":"off"}
+2026/10/27 06:49:44 Drain budget capacity=1 inflight=[] planner=fitsim selfNamespace=xamops-system
+2026/10/27 06:49:45 Consolidation (look-only): 0 empty, 0 drain, 4 blocked, 5 kept of 9 node(s) — actor=NONE
+2026/10/27 06:50:44 INFO: policy fetched — mode=full evictor=false rightsizer=false rebalancer_status=idle hpa=false vpa=false nodeopt=true guards(pdb=true single=true sts=true critical=true) criticalNamespaces=[kube-system monitoring ingress-nginx xamops-system] maxParallelDrains=1
+2026/10/27 06:50:44 policy-fetched: mode=full
+2026/10/27 06:50:44 Gates — rebalancer=off (ENABLE_REBALANCER=false) | evictor=off (ENABLE_EVICTOR=false) | nodeopt=analyse (analysis only) cordon=off (nodeOptimizerPolicy.autoCordonIdleNodes not set) idleDrain=off (nodeOptimizerPolicy.autoDrainIdleNodes not set) spotRatio=off (nodeOptimizerPolicy.spotRatioTargetPct not set) karpenter=off (nodeOptimizerPolicy.karpenterEnabled not set) interruption=off (nodeOptimizerPolicy.handleSpotInterruptions not set) | rightsizer=off (ENABLE_RIGHTSIZER=false) apply=off (ENABLE_RIGHTSIZER=false) | hpa=off (ENABLE_HPA_MANAGER=false) | consolidation=analyse (look-only: consolidation never acts)
+{"time":"2026-10-27T06:50:44.944199371Z","level":"INFO","msg":"Gates — hpa-manager","event":"gate","controller":"hpa-manager","mode":"off"}
+{"time":"2026-10-27T06:50:44.944215928Z","level":"INFO","msg":"Gates — consolidation","event":"gate","controller":"consolidation","mode":"analyse"}
+{"time":"2026-10-27T06:50:44.94422194Z","level":"INFO","msg":"Gates — karpenter","event":"gate","controller":"karpenter","mode":"off"}
+{"time":"2026-10-27T06:50:44.944227251Z","level":"INFO","msg":"Gates — interruption","event":"gate","controller":"interruption","mode":"off"}
+{"time":"2026-10-27T06:50:44.944232332Z","level":"INFO","msg":"Gates — rightsizer-apply","event":"gate","controller":"rightsizer-apply","mode":"off"}
+{"time":"2026-10-27T06:50:44.944345073Z","level":"INFO","msg":"Gates — cordon","event":"gate","controller":"cordon","mode":"off"}
+{"time":"2026-10-27T06:50:44.944358813Z","level":"INFO","msg":"Gates — idle-drain","event":"gate","controller":"idle-drain","mode":"off"}
+{"time":"2026-10-27T06:50:44.944364097Z","level":"INFO","msg":"Gates — spot-ratio","event":"gate","controller":"spot-ratio","mode":"off"}
+{"time":"2026-10-27T06:50:44.944369062Z","level":"INFO","msg":"Gates — rightsizer","event":"gate","controller":"rightsizer","mode":"off"}
+{"time":"2026-10-27T06:50:44.944374168Z","level":"INFO","msg":"Gates — rebalancer","event":"gate","controller":"rebalancer","mode":"off"}
+{"time":"2026-10-27T06:50:44.944379266Z","level":"INFO","msg":"Gates — evictor","event":"gate","controller":"evictor","mode":"off"}
+{"time":"2026-10-27T06:50:44.944384856Z","level":"INFO","msg":"Gates — node-optimizer","event":"gate","controller":"node-optimizer","mode":"analyse"}
+2026/10/27 06:50:44 Drain budget capacity=1 inflight=[] planner=fitsim selfNamespace=xamops-system
+2026/10/27 06:50:45 Consolidation (look-only): 0 empty, 0 drain, 4 blocked, 5 kept of 9 node(s) — actor=NONE
+2026/10/27 06:51:44 INFO: policy fetched — mode=full evictor=false rightsizer=false rebalancer_status=idle hpa=false vpa=false nodeopt=true guards(pdb=true single=true sts=true critical=true) criticalNamespaces=[kube-system monitoring ingress-nginx xamops-system] maxParallelDrains=1
+2026/10/27 06:51:44 policy-fetched: mode=full
+2026/10/27 06:51:44 Gates — rebalancer=off (ENABLE_REBALANCER=false) | evictor=off (ENABLE_EVICTOR=false) | nodeopt=analyse (analysis only) cordon=off (nodeOptimizerPolicy.autoCordonIdleNodes not set) idleDrain=off (nodeOptimizerPolicy.autoDrainIdleNodes not set) spotRatio=off (nodeOptimizerPolicy.spotRatioTargetPct not set) karpenter=off (nodeOptimizerPolicy.karpenterEnabled not set) interruption=off (nodeOptimizerPolicy.handleSpotInterruptions not set) | rightsizer=off (ENABLE_RIGHTSIZER=false) apply=off (ENABLE_RIGHTSIZER=false) | hpa=off (ENABLE_HPA_MANAGER=false) | consolidation=analyse (look-only: consolidation never acts)
+{"time":"2026-10-27T06:51:44.948584083Z","level":"INFO","msg":"Gates — node-optimizer","event":"gate","controller":"node-optimizer","mode":"analyse"}
+{"time":"2026-10-27T06:51:44.948595568Z","level":"INFO","msg":"Gates — idle-drain","event":"gate","controller":"idle-drain","mode":"off"}
+{"time":"2026-10-27T06:51:44.948601396Z","level":"INFO","msg":"Gates — spot-ratio","event":"gate","controller":"spot-ratio","mode":"off"}
+{"time":"2026-10-27T06:51:44.948731662Z","level":"INFO","msg":"Gates — karpenter","event":"gate","controller":"karpenter","mode":"off"}
+{"time":"2026-10-27T06:51:44.948737841Z","level":"INFO","msg":"Gates — rightsizer","event":"gate","controller":"rightsizer","mode":"off"}
+{"time":"2026-10-27T06:51:44.948743033Z","level":"INFO","msg":"Gates — rightsizer-apply","event":"gate","controller":"rightsizer-apply","mode":"off"}
+{"time":"2026-10-27T06:51:44.948747366Z","level":"INFO","msg":"Gates — rebalancer","event":"gate","controller":"rebalancer","mode":"off"}
+{"time":"2026-10-27T06:51:44.948753103Z","level":"INFO","msg":"Gates — evictor","event":"gate","controller":"evictor","mode":"off"}
+{"time":"2026-10-27T06:51:44.948757967Z","level":"INFO","msg":"Gates — hpa-manager","event":"gate","controller":"hpa-manager","mode":"off"}
+{"time":"2026-10-27T06:51:44.94876363Z","level":"INFO","msg":"Gates — consolidation","event":"gate","controller":"consolidation","mode":"analyse"}
+{"time":"2026-10-27T06:51:44.948768148Z","level":"INFO","msg":"Gates — cordon","event":"gate","controller":"cordon","mode":"off"}
+{"time":"2026-10-27T06:51:44.948772792Z","level":"INFO","msg":"Gates — interruption","event":"gate","controller":"interruption","mode":"off"}
+2026/10/27 06:51:44 Drain budget capacity=1 inflight=[] planner=fitsim selfNamespace=xamops-system
+2026/10/27 06:51:45 Consolidation (look-only): 0 empty, 0 drain, 4 blocked, 5 kept of 9 node(s) — actor=NONE
+2026/10/27 06:52:44 INFO: policy fetched — mode=full evictor=false rightsizer=false rebalancer_status=idle hpa=false vpa=false nodeopt=true guards(pdb=true single=true sts=true critical=true) criticalNamespaces=[kube-system monitoring ingress-nginx xamops-system] maxParallelDrains=1
+2026/10/27 06:52:44 policy-fetched: mode=full
+2026/10/27 06:52:44 Gates — rebalancer=off (ENABLE_REBALANCER=false) | evictor=off (ENABLE_EVICTOR=false) | nodeopt=analyse (analysis only) cordon=off (nodeOptimizerPolicy.autoCordonIdleNodes not set) idleDrain=off (nodeOptimizerPolicy.autoDrainIdleNodes not set) spotRatio=off (nodeOptimizerPolicy.spotRatioTargetPct not set) karpenter=off (nodeOptimizerPolicy.karpenterEnabled not set) interruption=off (nodeOptimizerPolicy.handleSpotInterruptions not set) | rightsizer=off (ENABLE_RIGHTSIZER=false) apply=off (ENABLE_RIGHTSIZER=false) | hpa=off (ENABLE_HPA_MANAGER=false) | consolidation=analyse (look-only: consolidation never acts)
+{"time":"2026-10-27T06:52:44.948644508Z","level":"INFO","msg":"Gates — evictor","event":"gate","controller":"evictor","mode":"off"}
+{"time":"2026-10-27T06:52:44.948653193Z","level":"INFO","msg":"Gates — node-optimizer","event":"gate","controller":"node-optimizer","mode":"analyse"}
+{"time":"2026-10-27T06:52:44.948659756Z","level":"INFO","msg":"Gates — idle-drain","event":"gate","controller":"idle-drain","mode":"off"}
+{"time":"2026-10-27T06:52:44.948666567Z","level":"INFO","msg":"Gates — interruption","event":"gate","controller":"interruption","mode":"off"}
+{"time":"2026-10-27T06:52:44.948675594Z","level":"INFO","msg":"Gates — consolidation","event":"gate","controller":"consolidation","mode":"analyse"}
+{"time":"2026-10-27T06:52:44.948726088Z","level":"INFO","msg":"Gates — hpa-manager","event":"gate","controller":"hpa-manager","mode":"off"}
+{"time":"2026-10-27T06:52:44.948750633Z","level":"INFO","msg":"Gates — rebalancer","event":"gate","controller":"rebalancer","mode":"off"}
+{"time":"2026-10-27T06:52:44.948755818Z","level":"INFO","msg":"Gates — cordon","event":"gate","controller":"cordon","mode":"off"}
+{"time":"2026-10-27T06:52:44.94875991Z","level":"INFO","msg":"Gates — spot-ratio","event":"gate","controller":"spot-ratio","mode":"off"}
+{"time":"2026-10-27T06:52:44.948763987Z","level":"INFO","msg":"Gates — karpenter","event":"gate","controller":"karpenter","mode":"off"}
+{"time":"2026-10-27T06:52:44.948865218Z","level":"INFO","msg":"Gates — rightsizer","event":"gate","controller":"rightsizer","mode":"off"}
+{"time":"2026-10-27T06:52:44.948878201Z","level":"INFO","msg":"Gates — rightsizer-apply","event":"gate","controller":"rightsizer-apply","mode":"off"}
+2026/10/27 06:52:44 Drain budget capacity=1 inflight=[] planner=fitsim selfNamespace=xamops-system
+2026/10/27 06:52:45 Consolidation (look-only): 0 empty, 0 drain, 4 blocked, 5 kept of 9 node(s) — actor=NONE
+2026/10/27 06:53:44 INFO: policy fetched — mode=full evictor=false rightsizer=false rebalancer_status=idle hpa=false vpa=false nodeopt=true guards(pdb=true single=true sts=true critical=true) criticalNamespaces=[kube-system monitoring ingress-nginx xamops-system] maxParallelDrains=1
+2026/10/27 06:53:44 policy-fetched: mode=full
+2026/10/27 06:53:44 Gates — rebalancer=off (ENABLE_REBALANCER=false) | evictor=off (ENABLE_EVICTOR=false) | nodeopt=analyse (analysis only) cordon=off (nodeOptimizerPolicy.autoCordonIdleNodes not set) idleDrain=off (nodeOptimizerPolicy.autoDrainIdleNodes not set) spotRatio=off (nodeOptimizerPolicy.spotRatioTargetPct not set) karpenter=off (nodeOptimizerPolicy.karpenterEnabled not set) interruption=off (nodeOptimizerPolicy.handleSpotInterruptions not set) | rightsizer=off (ENABLE_RIGHTSIZER=false) apply=off (ENABLE_RIGHTSIZER=false) | hpa=off (ENABLE_HPA_MANAGER=false) | consolidation=analyse (look-only: consolidation never acts)
+{"time":"2026-10-27T06:53:44.947035973Z","level":"INFO","msg":"Gates — evictor","event":"gate","controller":"evictor","mode":"off"}
+{"time":"2026-10-27T06:53:44.947042891Z","level":"INFO","msg":"Gates — cordon","event":"gate","controller":"cordon","mode":"off"}
+{"time":"2026-10-27T06:53:44.947047956Z","level":"INFO","msg":"Gates — rightsizer","event":"gate","controller":"rightsizer","mode":"off"}
+{"time":"2026-10-27T06:53:44.947052351Z","level":"INFO","msg":"Gates — rightsizer-apply","event":"gate","controller":"rightsizer-apply","mode":"off"}
+{"time":"2026-10-27T06:53:44.947057301Z","level":"INFO","msg":"Gates — hpa-manager","event":"gate","controller":"hpa-manager","mode":"off"}
+{"time":"2026-10-27T06:53:44.947061925Z","level":"INFO","msg":"Gates — consolidation","event":"gate","controller":"consolidation","mode":"analyse"}
+{"time":"2026-10-27T06:53:44.947066233Z","level":"INFO","msg":"Gates — rebalancer","event":"gate","controller":"rebalancer","mode":"off"}
+{"time":"2026-10-27T06:53:44.947072211Z","level":"INFO","msg":"Gates — node-optimizer","event":"gate","controller":"node-optimizer","mode":"analyse"}
+{"time":"2026-10-27T06:53:44.947076805Z","level":"INFO","msg":"Gates — idle-drain","event":"gate","controller":"idle-drain","mode":"off"}
+{"time":"2026-10-27T06:53:44.94708141Z","level":"INFO","msg":"Gates — spot-ratio","event":"gate","controller":"spot-ratio","mode":"off"}
+{"time":"2026-10-27T06:53:44.94708635Z","level":"INFO","msg":"Gates — karpenter","event":"gate","controller":"karpenter","mode":"off"}
+{"time":"2026-10-27T06:53:44.947091517Z","level":"INFO","msg":"Gates — interruption","event":"gate","controller":"interruption","mode":"off"}
+2026/10/27 06:53:44 Drain budget capacity=1 inflight=[] planner=fitsim selfNamespace=xamops-system
+2026/10/27 06:53:45 Consolidation (look-only): 1 empty, 0 drain, 4 blocked, 5 kept of 10 node(s) — actor=NONE
+----- xamops-automation-7fd5b5749d-sl5gw (tail 250, filtered) -----
+2026/10/26 13:57:48 WARNING: DRY-RUN MODE — no cluster changes will be made. Set DRY_RUN=false to enable actions.
+2026/10/26 13:57:48 Controllers — Evictor=false Rightsizer=false RightsizerApply=false Rebalancer=false HPAManager=false VPAManager=false NodeOptimizer=true DryRun=true PodNamespace=xamops-system StateConfigMap=xamops-automation-state
+I1026 13:57:48.327102       1 leaderelection.go:250] attempting to acquire leader lease xamops-system/xamops-automation-leader...
+2026/10/26 13:57:51 Standby — current leader is xamops-automation-7fd5b5749d-f2fkk
+E1026 16:36:34.334657       1 leaderelection.go:332] error retrieving resource lock xamops-system/xamops-automation-leader: Get "https://10.100.0.1:443/apis/coordination.k8s.io/v1/namespaces/xamops-system/leases/xamops-automation-leader": http2: client connection lost
+E1026 16:37:07.790781       1 leaderelection.go:332] error retrieving resource lock xamops-system/xamops-automation-leader: Get "https://10.100.0.1:443/apis/coordination.k8s.io/v1/namespaces/xamops-system/leases/xamops-automation-leader": dial tcp 10.100.0.1:443: i/o timeout

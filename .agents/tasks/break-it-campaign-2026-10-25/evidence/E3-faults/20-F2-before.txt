@@ -1,0 +1,7 @@
+=== 20-F2-before @ 2026-10-26T13:48:37Z ===
+--- pods ---
+NAME                                 READY   STATUS    RESTARTS   AGE   IP              NODE                                           NOMINATED NODE   READINESS GATES
+xamops-automation-7fd5b5749d-rnmgj   1/1     Running   0          42s   172.31.22.219   ip-172-31-26-143.ap-south-1.compute.internal   <none>           <none>
+xamops-automation-7fd5b5749d-xhf6x   1/1     Running   0          32s   172.31.45.4     ip-172-31-38-131.ap-south-1.compute.internal   <none>           <none>
+--- lease ---
+xamops-automation-7fd5b5749d-rnmgj

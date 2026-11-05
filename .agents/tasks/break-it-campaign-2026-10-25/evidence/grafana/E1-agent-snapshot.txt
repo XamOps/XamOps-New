@@ -1,0 +1,6 @@
+{
+  "key": "eS1a8JRV0EiIq8SL5ctApgpxf9ngjjj1",
+  "deleteKey": "RdZG5VvkEejOhlhz6cLcJGcdaXA5FAvo",
+  "url": "http://localhost:3000/dashboard/snapshot/eS1a8JRV0EiIq8SL5ctApgpxf9ngjjj1",
+  "deleteUrl": "http://localhost:3000/api/snapshots-delete/RdZG5VvkEejOhlhz6cLcJGcdaXA5FAvo"
+}

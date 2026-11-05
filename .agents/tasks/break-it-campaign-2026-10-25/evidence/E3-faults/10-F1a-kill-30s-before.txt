@@ -1,0 +1,7 @@
+=== 10-F1a-kill-30s-before @ 2026-10-26T13:43:18Z ===
+--- pods ---
+NAME                                 READY   STATUS    RESTARTS     AGE     IP              NODE                                           NOMINATED NODE   READINESS GATES
+xamops-automation-7fd5b5749d-kk5ww   1/1     Running   4 (8h ago)   23h     172.31.27.164   ip-172-31-26-143.ap-south-1.compute.internal   <none>           <none>
+xamops-automation-7fd5b5749d-wp4fm   1/1     Running   0            7h36m   172.31.41.245   ip-172-31-38-131.ap-south-1.compute.internal   <none>           <none>
+--- lease ---
+xamops-automation-7fd5b5749d-kk5ww

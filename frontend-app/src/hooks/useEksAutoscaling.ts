@@ -319,6 +319,20 @@ export const useEksAutoscaling = ({
     }
   }, [clusterName, accountId, region]);
 
+  // Per-cluster isolation (FEAT-004): reset the READ state when the cluster/account/region key
+  // changes so no panel shows the previous cluster's autoscaler data while the next load runs.
+  // A single effect ONLY — fetchData is write-adjacent, so no request token / abort guard is added
+  // here and no put/post/delete callback or its toast/isSaving handling is touched.
+  useEffect(() => {
+    setAutoscalerData(null);
+    setRightsizingData(null);
+    setEvictorCandidates([]);
+    setLiveRebalanceStatus(null);
+    setNodeFleetReport(null);
+    setError(null);
+    setLoading(true);
+  }, [clusterName, accountId, region]);
+
   useEffect(() => {
     fetchData();
   }, [fetchData]);

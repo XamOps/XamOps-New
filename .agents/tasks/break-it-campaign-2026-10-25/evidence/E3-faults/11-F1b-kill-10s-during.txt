@@ -1,0 +1,63 @@
+--- t=10s @ 2026-10-26T13:46:40Z ---
+pods:
+xamops-automation-7fd5b5749d-t77v5   0/1   Running   0     5s
+xamops-automation-7fd5b5749d-tfgtr   1/1   Running   0     104s
+lease-holder: xamops-automation-7fd5b5749d-tfgtr
+prom sum(xamops_leader)=[{"metric":{},"value":[1793022402.475,"1"]}]
+prom count(xamops_leader==1)=[{"metric":{},"value":[1793022402.581,"1"]}]
+--- t=20s @ 2026-10-26T13:46:52Z ---
+pods:
+xamops-automation-7fd5b5749d-67ffc   0/1   Running   0     7s
+xamops-automation-7fd5b5749d-t77v5   1/1   Running   0     17s
+lease-holder: xamops-automation-7fd5b5749d-67ffc
+prom sum(xamops_leader)=[{"metric":{},"value":[1793022414.139,"1"]}]
+prom count(xamops_leader==1)=[{"metric":{},"value":[1793022414.236,"1"]}]
+--- t=30s @ 2026-10-26T13:47:04Z ---
+pods:
+xamops-automation-7fd5b5749d-67ffc   1/1   Running   0     18s
+xamops-automation-7fd5b5749d-7dzjd   0/1   Running   0     8s
+lease-holder: xamops-automation-7fd5b5749d-67ffc
+prom sum(xamops_leader)=[{"metric":{},"value":[1793022425.510,"2"]}]
+prom count(xamops_leader==1)=[{"metric":{},"value":[1793022425.600,"2"]}]
+--- t=40s @ 2026-10-26T13:47:15Z ---
+pods:
+xamops-automation-7fd5b5749d-7dzjd   1/1   Running             0     20s
+xamops-automation-7fd5b5749d-zrt2b   0/1   ContainerCreating   0     0s
+lease-holder: xamops-automation-7fd5b5749d-zrt2b
+prom sum(xamops_leader)=[{"metric":{},"value":[1793022437.273,"2"]}]
+prom count(xamops_leader==1)=[{"metric":{},"value":[1793022437.360,"2"]}]
+--- t=50s @ 2026-10-26T13:47:27Z ---
+pods:
+xamops-automation-7fd5b5749d-4xbqc   0/1   Running   0     1s
+xamops-automation-7fd5b5749d-zrt2b   0/1   Running   0     11s
+lease-holder: xamops-automation-7fd5b5749d-zrt2b
+prom sum(xamops_leader)=[{"metric":{},"value":[1793022448.686,"2"]}]
+prom count(xamops_leader==1)=[{"metric":{},"value":[1793022448.778,"2"]}]
+--- t=60s @ 2026-10-26T13:47:38Z ---
+pods:
+xamops-automation-7fd5b5749d-hhjws   0/1   Running   0     4s
+xamops-automation-7fd5b5749d-zrt2b   1/1   Running   0     24s
+lease-holder: xamops-automation-7fd5b5749d-zrt2b
+prom sum(xamops_leader)=[{"metric":{},"value":[1793022461.271,"2"]}]
+prom count(xamops_leader==1)=[{"metric":{},"value":[1793022461.362,"2"]}]
+--- t=70s @ 2026-10-26T13:47:51Z ---
+pods:
+xamops-automation-7fd5b5749d-69wl4   0/1   Running   0     5s
+xamops-automation-7fd5b5749d-zrt2b   1/1   Running   0     35s
+lease-holder: xamops-automation-7fd5b5749d-zrt2b
+prom sum(xamops_leader)=[{"metric":{},"value":[1793022472.603,"2"]}]
+prom count(xamops_leader==1)=[{"metric":{},"value":[1793022472.695,"2"]}]
+--- t=80s @ 2026-10-26T13:48:02Z ---
+pods:
+xamops-automation-7fd5b5749d-69wl4   1/1   Running   0     17s
+xamops-automation-7fd5b5749d-rnmgj   0/1   Running   0     7s
+lease-holder: xamops-automation-7fd5b5749d-rnmgj
+prom sum(xamops_leader)=[{"metric":{},"value":[1793022483.903,"1"]}]
+prom count(xamops_leader==1)=[{"metric":{},"value":[1793022483.996,"1"]}]
+--- t=90s @ 2026-10-26T13:48:13Z ---
+pods:
+xamops-automation-7fd5b5749d-rnmgj   1/1   Running   0     18s
+xamops-automation-7fd5b5749d-xhf6x   0/1   Running   0     8s
+lease-holder: xamops-automation-7fd5b5749d-rnmgj
+prom sum(xamops_leader)=[{"metric":{},"value":[1793022495.238,"1"]}]
+prom count(xamops_leader==1)=[{"metric":{},"value":[1793022495.329,"1"]}]

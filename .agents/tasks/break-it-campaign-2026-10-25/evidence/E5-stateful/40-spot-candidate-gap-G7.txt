@@ -1,0 +1,33 @@
+G7 — node-optimizer lists DB/stateful nodes as spot-conversion candidates
+=========================================================================
+Source (deployed image sha-e02d6292…, byte-identical to worktree):
+  internal/controller/node_optimizer.go  Analyse():
+    if capacityType == "on-demand" && cpuU < 70 && cpuU > 0 && !drained {
+        report.SpotCandidates = append(report.SpotCandidates, SpotCandidateInfo{ ... })
+    }
+  There is NO DB-role / stateful / PVC / PDB awareness anywhere in the SpotCandidate path.
+  (grep of internal/ for buffer-pool|wiredtiger|db-primary|cnpg|postgres|mongo => ZERO product matches.)
+
+Live inputs (this run):
+  ng-stateful-1 nodes, ALL ON_DEMAND, t3.medium:
+    ip-172-31-23-193  capacityType=ON_DEMAND  (hosts pg-cnpg-1 primary, mongo-2)
+    ip-172-31-4-95    capacityType=ON_DEMAND  (hosts pg-cnpg-2 replica, mysql-0, mongo-1)
+    ip-172-31-46-10   capacityType=ON_DEMAND  (hosts mongo-0, pg-unsafe-0 emptyDir)
+  These nodes run at low/moderate CPU (idle DB fixtures with a light load generator),
+  i.e. 0 < cpuU% < 70 — so each satisfies the SpotCandidate predicate.
+
+DERIVATION / VERDICT:
+  Per the rule above, the node-optimizer WOULD list these three DB-hosting on-demand
+  nodes as spot-conversion candidates in its NodeOptimizerReport.SpotCandidates — with
+  no indication that they host a Postgres primary, a Mongo replica set, a single-replica
+  MySQL, or an emptyDir "unsafe" Postgres.
+
+WHY IT IS A GAP, NOT A BROKEN (today):
+  The spot-conversion DRAIN that would consume this list is gated by
+  nodeOptimizerPolicy.spotRatioTargetPct (baseline 0 => SpotRatioDrainCandidates returns
+  nil) AND DRY_RUN=true AND autoscalerMode gate. So the candidate listing is a
+  RECOMMENDATION only; no drain is selected or executed. If an operator ever set a spot
+  ratio target with idle-drain armed, the ONLY thing that saves the DB pods from being
+  drained off these nodes is the downstream fit-simulator per-pod refusal (pvc-volume /
+  statefulset / single-replica / PDB) — i.e. the SAME incidental net as G6, NOT a
+  node-level DB guard. The optimizer itself has already (incorrectly) nominated the node.

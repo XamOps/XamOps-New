@@ -90,7 +90,8 @@ class AzureDbOpsServiceMetricsTest {
                 dbAgentDataCacheRepository,
                 dbAgentMetricsHistoryRepository,
                 armClient,
-                new DbOpsFeatureFlags(false));
+                new DbOpsFeatureFlags(false),
+                Runnable::run);
     }
 
     private DbInstanceDto dto(String instanceId) {

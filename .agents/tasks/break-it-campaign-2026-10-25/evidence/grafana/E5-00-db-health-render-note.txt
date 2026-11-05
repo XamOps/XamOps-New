@@ -1,0 +1,21 @@
+E5 Grafana evidence — stateful / DB fixtures
+============================================
+Dashboard model captured: E5-00-db-health-dashboard-model.json (ConfigMap
+xamops-dash-db-health, ns break-observability).
+PNG render: NOT available in this environment (same as E3/E4 — the Grafana
+image-renderer plugin is not installed; the Grafana service is a private ClusterIP
+with no LoadBalancer/NodePort). The dashboard JSON model + the raw Prometheus query
+JSON (E5-stateful/50-prometheus-db-and-drain-series.json) are the evidence.
+
+Key series over the E5 window (50-prometheus-db-and-drain-series.json):
+  - xamops_drains_total        : NO series at all  => XamOps performed ZERO drains.
+  - xamops_drain_budget_inflight: 0 on both replicas => no drain ever in flight.
+  - sum(xamops_leader)         : 1 => single leader throughout (no split-brain).
+  - kube_pod_start_time{namespace="xamops-db-fixtures"}: the 7 core DB pods keep their
+    original (Oct-25) start times EXCEPT pg-cnpg-2 and mongo-1, whose newer start times
+    match THIS experiment's Chaos pod-kill/failover (not a XamOps eviction).
+
+Interpretation: the DB fixtures stayed up with no XamOps-caused disruption; the only
+restarts are the ones this experiment injected (CNPG primary kill, Mongo RS re-election),
+and the CNPG/StatefulSet controllers recovered them from their PVCs. All 7 DB pods ended
+Running (E5-stateful/95-db-pods-recovered.txt).

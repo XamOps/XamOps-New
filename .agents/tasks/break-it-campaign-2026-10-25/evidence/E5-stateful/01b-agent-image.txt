@@ -1,0 +1,1 @@
+ghcr.io/xamops/xamops-autoscaler:sha-e02d6292113c4632fbbac3e51e12e502d6c4c147  ready=2/2

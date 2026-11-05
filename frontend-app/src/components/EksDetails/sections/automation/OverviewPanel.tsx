@@ -86,6 +86,7 @@ import { CARD, FAINT, INK, InPageLink, MUTED, ReadFailureCard, readFailureText }
 import { dayLabel, feedTimeline, feedWeekCounts, savingNow, weekCounts, type WeekCounts } from './activity/activityInsights';
 import { activityResultChip } from './activity/activityText';
 import { ClusterUsageCard, ResourceToggle } from './insightCards';
+import { ClusterProofOfNoHarm } from './ProofOfNoHarmPanel';
 import { sourceService } from './insightCharts';
 
 /** The workload row while the vertical engine is switched off (V7). */
@@ -1157,6 +1158,7 @@ export function OverviewPanel({ clusterName, accountId, region, eksData, hrefs =
       detail={
         <div className="flex min-w-0 flex-col gap-6">
           <Timeline result={read.result} feed={feed} now={now} />
+          <ClusterProofOfNoHarm clusterName={clusterName} accountId={accountId} region={region} feed={feed} windowLabel="last 7 days" />
           <FeatureCards result={read.result} caps={caps} clusterName={clusterName} eksData={eksData} hrefs={hrefs} now={now} />
           <NamespaceChart result={read.result} eksData={eksData} clusterName={clusterName} accountId={accountId} region={region} />
           <ClusterUsageCard clusterName={clusterName} accountId={accountId} region={region} title="CPU and memory over time" total="capacity" />

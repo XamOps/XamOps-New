@@ -22,12 +22,16 @@ interface Provider {
    * not repeated beside one.
    */
   wordmark: string | null;
+  /** Filter for the dark topbar, where both wordmarks' black letters would disappear. */
+  darkFilter: string;
 }
 
 const PROVIDERS: Record<DataProvider, Provider> = {
-  upwind: { name: 'Upwind', wordmark: '/icons/upwind-logo.svg' },
-  // No Matters wordmark is vendored. Drop the official SVG into /icons and set the path here.
-  matters: { name: 'Matters.ai', wordmark: null },
+  upwind: { name: 'Upwind', wordmark: '/icons/upwind-logo.svg', darkFilter: 'invert' },
+  // Official coloured logo with black letters, scaled from the 16650x2240 master to 64px tall (enough
+  // for a 12px mark on 3x screens). On dark it becomes a white silhouette: plain inversion turns the
+  // gradient orange and green.
+  matters: { name: 'Matters.ai', wordmark: '/icons/matters-logo.png', darkFilter: 'brightness-0 invert' },
 };
 
 interface Props {
@@ -37,11 +41,13 @@ interface Props {
 }
 
 const PoweredByProvider: React.FC<Props> = ({ provider = 'upwind', className }) => {
-  const [wordmarkFailed, setWordmarkFailed] = useState(false);
+  // The source that failed, not a flag: React can reuse this instance when the topbar switches from
+  // XamSecure to XamLens, and a flag would carry one vendor's failure over to the other.
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const { theme } = useTheme();
   if (!SHOW_PROVIDER) return null;
 
-  const { name, wordmark } = PROVIDERS[provider];
+  const { name, wordmark, darkFilter } = PROVIDERS[provider];
   const dark = theme === 'dark';
 
   return (
@@ -50,17 +56,20 @@ const PoweredByProvider: React.FC<Props> = ({ provider = 'upwind', className }) 
         dark ? 'text-[rgba(255,255,255,0.4)]' : 'text-[rgba(0,0,0,0.35)]'}`}>
         powered by
       </span>
-      {wordmark && !wordmarkFailed ? (
+      {wordmark && failedSrc !== wordmark ? (
         <img
+          // Keyed by source so a vendor switch remounts instead of showing the old logo until the new
+          // one decodes.
+          key={wordmark}
           src={wordmark}
           alt={name}
-          // Upwind's letterforms are near-black, so they are inverted on the dark topbar.
+          // Same muted treatment for both vendors, so the two SecOps attributions read alike.
           className={dark
-            ? 'h-3 w-auto object-contain opacity-80 invert'
+            ? `h-3 w-auto object-contain opacity-80 ${darkFilter}`
             : 'h-3 w-auto object-contain opacity-60'}
           loading="lazy"
           decoding="async"
-          onError={() => setWordmarkFailed(true)}
+          onError={() => setFailedSrc(wordmark)}
         />
       ) : (
         // Also the fallback when an asset fails to load: the name still has to appear, or the phrase

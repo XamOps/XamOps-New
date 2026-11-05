@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, ReactElement } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense, ReactElement } from 'react';
 import ReactDOM from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
@@ -23,8 +23,13 @@ import {
 } from '../../hooks/useDbOpsData';
 import {
   DBOPS_IDLE_UI_ENABLED, DBOPS_RIGHTSIZING_UI_ENABLED, DBOPS_HEALTH_UI_ENABLED,
-  DBOPS_MONGO_UI_ENABLED, DBOPS_REDIS_UI_ENABLED,
+  DBOPS_MONGO_UI_ENABLED, DBOPS_REDIS_UI_ENABLED, DBOPS_CONSOLE_UI_ENABLED,
 } from '../../constants/dbOpsFeatureFlags';
+import HealthView from './health/HealthView';
+// Pillar B / C graph tabs are lazy-loaded so the cytoscape chunk stays off the main DbOps route
+// and loads only when a graph tab is opened (design §2 bundle-size rationale).
+const AccessGraph = lazy(() => import('./graph/AccessGraph'));
+const FkGraph = lazy(() => import('./graph/FkGraph'));
 import { computeQueryStatsKpis } from './queryStatsKpis';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1262,6 +1267,7 @@ interface Props {
 }
 
 type DetailTab = 'overview' | 'performance' | 'slowqueries' | 'queries' | 'maintenance' | 'users' | 'cost' | 'security' | 'snapshots'
+  | 'health' | 'access-graph' | 'table-graph'
   | 'mongo-ops' | 'mongo-index' | 'redis-keyspace' | 'redis-slowlog';
 
 // ── SQL syntax highlight ──────────────────────────────────────────────────────
@@ -4329,8 +4335,13 @@ export default function DbInstanceDetailDrawer({
   // Engine-specific: Mongo / Redis detection + hooks (called unconditionally at top level)
   const isMongo = /mongo/i.test(instance?.engine ?? '');
   const isRedis = /redis/i.test(instance?.engine ?? '');
-  const mongoHost = isMongo ? (instance?.agentHost ?? instance?.rdsData?.endpoint) : undefined;
-  const redisHost = isRedis ? (instance?.agentHost ?? instance?.rdsData?.endpoint) : undefined;
+  // Phase 2 console tabs (Postgres-first) — gated behind the default-off console flag.
+  const isPostgresConsole = /postgres/i.test(instance?.engine ?? '');
+  // PERF-19: only resolve a host (which drives the fetch) when the engine matches AND its mirror
+  // flag is on. With the flags default-off the Mongo/Redis panels are hidden, so fetching their
+  // data was pure waste on every drawer open.
+  const mongoHost = isMongo && DBOPS_MONGO_UI_ENABLED ? (instance?.agentHost ?? instance?.rdsData?.endpoint) : undefined;
+  const redisHost = isRedis && DBOPS_REDIS_UI_ENABLED ? (instance?.agentHost ?? instance?.rdsData?.endpoint) : undefined;
   const { metrics: mongoMetrics, slowOps: mongoSlowOps, indexStats: mongoIndexStats } = useMongoData(accountId, mongoHost);
   const { metrics: redisMetrics, slowLog: redisSlowLog, keyspace: redisKeyspace } = useRedisData(accountId, redisHost);
   const [agentDisconnecting, setAgentDisconnecting] = useState(false);
@@ -4528,6 +4539,11 @@ export default function DbInstanceDetailDrawer({
     ...(isRedis && DBOPS_REDIS_UI_ENABLED ? [
       { id: 'redis-keyspace' as const, label: 'Keyspace', icon: 'fa-database' },
       { id: 'redis-slowlog' as const, label: 'Slow Log', icon: 'fa-stopwatch' },
+    ] : []),
+    ...(isPostgresConsole && DBOPS_CONSOLE_UI_ENABLED ? [
+      { id: 'health' as const, label: 'Health', icon: 'mdi:heart-pulse' },
+      { id: 'access-graph' as const, label: 'Access', icon: 'mdi:account-key-outline' },
+      { id: 'table-graph' as const, label: 'Tables', icon: 'mdi:graph-outline' },
     ] : []),
   ];
 
@@ -5695,6 +5711,23 @@ export default function DbInstanceDetailDrawer({
               </table>
             )}
           </div>
+        )}
+
+        {/* ── CONSOLE: HEALTH (Pillar A) ── */}
+        {tab === 'health' && <HealthView accountId={accountId} />}
+
+        {/* ── CONSOLE: ACCESS GRAPH (Pillar B, lazy cytoscape) ── */}
+        {tab === 'access-graph' && (
+          <Suspense fallback={<div className="flex items-center justify-center py-16 text-sm text-[rgba(0,0,0,0.5)]">Loading graph…</div>}>
+            <AccessGraph accountId={accountId} />
+          </Suspense>
+        )}
+
+        {/* ── CONSOLE: TABLE GRAPH (Pillar C, lazy cytoscape) ── */}
+        {tab === 'table-graph' && (
+          <Suspense fallback={<div className="flex items-center justify-center py-16 text-sm text-[rgba(0,0,0,0.5)]">Loading graph…</div>}>
+            <FkGraph accountId={accountId} />
+          </Suspense>
         )}
 
         </motion.div>

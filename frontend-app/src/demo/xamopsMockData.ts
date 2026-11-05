@@ -4393,3 +4393,158 @@ export const demoAzureData = {
 export const demoTicketCount = {
   count: demoTickets.filter((t) => t.category === 'Technical' && t.status.toLowerCase() !== 'closed').length,
 };
+
+// ── Phase 2 DbOps console fixtures (render the Health view + access/FK graphs in demo mode) ──
+
+export const demoDbHealthView = {
+  dsnAlias: 'db-0',
+  dbHost: 'orders-prod.internal',
+  status: 'warning',
+  collectedAt: '2026-10-29T12:00:00Z',
+  stale: false,
+  dsnCount: 1,
+  availableDsnAliases: ['db-0'],
+  findings: [
+    { id: 'locks:4821', severity: 'critical', metric: 'locks', title: 'Blocked session',
+      evidence: 'pid 4821, user app, app checkout-svc, Lock/transactionid, txn age 142s, blocked by pid(s) 4790',
+      recommendation: 'Investigate the holding session; consider a statement/lock timeout for this workload.' },
+    { id: 'slow-queries', severity: 'warning', metric: 'slowQueries', title: 'Slow queries',
+      evidence: '214.63 ms weighted avg over 48,210 calls across 50 tracked digests; top digest 612.40 ms mean × 310 calls: SELECT * FROM orders WHERE customer_id = $1',
+      recommendation: 'Review the highest-total-time digests; add indexes or reduce call volume.' },
+    { id: 'unused-index:public.orders.idx_orders_legacy', severity: 'info', metric: 'unusedIndex', title: 'Unused index',
+      evidence: 'idx_orders_legacy on public.orders: 0 scans since reset, 128.0 MB reclaimable',
+      recommendation: 'If this index is genuinely unused it can be dropped to reclaim space and speed writes.' },
+    { id: 'cache-hit', severity: 'warning', metric: 'cacheHit', title: 'Low cache-hit ratio',
+      evidence: '97.80% of block reads served from shared buffers (instance-wide)',
+      recommendation: 'Frequent disk reads — consider more shared_buffers/RAM or indexing to reduce reads.' },
+  ],
+};
+
+export const demoDbLockWaits = [
+  { dsnAlias: 'db-0', dbEngine: 'postgres', dbHost: 'orders-prod.internal', category: 'blocked',
+    pid: 4821, usename: 'app', applicationName: 'checkout-svc', state: 'active',
+    waitEventType: 'Lock', waitEvent: 'transactionid', backendXid: '90210',
+    xactStart: '2026-10-29T11:57:38Z', queryStart: '2026-10-29T11:57:38Z', stateChange: '2026-10-29T11:57:38Z',
+    xactAgeSeconds: 142, blockedByPids: '4790', queryId: '-512938471', collectedAt: '2026-10-29T12:00:00Z' },
+  { dsnAlias: 'db-0', dbEngine: 'postgres', dbHost: 'orders-prod.internal', category: 'blocking',
+    pid: 4790, usename: 'batch', applicationName: 'nightly-reconcile', state: 'idle in transaction',
+    waitEventType: 'Client', waitEvent: 'ClientRead', backendXid: '90180',
+    xactStart: '2026-10-29T11:55:10Z', queryStart: '2026-10-29T11:55:12Z', stateChange: '2026-10-29T11:55:12Z',
+    xactAgeSeconds: 290, blockedByPids: '', queryId: '771233120', collectedAt: '2026-10-29T12:00:00Z' },
+];
+
+export const demoDbReplication = [
+  { dsnAlias: 'db-0', dbEngine: 'postgres', dbHost: 'orders-prod.internal', role: 'primary',
+    clientAddr: '10.0.3.21', applicationName: 'standby-1', state: 'streaming',
+    writeLagSeconds: 0.4, flushLagSeconds: 0.6, replayLagSeconds: 1.2, collectedAt: '2026-10-29T12:00:00Z' },
+];
+
+// One datastore → READ/WRITE/DDL/ADMIN buckets → 3 group roles → 8 principals, with one superuser
+// and one unused grant flagged.
+export const demoAccessGraph = (() => {
+  const principals = ['alice', 'bob', 'carol', 'dan', 'erin', 'frank', 'grace', 'heidi'];
+  const nodes: Array<Record<string, unknown>> = [
+    { id: 'ds:db-0', kind: 'datastore', label: 'orders-prod.internal',
+      data: { dbHost: 'orders-prod.internal', roleCount: 11, principalCount: 8 }, severity: null },
+    { id: 'priv:READ', kind: 'privilege', label: 'Read', data: { privilegeClass: 'READ', objectCount: 120, hasPublic: false }, severity: null },
+    { id: 'priv:WRITE', kind: 'privilege', label: 'Write', data: { privilegeClass: 'WRITE', objectCount: 64, hasPublic: false }, severity: null },
+    { id: 'priv:DDL', kind: 'privilege', label: 'DDL', data: { privilegeClass: 'DDL', objectCount: 12, hasPublic: false }, severity: null },
+    { id: 'priv:ADMIN', kind: 'privilege', label: 'Admin', data: { privilegeClass: 'ADMIN', objectCount: 3, hasPublic: false }, severity: null },
+    { id: 'priv:CONNECT', kind: 'privilege', label: 'Connect', data: { privilegeClass: 'CONNECT', objectCount: 1, hasPublic: true }, severity: 'warning' },
+    { id: 'role:app_read', kind: 'role', label: 'app_read', data: { isGroup: true, memberOf: [], grantsClasses: ['READ'] }, severity: null },
+    { id: 'role:app_write', kind: 'role', label: 'app_write', data: { isGroup: true, memberOf: ['app_read'], grantsClasses: ['WRITE'] }, severity: null },
+    { id: 'role:migrations', kind: 'role', label: 'migrations', data: { isGroup: true, memberOf: [], grantsClasses: ['DDL'] }, severity: null },
+  ];
+  const edges: Array<Record<string, string>> = [
+    { id: 'ds:db-0->priv:READ', source: 'ds:db-0', target: 'priv:READ', kind: 'datastore-class' },
+    { id: 'ds:db-0->priv:WRITE', source: 'ds:db-0', target: 'priv:WRITE', kind: 'datastore-class' },
+    { id: 'ds:db-0->priv:DDL', source: 'ds:db-0', target: 'priv:DDL', kind: 'datastore-class' },
+    { id: 'ds:db-0->priv:ADMIN', source: 'ds:db-0', target: 'priv:ADMIN', kind: 'datastore-class' },
+    { id: 'ds:db-0->priv:CONNECT', source: 'ds:db-0', target: 'priv:CONNECT', kind: 'datastore-class' },
+    { id: 'priv:READ->role:app_read', source: 'priv:READ', target: 'role:app_read', kind: 'holds-class' },
+    { id: 'priv:WRITE->role:app_write', source: 'priv:WRITE', target: 'role:app_write', kind: 'holds-class' },
+    { id: 'priv:DDL->role:migrations', source: 'priv:DDL', target: 'role:migrations', kind: 'holds-class' },
+    { id: 'role:app_read->role:app_write', source: 'role:app_read', target: 'role:app_write', kind: 'membership' },
+  ];
+  principals.forEach((p, i) => {
+    const isSuper = p === 'heidi';
+    nodes.push({
+      id: `principal:${p}`, kind: 'principal', label: p,
+      data: { canLogin: true, isSuperuser: isSuper, bypassRls: false, connLimit: -1,
+        inheritedFrom: i < 4 ? ['app_read'] : [], effectivePrivilegeClasses: isSuper ? ['ADMIN'] : (i < 4 ? ['READ'] : ['READ', 'WRITE']),
+        flags: isSuper ? ['superuser'] : [] },
+      severity: isSuper ? 'critical' : null,
+    });
+    const group = isSuper ? 'priv:ADMIN' : (i < 4 ? 'role:app_read' : 'role:app_write');
+    edges.push({ id: `${group}->principal:${p}`, source: group, target: `principal:${p}`, kind: group.startsWith('priv:') ? 'holds-class' : 'membership' });
+  });
+  return {
+    dsnAlias: 'db-0', collectedAt: '2026-10-29T12:00:00Z', stale: false,
+    nodes, edges,
+    insights: [
+      { id: 'over-privileged:heidi', severity: 'critical', subject: 'heidi', title: 'Superuser account',
+        detail: 'Role heidi is a superuser (bypasses all permission checks). Least-privilege: grant only what is needed.' },
+      { id: 'unused:frank', severity: 'info', subject: 'frank', title: 'Granted, not observed in use',
+        detail: 'As of 2026-10-29T12:00:00Z; based on cumulative call counts since the last stats reset — a recent reset, or a role simply idle at snapshot time, can read as unused.' },
+      { id: 'public-grant:CONNECT', severity: 'warning', subject: 'CONNECT', title: 'PUBLIC grant',
+        detail: 'Privilege class CONNECT is granted to PUBLIC (every role).' },
+    ],
+    meta: { hiddenPrincipalCount: 0, truncated: false, totalPrincipals: 8 },
+    availableDsnAliases: ['db-0'],
+  };
+})();
+
+// 15 tables + FK edges + one isolated table.
+export const demoFkGraph = (() => {
+  const tableDefs: Array<[string, number, number]> = [
+    ['orders', 4_000_000_000, 12_000_000], ['order_items', 2_500_000_000, 48_000_000],
+    ['customers', 900_000_000, 3_200_000], ['payments', 1_200_000_000, 11_500_000],
+    ['shipments', 600_000_000, 9_800_000], ['products', 300_000_000, 85_000],
+    ['categories', 4_000_000, 1_200], ['inventory', 500_000_000, 900_000],
+    ['addresses', 180_000_000, 4_100_000], ['refunds', 90_000_000, 820_000],
+    ['invoices', 220_000_000, 7_400_000], ['invoice_lines', 480_000_000, 31_000_000],
+    ['carts', 140_000_000, 2_600_000], ['cart_items', 260_000_000, 14_900_000],
+    ['audit_log_archive', 50_000_000, 400_000], // isolated — no FKs
+  ];
+  const nodes = tableDefs.map(([name, size, rows], i) => ({
+    id: `public.${name}`, schema: 'public', table: name,
+    sizeBytes: size, rowEstimate: rows,
+    activityScore: name === 'audit_log_archive' ? null : Math.min(1, (i + 1) / tableDefs.length),
+    boundary: false,
+  }));
+  const fk = (child: string, parent: string, col: string, onDelete = 'NO ACTION') => ({
+    id: `fk_${child}_${parent}`, source: `public.${child}`, target: `public.${parent}`,
+    columns: [col], onDelete, onUpdate: 'NO ACTION',
+  });
+  const edges = [
+    fk('order_items', 'orders', 'order_id', 'CASCADE'),
+    fk('order_items', 'products', 'product_id'),
+    fk('orders', 'customers', 'customer_id'),
+    fk('payments', 'orders', 'order_id', 'CASCADE'),
+    fk('shipments', 'orders', 'order_id'),
+    fk('products', 'categories', 'category_id'),
+    fk('inventory', 'products', 'product_id'),
+    fk('addresses', 'customers', 'customer_id'),
+    fk('refunds', 'payments', 'payment_id'),
+    fk('invoices', 'orders', 'order_id'),
+    fk('invoice_lines', 'invoices', 'invoice_id', 'CASCADE'),
+    fk('carts', 'customers', 'customer_id'),
+    fk('cart_items', 'carts', 'cart_id', 'CASCADE'),
+    fk('cart_items', 'products', 'product_id'),
+  ];
+  return {
+    dsnAlias: 'db-0', collectedAt: '2026-10-29T12:00:00Z', stale: false,
+    nodes, edges,
+    meta: { declaredFkCount: edges.length, tableCount: nodes.length, boundaryNodeCount: 0, droppedEdgeCount: 0, truncated: false },
+    availableDsnAliases: ['db-0'],
+  };
+})();
+
+// Sparse variant — a schema that declares no foreign keys (the honest empty state).
+export const demoFkGraphSparse = {
+  dsnAlias: 'db-0', collectedAt: '2026-10-29T12:00:00Z', stale: false,
+  nodes: [{ id: 'analytics.events', schema: 'analytics', table: 'events', sizeBytes: 900_000_000, rowEstimate: 40_000_000, activityScore: 1, boundary: false }],
+  edges: [],
+  meta: { declaredFkCount: 0, tableCount: 1, boundaryNodeCount: 0, droppedEdgeCount: 0, truncated: false },
+  availableDsnAliases: ['db-0'],
+};

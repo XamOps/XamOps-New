@@ -1,0 +1,16 @@
+{
+  "DRAIN_TIMEOUT_SECONDS": "1200",
+  "DRY_RUN": "true",
+  "ENABLE_EVICTOR": "false",
+  "ENABLE_HPA_MANAGER": "false",
+  "ENABLE_LEADER_ELECTION": "true",
+  "ENABLE_NODE_OPTIMIZER": "true",
+  "ENABLE_REBALANCER": "false",
+  "ENABLE_RIGHTSIZER": "false",
+  "ENABLE_RIGHTSIZER_APPLY": "false",
+  "ENABLE_VPA_MANAGER": "false",
+  "HEARTBEAT_INTERVAL": "60",
+  "METRICS_PUSH_INTERVAL": "120",
+  "POLICY_POLL_INTERVAL": "60",
+  "PROMETHEUS_URL": "http://prometheus-server.monitoring.svc.cluster.local:80"
+}

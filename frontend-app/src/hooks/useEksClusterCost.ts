@@ -42,6 +42,11 @@ export const useEksClusterCost = ({
   // In-hook memo keyed on the three params (consistent with useEksDashboard); no new cache context.
   const lastKeyRef = useRef<string | null>(null);
 
+  // Per-cluster isolation (FEAT-004). The token is the guarantee that a late response from a
+  // previous cluster never lands on the current one; the AbortSignal is best-effort cancellation.
+  const requestSeq = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+
   const fetchCost = useCallback(async () => {
     // Verbatim guard from useEksDashboard.fetchDashboard: do not fire until both params exist.
     if (!accountId || !clusterName) return;
@@ -50,18 +55,31 @@ export const useEksClusterCost = ({
     if (lastKeyRef.current === key) return;
     lastKeyRef.current = key;
 
+    // Claim a monotonic token and abort any in-flight fetch for the previous key.
+    const token = ++requestSeq.current;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const isStale = () => token !== requestSeq.current;
+
     setLoading(true);
     setError(null);
 
     try {
       const data = await apiClient.get<VerticalEngineResponse>(
         `/api/eks/automation/vertical/${encodeURIComponent(clusterName)}` +
-          `?accountId=${encodeURIComponent(accountId)}&region=${encodeURIComponent(region)}`
+          `?accountId=${encodeURIComponent(accountId)}&region=${encodeURIComponent(region)}`,
+        { signal: controller.signal }
       );
+      // Drop a response that belongs to a previous cluster/account/region.
+      if (isStale()) return;
       setCost(data.cost ?? null);
       setWorkloads(data.workloads ?? []);
       setEngine(data.engine);
     } catch (err: any) {
+      // A stale or aborted request must not surface its error on the current cluster.
+      if (isStale()) return;
+      if (err?.name === 'AbortError') return;
       console.error('Error fetching cluster cost:', err);
       // Reset the memo key so a remount re-attempts the failed fetch.
       lastKeyRef.current = null;
@@ -70,9 +88,28 @@ export const useEksClusterCost = ({
       setWorkloads([]);
       setEngine(undefined);
     } finally {
-      setLoading(false);
+      if (!isStale()) setLoading(false);
     }
   }, [accountId, clusterName, region]);
+
+  // Reset-on-key-change (FEAT-004): invalidate any in-flight request and clear the view state so no
+  // panel shows the previous cluster's cost/workloads/engine while the next fetch is in flight.
+  useEffect(() => {
+    requestSeq.current += 1;
+    abortRef.current?.abort();
+    lastKeyRef.current = null;
+    setCost(null);
+    setWorkloads([]);
+    setEngine(undefined);
+    setError(null);
+    setLoading(true);
+  }, [clusterName, accountId, region]);
+
+  // Abort any in-flight request on unmount.
+  useEffect(() => () => {
+    requestSeq.current += 1;
+    abortRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     fetchCost();

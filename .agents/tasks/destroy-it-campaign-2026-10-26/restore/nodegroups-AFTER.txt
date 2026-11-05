@@ -1,0 +1,5 @@
+=== NODEGROUP BASELINE (post-restore) 2026-10-29T05:16:00Z ===
+ng-ondemand-1        {"minSize":1,"maxSize":4,"desiredSize":4}
+ng-spot-1            {"minSize":0,"maxSize":2,"desiredSize":1}
+ng-stateful-1        {"minSize":3,"maxSize":6,"desiredSize":3}
+ng-observability-1   {"minSize":1,"maxSize":1,"desiredSize":1}

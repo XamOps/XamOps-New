@@ -1,0 +1,12 @@
+NAME                           UID                                    START                  NODE                                           PHASE       RESTARTS
+load-mongo-6d5bdd7ddf-psjzs    20862905-142d-4f98-9098-c3ac73de7c34   2026-10-25T11:49:21Z   ip-172-31-26-143.ap-south-1.compute.internal   Running     0
+load-mysql-8d7d848d5-sw25c     8296d296-a4d3-4d38-85f7-e12d9056dc85   2026-10-25T11:49:20Z   ip-172-31-43-198.ap-south-1.compute.internal   Running     0
+load-pgbench-bf746dc54-6s2q7   18f750d6-8f15-4bd3-bddd-bedbed0c2224   2026-10-25T11:49:20Z   ip-172-31-43-198.ap-south-1.compute.internal   Running     0
+mongo-0                        1b743cb8-e095-4db0-abc9-9bd234e453be   2026-10-25T11:46:23Z   ip-172-31-46-10.ap-south-1.compute.internal    Running     0
+mongo-1                        af512089-6e3b-4e82-8f38-50d5487f276e   <none>                 <none>                                         Pending     <none>
+mongo-2                        a4eff8af-e0f1-43fa-9390-19d18576af42   2026-10-25T11:46:24Z   ip-172-31-23-193.ap-south-1.compute.internal   Running     0
+mongo-rs-init-np42g            c1744f1a-3fa7-4e76-813b-bb8672a19ccd   2026-10-25T11:46:21Z   ip-172-31-43-198.ap-south-1.compute.internal   Succeeded   4
+mysql-0                        2e0d7cc4-0851-4ccd-b257-7cf3b3370224   2026-10-25T11:46:21Z   ip-172-31-4-95.ap-south-1.compute.internal     Running     0
+pg-cnpg-1                      099b393f-be58-4ce0-95fc-b0a4012f6cc1   2026-10-25T11:47:11Z   ip-172-31-23-193.ap-south-1.compute.internal   Running     1
+pg-cnpg-2                      dd667c1a-5d77-40f3-85ed-9bcb52192fd8   <none>                 <none>                                         Pending     <none>
+pg-unsafe-0                    c5b81630-aeac-41f2-b7ac-488bbf98b37f   2026-10-25T11:46:24Z   ip-172-31-46-10.ap-south-1.compute.internal    Running     0

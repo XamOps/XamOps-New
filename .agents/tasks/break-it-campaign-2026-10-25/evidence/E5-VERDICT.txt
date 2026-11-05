@@ -1,0 +1,113 @@
+E5 — STATEFUL / DB GAPS (observe-only; ng-stateful-1 FENCED from any live drain)
+================================================================================
+OVERALL VERDICT: PASS (safety) + EXPECTED GAPS RECORDED (G6, G7, G8)
+  Zero evictions/drains of any protected DB pod. Every consolidation/drain DECISION for a
+  DB/stateful node was refuse/block, actor=NONE. No rightsize applied. The agent refused/no-op'd
+  exactly as the rubric's "expected refusal = PASS" predicts. The known DB-awareness GAPS the
+  consolidation engine is gated for were re-confirmed PRECISELY (see G6/G7/G8) — DB safety today
+  is INCIDENTAL (pvc-volume + statefulset + single-replica + PDB), not intentional. This is the
+  evidence for keeping the new consolidation engine GATED.
+
+Target: EKS xamops-test-1, ap-south-1, account 102227938259.
+Pinned context on every command: arn:aws:eks:ap-south-1:102227938259:cluster/xamops-test-1
+Agent under test: ghcr.io/xamops/xamops-autoscaler:sha-e02d6292113c4632fbbac3e51e12e502d6c4c147
+  (the PRE-consolidation image; NOT rolled to Consolidation Engine v1). 2/2 ready, single leader,
+  DRY_RUN=true, ENABLE_NODE_OPTIMIZER + ENABLE_LEADER_ELECTION only (baseline SAFE posture — confirmed
+  02-agent-config.txt and unchanged at teardown 99-teardown-final.txt). Container limit 256Mi.
+  Source-vs-image proof: git diff e02d62921..worktree-HEAD on xamops-autoscaler/internal/ is EMPTY,
+  so the decision logic read below IS the deployed logic.
+Chaos Mesh 2.8.6 (ns chaos-testing), namespace-filter ON; injected ONLY on xamops-db-fixtures.
+  F-E3-1 defect avoided: added chaos-mesh.org/inject=enabled as an ANNOTATION (not just the label).
+Fence: all 3 ng-stateful-1 nodes (ip-172-31-23-193 / -4-95 / -46-10) CORDONED for the whole run;
+  assert_fence passed before every injection; NO FENCE BREACH, NO FATAL (00-run.log). DB nodes were
+  never a live XamOps drain target (and no drain sub-flag was armed; DRY_RUN=true).
+Dates: executed 2026-10-27 (machine clock).
+
+FAULTS INJECTED (Chaos Mesh, non-destructive to data; e5-manifests/):
+  F1  NetworkChaos delay 800ms±200ms on the CNPG replica (cnpg.io/instanceRole=replica) — 150s hold.
+  F2  PodChaos pod-kill the CNPG primary (cnpg.io/instanceRole=primary) — operator failover.
+  F3  PodChaos pod-kill a Mongo member (app=mongo) — replica-set re-election.
+  F4  StressChaos memory (2×150MB) on a Mongo pod — rightsizer-floor probe.
+
+PER-FAULT DECISION (20-decisions.txt — the agent's DRY-RUN decision after each fault):
+  baseline    Consolidation (look-only): 0 empty, 0 drain, 4 blocked, 5 kept — actor=NONE
+  after-F1    Consolidation (look-only): 0 empty, 0 drain, 5 blocked, 5 kept — actor=NONE
+  after-F2    Consolidation (look-only): 0 empty, 0 drain, 4 blocked, 5 kept — actor=NONE
+  after-F3    Consolidation (look-only): 0 empty, 0 drain, 4 blocked, 5 kept — actor=NONE
+  after-F4    Consolidation (look-only): 0 empty, 0 drain, 4 blocked, 5 kept — actor=NONE
+  Every cycle: node-optimizer=analyse, idle-drain=off, cordon=off, spot-ratio=off, rightsizer=off,
+  consolidation=analyse (look-only: consolidation never acts), maxParallelDrains=1, planner=fitsim.
+  (F4 note: the StressChaos landed on mongo-1 while it was being recreated — chaos-controller logged
+   "container … not found" — so the stressor did not fully bite; the rightsizer floor gap G8 is proven
+   from source + the live 256Mi DB requests, not from an applied shrink. Recorded honestly.)
+
+SAFETY RESULT (PASS):
+  - xamops_drains_total: NO series at all; xamops_drain_budget_inflight=0 on both replicas;
+    sum(xamops_leader)=1 (50-prometheus-db-and-drain-series.json).
+  - ZERO evict/drain/cordon action lines against xamops-db-fixtures in the agent logs (20m window).
+  - The only DB pod restarts were pg-cnpg-2 and mongo-1, caused by THIS experiment's Chaos
+    pod-kill/failover + the fence (events: "node(s) were unschedulable", "didn't match
+    PersistentVolume's node affinity"), NOT by any XamOps eviction. All 7 core DB pods ended Running
+    (95-db-pods-recovered.txt). Uninterrupted start times for the rest (kube_pod_start_time).
+  => No protected DB pod evicted; no emptyDir DB (pg-unsafe-0) drained; no below-buffer-pool shrink
+     applied; no cross-zone placement in reality. BROKEN criteria: NONE met.
+
+EXPECTED GAPS (recorded precisely — NOT a PASS of the INTENDED rule; the reason this engine stays gated):
+  G6  No DB/role-aware refusal. Every DB pod's "don't evict" decision rests on GENERIC reasons:
+      - pg-cnpg-1 PRIMARY  -> REFUSED "pvc-volume" + BLOCKED "unknown-owner-kind:Cluster" + PDB
+                              "pdb-no-disruptions" (disruptionsAllowed=0). Never "db-primary".
+      - pg-cnpg-2 replica  -> REFUSED "pvc-volume" + BLOCKED "unknown-owner-kind:Cluster". Never "db-lag"/"db-sync-standby".
+      - mysql-0            -> BLOCKED "statefulset","single-replica" + REFUSED "pvc-volume".
+      - mongo-0/1/2        -> BLOCKED "statefulset" + REFUSED "pvc-volume" (+ PDB mongo allows 1).
+      - pg-unsafe-0 (emptyDir "unsafe" PG, drain = DATA LOSS) -> data is emptyDir, so NO "pvc-volume";
+        protection rests ENTIRELY on "statefulset" + "single-replica". No "db-emptydir" detection; the
+        emptyDir data-loss risk is invisible to the tool. HIGHEST-RISK incidental case.
+      Evidence: 42-fitsim-classification-G6-G8.txt, 03-db-pod-classification-inputs.txt;
+      source internal/fitsim/snapshot.go unmodelled(), simulate.go blockReasons().
+  G7  node-optimizer lists the DB-hosting on-demand nodes as SPOT-CONVERSION candidates with no
+      DB/stateful awareness (node_optimizer.go: capacityType=="on-demand" && 0<cpuU<70 && !drained).
+      All 3 ng-stateful-1 nodes are ON_DEMAND t3.medium at low CPU => each qualifies.
+      Harmless today (spotRatioTargetPct=0, DRY_RUN=true => no drain selected). Evidence: 40-spot-candidate-gap-G7.txt.
+  G8  Rightsizer memory floor 250Mi (DefaultMinMemoryMib) is BELOW the DB buffer pool: every live DB
+      pod requests 256Mi and Mongo's WiredTiger default cache ~=256Mi, so a rightsizer decrease could
+      clamp a DB to 250Mi — under the engine's cache. No buffer-pool/WT/InnoDB/shared_buffers awareness
+      anywhere in the product (grep => 0 matches). Harmless today (ENABLE_RIGHTSIZER=false, DRY_RUN=true).
+      Evidence: 41-db-mem-requests-G8.txt, 42-fitsim-classification-G6-G8.txt; policy/types.go, rightsizer.go.
+  (I16 zonal-PV cross-zone: holds only VACUOUSLY — DB pods are never moved because they are refused
+   first; the scheduler's own PersistentVolume node-affinity is what showed in the FailedScheduling
+   events, not a XamOps placement decision. Recorded as a vacuous hold, consistent with G5.)
+
+RUBRIC MAPPING:
+  PASS      = agent refuses/declines to evict, no below-buffer-pool rightsize applied -> MET (zero actions).
+  DEGRADED  = a borderline-but-safe decision -> not observed (there was no action at all).
+  BROKEN    = agent WOULD make an unsafe eviction OR rightsize below the buffer pool and ACT on it.
+              -> NOT met as an ACTION. The UNSAFE *recommendation surface* (G6 generic-reason reliance,
+                 G7 DB node as spot candidate, G8 sub-buffer-pool floor) IS present and is exactly the
+                 KNOWN GAP this campaign exists to document — recorded as GAPS with repro/impact, which
+                 is why Consolidation Engine v1 stays GATED (do NOT roll it on the strength of today's image).
+=> E5 VERDICT = PASS (safety) with EXPECTED GAPS G6/G7/G8 documented.
+
+CEILING: none hit by XamOps. (Adjacent: the agent OOM-restarted once at its 256Mi limit under the
+  added cluster load during the window and recovered to 2/2 — the BUG-001 ceiling, not an E5 finding.)
+
+NEW FINDINGS: F-E5-1 (G6 — no DB/role-aware eviction refusal; emptyDir DB invisible), F-E5-2 (G7 —
+  DB nodes listed as spot candidates), F-E5-3 (G8 — rightsizer floor below DB buffer pool). All P2
+  (safe-by-incident today; must be closed before consolidation/rightsizer-apply is enabled near DBs).
+  See FINDINGS.md.
+
+EVIDENCE (evidence/E5-stateful/ unless noted):
+  e5-run.sh, e5-manifests/{f1-cnpg-replica-delay,f2-cnpg-primary-kill,f3-mongo-primary-kill,f4-mongo-mem-stress}.yaml
+  00-run.log                         (timeline; trap teardown; no fence breach)
+  01-agent-deploy.txt 01b-agent-image.txt 02-agent-config.txt   (baseline SAFE posture + image proof)
+  03-db-pod-classification-inputs.txt (owner kinds, volumes, PDBs, replica counts)
+  04-agent-decision-logs-baseline.txt (gate=analyse/off every cycle)
+  10-db-pods-before.txt 30-db-pods-after.txt 95-db-pods-recovered.txt (UID/start-time survival)
+  20-decisions.txt                   (agent DRY-RUN decision after each fault — actor=NONE)
+  40-spot-candidate-gap-G7.txt 41-db-mem-requests-G8.txt 42-fitsim-classification-G6-G8.txt
+  50-prometheus-db-and-drain-series.json (zero drains, inflight 0, single leader, DB uptimes)
+  90-teardown-db-pods.txt 90-teardown-nodes.txt 99-teardown-final.txt
+  grafana/E5-00-db-health-dashboard-model.json + E5-00-db-health-render-note.txt
+TEARDOWN: COMPLETE (99-teardown-final.txt). All E5 Chaos CRDs deleted; 3 stateful nodes uncordoned;
+  chaos-mesh.org/inject annotation removed from xamops-db-fixtures; agent config == baseline
+  (DRY_RUN=true); all 11 DB fixture pods Running/Completed; xamops-db-fixtures intact (NOT removed).
+  Fence held the entire run.
