@@ -12,7 +12,11 @@ interface AnimatedItemProps {
 
 export const AnimatedItem: React.FC<AnimatedItemProps> = ({ children, delay = 0, index, onMouseEnter, onClick }) => {
   const ref = useRef<HTMLDivElement>(null);
-  const inView = useInView(ref, { amount: 0.15, once: false });
+  // 'some' = visible as soon as any pixel is on screen. A fractional threshold
+  // (e.g. 0.15) can never be met by an item taller than the viewport — such as an
+  // expanded Cloudlist service group with hundreds of rows — so it would fade the
+  // item (and everything pushed below it) out right after it was expanded.
+  const inView = useInView(ref, { amount: 'some', once: false });
   return (
     <motion.div
       ref={ref}

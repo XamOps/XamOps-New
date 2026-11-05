@@ -557,10 +557,10 @@ const UploadDraftDialog: React.FC<UploadDraftDialogProps> = ({
                   <i className="fas fa-info-circle" aria-hidden="true" />
                   <div className="min-w-0 flex-1 space-y-3">
                     <p>
-                      Account {preview.accountId} isn&rsquo;t in BillOps yet. It&rsquo;ll be added as an invoice-only
-                      AWS account when the draft is created, marked &ldquo;Invoice only&rdquo; wherever accounts are
-                      listed. Nothing is read from AWS for it. If your access is limited to assigned accounts,
-                      you&rsquo;ll be given access to this one.
+                      Account {preview.accountId} isn&rsquo;t in BillOps yet. It&rsquo;ll be added for billing only
+                      when the draft is created &mdash; nothing is read from AWS for it, and it won&rsquo;t appear
+                      anywhere outside the Billing pages. Your own uploads always show up on this page, whether or
+                      not your access is limited to assigned accounts.
                     </p>
                     <div>
                       <label className="inv-field-label" htmlFor="upload-new-account-name">Account name</label>

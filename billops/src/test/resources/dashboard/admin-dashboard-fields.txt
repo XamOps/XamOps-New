@@ -15,9 +15,9 @@
 # marketplaceHoldingCostPercent to InvoiceDto, so recentInvoices[] grew by that one field
 # and no others.
 #
-# Re-captured again since: "Upload draft" added uploadedFileName to InvoiceDto, and
-# single-charge private rates added lineItemId to its privatePricing[] entries, so
-# recentInvoices[] grew by those two fields and no others.
+# Re-captured again since: "Upload draft" added uploadedFileName and uploadedByUserId to
+# InvoiceDto, and single-charge private rates added lineItemId to its privatePricing[]
+# entries, so recentInvoices[] grew by those three fields and no others.
 #
 # LineItemDto.privatelyPriced and PrivatePricingDto.margin are deliberately absent: both
 # are derived from fields already here and have no setter, so serializing them broke the
@@ -92,6 +92,7 @@ recentInvoices[].provider
 recentInvoices[].provisional
 recentInvoices[].status
 recentInvoices[].taxAmount
+recentInvoices[].uploadedByUserId
 recentInvoices[].uploadedFileName
 recentTickets[].accountId
 recentTickets[].accountName

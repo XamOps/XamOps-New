@@ -22,11 +22,13 @@ import {
   useLabels,
   useResourceLabelMap,
 } from '../../hooks/useResourceLabels';
-import { removeLabel } from '../../services/resourceLabelsApi';
+import { bulkAssignLabel, removeLabel } from '../../services/resourceLabelsApi';
 import type { ResourceLabel, ResourceLabelMap, ResourceRef } from '../../types/resourceLabels';
 import { lockPageScroll } from '../../utils/scrollLock';
 import Pagination from '../FinOps/Pagination';
 import ResourceLabelCell from './ResourceLabelCell';
+import LabelBadge from '../Labels/LabelBadge';
+import CascadeLabelDialog from './CascadeLabelDialog';
 
 /**
  * What one service's resources cost — this bucket, this instance, this volume — over the invoice.
@@ -369,6 +371,34 @@ const ServiceResourcesDrawer: React.FC<ServiceResourcesDrawerProps> = ({
   const closeDetail = useCallback(() => setDetail(null), []);
 
   /*
+   * ── Bulk labelling ──────────────────────────────────────────────────────────────────────
+   *
+   * A second mode for the list: instead of opening each row's "+" popover, the reader turns on
+   * selection, ticks the resources that belong together, picks one label and applies it to all of
+   * them in a single call. The per-row "+" control still exists for one-off changes; this is for
+   * the common case of "these forty things are all Prod".
+   *
+   * `selectMode` toggles the checkboxes on. `selectedIds` holds the chosen resource ids — ids
+   * rather than rows, because the same resource keeps its tick as the reader pages, filters and
+   * searches, and because that is the key the label map and the apply call both speak.
+   */
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+
+  const toggleSelected = useCallback((resourceId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(resourceId)) next.delete(resourceId);
+      else next.add(resourceId);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  /*
    * A different service is a different list, so its filters and paging start fresh — a region left
    * selected from the last service would silently hide rows in this one, and page 3 of a longer list
    * renders as empty rather than as the resources the reader just asked for.
@@ -384,6 +414,11 @@ const ServiceResourcesDrawer: React.FC<ServiceResourcesDrawerProps> = ({
     setSearch('');
     setPage(1);
     setChargePage(1);
+    // A fresh service starts with nothing selected and selection mode off — a tick carried over
+    // from another service would point at ids this one does not list.
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setApplyError(null);
   }, [service]);
 
   /*
@@ -466,12 +501,50 @@ const ServiceResourcesDrawer: React.FC<ServiceResourcesDrawerProps> = ({
   const allLabels = allLabelsData ?? NO_LABELS;
   const labelMap = labelMapData ?? NO_LABEL_MAP;
 
+  /*
+   * ── Cascade to connected resources ──────────────────────────────────────────────────────
+   *
+   * When a label is added to one resource through the per-row control, offer to carry it to the
+   * resources connected to it. The dialog holds the source resource and the label that was just
+   * added; it is opened by `handleLabelChanged` when it sees a label appear that was not there
+   * before. Only on an add, and only a single added label — a remove or a multi-change is not a
+   * cascade prompt.
+   */
+  const [cascade, setCascade] = useState<{ source: ResourceCost; label: ResourceLabel } | null>(null);
+
   // The popover awaits its own assign or remove before reporting, so this is a completed write and
   // safe to confirm against the database straight away.
   const handleLabelChanged = useCallback(
-    (resourceId: string, updated: ResourceLabel[]) =>
-      publishResourceLabels(accountId, resourceId, updated),
-    [accountId],
+    (resourceId: string, updated: ResourceLabel[]) => {
+      // What this resource carried before the write, so a single newly-added label can be spotted
+      // and offered for cascade. Read before publishing, which overwrites it.
+      const before = labelMap[resourceId] ?? [];
+      publishResourceLabels(accountId, resourceId, updated);
+
+      const beforeIds = new Set(before.map((l) => l.id));
+      const addedLabels = updated.filter((l) => !beforeIds.has(l.id));
+      // Offer the cascade only for a clean single add, and only for a resource this panel lists —
+      // the dialog needs the source row and the service's other resources as candidates.
+      const sourceRow = resources.find((r) => r.resourceId === resourceId);
+      if (addedLabels.length === 1 && sourceRow) {
+        setCascade({ source: sourceRow, label: addedLabels[0] });
+      }
+    },
+    [accountId, labelMap, resources],
+  );
+
+  /** Writes the cascade's assignments into the cache, so the chips appear without a refetch wait. */
+  const handleCascadeApplied = useCallback(
+    (resourceIds: string[], label: ResourceLabel) => {
+      for (const id of resourceIds) {
+        const current = labelMap[id] ?? [];
+        if (!current.some((l) => l.id === label.id)) {
+          setResourceLabels(accountId, id, [...current, label]);
+        }
+      }
+      invalidateResourceLabels();
+    },
+    [accountId, labelMap],
   );
 
   // A new label has to reach the picker's list, which is the labels query rather than this
@@ -551,6 +624,80 @@ const ServiceResourcesDrawer: React.FC<ServiceResourcesDrawerProps> = ({
           r.instanceType.toLowerCase().includes(term)),
     );
   }, [resources, region, search]);
+
+  /*
+   * Selection is kept across paging and filtering by id, so a tick survives a search that hides
+   * its row. These derive what the bulk bar needs from the filtered set: how many of the currently
+   * visible resources are chosen, and whether that is all of them — the "select all" control toggles
+   * against the filtered list, not the whole service, because that is what the reader can see and
+   * reason about.
+   */
+  const selectedInFiltered = useMemo(
+    () => filtered.filter((r) => selectedIds.has(r.resourceId)),
+    [filtered, selectedIds],
+  );
+  const allFilteredSelected =
+    filtered.length > 0 && selectedInFiltered.length === filtered.length;
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (filtered.every((r) => next.has(r.resourceId))) {
+        // All visible are ticked — clear only those, leaving ticks on rows a filter is hiding.
+        for (const r of filtered) next.delete(r.resourceId);
+      } else {
+        for (const r of filtered) next.add(r.resourceId);
+      }
+      return next;
+    });
+  }, [filtered]);
+
+  /**
+   * Applies one label to every selected resource in a single call.
+   *
+   * <p>The chosen ids map back to their rows — the apply needs each resource's type and region, not
+   * just its id, because that is what the server reconciles and stores. The write is optimistic:
+   * the chips appear on every selected row at once, then the label reads are invalidated so the
+   * authoritative set comes back from the database (ids are normalised on write, so the stored row
+   * may differ from what was sent). On failure the optimistic chips are rolled back per row.
+   */
+  const applyLabelToSelection = useCallback(
+    async (label: ResourceLabel) => {
+      if (!accountId || selectedIds.size === 0) return;
+      const chosen = resources.filter((r) => selectedIds.has(r.resourceId));
+      if (chosen.length === 0) return;
+
+      setApplying(true);
+      setApplyError(null);
+
+      // Remember each row's labels before the write, so a failure can put them back exactly.
+      const before = new Map<string, ResourceLabel[]>();
+      for (const r of chosen) {
+        const current = labelMap[r.resourceId] ?? [];
+        before.set(r.resourceId, current);
+        // Don't duplicate a chip on a resource that already carries this label.
+        if (!current.some((l) => l.id === label.id)) {
+          setResourceLabels(accountId, r.resourceId, [...current, label]);
+        }
+      }
+
+      try {
+        await bulkAssignLabel(accountId, label.id, chosen.map(refFor));
+        invalidateResourceLabels();
+        setSelectedIds(new Set());
+        setSelectMode(false);
+      } catch (err) {
+        console.error('[Labels] Bulk apply failed, rolling back:', err);
+        for (const [resourceId, labels] of before) {
+          setResourceLabels(accountId, resourceId, labels);
+        }
+        setApplyError(err instanceof Error ? err.message : 'Could not apply the label.');
+      } finally {
+        setApplying(false);
+      }
+    },
+    [accountId, selectedIds, resources, labelMap],
+  );
 
   // Rescaled to the current view, so the bars still differentiate when a filter narrows it —
   // against the whole account's maximum every bar in one service would be a sliver. Measured across
@@ -754,6 +901,61 @@ const ServiceResourcesDrawer: React.FC<ServiceResourcesDrawerProps> = ({
 
                 {!loading && result !== null && all.length > 0 && (
                   <>
+                    {/* Bulk-label toolbar. Offered only where labelling is on and there are
+                        resources to label — the "Select to label" switch turns the list into a
+                        pick-many surface, and the select-all control acts on the filtered view so
+                        it only ever ticks what the reader can see. */}
+                    {labelling && resources.length > 0 && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectMode((on) => !on);
+                              clearSelection();
+                              setApplyError(null);
+                            }}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors ${
+                              selectMode
+                                ? 'border-[#4285F4] text-[#4285F4] bg-[rgba(66,133,244,0.06)]'
+                                : 'border-[rgba(0,0,0,0.15)] text-black hover:border-[rgba(0,0,0,0.35)]'
+                            }`}
+                          >
+                            <Icon
+                              icon={selectMode ? 'mdi:close' : 'mdi:checkbox-multiple-marked-outline'}
+                              width={14}
+                            />
+                            {selectMode ? 'Cancel selection' : 'Select to label'}
+                          </button>
+                          {selectMode && (
+                            <button
+                              type="button"
+                              onClick={toggleSelectAll}
+                              disabled={filtered.length === 0}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg border border-[rgba(0,0,0,0.15)] text-black hover:border-[rgba(0,0,0,0.35)] transition-colors disabled:opacity-40"
+                            >
+                              <Icon
+                                icon={
+                                  allFilteredSelected
+                                    ? 'mdi:checkbox-multiple-blank-outline'
+                                    : 'mdi:checkbox-multiple-marked'
+                                }
+                                width={14}
+                              />
+                              {allFilteredSelected
+                                ? 'Clear all shown'
+                                : `Select all ${filtered.length} shown`}
+                            </button>
+                          )}
+                        </div>
+                        {selectMode && selectedIds.size > 0 && (
+                          <span className="text-[11.5px] text-[rgba(0,0,0,0.55)]">
+                            {selectedIds.size} selected
+                          </span>
+                        )}
+                      </div>
+                    )}
+
                     {/* Filters. Offered only once the list is long enough for them to beat reading
                         it, and the region control only when there is more than one region to pick
                         — a select with a single option is a control that cannot do anything. */}
@@ -822,8 +1024,20 @@ const ServiceResourcesDrawer: React.FC<ServiceResourcesDrawerProps> = ({
                                 key={`${r.resourceId}-${r.region}`}
                                 r={r}
                                 max={maxCost}
+                                // Kept on even while selecting, so a resource's existing labels
+                                // stay visible and the reader can tell what is already applied. The
+                                // row renders them read-only in that mode — the "+" and × give way
+                                // to the bulk bar.
                                 labelling={labelling}
                                 onOpen={openDetail}
+                                selection={
+                                  selectMode
+                                    ? {
+                                        selected: selectedIds.has(r.resourceId),
+                                        onToggle: toggleSelected,
+                                      }
+                                    : null
+                                }
                               />
                             ))}
                           </div>
@@ -930,6 +1144,25 @@ const ServiceResourcesDrawer: React.FC<ServiceResourcesDrawerProps> = ({
                   </>
                 )}
               </div>
+
+              {/* The apply bar. Pinned to the foot of the panel while selecting, so the chosen
+                  count and the label picker stay in reach however far the reader has scrolled. It
+                  is the only place a label is applied in selection mode — the per-row "+" is
+                  hidden there. */}
+              {selectMode && labelling && (
+                <BulkApplyBar
+                  count={selectedIds.size}
+                  allLabels={labelling.allLabels}
+                  applying={applying}
+                  error={applyError}
+                  onApply={applyLabelToSelection}
+                  onCancel={() => {
+                    setSelectMode(false);
+                    clearSelection();
+                    setApplyError(null);
+                  }}
+                />
+              )}
             </CostCurrencyContext.Provider>
           </motion.aside>
 
@@ -960,10 +1193,181 @@ const ServiceResourcesDrawer: React.FC<ServiceResourcesDrawerProps> = ({
             connectivity={connectivity}
             security={security}
           />
+
+          {/* Opened when a label is added to a single resource, to offer carrying it to the
+              resources connected to it. Only rendered when labelling is on and an account is known,
+              which the cascade state already implies. */}
+          {cascade && accountId && (
+            <CascadeLabelDialog
+              accountId={accountId}
+              source={cascade.source}
+              label={cascade.label}
+              // The service's other resources, offered as hand-picked additions — the source is
+              // excluded so it cannot be added to its own cascade.
+              candidates={resources.filter((r) => r.resourceId !== cascade.source.resourceId)}
+              labelMap={labelMap}
+              onApplied={handleCascadeApplied}
+              onClose={() => setCascade(null)}
+              // Dismissed without an answer: take back the label the popover just put on the source.
+              onCancel={() => {
+                const { source, label } = cascade;
+                setCascade(null);
+                void handleLabelRemoved(source, label);
+              }}
+            />
+          )}
         </React.Fragment>
       )}
     </AnimatePresence>,
     document.body,
+  );
+};
+
+/**
+ * The foot bar for bulk labelling: a label picker and an apply button, over a chosen count.
+ *
+ * <p>Separate from the list so the reader can page and scroll without losing it, and so the
+ * picker's own open state does not churn every row on each keystroke. The picker is a search over
+ * the client's labels; applying is disabled until both a label is chosen and something is selected.
+ */
+const BulkApplyBar: React.FC<{
+  count: number;
+  allLabels: ResourceLabel[];
+  applying: boolean;
+  error: string | null;
+  onApply: (label: ResourceLabel) => void;
+  onCancel: () => void;
+}> = ({ count, allLabels, applying, error, onApply, onCancel }) => {
+  const [chosen, setChosen] = useState<ResourceLabel | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  // A chosen label that gets deleted elsewhere should not linger as a stale selection.
+  useEffect(() => {
+    if (chosen && !allLabels.some((l) => l.id === chosen.id)) setChosen(null);
+  }, [allLabels, chosen]);
+
+  useEffect(() => {
+    if (!pickerOpen) return undefined;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setPickerOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [pickerOpen]);
+
+  const filtered = allLabels.filter((l) =>
+    l.name.toLowerCase().includes(search.trim().toLowerCase()),
+  );
+
+  return (
+    <div className="border-t border-[rgba(0,0,0,0.08)] px-5 py-3 bg-[rgba(0,0,0,0.015)]">
+      {error && <p className="text-[11.5px] text-[#B91C1C] mb-2">{error}</p>}
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-[12.5px] text-[rgba(0,0,0,0.6)]">
+          {count === 0 ? (
+            'Select resources to label'
+          ) : (
+            <>
+              <span className="font-semibold text-black">{count}</span>{' '}
+              {count === 1 ? 'resource' : 'resources'} selected
+            </>
+          )}
+        </span>
+
+        <div className="relative flex-1 min-w-[200px]" ref={ref}>
+          <button
+            type="button"
+            onClick={() => setPickerOpen((o) => !o)}
+            aria-expanded={pickerOpen}
+            className="w-full inline-flex items-center justify-between gap-2 px-3 py-1.5 text-[12.5px] border border-[rgba(0,0,0,0.15)] rounded-lg bg-white hover:border-[rgba(0,0,0,0.35)] transition-colors"
+          >
+            <span className="inline-flex items-center gap-2 min-w-0">
+              {chosen ? (
+                <>
+                  <span
+                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: chosen.color }}
+                  />
+                  <span className="truncate text-black">{chosen.name}</span>
+                </>
+              ) : (
+                <span className="text-[rgba(0,0,0,0.45)]">Choose a label…</span>
+              )}
+            </span>
+            <Icon icon="mdi:chevron-down" width={15} className="text-[rgba(0,0,0,0.4)]" />
+          </button>
+
+          {pickerOpen && (
+            <div className="absolute bottom-full mb-1 left-0 w-full bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-lg py-1 z-10">
+              <div className="px-2 pb-1">
+                <input
+                  autoFocus
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search labels…"
+                  className="w-full px-2.5 py-1.5 text-[12px] border border-[rgba(0,0,0,0.12)] rounded-lg bg-[rgba(0,0,0,0.02)] focus:outline-none focus:ring-2 focus:ring-[#4285F4]/30"
+                />
+              </div>
+              <div className="max-h-48 overflow-y-auto">
+                {filtered.length === 0 ? (
+                  <p className="text-[12px] text-[rgba(0,0,0,0.4)] text-center py-3">
+                    {search ? 'No matching labels' : 'No labels yet'}
+                  </p>
+                ) : (
+                  filtered.map((label) => (
+                    <button
+                      key={label.id}
+                      type="button"
+                      onClick={() => {
+                        setChosen(label);
+                        setPickerOpen(false);
+                        setSearch('');
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[12.5px] hover:bg-[rgba(0,0,0,0.03)]"
+                    >
+                      <span
+                        className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: label.color }}
+                      />
+                      <span className="truncate text-black">{label.name}</span>
+                      {chosen?.id === label.id && (
+                        <Icon icon="mdi:check" width={14} className="ml-auto text-[#4285F4]" />
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-3 py-1.5 text-[12px] font-medium text-[rgba(0,0,0,0.55)] hover:text-black border border-[rgba(0,0,0,0.12)] rounded-lg transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={!chosen || count === 0 || applying}
+          onClick={() => chosen && onApply(chosen)}
+          className="inline-flex items-center gap-1.5 px-4 py-1.5 text-[12px] font-semibold rounded-lg bg-[#4285F4] text-white hover:bg-[#3367D6] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Icon
+            icon={applying ? 'mdi:loading' : 'mdi:tag-plus-outline'}
+            width={14}
+            className={applying ? 'animate-spin' : ''}
+          />
+          {applying
+            ? 'Applying…'
+            : `Apply${count > 0 ? ` to ${count}` : ''}`}
+        </button>
+      </div>
+    </div>
   );
 };
 
@@ -974,17 +1378,30 @@ const ResourceRow: React.FC<{
   labelling: Labelling | null;
   /** Opens the detail panel. Absent when the billing source cannot describe one resource. */
   onOpen?: (r: ResourceCost) => void;
-}> = ({ r, max, labelling, onOpen }) => {
+  /**
+   * Bulk-selection state for the row, or null when selection mode is off.
+   *
+   * <p>When present the row shows a checkbox and clicking anywhere on it toggles the tick rather
+   * than opening the detail — the two gestures would fight otherwise, and ticking is the whole
+   * point of the mode.
+   */
+  selection?: { selected: boolean; onToggle: (resourceId: string) => void } | null;
+}> = ({ r, max, labelling, onOpen, selection }) => {
   const money = useMoney();
   const share = max > 0 ? (Math.abs(r.cost) / max) * 100 : 0;
   const label = labelFor(r);
+  const selecting = Boolean(selection);
   const openable = Boolean(onOpen) && r.resourceId !== '';
+  // In selection mode the whole row is a toggle; the detail gesture steps aside until it is off.
+  const rowClickable = selecting ? true : openable;
 
   return (
     <div
-      className={`flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-[rgba(0,0,0,0.02)] transition-colors ${
-        openable ? 'cursor-pointer' : ''
-      }`}
+      className={`flex items-center gap-3 px-2 py-1.5 rounded-lg transition-colors ${
+        selecting && selection?.selected
+          ? 'bg-[rgba(66,133,244,0.08)] hover:bg-[rgba(66,133,244,0.12)]'
+          : 'hover:bg-[rgba(0,0,0,0.02)]'
+      } ${rowClickable ? 'cursor-pointer' : ''}`}
       /*
        * The label control and its popover live inside this row, so a click there must not also
        * open the detail. Anything inside an interactive element is treated as its own target.
@@ -993,31 +1410,53 @@ const ResourceRow: React.FC<{
        * `closest` walks all the way to the document, and this row now sits inside a panel that
        * is itself `role="dialog"` — so an unbounded lookup matched that ancestor for *every*
        * click and swallowed all of them, leaving the rows dead. The row is the boundary.
+       *
+       * <p>In selection mode the same containment guard protects the checkbox from a double
+       * toggle, and the click ticks the row instead of opening the detail.
        */
       onClick={
-        openable
+        rowClickable
           ? (e) => {
               const target = e.target as HTMLElement;
               const control = target.closest('button, a, input, select, [role="dialog"]');
               if (control && e.currentTarget.contains(control)) return;
-              onOpen?.(r);
+              if (selecting) selection?.onToggle(r.resourceId);
+              else onOpen?.(r);
             }
           : undefined
       }
-      role={openable ? 'button' : undefined}
-      tabIndex={openable ? 0 : undefined}
+      role={rowClickable ? 'button' : undefined}
+      tabIndex={rowClickable ? 0 : undefined}
       onKeyDown={
-        openable
+        rowClickable
           ? (e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                onOpen?.(r);
+                if (selecting) selection?.onToggle(r.resourceId);
+                else onOpen?.(r);
               }
             }
           : undefined
       }
-      title={openable ? 'Open cost detail for this resource' : undefined}
+      title={
+        selecting
+          ? selection?.selected
+            ? 'Selected — click to remove from the label'
+            : 'Click to add to the label'
+          : openable
+            ? 'Open cost detail for this resource'
+            : undefined
+      }
     >
+      {selecting && (
+        <input
+          type="checkbox"
+          checked={selection?.selected ?? false}
+          onChange={() => selection?.onToggle(r.resourceId)}
+          aria-label={`Select ${label.text}`}
+          className="w-4 h-4 flex-shrink-0 accent-[#4285F4] cursor-pointer"
+        />
+      )}
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2">
           {/* The full id on hover: the label is for scanning, not for copying into a console. A
@@ -1058,20 +1497,33 @@ const ResourceRow: React.FC<{
       </div>
 
       {/* Before the bar rather than after the amount: a label is something about the resource, and
-          the bar and figure are one unit that reads as the row's answer. */}
-      {labelling && (
-        <div className="max-w-[45%] min-w-0">
-          <ResourceLabelCell
-            accountId={labelling.accountId}
-            resource={refFor(r)}
-            labels={labelling.labelMap[r.resourceId] ?? []}
-            allLabels={labelling.allLabels}
-            onChanged={labelling.onChanged}
-            onLabelCreated={labelling.onLabelCreated}
-            onRemove={(label) => labelling.onRemove(r, label)}
-          />
-        </div>
-      )}
+          the bar and figure are one unit that reads as the row's answer.
+
+          While selecting, the chips still show — the reader needs to see what a resource already
+          carries to decide whether to tick it — but as read-only badges without the "+" or the ×.
+          Assigning and removing in that mode belong to the bulk bar, not to per-row controls. */}
+      {labelling &&
+        (selecting ? (
+          (labelling.labelMap[r.resourceId] ?? []).length > 0 && (
+            <div className="max-w-[45%] min-w-0 flex items-center gap-1 flex-wrap justify-end">
+              {(labelling.labelMap[r.resourceId] ?? []).map((lbl) => (
+                <LabelBadge key={lbl.id} label={lbl} />
+              ))}
+            </div>
+          )
+        ) : (
+          <div className="max-w-[45%] min-w-0">
+            <ResourceLabelCell
+              accountId={labelling.accountId}
+              resource={refFor(r)}
+              labels={labelling.labelMap[r.resourceId] ?? []}
+              allLabels={labelling.allLabels}
+              onChanged={labelling.onChanged}
+              onLabelCreated={labelling.onLabelCreated}
+              onRemove={(label) => labelling.onRemove(r, label)}
+            />
+          </div>
+        ))}
 
       <div className="w-[70px] flex-shrink-0 hidden sm:block">
         <div className="h-1 bg-[rgba(0,0,0,0.05)] rounded-full overflow-hidden">

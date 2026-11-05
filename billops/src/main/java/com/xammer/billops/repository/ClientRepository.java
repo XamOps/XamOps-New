@@ -11,6 +11,21 @@ import java.util.List;
 
 @Repository
 public interface ClientRepository extends JpaRepository<Client, Long> {
+
+    /**
+     * Every client except the ones that exist only because of uploaded bills: a client with
+     * at least one invoice-only account and no other account (see
+     * {@link CloudAccountRepository#findInvoiceOnlyClientIds()}).
+     *
+     * <p>Every client list, picker and dashboard calls this, so overriding it here keeps those
+     * clients on the Billing pages only. A client with no accounts at all is still listed: a
+     * freshly created client has none yet. Lookups by id or name still find hidden clients.
+     */
+    @Override
+    @Query("select c from Client c where not (exists (select 1 from CloudAccount a where a.client = c and a.status = 'BILLING_ONLY') "
+            + "and not exists (select 1 from CloudAccount b where b.client = c and coalesce(b.status, '') <> 'BILLING_ONLY'))")
+    List<Client> findAll();
+
     // Find client by name
     Client findByName(String name);
 

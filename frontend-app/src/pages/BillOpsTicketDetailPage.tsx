@@ -19,6 +19,8 @@ import { RCAFormData, RCAFormSection, TicketReply } from '../types/billopsTicket
 import { useTopbarActions } from '../contexts/TopbarContext';
 import { getResponseSlaLabel } from '../utils/timeUtils';
 import { useSlaCountdown } from '../components/tickets/SlaCountdown';
+import SlaBreachDivider from '../components/tickets/SlaBreachDivider';
+import { computeSlaBreachAt, breachInsertIndex } from '../utils/slaBreach';
 import { sanitizeRichText, htmlToPlainText, escapeHtml } from '../utils/sanitizeHtml';
 import CannedResponsesPicker from '../components/tickets/CannedResponsesPicker';
 import ReplyEditEditor, { ReplyEditValue } from '../components/tickets/ReplyEditEditor';
@@ -1202,6 +1204,16 @@ const BillOpsTicketDetailPage: React.FC = () => {
     return -1;
   }, [ticket?.replies, isMe]);
 
+  // Admin-only: when the resolution SLA was breached, and where that falls in the thread.
+  const slaBreachAt = useMemo(() => {
+    if (!isAdmin || !ticket) return null;
+    return computeSlaBreachAt(ticket, ticket.replies);
+  }, [isAdmin, ticket]);
+  const breachIndex = useMemo(
+    () => (slaBreachAt != null && ticket?.replies ? breachInsertIndex(slaBreachAt, ticket.replies) : -1),
+    [slaBreachAt, ticket?.replies]
+  );
+
   const addTask = () => {
     if (!newTaskText.trim()) return;
     const task: NoteTask = { id: Date.now().toString(), text: newTaskText.trim(), done: false };
@@ -1507,6 +1519,11 @@ const BillOpsTicketDetailPage: React.FC = () => {
           {ticket.replies && ticket.replies.length > 0 ? (
             <div className="space-y-6">
               {ticket.replies.map((reply, index) => {
+                // Admin-only SLA breach marker, placed before the first message sent after the breach.
+                const breachDivider = isAdmin && slaBreachAt != null && index === breachIndex
+                  ? <SlaBreachDivider breachAt={slaBreachAt} />
+                  : null;
+                const renderRow = (): React.ReactNode => {
                 const isMine = isMe(reply);
                 const isInternalReply = reply.isInternal;
                 const seenByOther = isMine && !isInternalReply && isReplySeen(reply);
@@ -1634,28 +1651,32 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
                           {/* ── Edit / Delete hover buttons ── */}
                           {isMine && !reply.deleted && ticket.status !== 'CLOSED' && (
-                            <div className="absolute top-2 right-2 opacity-0 pointer-events-none group-hover/msg:opacity-100 group-hover/msg:pointer-events-auto transition-opacity flex items-center gap-1 z-10">
-                              {/* Edit — allowed until the other side has seen (replied after) this message */}
-                              {!isReplySeen(reply) && (
+                            /* Sits above the bubble (bottom-full) so it never covers the message text.
+                               pb-1 keeps the hover area contiguous with the bubble. */
+                            <div className="absolute bottom-full right-0 pb-1 opacity-0 pointer-events-none group-hover/msg:opacity-100 group-hover/msg:pointer-events-auto transition-opacity z-10">
+                              <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-white border border-[#e5e7eb] shadow-sm">
+                                {/* Edit — allowed until the other side has seen (replied after) this message */}
+                                {!isReplySeen(reply) && (
+                                  <button
+                                    onClick={() => {
+                                      setEditingReplyId(reply.id);
+                                      setEditWidth(null);
+                                      setEditValue({ html: reply.message ?? '', text: '', changed: false });
+                                    }}
+                                    className="p-1.5 rounded-md hover:bg-[rgba(0,0,0,0.06)] transition-colors"
+                                    title="Edit (until seen by the other side)"
+                                  >
+                                    <Icon icon="mdi:pencil-outline" width={13} className="text-[rgba(0,0,0,0.6)]" />
+                                  </button>
+                                )}
                                 <button
-                                  onClick={() => {
-                                    setEditingReplyId(reply.id);
-                                    setEditWidth(null);
-                                    setEditValue({ html: reply.message ?? '', text: '', changed: false });
-                                  }}
-                                  className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
-                                  title="Edit (until seen by the other side)"
+                                  onClick={() => { if (globalThis.confirm('Delete this message?')) deleteReply(reply.id); }}
+                                  className="p-1.5 rounded-md hover:bg-red-50 transition-colors"
+                                  title="Delete message"
                                 >
-                                  <Icon icon="mdi:pencil-outline" width={12} className="text-white/70" />
+                                  <Icon icon="mdi:trash-can-outline" width={13} className="text-[rgba(0,0,0,0.6)] hover:text-red-500" />
                                 </button>
-                              )}
-                              <button
-                                onClick={() => { if (globalThis.confirm('Delete this message?')) deleteReply(reply.id); }}
-                                className="p-1.5 rounded-lg bg-white/20 hover:bg-red-500/40 transition-colors"
-                                title="Delete message"
-                              >
-                                <Icon icon="mdi:trash-can-outline" width={12} className="text-white/70" />
-                              </button>
+                              </div>
                             </div>
                           )}
 
@@ -1797,7 +1818,19 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   </div>
                   </React.Fragment>
                 );
+                };
+                return (
+                  <React.Fragment key={reply.id}>
+                    {breachDivider}
+                    {renderRow()}
+                  </React.Fragment>
+                );
               })}
+
+              {/* Breach happened after the last message — marker goes at the end of the thread */}
+              {isAdmin && slaBreachAt != null && breachIndex === ticket.replies.length && (
+                <SlaBreachDivider breachAt={slaBreachAt} />
+              )}
 
               {/* Optimistic "sending" bubbles — right-aligned like outgoing messages, shown the
                   instant Send is pressed and removed once the server confirms the reply. */}

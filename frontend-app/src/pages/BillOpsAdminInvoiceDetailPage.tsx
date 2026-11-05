@@ -194,6 +194,33 @@ const usageQuantityOf = (raw: string | null | undefined): number | null => {
   return Number.isFinite(value) ? value : null;
 };
 
+/**
+ * How many units the provider's own rate on a line is quoted per, read from the line's
+ * description: 10000 for "$0.0120 per 10,000 HTTPS Requests (India)", 1000000 for "$0.60 per
+ * million requests", null for "$0.085 per GB". Mirrors PrivatePricingCalculator.quotedBlockSize.
+ */
+const quotedBlockSize = (description: string | null | undefined): number | null => {
+  if (!description) return null;
+  const re = /\bper\s+(?:([\d,]+(?:\.\d+)?)\s*)?(thousand|million|billion)?(?=\s|$|[^\w])/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(description)) !== null) {
+    const [, number, scale] = m;
+    if (!number && !scale) continue;
+    let n = number ? Number(number.replace(/,/g, '')) : 1;
+    if (scale) n *= { thousand: 1e3, million: 1e6, billion: 1e9 }[scale.toLowerCase() as 'thousand' | 'million' | 'billion'];
+    return Number.isFinite(n) && n > 1 ? n : null;
+  }
+  return null;
+};
+
+/** The distinct provider block sizes across lines, e.g. [10000]. */
+const blockSizesOf = (lines: LineItemDto[]): number[] =>
+  [...new Set(lines.map(l => quotedBlockSize(l.resourceName)).filter((n): n is number => n !== null))]
+    .sort((a, b) => a - b);
+
+/** Whether a rate unit states its own block size: "Per 10000 Requests", "Per 1 Requests". */
+const statesBlockSize = (rateUnit: string): boolean => /per\s*[\d,]+/i.test(rateUnit);
+
 /** Divisor implied by a rate unit such as "Per 10000 Requests"; 1 when it names none. */
 const rateUnitDivisor = (rateUnit: string): number => {
   const match = /per\s*([\d,]+)/i.exec(rateUnit);
@@ -563,7 +590,12 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
       .map(l => (l.unit ?? '').trim().toLowerCase())
       .filter(u => u !== '' && u !== 'n/a' && u !== 'na' && u !== 'none'))];
 
-    const divisor = rateUnitDivisor(priceRateUnit);
+    // The block the rate is per, worked out as the server does: the one written in "Per",
+    // else the one AWS quoted the lines in ("per 10,000 HTTPS Requests"), else 1.
+    const blocks = blockSizesOf(priceable);
+    const unitStatesBlock = statesBlockSize(priceRateUnit);
+    const mixedBlocks = !unitStatesBlock && blocks.length > 1;
+    const divisor = unitStatesBlock ? rateUnitDivisor(priceRateUnit) : blocks.length === 1 ? blocks[0] : 1;
     const quantity = priceable.reduce((sum, l) => sum + (usageQuantityOf(l.usageQuantity) ?? 0), 0);
     const providerCost = priceable.reduce((sum, l) => sum + (l.cost ?? 0), 0);
     const billed = rateIsUsable ? (quantity / divisor) * parsedRate : null;
@@ -575,6 +607,8 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
       skipNotes: [...new Set(skipped.map(l => pricingSkipReason(l)!))],
       units,
       mixedUnits: units.length > 1,
+      mixedBlocks,
+      blocks,
       quantity,
       divisor,
       providerCost,
@@ -602,7 +636,11 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
         .map(l => (l.unit ?? '').trim())
         .filter(u => u !== '' && !['n/a', 'na', 'none'].includes(u.toLowerCase())))];
       setPriceRate('');
-      setPriceRateUnit(units.length === 1 ? units[0] : '');
+      // Prefilled in the provider's own terms, so the rate is typed per the same block AWS
+      // quotes beside it: "Per 10000 Requests" for "$0.0120 per 10,000 HTTPS Requests".
+      const blocks = blockSizesOf(lines);
+      const unit = units.length === 1 ? units[0] : '';
+      setPriceRateUnit(blocks.length === 1 ? `Per ${blocks[0]} ${unit || 'units'}` : unit);
       setPriceShield(true);
       return scope;
     });
@@ -1102,7 +1140,8 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                   type="button"
                   className="inv-btn inv-btn--primary inv-btn--sm"
                   onClick={applyPricing}
-                  disabled={applyingPrice || !priceRate || pricePreview.mixedUnits || pricePreview.lineCount === 0}
+                  disabled={applyingPrice || !priceRate || pricePreview.mixedUnits || pricePreview.mixedBlocks
+                    || pricePreview.lineCount === 0}
                 >
                   {applyingPrice
                     ? <><i className="fas fa-spinner fa-spin" aria-hidden="true" /> Applying…</>
@@ -1117,6 +1156,13 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                 <i className="fas fa-exclamation-triangle" aria-hidden="true" />
                 These charges are measured in more than one unit ({pricePreview.units.join(', ')}), so one
                 rate cannot price them all. Set a rate on a single usage type instead.
+              </p>
+            ) : pricePreview.mixedBlocks ? (
+              <p className="inv-rate-editor__note is-warning">
+                <i className="fas fa-exclamation-triangle" aria-hidden="true" />
+                AWS prices these charges per different block sizes
+                ({pricePreview.blocks.map(b => b.toLocaleString('en-US')).join(', ')}), so one rate cannot price
+                them all. Set a rate on each line, or write the block size in &ldquo;Per&rdquo;, e.g. Per 10000 Requests.
               </p>
             ) : pricePreview.lineCount === 0 ? (
               <p className="inv-rate-editor__note is-warning">
@@ -1133,6 +1179,9 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                   {' · '}
                   <strong className="inv-num">{formatQuantity(String(pricePreview.quantity))}</strong>
                   {pricePreview.units.length === 1 ? ` ${pricePreview.units[0]}` : ''}
+                  {pricePreview.divisor > 1 && (
+                    <> ÷ <span className="inv-num">{pricePreview.divisor.toLocaleString('en-US')}</span></>
+                  )}
                   {pricePreview.billed !== null && (
                     <>
                       {' → '}

@@ -515,14 +515,18 @@ public class SupportAdminController {
     // 4. Get all cloud accounts available for admin to start conversations with
     @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     @GetMapping("/accounts")
-    public List<Map<String, Object>> getAvailableAccounts() {
+    public List<Map<String, Object>> getAvailableAccounts(
+            @RequestParam(value = "includeInvoiceOnly", defaultValue = "false") boolean includeInvoiceOnly) {
         AppUser currentUser = getCurrentUser();
         Set<Long> allowedClientIds = getAllowedClientIds(currentUser);
 
+        // Invoice-only accounts (made by an uploaded bill) are left out unless the caller is a
+        // Billing page and asks for them: support chat has nobody to talk to there.
         List<CloudAccount> accounts;
         if (allowedClientIds == null) {
             // Primary admin — see all accounts
-            accounts = cloudAccountRepository.findAll();
+            accounts = includeInvoiceOnly ? cloudAccountRepository.findAllIncludingInvoiceOnly()
+                    : cloudAccountRepository.findAll();
         } else if (allowedClientIds.isEmpty()) {
             accounts = Collections.emptyList();
         } else {
@@ -530,7 +534,8 @@ public class SupportAdminController {
             // e.g. assigned [2,3,5] → clients [A, B] → accounts [1,2,3,4,5,6]
             accounts = new ArrayList<>();
             for (Long clientId : allowedClientIds) {
-                accounts.addAll(cloudAccountRepository.findByClientId(clientId));
+                accounts.addAll(includeInvoiceOnly ? cloudAccountRepository.findByClientIdIncludingInvoiceOnly(clientId)
+                        : cloudAccountRepository.findByClientId(clientId));
             }
         }
 

@@ -386,7 +386,16 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
             });
 
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
+                // The API explains why (e.g. which table still references the user); show that
+                // instead of a bare status code.
+                let detail = '';
+                try {
+                    const body = await response.json();
+                    detail = typeof body?.message === 'string' ? body.message : '';
+                } catch {
+                    // Non-JSON error body — fall back to the status code.
+                }
+                throw new Error(detail || `HTTP ${response.status}`);
             }
 
             console.log('[UserManager] User deleted successfully');

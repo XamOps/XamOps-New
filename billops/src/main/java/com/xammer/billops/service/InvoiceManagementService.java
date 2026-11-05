@@ -1795,7 +1795,7 @@ public class InvoiceManagementService {
     @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
     public Invoice createDraftFromUploadedBill(CloudAccount cloudAccount, YearMonth period, boolean includeIrn,
                                                com.xammer.billops.service.upload.ParsedAwsBill bill,
-                                               String fileName) {
+                                               String fileName, Long uploadedByUserId) {
         Invoice invoice = new Invoice();
         invoice.setCloudAccount(cloudAccount);
         invoice.setClient(cloudAccount.getClient());
@@ -1806,6 +1806,7 @@ public class InvoiceManagementService {
         invoice.setIncludeIrn(includeIrn);
         invoice.setProvisional(!period.isBefore(YearMonth.now()));
         invoice.setUploadedFileName(clip(fileName));
+        invoice.setUploadedByUserId(uploadedByUserId);
 
         List<InvoiceLineItem> lineItems = new ArrayList<>();
         for (com.xammer.billops.service.upload.ParsedAwsBill.Line line : bill.getLines()) {
@@ -2289,6 +2290,33 @@ public class InvoiceManagementService {
             throw new IllegalStateException("These charges are measured in more than one unit ("
                     + String.join(", ", units) + "), so one rate cannot price them all."
                     + " Apply a rate per usage type instead.");
+        }
+
+        // A rate unit with no block size ("Requests", or blank) is read in the provider's
+        // own terms: when the lines quote their rate "per 10,000 HTTPS Requests", the admin's
+        // $0.004 is per 10,000 requests too. Without this the rate was multiplied by the raw
+        // request count and billed 10,000 times over. Writing "Per 1 Requests" still means
+        // per single request.
+        if (!PrivatePricingCalculator.statesBlockSize(pricing.getRateUnit())) {
+            Set<BigDecimal> blocks = inScope.stream()
+                    .filter(item -> PrivatePricingCalculator.skipReason(item.getUsageQuantity(), item.getCost()) == null)
+                    .map(item -> PrivatePricingCalculator.quotedBlockSize(item.getResourceName()))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toCollection(TreeSet::new));
+            if (blocks.size() > 1) {
+                throw new IllegalStateException("AWS prices these charges per different block sizes ("
+                        + blocks.stream().map(b -> b.toPlainString()).collect(Collectors.joining(", "))
+                        + " units), so one rate can't price them all. Set the rate on each line or usage type, "
+                        + "or write the block size in \"Per\", e.g. \"Per 10000 Requests\".");
+            }
+            if (blocks.size() == 1) {
+                String unitWord = pricing.getRateUnit() != null ? pricing.getRateUnit()
+                        : units.isEmpty() ? "units" : inScope.stream()
+                            .map(InvoiceLineItem::getUnit)
+                            .filter(u -> !PrivatePricingCalculator.isPlaceholderUnit(u))
+                            .findFirst().orElse("units").trim();
+                pricing.setRateUnit("Per " + blocks.iterator().next().toPlainString() + " " + unitWord);
+            }
         }
 
         BigDecimal originalAmount = BigDecimal.ZERO;
@@ -2867,15 +2895,20 @@ public class InvoiceManagementService {
     }
 
     /**
-     * Filters invoices to only those whose CloudAccount the current sub-user is allowed to see.
+     * Filters invoices to only those whose CloudAccount the current sub-user is allowed to see,
+     * plus the drafts they uploaded themselves.
+     *
+     * <p>The second part is how an uploader sees a draft for an invoice-only account, which is
+     * on nobody's access list. It is limited to their own uploads, so it opens nothing else.
      * Primary admins (createdBy == null) see all invoices unfiltered.
      */
     private List<InvoiceDto> applyInvoiceFilter(List<InvoiceDto> invoices) {
         java.util.Set<Long> allowedDbIds = accountAccessHelper.getAllowedDbIds();
         if (allowedDbIds == null) return invoices; // Primary admin — no restriction
-        if (allowedDbIds.isEmpty()) return Collections.emptyList();
+        Long me = accountAccessHelper.currentAppUserId();
         return invoices.stream()
-                .filter(dto -> dto.getCloudAccountId() != null && allowedDbIds.contains(dto.getCloudAccountId()))
+                .filter(dto -> (dto.getCloudAccountId() != null && allowedDbIds.contains(dto.getCloudAccountId()))
+                        || (me != null && me.equals(dto.getUploadedByUserId())))
                 .collect(Collectors.toList());
     }
 

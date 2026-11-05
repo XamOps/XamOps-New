@@ -150,6 +150,31 @@ public class AsyncConfig implements AsyncConfigurer {
     }
 
     /**
+     * Executor for environment cost allocation runs.
+     *
+     * <p>One task runs a requested range of months in sequence, each an Athena scan plus a bulk
+     * insert, so a task can hold its thread for minutes. Two threads keep a client running a year
+     * of history from starving another client's run; the queue holds bursts of requests.
+     * {@code AbortPolicy}, not {@code CallerRunsPolicy}: the run service catches the rejection and
+     * fails the runs with a message, which beats blocking the HTTP request for the whole range.
+     *
+     * <p>{@code tenantTaskDecorator} is required: results are tenant-routed DB writes.
+     */
+    @Bean(name = "envAllocationExecutor")
+    public Executor envAllocationExecutor(TaskDecorator tenantTaskDecorator) {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(2);
+        executor.setQueueCapacity(50);
+        executor.setThreadNamePrefix("EnvAlloc-");
+        executor.setTaskDecorator(tenantTaskDecorator);
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+        executor.initialize();
+        log.info("envAllocationExecutor created: core={} max={} queue={}", 2, 2, 50);
+        return executor;
+    }
+
+    /**
      * Default executor for any bare @Async (no named executor) calls.
      * Provides the same TaskDecorator-based tenant context propagation as the named executors,
      * ensuring future @Async methods that don't specify an executor still propagate tenant context.

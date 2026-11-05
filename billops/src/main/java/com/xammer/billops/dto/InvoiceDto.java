@@ -48,6 +48,11 @@ public class InvoiceDto {
     private Double exchangeRate;
     /** File name of the AWS bill PDF the draft was created from; null when generated. */
     private String uploadedFileName;
+    /**
+     * Who uploaded it. In the DTO, and so in the cached invoice list, because the per-user
+     * filter runs on the cached list and has to know whose upload a row is.
+     */
+    private Long uploadedByUserId;
     private long lastUpdated;
     private List<LineItemDto> lineItems;
     private List<DiscountDto> discounts;
@@ -99,6 +104,7 @@ public class InvoiceDto {
         dto.setProvisional(invoice.isProvisional());
         dto.setExchangeRate(invoice.getExchangeRate());
         dto.setUploadedFileName(invoice.getUploadedFileName());
+        dto.setUploadedByUserId(invoice.getUploadedByUserId());
 
         // Convert line items (only non-hidden items)
         List<LineItemDto> items = Optional.ofNullable(invoice.getLineItems())
@@ -342,6 +348,14 @@ public class InvoiceDto {
 
     public void setUploadedFileName(String uploadedFileName) {
         this.uploadedFileName = uploadedFileName;
+    }
+
+    public Long getUploadedByUserId() {
+        return uploadedByUserId;
+    }
+
+    public void setUploadedByUserId(Long uploadedByUserId) {
+        this.uploadedByUserId = uploadedByUserId;
     }
 
     public void setProvisional(boolean provisional) {

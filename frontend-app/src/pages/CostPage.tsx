@@ -369,7 +369,7 @@ const CostPage: React.FC = () => {
                   further down the page, and each resource row opens a panel with its detail. Both
                   changes trade page height for layering: the depth is reachable in one click instead of
                   a scroll, and the reader keeps their place in the table. */}
-              <CostDetailTabs accountId={curAccountId} />
+              <CostDetailTabs accountId={curAccountId} environmentAllocation />
             </RevealSection>
 
             {/* Network costs, directly under the invoice. They are scattered across every

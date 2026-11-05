@@ -105,6 +105,19 @@ class CurTagColumns {
         return schema(source, account).tagKeys();
     }
 
+    /**
+     * True when the report keeps tags in CUR 2.0's {@code resource_tags} map. The schema alone
+     * cannot list those keys, so a caller that needs them has to read the data.
+     */
+    boolean tagsInMap(CurSource source, CloudAccount account) {
+        return schema(source, account).isMap();
+    }
+
+    /** The map column CUR 2.0 keeps tags in, for callers that read its keys. */
+    static String tagMapColumn() {
+        return TAG_MAP_COLUMN;
+    }
+
     private Schema schema(CurSource source, CloudAccount account) {
         Cached hit = cache.get(source.getId());
         if (hit != null && hit.expiresAt().isAfter(Instant.now())) {

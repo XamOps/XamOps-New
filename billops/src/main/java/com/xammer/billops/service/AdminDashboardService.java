@@ -290,7 +290,9 @@ public class AdminDashboardService {
         dashboard.setOpenTickets(openTickets);
 
         // Get total clients — scoped to visible clients for sub-admins
-        long totalClients = isRestricted ? visibleClientIds.size() : clientRepository.count();
+        // findAll().size() rather than count(): count() would include the clients that exist
+        // only for uploaded bills, which are kept out of every list.
+        long totalClients = isRestricted ? visibleClientIds.size() : clientRepository.findAll().size();
         dashboard.setTotalClients(totalClients);
 
         // Calculate spending for all accounts

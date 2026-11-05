@@ -116,6 +116,58 @@ public final class PrivatePricingCalculator {
     }
 
     /**
+     * "per 10,000", "per 1 million", "per million", "per 1,000,000" -- the block size the
+     * provider quoted its own rate in, inside a line's description. Needs a number, a scale
+     * word, or both after "per", so "per GB" and "per NAT Gateway Hour" don't match.
+     */
+    private static final Pattern QUOTED_BLOCK = Pattern.compile(
+            "\\bper\\s+(?:([\\d,]+(?:\\.\\d+)?)\\s*)?(thousand|million|billion)?(?=\\s|$|[^\\w])",
+            Pattern.CASE_INSENSITIVE);
+
+    /**
+     * How many units the provider's own rate on this line is quoted per, read from the line's
+     * description -- 10000 for "$0.0120 per 10,000 HTTPS Requests (India)", 1000000 for
+     * "$0.60 per million requests". Null when the description quotes no block, as with
+     * "$0.085 per GB".
+     *
+     * <p>This is what a rate typed against such a line means: an admin pricing that line
+     * types a figure comparable to the $0.0120 beside it, so the rate is per 10,000 requests
+     * too. Multiplying it by the raw request count instead overbills by the block size.
+     */
+    public static BigDecimal quotedBlockSize(String description) {
+        if (description == null || description.isBlank()) {
+            return null;
+        }
+        Matcher m = QUOTED_BLOCK.matcher(description);
+        while (m.find()) {
+            String number = m.group(1);
+            String scale = m.group(2);
+            if (number == null && scale == null) {
+                continue;
+            }
+            try {
+                BigDecimal n = number == null ? BigDecimal.ONE : new BigDecimal(number.replace(",", ""));
+                if (scale != null) {
+                    n = n.multiply(switch (scale.toLowerCase()) {
+                        case "thousand" -> BigDecimal.valueOf(1_000L);
+                        case "million" -> BigDecimal.valueOf(1_000_000L);
+                        default -> BigDecimal.valueOf(1_000_000_000L);
+                    });
+                }
+                return n.compareTo(BigDecimal.ONE) > 0 ? n.stripTrailingZeros() : null;
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /** Whether a rate unit states its own block size, "Per 10000 Requests" or "Per 1 Requests". */
+    public static boolean statesBlockSize(String rateUnit) {
+        return rateUnit != null && PER_N.matcher(rateUnit).find();
+    }
+
+    /**
      * The amount to bill for a quantity at a rate.
      *
      * <p>Division by the unit divisor keeps ten decimal places before the multiply, so a

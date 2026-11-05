@@ -1,6 +1,7 @@
 import apiClient from '../utils/apiClient';
 import type {
   ResourceLabel,
+  ResourceRef,
   LabeledResource,
   LabelAssignRequest,
   ResourceMapRequest,
@@ -29,6 +30,21 @@ export const deleteLabel = (labelId: number): Promise<void> =>
 
 export const assignLabel = (req: LabelAssignRequest): Promise<{ assigned: number }> =>
   apiClient.post<{ assigned: number }>(`${BASE}/assign`, req);
+
+/**
+ * Assign one label to many resources in a single call.
+ *
+ * <p>A thin alias over {@link assignLabel}: the `/assign` endpoint has always taken a list of
+ * resources and returned how many were assigned, so bulk labelling is one round-trip, not one
+ * per resource. Kept as its own name so a caller's intent reads as "label this whole selection"
+ * rather than "assign, with a list that happens to be long".
+ */
+export const bulkAssignLabel = (
+  accountId: string,
+  labelId: number,
+  resources: ResourceRef[],
+): Promise<{ assigned: number }> =>
+  assignLabel({ accountId, labelId, resources });
 
 export const removeLabel = (req: LabelAssignRequest): Promise<void> =>
   apiClient.post<void>(`${BASE}/remove`, req);

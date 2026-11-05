@@ -142,6 +142,21 @@ public class Invoice {
     @Column(name = "uploaded_file_name")
     private String uploadedFileName;
 
+    /**
+     * The BillOps user who uploaded the bill this draft came from; null on generated invoices
+     * and on drafts uploaded before this was recorded.
+     *
+     * <p>This is what lets an admin whose access is limited to assigned accounts see the
+     * drafts they uploaded for an account BillOps only holds for invoicing. Granting them
+     * access to that account instead would put it on their access list, where it would show
+     * up in the account pickers, and would flip an admin with an empty list from "sees every
+     * account" to "sees only this one".
+     *
+     * <p>A plain id, no foreign key: the user may be deleted later and the invoice must stay.
+     */
+    @Column(name = "uploaded_by_user_id")
+    private Long uploadedByUserId;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "cloud_account_id", nullable = false)
     private CloudAccount cloudAccount;
@@ -222,6 +237,8 @@ public class Invoice {
     public void setExchangeRate(Double exchangeRate) { this.exchangeRate = exchangeRate; }
     public String getUploadedFileName() { return uploadedFileName; }
     public void setUploadedFileName(String uploadedFileName) { this.uploadedFileName = uploadedFileName; }
+    public Long getUploadedByUserId() { return uploadedByUserId; }
+    public void setUploadedByUserId(Long uploadedByUserId) { this.uploadedByUserId = uploadedByUserId; }
     public CloudAccount getCloudAccount() { return cloudAccount; }
     public void setCloudAccount(CloudAccount cloudAccount) { this.cloudAccount = cloudAccount; }
     public List<InvoiceLineItem> getLineItems() { return lineItems; }

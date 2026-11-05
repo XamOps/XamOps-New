@@ -57,6 +57,19 @@ public class AccountAccessHelper {
     private AdminAccessScope adminAccessScope;
 
     /**
+     * The signed-in user's app_user id, or null when they can't be identified.
+     *
+     * <p>Resolved by username, like {@link AdminAccessScope#currentUser()}: the id inside a
+     * sub-admin's token can belong to a different tenant database, so it can't be trusted to
+     * mean the same thing at upload time and at list time. Using one resolution for both
+     * keeps "I uploaded this" true across requests.
+     */
+    public Long currentAppUserId() {
+        AppUser user = adminAccessScope.currentUser();
+        return user != null ? user.getId() : null;
+    }
+
+    /**
      * Returns the set of allowed CloudAccount DB IDs for the current user,
      * or null if the user is a primary admin (no restriction applies).
      */
