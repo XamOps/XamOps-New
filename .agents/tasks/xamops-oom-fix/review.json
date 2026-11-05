@@ -1,0 +1,7 @@
+{"verdict": "APPROVED", "findings": [
+"Non-blocking: the working tree contains unrelated uncommitted XamPulse changes (ci-cd.yml, pom.xml, SecurityConfig.java, nginx-prod.conf, cfn-validate.yml, other application.properties keys, untracked xampulse files); commit only the OOM files separately.",
+"Non-blocking: native queries findJsonLengthByCacheKey and deleteOversizedByCacheKey were compiled but not run on PostgreSQL; smoke-test on UAT.",
+"Non-blocking: extra -XX:InitialRAMPercentage=25.0 in the Dockerfile beyond the requested flags; harmless and overridable.",
+"Non-blocking: prod runs a different image/entrypoint; redeploy from this Dockerfile or set JAVA_TOOL_OPTIONS on the prod container and remove the dead JAVA_OPTS=-Xmx4g.",
+"Non-blocking: no unit tests for the collector cap/severity retention, Cloud Guard resource trimming, oversize-skip path or controller digest branch."
+], "reviewDoc": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xamops-oom-fix/review.md"}

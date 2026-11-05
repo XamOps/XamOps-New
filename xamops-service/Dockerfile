@@ -22,10 +22,11 @@ RUN apt-get update && \
 
 COPY target/*.jar app.jar
 
+# Heap is sized from the container's memory, not fixed. These live in JAVA_TOOL_OPTIONS (not on the
+# command line) so `docker run -e JAVA_TOOL_OPTIONS=...` replaces them; a command-line flag would
+# win over the environment. The deployed JAVA_OPTS=-Xmx4g is not read by `java -jar`.
+ENV JAVA_TOOL_OPTIONS="-XX:InitialRAMPercentage=25.0 -XX:MaxRAMPercentage=60.0 -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp"
 ENTRYPOINT ["java", \
-  "-Xms512m", \
-  "-Xmx1536m", \
-  "-XX:+UseG1GC", \
   "-XX:MaxGCPauseMillis=200", \
   "-XX:MaxMetaspaceSize=512m", \
   "-XX:+UseStringDeduplication", \
