@@ -39,7 +39,7 @@ describe('ClusterSwitcher', () => {
     get.mockResolvedValue([...LIST, { name: '-bad', region: 'us-east-1' }]);
     renderAt('?name=prod-eks&region=us-east-1&accountIds=111');
     await open();
-    expect(screen.getByRole('link', { name: /All clusters/ })).toHaveAttribute('href', '/cloudk8s?accountIds=111');
+    expect(screen.getByRole('link', { name: /All clusters/ })).toHaveAttribute('href', '/cloudk8s?view=all');
     await waitFor(() => expect(screen.getAllByRole('link').length).toBeGreaterThan(1));
     const current = screen.getByText('prod-eks').closest('a')!;
     expect(current).toHaveAttribute('aria-current', 'true');
@@ -48,6 +48,15 @@ describe('ClusterSwitcher', () => {
     expect(notConnected.textContent).toContain('Not connected');
     expect(notConnected.tagName).toBe('A');
     expect(screen.queryByText('-bad')).toBeNull();
+  });
+
+  it('points All clusters at the on-demand fleet view with no account id', async () => {
+    get.mockResolvedValue(LIST);
+    renderAt('?name=prod-eks&region=us-east-1&accountIds=111');
+    await open();
+    const fleet = screen.getByRole('link', { name: /All clusters/ });
+    expect(fleet).toHaveAttribute('href', '/cloudk8s?view=all');
+    expect(fleet.getAttribute('href')).not.toContain('accountIds');
   });
 
   it('builds the exact href for a switch, keeping tab/sub/debug and dropping page params, never leaking a stale version', async () => {

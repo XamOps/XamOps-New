@@ -11,7 +11,7 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 
 import { Icon } from '@iconify/react';
 import { Link, useLocation } from 'react-router-dom';
 import { useK8sClusters } from '../../hooks/useK8sClusters';
-import { clusterSwitchHref } from '../../utils/k8sClusterLink';
+import { clusterSwitchHref, fleetHref } from '../../utils/k8sClusterLink';
 
 export interface ClusterSwitcherProps {
   accountId: string;
@@ -124,7 +124,7 @@ export function ClusterSwitcher({ accountId, clusterName, region, version }: Clu
           className="absolute left-0 top-full z-50 mt-1 w-72 rounded-lg border border-[rgba(0,0,0,0.12)] bg-white p-1 shadow-[0_8px_24px_rgba(0,0,0,0.12)]"
         >
           <Link
-            to={`/cloudk8s?accountIds=${encodeURIComponent(accountId)}`}
+            to={fleetHref()}
             data-switcher-item=""
             className={itemClass}
           >

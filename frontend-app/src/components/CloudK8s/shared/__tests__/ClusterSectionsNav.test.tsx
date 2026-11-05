@@ -2,7 +2,7 @@ import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ALL_CLUSTERS_LABEL, CLUSTER_SECTIONS_LABEL, ClusterSectionsNav } from '../ClusterSectionsNav';
+import { ALL_CLUSTERS_LABEL, CLUSTER_SECTIONS_LABEL, ClusterSectionsNav, FLEET_HREF, FLEET_PATH } from '../ClusterSectionsNav';
 import { EKS_SECTIONS, LEGACY_TAB_MAP, resolveSectionRoute } from '../../../../hooks/useEksSectionRoute';
 import { publishClusterNavAccess } from '../../../../utils/k8sNavAccess';
 import { pageKeyOf } from '../../../../utils/inPageNavigation';
@@ -43,11 +43,18 @@ describe('ClusterSectionsNav (Addendum 1)', () => {
     expect(screen.queryAllByRole('link')).toHaveLength(0);
   });
 
+  it('keeps FLEET_PATH as the sidebar active path but links All clusters at the on-demand fleet view', () => {
+    expect(FLEET_PATH).toBe('/cloudk8s');
+    expect(FLEET_HREF).toBe('/cloudk8s?view=all');
+    renderAt(`${BASE}&tab=overview&sub=summary`);
+    expect(within(nav()).getByRole('link', { name: ALL_CLUSTERS_LABEL })).toHaveAttribute('href', FLEET_HREF);
+  });
+
   it('shows the cluster in context from the link, with All clusters', () => {
     renderAt(`${BASE}&tab=nodes&sub=karpenter`);
     expect(nav().querySelector('[data-cluster-name]')).toHaveTextContent('prod-eks');
     expect(nav().querySelector('[data-cluster-region]')).toHaveTextContent('eu-west-1');
-    expect(within(nav()).getByRole('link', { name: ALL_CLUSTERS_LABEL })).toHaveAttribute('href', '/cloudk8s');
+    expect(within(nav()).getByRole('link', { name: ALL_CLUSTERS_LABEL })).toHaveAttribute('href', '/cloudk8s?view=all');
     // Greyscale only: a bundled mdi glyph, not the coloured AWS service image.
     expect(nav().querySelector('img')).toBeNull();
   });

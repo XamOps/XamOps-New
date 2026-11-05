@@ -22,12 +22,15 @@ import { Link, useLocation } from 'react-router-dom';
 import SubNav from '../../Sidebar/SubNav';
 import { EKS_SECTIONS, LEGACY_TAB_MAP, sectionNavEntries, type SectionNavSub } from '../../../hooks/useEksSectionRoute';
 import { isDemoMode } from '../../../demo/demoConfig';
-import { parseClusterLink } from '../../../utils/k8sClusterLink';
+import { parseClusterLink, fleetHref } from '../../../utils/k8sClusterLink';
 import { inPageState } from '../../../utils/inPageNavigation';
 import { VIEW_ONLY_TEXT, useClusterNavAccess } from '../../../utils/k8sNavAccess';
 
 export const CLUSTER_PAGE_PATH = '/eks-details';
+/** The sidebar's CloudK8s entry stays active for the whole `/cloudk8s` route (fleet or resolver). */
 export const FLEET_PATH = '/cloudk8s';
+/** The "All clusters" link forces the on-demand fleet view (`/cloudk8s?view=all`), never the resolver. */
+export const FLEET_HREF = fleetHref();
 export const CLUSTER_SECTIONS_LABEL = 'Cluster sections';
 export const ALL_CLUSTERS_LABEL = 'All clusters';
 
@@ -130,7 +133,7 @@ export function ClusterSectionsNav({ dark }: ClusterSectionsNavProps) {
             </p>
           )}
           <Link
-            to={FLEET_PATH}
+            to={FLEET_HREF}
             className={`mt-1 inline-flex items-center gap-1 rounded text-[12px] font-medium underline-offset-2 hover:underline ${secondary(dark)} ${focus(dark)}`}
           >
             <Icon icon="mdi:arrow-left" width={13} aria-hidden="true" />
