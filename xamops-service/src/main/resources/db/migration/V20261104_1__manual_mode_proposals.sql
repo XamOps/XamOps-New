@@ -65,6 +65,12 @@ CREATE TABLE IF NOT EXISTS automation_proposal (
   correlation_id     VARCHAR(64),
   version            BIGINT       NOT NULL DEFAULT 0
 );
+-- Same ddl-auto race as above: if Hibernate built automation_proposal first, CREATE TABLE IF NOT
+-- EXISTS is a no-op and the NOT NULL columns carry no DB-level default, so a raw INSERT that omits
+-- them (the agent/backend always insert through the entity, but migration tests do not) would fail.
+-- Re-assert the two defaulted NOT NULL columns; the spine migration does the same for its tables.
+ALTER TABLE automation_proposal ALTER COLUMN dispatch_attempts SET DEFAULT 0;
+ALTER TABLE automation_proposal ALTER COLUMN version           SET DEFAULT 0;
 CREATE INDEX IF NOT EXISTS ix_ap_cluster_status ON automation_proposal(cluster_config_id, status);
 -- Backstop only: application-level dedupe under the cluster-row lock is what guarantees one live row.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_ap_live_dedupe ON automation_proposal(cluster_config_id, dedupe_key)
