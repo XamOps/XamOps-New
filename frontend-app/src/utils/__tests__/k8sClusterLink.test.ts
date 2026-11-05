@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_REGION, parseClusterLink } from '../k8sClusterLink';
+import { DEFAULT_REGION, FLEET_VIEW_ALL, FLEET_VIEW_PARAM, clusterSwitchHref, fleetHref, isSwitchableCluster, parseClusterLink, serializeClusterLink } from '../k8sClusterLink';
 import { parseClusterLink as fromPage } from '../../pages/EksDetailsPage';
 
 const parse = (search: string, demo = false) => parseClusterLink(new URLSearchParams(search), demo);
@@ -35,5 +35,45 @@ describe('parseClusterLink (§13)', () => {
 
   it('is the parser the page uses', () => {
     expect(fromPage).toBe(parseClusterLink);
+  });
+});
+
+describe('serializeClusterLink / isSwitchableCluster / clusterSwitchHref', () => {
+  const CURRENT = '?name=a&region=us-east-1&accountIds=111&version=1.29&tab=automation&sub=activity&workload=web&hpa=x&phase=live&debug=true';
+
+  it('serializes name, region, accountIds, then version', () => {
+    expect(serializeClusterLink({ clusterName: 'a', region: 'eu-west-1', accountId: '111', version: '1.30' }))
+      .toBe('/eks-details?name=a&region=eu-west-1&accountIds=111&version=1.30');
+    expect(serializeClusterLink({ clusterName: 'a', region: 'eu-west-1', accountId: '111', version: null }))
+      .toBe('/eks-details?name=a&region=eu-west-1&accountIds=111');
+  });
+
+  it('keeps tab, sub and debug, drops page params, and takes the target version', () => {
+    expect(clusterSwitchHref(CURRENT, { name: 'b', region: 'eu-west-1', version: '1.30' }, '111'))
+      .toBe('/eks-details?name=b&region=eu-west-1&accountIds=111&version=1.30&tab=automation&sub=activity&debug=true');
+  });
+
+  it('does not leak the old version onto a target that has none', () => {
+    expect(clusterSwitchHref(CURRENT, { name: 'c', region: 'us-east-1' }, '111'))
+      .toBe('/eks-details?name=c&region=us-east-1&accountIds=111&tab=automation&sub=activity&debug=true');
+  });
+
+  it('does not resolve tab/sub defaults', () => {
+    expect(clusterSwitchHref('?name=a&accountIds=111', { name: 'b', region: 'us-east-1' }, '111'))
+      .toBe('/eks-details?name=b&region=us-east-1&accountIds=111');
+  });
+
+  it('accepts only clusters the page itself would accept', () => {
+    expect(isSwitchableCluster({ name: 'prod-eks', region: 'us-east-1' })).toBe(true);
+    expect(isSwitchableCluster({ name: '-bad', region: 'us-east-1' })).toBe(false);
+    expect(isSwitchableCluster({ name: 'ok', region: 'useast1' })).toBe(false);
+    expect(isSwitchableCluster({ name: 5, region: 'us-east-1' })).toBe(false);
+  });
+});
+
+describe('fleetHref', () => {
+  it('is exactly /cloudk8s?view=all', () => {
+    expect(fleetHref()).toBe('/cloudk8s?view=all');
+    expect(fleetHref()).toBe(`/cloudk8s?${FLEET_VIEW_PARAM}=${FLEET_VIEW_ALL}`);
   });
 });

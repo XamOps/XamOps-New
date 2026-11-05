@@ -4,6 +4,7 @@ import { Icon } from '@iconify/react';
 import {
   executeStackUpdate,
   fetchStackProgress,
+  fetchUpdaterStatus,
   previewStackUpdate,
   StackUpdateError,
   type CurApplyResult,
@@ -28,7 +29,12 @@ interface StackUpdateModalProps {
   onClose: () => void;
 }
 
-type Phase = 'previewing' | 'preview' | 'running' | 'settled' | 'refused';
+/**
+ * `awaiting-grant` is the one-press waiting state: the account was connected before it could be
+ * updated from here, so XamOps shows a one-click AWS approval link and watches for it to land,
+ * then previews on its own — no second press. Every other refusal stays terminal in `refused`.
+ */
+type Phase = 'previewing' | 'preview' | 'running' | 'settled' | 'refused' | 'awaiting-grant';
 
 /** Colour by what the action does to the resource, not by severity in the abstract. */
 const ACTION_TONE: Record<string, string> = {
@@ -73,25 +79,62 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
     grantRoleName?: string;
   } | null>(null);
   const pollRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
+  // Only the latest preview may set state. Guards against StrictMode's double mount, and against
+  // an auto-detect and a manual "check now" overlapping — a stale change set must not win.
+  const previewSeqRef = useRef(0);
 
-  useEffect(() => {
-    let cancelled = false;
+  /**
+   * Builds the preview. On a missing-permission refusal that carries a one-click grant, parks in
+   * `awaiting-grant` rather than failing outright — the grant-poll effect below watches for the
+   * approval and calls this again, so the whole thing is one press with an AWS approval in the
+   * middle. Any other refusal is terminal.
+   */
+  const runPreview = useCallback(() => {
+    const seq = ++previewSeqRef.current;
+    const fresh = () => mountedRef.current && seq === previewSeqRef.current;
+    setPhase('previewing');
     previewStackUpdate(accountId)
       .then((p) => {
-        if (cancelled) return;
+        if (!fresh()) return;
         setPreview(p);
+        setError(null);
         setPhase('preview');
       })
       .catch((e: unknown) => {
-        if (cancelled) return;
+        if (!fresh()) return;
         const err = e as StackUpdateError;
         setError({ message: err.message, remedy: err.remedy, grantUrl: err.grantUrl, grantRoleName: err.grantRoleName });
-        setPhase('refused');
+        setPhase(err.verdict === 'NO_CFN_PERMISSION' && err.grantUrl ? 'awaiting-grant' : 'refused');
       });
-    return () => {
-      cancelled = true;
-    };
   }, [accountId]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    runPreview();
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [runPreview]);
+
+  // While parked in `awaiting-grant`, watch for the one-time grant to land, then preview again on
+  // its own. The customer still approves once in AWS; they just never press Update a second time.
+  // The effect is keyed on `phase`, so moving off `awaiting-grant` (via runPreview) tears the poll
+  // down automatically.
+  useEffect(() => {
+    if (phase !== 'awaiting-grant') return;
+    const id = window.setInterval(async () => {
+      try {
+        const { present } = await fetchUpdaterStatus(accountId);
+        if (!mountedRef.current || !present) return;
+        window.clearInterval(id);
+        runPreview();
+      } catch {
+        // A transient read failure is not worth acting on; the next tick retries.
+      }
+    }, 8000);
+    return () => window.clearInterval(id);
+  }, [phase, accountId, runPreview]);
 
   // Stops itself once the stack settles, so a modal left open does not poll forever.
   const startPolling = useCallback(() => {
@@ -264,6 +307,56 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {phase === 'awaiting-grant' && error && (
+            <div className="space-y-3">
+              <div className="flex gap-2.5 rounded-lg border border-blue-200 bg-blue-50 px-3.5 py-3">
+                <Icon
+                  icon="mdi:shield-key-outline"
+                  width={17}
+                  className="text-blue-600 flex-shrink-0 mt-0.5"
+                />
+                <p className="text-[12.5px] text-blue-900 leading-relaxed">
+                  This account was connected before it could be updated from here, so it needs a
+                  one-time approval in AWS. Approve it once in the console — this window picks it up
+                  on its own and continues, so there is no need to press Update again.
+                </p>
+              </div>
+              {/* Same one-click grant link as the terminal refusal, but here it sits above a live
+                  watcher: no role can grant itself permission, so someone with access to the
+                  account approves it once, and XamOps detects it and previews automatically. */}
+              <div className="rounded-lg bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.07)] px-3.5 py-3">
+                <p className="text-[10.5px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)]">
+                  Approve once in AWS
+                </p>
+                {error.remedy && <p className="text-[13px] text-black mt-1">{error.remedy}</p>}
+                {error.grantUrl && (
+                  <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+                    <a
+                      href={error.grantUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-medium
+                                 bg-[rgba(0,0,0,0.88)] text-white hover:bg-[rgba(0,0,0,0.75)] transition-colors"
+                    >
+                      <Icon icon="mdi:open-in-new" width={14} />
+                      Approve in AWS console
+                    </a>
+                    {error.grantRoleName && (
+                      <span className="text-[11.5px] text-[rgba(0,0,0,0.45)]">
+                        Grants to role{' '}
+                        <code className="font-mono text-[rgba(0,0,0,0.7)]">{error.grantRoleName}</code>
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2.5 text-[12.5px] text-[rgba(0,0,0,0.55)]">
+                <Icon icon="mdi:loading" width={16} className="animate-spin" />
+                Waiting for approval… XamOps will continue automatically once it is granted.
+              </div>
             </div>
           )}
 
@@ -555,6 +648,14 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
           >
             {phase === 'settled' ? 'Done' : 'Cancel'}
           </button>
+          {phase === 'awaiting-grant' && (
+            <button
+              onClick={() => runPreview()}
+              className="h-9 px-4 rounded-lg bg-blue-600 text-white text-[12.5px] font-semibold hover:bg-blue-700"
+            >
+              I&apos;ve approved — check now
+            </button>
+          )}
           {phase === 'preview' && preview && (!preview.noChanges || preview.curChange) && (
             <button
               onClick={run}

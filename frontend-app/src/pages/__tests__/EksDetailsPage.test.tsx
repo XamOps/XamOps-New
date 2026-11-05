@@ -34,9 +34,32 @@ vi.mock('../../utils/apiClient', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../utils/apiClient')>();
   return { ...actual, apiFetch, default: { ...actual.default, get: apiGet, fetch: apiFetch } };
 });
+const { accountState } = vi.hoisted(() => ({
+  accountState: {
+    selectedAccountIds: ['123456789012'] as string[],
+    accounts: [{ id: '123456789012', name: 'Prod', provider: 'AWS' }] as Array<{ id: string; name: string; provider: string }>,
+    isLoading: false,
+  },
+}));
 vi.mock('../../contexts/AccountContext', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../contexts/AccountContext')>();
-  return { ...actual, useAccounts: () => ({ selectedAccountIds: ['123456789012'] }) };
+  return {
+    ...actual,
+    useAccounts: () => {
+      const selected = accountState.selectedAccountIds[0] ?? null;
+      const acc = accountState.accounts.find((a) => a.id === selected);
+      return {
+        selectedAccountIds: accountState.selectedAccountIds,
+        accounts: accountState.accounts,
+        isLoading: accountState.isLoading,
+        selectedAccountDisplay: { name: acc?.name ?? 'Select Accounts', id: acc?.id ?? '', provider: acc?.provider },
+      };
+    },
+  };
+});
+vi.mock('../../contexts/AuthContext', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../contexts/AuthContext')>();
+  return { ...actual, useAuth: () => ({ userProfile: { email: 'jane@corp.example' }, authReady: true, isLoading: false }) };
 });
 
 // Today's tabs, hosted unchanged by the sections (P2): each renders a marker.
@@ -74,6 +97,7 @@ vi.mock('../../components/CloudK8s/CloudK8sClusterTable', () => ({
 vi.mock('../../components/CloudK8s/CloudK8sIntegrations', () => ({ default: () => <div>Fleet integrations</div> }));
 
 import EksDetailsPage, { INVALID_LINK_NOTICE, parseClusterLink } from '../EksDetailsPage';
+import { readLastCluster } from '../../utils/k8sLastCluster';
 import {
   SESSION_EXPIRED_EVENT,
   SESSION_EXPIRED_HEADING,
@@ -128,10 +152,11 @@ function dashboardState(over: Record<string, unknown> = {}) {
 }
 
 function TopbarOutlet() {
-  const { title, actions } = useTopbar();
+  const { title, titleAdornment, actions } = useTopbar();
   return (
     <div data-testid="topbar">
       {title && <h1>{title}</h1>}
+      {titleAdornment}
       {actions}
     </div>
   );
@@ -180,10 +205,14 @@ beforeEach(() => {
   apiFetch.mockReset().mockResolvedValue(automationNotDeployed());
   flags.podsThrows = false;
   flags.guideRendered = false;
+  accountState.selectedAccountIds = ['123456789012'];
+  accountState.accounts = [{ id: '123456789012', name: 'Prod', provider: 'AWS' }];
+  accountState.isLoading = false;
 });
 
 afterEach(() => {
   sessionStorage.clear();
+  localStorage.clear();
   vi.restoreAllMocks();
 });
 
@@ -346,7 +375,7 @@ describe('link validation (§13)', () => {
 
   it('opens a fleet row with the version EKS reports for it', async () => {
     const user = userEvent.setup();
-    renderAt('/cloudk8s');
+    renderAt('/cloudk8s?view=all');
     await user.click(await find('Open prod-eks-cluster'));
     expect(currentUrl().pathname).toBe('/eks-details');
     expect(Object.fromEntries(currentUrl().searchParams)).toEqual({
@@ -370,7 +399,7 @@ describe('cluster page shell', () => {
   it('puts the title, back link, version · region and the last sync in the topbar', async () => {
     renderAt(`${BASE}&version=1.36`);
     expect(await within(topbar()).findByRole('heading', { name: 'prod-eks-cluster' })).toBeInTheDocument();
-    expect(within(topbar()).getByRole('link', { name: 'Back to clusters' })).toHaveAttribute('href', `/cloudk8s?accountIds=${ACCOUNT}`);
+    expect(within(topbar()).getByRole('link', { name: 'Back to clusters' })).toHaveAttribute('href', '/cloudk8s?view=all');
     expect(topbar()).toHaveTextContent('v1.36');
     expect(topbar()).toHaveTextContent('us-east-1');
     expect(topbar()).toHaveTextContent('Synced 2m ago');
@@ -390,6 +419,25 @@ describe('cluster page shell', () => {
     expect(topbar()).not.toHaveTextContent('1.33');
   });
 
+  it('puts the cluster switcher beside the title and keeps the heading and Back link', async () => {
+    renderAt(BASE);
+    expect(await within(topbar()).findByRole('button', { name: 'Switch cluster' })).toBeInTheDocument();
+    expect(within(topbar()).getByRole('heading', { name: 'prod-eks-cluster' })).toBeInTheDocument();
+    expect(within(topbar()).getByRole('link', { name: 'Back to clusters' })).toBeInTheDocument();
+  });
+  it('renders the node automation bar between the header and the status strip', async () => {
+    renderAt(BASE);
+    const bar = await screen.findByTestId('automation-control-bar');
+    const clocks = screen.getByRole('group', { name: 'Data freshness' });
+    expect(clocks.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await find('Overview tab content');
+    expect(bar.compareDocumentPosition(statusStrip()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+  it('renders the node automation bar while the dashboard is still loading', async () => {
+    useEksDashboard.mockReturnValue(dashboardState({ loading: true, dashboard: null }));
+    renderAt(BASE);
+    expect(await screen.findByTestId('automation-control-bar')).toBeInTheDocument();
+  });
   it('shows the XamOps agent and node automation agent clocks separately', async () => {
     renderAt(BASE);
     const clocks = screen.getByRole('group', { name: 'Data freshness' });
@@ -619,5 +667,101 @@ describe('BUG-3 — expired session shows an honest interstitial', () => {
     // The page is not blank: the honest interstitial and a re-auth link to /login are shown.
     expect(await screen.findByText(SESSION_EXPIRED_HEADING)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: SESSION_EXPIRED_LINK })).toHaveAttribute('href', '/login');
+  });
+});
+
+/** FEAT-002: the fleet links point at the on-demand fleet view (no account ids). */
+describe('fleet links use the fleet view href', () => {
+  it('the Back to clusters link resolves to /cloudk8s?view=all', async () => {
+    renderAt(BASE);
+    const back = await within(topbar()).findByRole('link', { name: 'Back to clusters' });
+    expect(back).toHaveAttribute('href', '/cloudk8s?view=all');
+  });
+});
+
+/** FEAT-002 §3.1: the page remembers the last cluster keyed by the account the cluster BELONGS to. */
+describe('remembers the last cluster (keyed by link.accountId)', () => {
+  const EMAIL = 'jane@corp.example';
+
+  it('a valid link writes the key under link.accountId', async () => {
+    renderAt(BASE);
+    await find('Overview tab content');
+    await waitFor(() => expect(readLastCluster(EMAIL, ACCOUNT)).toEqual({ name: 'prod-eks-cluster', region: 'us-east-1' }));
+    // Nothing is written for a different account.
+    expect(readLastCluster(EMAIL, '210987654321')).toBeNull();
+  });
+
+  it('an invalid link does not write a memory (the page bounces before mounting ClusterPage)', async () => {
+    renderAt(`/eks-details?name=-bad&accountIds=${ACCOUNT}`);
+    await find(INVALID_LINK_NOTICE);
+    expect(readLastCluster(EMAIL, ACCOUNT)).toBeNull();
+  });
+});
+
+/** FEAT-002 §3.1 (review Finding 2): an account switch makes EXACTLY ONE net nav to the resolver. */
+describe('account-switch reconciler', () => {
+  function LandingProbe() {
+    const location = useLocation();
+    return <output data-testid="landing">{`${location.pathname}${location.search}`}</output>;
+  }
+
+  // A stable MemoryRouter whose initialEntries is read only on mount, so a rerender keeps the page
+  // mounted (and the reconciler's refs alive) while only the account mock changes. A fresh element
+  // each call forces React to actually re-render (an identical element reference would bail out).
+  const tree = () => (
+    <ThemeProvider>
+      <TopbarProvider>
+        <MemoryRouter initialEntries={[BASE]}>
+          <TopbarOutlet />
+          <Routes>
+            <Route path="/eks-details" element={<EksDetailsPage />} />
+            <Route path="/cloudk8s" element={<LandingProbe />} />
+          </Routes>
+        </MemoryRouter>
+      </TopbarProvider>
+    </ThemeProvider>
+  );
+
+  it('does not navigate on the initial value', async () => {
+    const { rerender } = render(tree());
+    await find('Overview tab content');
+    // A re-render with the same selection must not navigate.
+    rerender(tree());
+    await Promise.resolve();
+    expect(screen.queryByTestId('landing')).toBeNull();
+  });
+
+  it('does not navigate when the selection becomes null (unresolved), only clearing', async () => {
+    const { rerender } = render(tree());
+    await find('Overview tab content');
+    accountState.selectedAccountIds = [];
+    rerender(tree());
+    await Promise.resolve();
+    expect(screen.queryByTestId('landing')).toBeNull();
+  });
+
+  it('navigates exactly once to /cloudk8s on a genuine switch to account B', async () => {
+    const { rerender } = render(tree());
+    await find('Overview tab content');
+    expect(screen.queryByTestId('landing')).toBeNull();
+
+    // A genuine switch A -> B (B differs from the cluster's account A).
+    accountState.selectedAccountIds = ['210987654321'];
+    accountState.accounts = [{ id: '210987654321', name: 'Other', provider: 'AWS' }];
+    rerender(tree());
+
+    await waitFor(() => expect(screen.getByTestId('landing')).toHaveTextContent('/cloudk8s'));
+    // Exactly one net navigation: a further re-render with B does not navigate again.
+    rerender(tree());
+    await Promise.resolve();
+    expect(screen.getByTestId('landing')).toHaveTextContent('/cloudk8s');
+  });
+
+  it('does not navigate when a soft account-changed event keeps the same (A) selection', async () => {
+    render(tree());
+    await find('Overview tab content');
+    window.dispatchEvent(new CustomEvent('account-changed', { detail: { reason: 'sidebar-selection' } }));
+    await Promise.resolve();
+    expect(screen.queryByTestId('landing')).toBeNull();
   });
 });

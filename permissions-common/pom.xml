@@ -38,6 +38,18 @@
             <artifactId>spring-web</artifactId>
         </dependency>
 
+        <!-- The Servlet API, provided-scope only. The AutoSpotting CSRF/origin filter
+             (com.xammer.cloud.permissions.autospotting.AutoSpottingIntentFilter) is a
+             jakarta.servlet.Filter shared by xamops-service and (Phase 34) billops, both
+             of which bring their own servlet container. This module still never starts one:
+             the dependency is compile-only (provided), so no servlet runtime is added here.
+             Version from the Spring Boot BOM (jakarta-servlet.version). -->
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- @ConfigurationProperties binding for MessagingProperties. Available transitively
              via the Redis starter, but declared explicitly because this module depends on it
              directly. -->

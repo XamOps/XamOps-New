@@ -1,0 +1,17 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: e3-mem-stress-oom
+  namespace: chaos-testing
+spec:
+  mode: all
+  selector:
+    namespaces:
+      - xamops-system
+    labelSelectors:
+      app: xamops-automation
+  stressors:
+    memory:
+      workers: 1
+      size: "400MiB"
+  duration: "120s"

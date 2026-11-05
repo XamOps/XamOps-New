@@ -204,11 +204,100 @@ func queryPostgresMetrics(ctx context.Context, db *sql.DB, alias, host string) (
 		WHERE query != '<insufficient privilege>'`,
 	).Scan(&m.ComSelect, &m.ComInsert, &m.ComUpdate, &m.ComDelete)
 
-	// Deadlocks & active connections
-	_ = db.QueryRowContext(ctx, "SELECT COALESCE(sum(deadlocks), 0) FROM pg_stat_database").Scan(&m.InnodbDeadlocks)
+	// Deadlocks: LOW-2 re-scope — the old query summed deadlocks across ALL databases, which
+	// double-counts for the health delta. Scope it to the connected database so the extended
+	// counters below (temp/xact) and this one read the same WHERE datname = current_database().
+	_ = db.QueryRowContext(ctx, pgPerDbDeadlocksQuery).Scan(&m.InnodbDeadlocks)
 	_ = db.QueryRowContext(ctx, "SELECT count(*) FROM pg_stat_activity WHERE state != 'idle' AND state IS NOT NULL").Scan(&m.ThreadsRunning)
 
+	// ── Phase 2 console — extended counters (COL-A1), version-branched ────────
+	var versionNum int
+	_ = db.QueryRowContext(ctx, "SELECT current_setting('server_version_num')::int").Scan(&versionNum)
+
+	// Cache hit — INSTANCE-WIDE (shared_buffers is instance-scoped), labelled as such.
+	_ = db.QueryRowContext(ctx, pgCacheHitQuery).Scan(&m.BlksHit, &m.BlksRead)
+	if m.BlksHit+m.BlksRead > 0 {
+		m.CacheHitRatio = float64(m.BlksHit) / float64(m.BlksHit+m.BlksRead)
+	}
+
+	// Per-database counters — scoped WHERE datname = current_database() (LOW-2).
+	_ = db.QueryRowContext(ctx, pgPerDbCountersQuery).
+		Scan(&m.TempFiles, &m.TempBytes, &m.XactCommit, &m.XactRollback)
+
+	// Checkpoint pressure — pg_stat_checkpointer on PG17+, else pg_stat_bgwriter.
+	_ = db.QueryRowContext(ctx, pgCheckpointQuery(versionNum)).
+		Scan(&m.CheckpointsTimed, &m.CheckpointsReq, &m.CheckpointWriteTime, &m.BuffersCheckpoint)
+
+	// WAL pressure — column-pinned; timing columns exist only on PG<18.
+	if versionNum > 0 && versionNum < 180000 {
+		var writeTime, syncTime sql.NullFloat64
+		if err := db.QueryRowContext(ctx, pgWalQuery(versionNum)).
+			Scan(&m.WalRecords, &m.WalFpi, &m.WalBytes, &m.WalBuffersFull, &writeTime, &syncTime); err == nil {
+			if writeTime.Valid {
+				v := writeTime.Float64
+				m.WalWriteTime = &v
+			}
+			if syncTime.Valid {
+				v := syncTime.Float64
+				m.WalSyncTime = &v
+			}
+		}
+	} else {
+		_ = db.QueryRowContext(ctx, pgWalQuery(versionNum)).
+			Scan(&m.WalRecords, &m.WalFpi, &m.WalBytes, &m.WalBuffersFull)
+	}
+
+	// Transaction-ID wraparound headroom.
+	_ = db.QueryRowContext(ctx, pgDatfrozenxidAgeQuery).Scan(&m.DatfrozenxidAge)
+
 	return m, nil
+}
+
+// ── Phase 2 console — extended COL-A1 Postgres counter SQL (version-branched) ──
+//
+// Held as package constants / pure functions so the query shape is unit-testable without a live
+// database (the repo's db_*_test.go style): the per-DB counters must be scoped with
+// current_database(), the WAL read must be column-pinned (never SELECT * FROM pg_stat_wal), and
+// the checkpoint/WAL source must branch on server_version_num.
+
+// Deadlocks scoped to the connected database (LOW-2 reconciliation of the old cross-DB sum).
+const pgPerDbDeadlocksQuery = `SELECT COALESCE(deadlocks, 0) FROM pg_stat_database WHERE datname = current_database()`
+
+// Cache hit is instance-wide: shared_buffers is instance-scoped, so sum across pg_stat_database.
+const pgCacheHitQuery = `SELECT COALESCE(sum(blks_hit), 0), COALESCE(sum(blks_read), 0) FROM pg_stat_database`
+
+// Per-database counters, scoped WHERE datname = current_database() (LOW-2).
+const pgPerDbCountersQuery = `
+SELECT
+	COALESCE(temp_files, 0),
+	COALESCE(temp_bytes, 0),
+	COALESCE(xact_commit, 0),
+	COALESCE(xact_rollback, 0)
+FROM pg_stat_database
+WHERE datname = current_database()`
+
+// Max transaction-ID age across databases — wraparound headroom.
+const pgDatfrozenxidAgeQuery = `SELECT COALESCE(max(age(datfrozenxid)), 0) FROM pg_database`
+
+// pgCheckpointQuery returns the version-correct checkpoint-counter SQL. PG17 renamed the counters
+// out of pg_stat_bgwriter into the new pg_stat_checkpointer view; both shapes are normalized into
+// the same four DTO fields by the caller.
+func pgCheckpointQuery(versionNum int) string {
+	if versionNum >= 170000 {
+		return `SELECT num_timed, num_requested, write_time, buffers_written FROM pg_stat_checkpointer`
+	}
+	return `SELECT checkpoints_timed, checkpoints_req, checkpoint_write_time, buffers_checkpoint FROM pg_stat_bgwriter`
+}
+
+// pgWalQuery returns the column-pinned pg_stat_wal SQL. The wal_write_time / wal_sync_time timing
+// columns were removed in PG18, so they are selected only on PG<18; above that the four always-present
+// counters are read and the timing fields are emitted as null. The read is never an unpinned
+// SELECT * (a new/removed column across versions would misalign the scan).
+func pgWalQuery(versionNum int) string {
+	if versionNum > 0 && versionNum < 180000 {
+		return `SELECT wal_records, wal_fpi, wal_bytes, wal_buffers_full, wal_write_time, wal_sync_time FROM pg_stat_wal`
+	}
+	return `SELECT wal_records, wal_fpi, wal_bytes, wal_buffers_full FROM pg_stat_wal`
 }
 
 // collectDBQueryStats queries all configured DSNs and returns a single DataBatch

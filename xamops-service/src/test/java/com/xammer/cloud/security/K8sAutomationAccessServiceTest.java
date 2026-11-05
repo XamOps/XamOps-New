@@ -549,6 +549,129 @@ class K8sAutomationAccessServiceTest {
                 .isFalse();
     }
 
+    // ── BP-9 / OQ-6: per-cluster READ_ONLY_CONNECTION relaxation (Gate O) ───
+
+    private static final java.time.Instant NOW = java.time.Instant.parse("2026-10-30T12:00:00Z");
+
+    /** A service whose clock is fixed at {@link #NOW}, reusing the same mocked collaborators. */
+    private K8sAutomationAccessService fixedClockService() {
+        return new K8sAutomationAccessService(cloudAccountAccessService, cloudAccountRepository,
+                clusterConfigRepository, userRepository, userTabAccessRepository, demoClientMembership,
+                java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC));
+    }
+
+    /** A cluster that has completed Enable-automation (automation key set) and seen its identity at {@code seenAt}. */
+    private static KubernetesClusterConfig enabledCluster(java.time.Instant seenAt) {
+        KubernetesClusterConfig c = config(100, 9, CLUSTER);
+        c.setAutomationAgentApiKey("auto-key-123456");
+        c.setAutomationIdentitySeenAt(seenAt);
+        return c;
+    }
+
+    @Test
+    void nodeAutomation_relaxesReadOnlyOnAVerifiedEnabledCluster_butKeepsEveryOtherGate() {
+        userRow(USER_ID, "jane@corp.example", "XAMOPS");
+        K8sAutomationAccessService svc = fixedClockService();
+        CloudAccount readOnly = account(9, "80310056620", "read-only", "CONNECTED");
+        KubernetesClusterConfig verified = enabledCluster(NOW.minus(java.time.Duration.ofMinutes(30)));
+
+        // ACCOUNT scope is never relaxed: the read-only connection still refuses.
+        assertThat(svc.writeDecision(principal(USER_ID, "jane"), List.of(readOnly)).reasons())
+                .containsExactly(K8sAutomationReason.READ_ONLY_CONNECTION);
+        // NODE_AUTOMATION scope on a verified, enabled cluster: READ_ONLY_CONNECTION is dropped and
+        // the write path is reachable.
+        assertThat(svc.writeDecision(principal(USER_ID, "jane"), List.of(readOnly), verified,
+                K8sAutomationAccessService.GateScope.NODE_AUTOMATION).allowed()).isTrue();
+    }
+
+    @Test
+    void nodeAutomation_relaxationOnlyDropsReadOnly_notConnectionNotVerified() {
+        userRow(USER_ID, "jane@corp.example", "XAMOPS");
+        K8sAutomationAccessService svc = fixedClockService();
+        CloudAccount readOnlyUnverified = account(9, "80310056620", "read-only", "PENDING");
+        KubernetesClusterConfig verified = enabledCluster(NOW.minus(java.time.Duration.ofMinutes(30)));
+
+        // Only READ_ONLY_CONNECTION is relaxed; CONNECTION_NOT_VERIFIED remains in force.
+        assertThat(svc.writeDecision(principal(USER_ID, "jane"), List.of(readOnlyUnverified), verified,
+                K8sAutomationAccessService.GateScope.NODE_AUTOMATION).reasons())
+                .containsExactly(K8sAutomationReason.CONNECTION_NOT_VERIFIED);
+    }
+
+    @Test
+    void nodeAutomation_readOnlyClusterStillInReadOnlyPhaseIsFullyGated() {
+        userRow(USER_ID, "jane@corp.example", "XAMOPS");
+        K8sAutomationAccessService svc = fixedClockService();
+        CloudAccount readOnly = account(9, "80310056620", "read-only", "CONNECTED");
+
+        // No automation key yet (Enable-automation not completed): not relaxed even though verified-fresh fields could exist.
+        KubernetesClusterConfig notEnabled = config(100, 9, CLUSTER);
+        notEnabled.setAutomationIdentitySeenAt(NOW.minus(java.time.Duration.ofMinutes(5)));
+        assertThat(svc.writeDecision(principal(USER_ID, "jane"), List.of(readOnly), notEnabled,
+                K8sAutomationAccessService.GateScope.NODE_AUTOMATION).reasons())
+                .containsExactly(K8sAutomationReason.READ_ONLY_CONNECTION);
+
+        // Enabled but the identity is stale (older than the 2h freshness window): not relaxed.
+        KubernetesClusterConfig stale = enabledCluster(NOW.minus(java.time.Duration.ofHours(3)));
+        assertThat(svc.writeDecision(principal(USER_ID, "jane"), List.of(readOnly), stale,
+                K8sAutomationAccessService.GateScope.NODE_AUTOMATION).reasons())
+                .containsExactly(K8sAutomationReason.READ_ONLY_CONNECTION);
+
+        // Enabled but the identity was never seen: not relaxed.
+        KubernetesClusterConfig neverSeen = enabledCluster(null);
+        assertThat(svc.writeDecision(principal(USER_ID, "jane"), List.of(readOnly), neverSeen,
+                K8sAutomationAccessService.GateScope.NODE_AUTOMATION).reasons())
+                .containsExactly(K8sAutomationReason.READ_ONLY_CONNECTION);
+    }
+
+    @Test
+    void nodeAutomation_relaxationNeverWeakensTheUserGate() {
+        // AC-13: an impersonated session can't change automation even on a verified enabled cluster.
+        userRow(USER_ID, "jane@corp.example", "XAMOPS");
+        ImpersonationContext.setImpersonatedUserId(777L);
+        K8sAutomationAccessService svc = fixedClockService();
+        CloudAccount readOnly = account(9, "80310056620", "read-only", "CONNECTED");
+        KubernetesClusterConfig verified = enabledCluster(NOW.minus(java.time.Duration.ofMinutes(30)));
+
+        assertThat(svc.writeDecision(principal(USER_ID, "jane"), List.of(readOnly), verified,
+                K8sAutomationAccessService.GateScope.NODE_AUTOMATION).reasons())
+                .containsExactly(K8sAutomationReason.NO_USER_PERMISSION);
+    }
+
+    @Test
+    void clusterAutomationVerified_honoursTheTwoHourFreshnessWindow() {
+        K8sAutomationAccessService svc = fixedClockService();
+        assertThat(svc.clusterAutomationVerified(enabledCluster(NOW.minus(java.time.Duration.ofMinutes(119))), NOW)).isTrue();
+        assertThat(svc.clusterAutomationVerified(enabledCluster(NOW.minus(java.time.Duration.ofHours(2).plusSeconds(1))), NOW)).isFalse();
+        assertThat(svc.clusterAutomationVerified(enabledCluster(null), NOW)).isFalse();
+        assertThat(svc.clusterAutomationVerified(null, NOW)).isFalse();
+    }
+
+    @Test
+    void agentPolicyBlock_relaxesReadOnlyForAVerifiedEnabledCluster_butNotAStaleOne() {
+        K8sAutomationAccessService svc = fixedClockService();
+        CloudAccount readOnlyOwner = account(9, "80310056620", "read-only", "CONNECTED");
+        when(cloudAccountRepository.findById(9L)).thenReturn(Optional.of(readOnlyOwner));
+
+        KubernetesClusterConfig verified = enabledCluster(NOW.minus(java.time.Duration.ofMinutes(30)));
+        // RO + verified -> the agent is no longer policy-blocked.
+        assertThat(svc.agentPolicyBlock(verified)).isNull();
+
+        // Stale identity -> the read-only block stands.
+        KubernetesClusterConfig stale = enabledCluster(NOW.minus(java.time.Duration.ofHours(3)));
+        assertThat(svc.agentPolicyBlock(stale)).isEqualTo(K8sAutomationReason.READ_ONLY_CONNECTION);
+    }
+
+    @Test
+    void agentPolicyBlock_readOnlyUnverifiedVerifiedClusterStaysOnConnectionNotVerified() {
+        K8sAutomationAccessService svc = fixedClockService();
+        CloudAccount readOnlyUnverified = account(9, "80310056620", "read-only", "PENDING");
+        when(cloudAccountRepository.findById(9L)).thenReturn(Optional.of(readOnlyUnverified));
+
+        KubernetesClusterConfig verified = enabledCluster(NOW.minus(java.time.Duration.ofMinutes(30)));
+        // READ_ONLY relaxed, but the unverified connection remains blocked.
+        assertThat(svc.agentPolicyBlock(verified)).isEqualTo(K8sAutomationReason.CONNECTION_NOT_VERIFIED);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
 
     private static K8sAutomationRefusedException catchRefusal(Runnable call) {

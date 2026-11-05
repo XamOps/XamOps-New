@@ -237,6 +237,63 @@ func TestIntegrationAutomatedRefusesAtMin(t *testing.T) {
 	}
 }
 
+// The verified-in-cycle-drain terminate gate (consolidator.go: !out.Verified() ->
+// RunStatusAborted, TerminateAndDecrement NOT called). Here the under node carries
+// app=demo pods but NO replaceOnEviction reactor is installed, so the evicted pods
+// never get a Ready replacement and the live in-cycle drain cannot verify within the
+// test ReplacementTimeout. The gate is the single thing standing between an unverified
+// drain and a live instance termination: it must record RunStatusAborted and make ZERO
+// provider terminate calls for that node, proving terminate is strictly downstream of a
+// verified drain (AC-26: zero live terminate calls). The empty node (whose DaemonSet-
+// only drain DOES verify) is still removed, so this isolates the gate rather than a
+// blanket no-op. Note the aborting drain RESTORES (uncordons) the node it cordoned —
+// the gate never force-cordons or force-terminates a node it could not cleanly drain.
+func TestIntegrationAbortsUnverifiedDrainWithoutTerminate(t *testing.T) {
+	c := overProvisionedCluster() // NO replaceOnEviction: the under node's drain cannot verify.
+
+	in := collectInput(t, c)
+	plan := consolidation.Analyze(in, consolOpts(), fixedNow)
+	assertPlanHasDrain(t, plan, "under-node")
+
+	fakeProv := removal.NewFakeProvider()
+	fakeProv.Facts["i-0empty"] = facts("i-0empty", "asg-a", 1, 3)
+	fakeProv.Facts["i-0under"] = facts("i-0under", "asg-a", 1, 3)
+
+	cons := NewConsolidator(fakeProv, fitExec(c), nil)
+	res, err := cons.Execute(context.Background(), in, plan, gate.Live, consolOpts(), integrationPolicy(),
+		drain.NewBudget(5, nil), fixedNow)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	under, ok := findNodeRun(res.Run, "under-node")
+	if !ok {
+		t.Fatalf("no run recorded for under-node; run=%+v", res.Run)
+	}
+	// !out.Verified() => aborted, never refused/removed/deferred.
+	if under.Status != consolidation.RunStatusAborted {
+		t.Fatalf("unverified drain must record RunStatusAborted, got %+v", under)
+	}
+	// AC-26: the node whose drain did not verify was NEVER terminated.
+	for _, call := range fakeProv.Terminations() {
+		if call.InstanceID == "i-0under" {
+			t.Fatalf("TerminateAndDecrement called for an unverified drain: %+v", call)
+		}
+	}
+	// The aborting drain restored the node it cordoned — never force-terminated, never
+	// left half-drained-and-live.
+	n, _ := c.CoreV1().Nodes().Get(context.Background(), "under-node", metav1.GetOptions{})
+	if n.Spec.Unschedulable {
+		t.Errorf("an aborted drain must restore (uncordon) the node, got cordoned: %+v", n.Spec)
+	}
+	if n.Annotations[drain.AnnotationState] == drain.StateDrained {
+		t.Errorf("an unverified drain must not mark the node drained: %v", n.Annotations)
+	}
+	if res.Run.Summary.Aborted < 1 {
+		t.Errorf("summary should count the aborted node: %+v", res.Run.Summary)
+	}
+}
+
 // assertPlanHasDrain fails unless the plan carries a DRAIN move for name.
 func assertPlanHasDrain(t *testing.T, plan consolidation.Plan, name string) {
 	t.Helper()

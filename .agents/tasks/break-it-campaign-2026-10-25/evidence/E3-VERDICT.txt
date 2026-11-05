@@ -1,0 +1,122 @@
+E3 — AGENT RESILIENCE (Chaos Mesh on xamops-system)
+====================================================
+OVERALL VERDICT: PASS (with one evidence caveat: the network-partition class was
+  NOT effectively exercised — see F4 below. No safety invariant was violated by XamOps.)
+
+Target: EKS xamops-test-1, ap-south-1, account 102227938259.
+Pinned context on every command: arn:aws:eks:ap-south-1:102227938259:cluster/xamops-test-1
+Agent under test: ghcr.io/xamops/xamops-autoscaler:sha-e02d6292113c4632fbbac3e51e12e502d6c4c147
+  2 replicas, leader-elected, DRY_RUN=true, ENABLE_NODE_OPTIMIZER+ENABLE_LEADER_ELECTION only
+  (baseline posture — analysis-only, NO drain sub-flag armed). Container limit 256Mi / request 64Mi.
+Chaos Mesh 2.8.6 (ns chaos-testing), namespace-filter ON; injected ONLY on xamops-system
+  (two agent pods, selector app=xamops-automation). kube-system left UNANNOTATED (protected).
+Run driver: e3-run.sh (trap teardown installed before first mutation). Streams recorded by the
+  committed hack/soak soakwatch; invariants evaluated mechanically by hack/soak check.
+Dates: faults injected 2026-10-26; long partitions + checker + teardown completed 2026-10-27
+  (machine clock advanced across host suspend/resume; wall-clock gaps are host-sleep, not agent stalls).
+
+SETUP DEFECT FOUND + FIXED BEFORE ANY FAULT (see FINDINGS F-E3-1):
+  The namespace xamops-system carried chaos-mesh.org/inject=enabled as a LABEL, but Chaos Mesh's
+  FilterNamespace feature requires it as an ANNOTATION. With only the label, EVERY experiment logged
+  "namespace is not enabled for chaos-mesh" / "no pod is selected" and injected NOTHING (an aborted
+  first run confirmed zero pod restarts). Fixed additively:
+    kubectl annotate ns xamops-system chaos-mesh.org/inject=enabled
+  A 20s smoke NetworkChaos then showed Selected=True, AllInjected=True, "Successfully apply chaos" on
+  BOTH agent pods. All faults below ran AFTER this fix. (The annotation is campaign residue the FINAL
+  restore must remove; E4/E5 need the same annotation on break-test / xamops-db-fixtures.)
+
+PER-FAULT VERDICTS
+------------------
+F1a  Kill leader/pod every 30s for 2 min ............................. PASS
+F1b  Kill leader/pod every 10s for 90s (escalated churn) ............. PASS
+     - Pods repeatedly killed + replaced (wp4fm->99rqn->qbmgl->tfgtr->...); standby re-acquired the
+       Lease each time. count(xamops_leader==1)==1 at EVERY 10s sample throughout both storms
+       (evidence E3-faults/10-F1a-...-during.txt, 11-F1b-...-during.txt). Never 0, never 2 leaders.
+       Recovered to 2/2 after each storm.
+F2   Kill BOTH replicas at once (mode:all) ........................... PASS
+     - Both pods terminated together (mid-sample: both 0/1, age 6s); one replica re-acquired the Lease
+       and the loop resumed; recovered 2/2 (new leader f2fkk). Lease stream recorded 0 null-holder
+       records. ZERO agent action lines during the gap (no action issued while leaderless).
+       evidence E3-faults/20-F2-{before,mid,after}.txt.
+F3a  StressChaos CPU (2 workers, load 100) 90s ....................... PASS
+     - Leader held (f2fkk) through CPU saturation; cycle resumed; recovered 2/2. No OOM, no crashloop.
+F3b  StressChaos memory 400MiB -> OOM 120s ........................... PASS (ceiling CONFIRMED, recovers)
+     - Both replicas OOMKilled (lastState.terminated.reason=OOMKilled, exitCode=137, restartCount 1)
+       at the 256Mi container limit, then RESTARTED CLEANLY and re-led (recovered 2/2, leader f2fkk).
+       Not BROKEN (recovered, not a crashloop). CONFIRMS the BUG-001 ceiling: 256Mi is the memory
+       ceiling — a ~400MiB stressor inside the cgroup trips OOM. Fail-safe (no action while down).
+       evidence E3-faults/31-F3b-mem-stress-oom-*.
+F4a  NetworkChaos delay 500ms±200ms (direction:to) 90s .............. NOT-EXERCISED (fault did not bite)
+F4b  NetworkChaos loss 50% (direction:to) 90s ........................ NOT-EXERCISED (fault did not bite)
+F4e  NetworkChaos partition agent<->apiserver (10.100.0.1) 90s ....... NOT-EXERCISED (fault did not bite)
+F4c  NetworkChaos partition agent<->backend (uat.xamops.com) 5 min ... NOT-EXERCISED (fault did not bite)
+F4d  NetworkChaos partition agent<->backend (uat.xamops.com) 30 min .. NOT-EXERCISED (fault did not bite)
+     - Chaos Mesh accepted and "Successfully applied" every NetworkChaos on both agent pods
+       (Selected=True/AllInjected=True), BUT the agent showed NO connectivity impact: across F4c/F4d/F4e
+       xamops_policy_fetch_errors_total stayed 0, the agent kept fetching policy (mode=full) every
+       cycle, and the leader never flapped. The externalTargets/direction:to rules did not sever the
+       agent's connections in this EKS/CNI setup (apiserver reached via the CNI SNAT path; backend
+       uat.xamops.com behind a NAT/edge with IPs that the one-shot target-resolution did not cover).
+       => The "backend-unreachable -> fail-closed" hypothesis could NOT be proven HERE because the
+       backend never actually became unreachable. Recorded NOT-EXERCISED, not PASS, not fabricated.
+       NOTE (adjacent evidence, NOT a substitute for the live fault): E2 already proved the policy/gate
+       posture stays safe, and throughout E3 the gate logs show idle-drain=off, cordon=off, all live
+       controllers off, consolidation=analyse look-only, maxParallelDrains=1 on every cycle
+       (evidence E3-faults/43-F4c-agent-log.txt, 44-F4d-samples.txt). The static fail-closed path
+       (DefaultBundle mode:disabled on backend-unreachable, internal/policy/types.go) remains source-
+       corroborated only. A re-test needs an effective cut (e.g. DNSChaos on uat.xamops.com + block
+       egress to the resolved CIDR, or an EKS SG/NetworkPolicy egress deny) — see FINDINGS F-E3-2.
+F5   TimeChaos clock skew -10m (T4 dwell) 120s ....................... PASS
+     - Single leader held (f2fkk), policy kept fetching, and ZERO action/drain lines were emitted (no
+       premature/spurious drain plan executed under the skewed clock). Recovered 2/2.
+     - evidence E3-faults/50-F5-clock-skew-*.
+F6   Lease thrash (delete/relabel the Lease repeatedly) ............. NOT-EXERCISED (not run)
+     - De-scoped for this run: the campaign's lease-thrash probe was not executed. The pod-kill storms
+       (F1a/F1b) already forced ~8 real Lease re-acquisitions with a single holder at all times, which
+       covers the split-brain/single-holder property the lease-thrash fault targets. Recorded honestly
+       as not-run rather than claimed.
+
+MECHANICAL INVARIANTS (hack/soak check on recorded streams; E3-streams/invariants-report.json)
+----------------------------------------------------------------------------------------------
+I6   PASS          concurrent drains <= 1 (zero drains occurred — DRY_RUN analysis-only).
+I14  NOT-EVALUATED only the lease holder acts — NO agent action line existed to judge. This is the
+                   CORRECT fail-safe outcome: 0 Drain/action lines in agent-logs.jsonl (grep count 0),
+                   23 "DRY-RUN MODE — no cluster changes" confirmations. No non-holder action occurred.
+I1   FAIL*         *ATTRIBUTED TO THE INJECTED CHAOS, NOT TO XAMOPS. Every I1 breach is an agent pod we
+                   deliberately pod-killed; the checker itself attributes each to "node ... was NOT
+                   draining under XamOps ... may be a controller delete." Chaos Mesh pod-kill uses the
+                   DELETE api (not the Eviction api) so it bypasses the agent's own PDB
+                   (xamops-automation-pdb minAvailable=1). This is expected chaos behaviour on the
+                   agent's OWN deployment — NOT XamOps evicting a customer workload. XamOps issued zero
+                   evictions (grep: no evict/cordon/drain action lines).
+I2   FAIL*         *SAME ATTRIBUTION. readyReplicas dipped to 0 only during F2 (kill-both) and the kill
+                   storms / the F3b OOM — i.e. because WE killed/OOMed the agent's own pods. Each dip
+                   recovered within ~6-16s. Not a XamOps action on any workload.
+
+INTERPRETATION OF THE RUBRIC
+----------------------------
+BROKEN would require: two simultaneous leaders, an action from a non-leader, the agent acting while
+  backend-unreachable (fail-open), a crashloop with no recovery, or a node left drain-state=draining.
+  NONE occurred. The I1/I2 "FAIL" lines are the injected fault acting on the agent's own pods, correctly
+  attributed by the checker to a non-XamOps delete; they are NOT XamOps safety violations.
+=> E3 VERDICT = PASS for every fault that actually bit (F1a,F1b,F2,F3a,F3b,F5): single-leader continuity,
+   clean recovery, and zero (fail-safe) agent action under churn/stress/skew. The memory ceiling (256Mi,
+   BUG-001) is re-confirmed as a recoverable OOM, not a crashloop. The network-partition class
+   (F4a/b/c/d/e) and lease-thrash (F6) are NOT-EXERCISED with the reason recorded — the fail-closed-on-
+   backend-unreachable property is therefore NOT independently proven by E3 and remains source-only +
+   E2-adjacent. See FINDINGS F-E3-2.
+
+CEILING: memory 256Mi (OOM under ~400MiB stress; recovers). No other ceiling hit.
+
+EVIDENCE
+--------
+  e3-run.sh, e3-manifests/*.yaml                         (driver + all 11 chaos manifests)
+  evidence/E3-faults/00-run.log                          (timeline of every apply/release/recovery)
+  evidence/E3-faults/{10,11,20,30,31,40,41,42,43,44,50}-*  (per-fault before/mid/during/after + metrics)
+  evidence/E3-faults/90-invariants.txt                   (soak checker verdict text)
+  evidence/E3-streams/*.jsonl + invariants-report.json   (recorded watch streams + mechanical report)
+  evidence/grafana/E3-*-dashboard-model.json / -search.json (+ -render-note: PNG renderer not installed)
+TEARDOWN: COMPLETE (evidence/E3-faults/99-teardown-final.txt). All Chaos Mesh experiment CRDs deleted;
+  agent 2/2 Running, single Lease holder (f2fkk); agent ConfigMap == baseline 14 keys (DRY_RUN=true).
+  RESIDUE: chaos-mesh.org/inject=enabled annotation on xamops-system (required for chaos tooling;
+  FINAL campaign restore must remove it).

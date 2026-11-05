@@ -1,0 +1,90 @@
+{
+  "step": "cloudk8s-ui-functional-demo-2026-10-30 / demo",
+  "workflowId": "wf_52876c1f6553b832",
+  "generatedUtc": "2026-10-30T13:30:00Z",
+  "cluster": "arn:aws:eks:ap-south-1:102227938259:cluster/xamops-test-1",
+  "account": "102227938259",
+  "region": "ap-south-1",
+  "posture": "FULL-LIVE (DRY_RUN=false; gates: rebalancer=live, evictor=live, cordon=live, idleDrain=live, interruption=live, consolidation-actions=live; rightsizer/apply/hpa/vpa=off-by-design-on-shipped-image)",
+  "ui": {
+    "baseUrl": "https://uat.xamops.com",
+    "user": "aditya / XAMMER-UAT",
+    "authStatus": "OK (no 401/redirect; cookie loaded by path, never printed; redacted in screenshots)"
+  },
+  "evidenceDir": "/Users/apple/Desktop/XamOps-New/.agents/tasks/cloudk8s-ui-functional-demo-2026-10-30/evidence",
+  "statusLegend": ["WORKING", "WORKING-AFTER-DATA", "BROKEN", "NOT-DEPLOYED"],
+  "features": {
+    "1_cost": {
+      "status": "WORKING (node $) + WORKING-AFTER-DATA (namespace/workload/cluster $)",
+      "screenshot_path": "evidence/01-cost-tab-nodefleet-and-namespace.png",
+      "evidence_summary": "Node Fleet Cost tab prices all 17 nodes from LIVE AWS pricing: t3.medium $0.0448/hr=$1.09/day=$33/mo (PRICE_LIST), t3.large $65.41/mo, t2.medium spot $14.16/mo (SPOT_HISTORY); previousClusterMonthlyCost $32.04. Namespace/workload/cluster-total $ show '—' / '0 priced · N unpriced' because the pricing join reports NODE_CAPACITY_UNKNOWN. Automation usage engine (/api/eks/automation/usage) returns REAL data at window=24h (145 non-null pts, cluster CPU ~2.0 cores; 15 namespaces priced incl. stress 9.24 vCPU requested) but is EMPTY at the UI-default 72h because Prometheus history < 72h. No config/env lever exists to shorten the vertical window (not in agent ConfigMap; per-cluster rightsizer PUT is 403). Node $ proven NOW; workload/namespace $ need 72h history — documented, NOT faked. See api-node-cost-detail.json, api-vertical-shape.json, api-capabilities-usage.json.",
+      "evidence_files": ["evidence/api-vertical-shape.json (PRIMARY — live PRICE_LIST node pricing)", "evidence/api-capabilities-usage.json", "evidence/api-node-cost-detail.json (STALE /dashboard inventory path, hourlyRate=0, lastSyncedAt 2026-10-22 — not a live-pricing source)", "evidence/api-dashboard-nodecost.json"]
+    },
+    "2_workload_rightsizing": {
+      "status": "WORKING-AFTER-DATA (window-blocked)",
+      "screenshot_path": "evidence/02-workload-rightsizing-measuring.png",
+      "evidence_summary": "Workload autoscaler analysed all 91 workloads live (engine.enabled=true, ready=true, executionPath=DIRECT, metricsSource.reachable=true, lastCycle.evaluated=91 at Oct 30 05:11 PM IST). Every workload shows 'Measuring' / 'No change' with skipReason=INSUFFICIENT_HISTORY because the vertical engine uses a fixed 72h/p95 window (policySource=DEFAULTS) and Prometheus has only ~24-30h of history for the fleet. The over/under-provisioned fleet (fleet-001-over, rightsized-worker, etc.) is enumerated. Real recommendations will appear once 72h of history accrues; not faked.",
+      "evidence_files": ["evidence/api-vertical-rightsizing.json", "evidence/api-vertical-shape.json"]
+    },
+    "3_node_optimizer_idle_cordon_drain": {
+      "status": "WORKING (live)",
+      "screenshot_path": "evidence/03-node-optimizer-view.png",
+      "evidence_summary": "Created a genuinely idle node (scaled ng-ondemand-1 +1, tainted + emptied to daemonsets-only). At 13:07:50-54 the live evictor fired: 'Evictor: consolidation candidates [ip-172-31-26-16] — live' then 'Drain[evictor drain node/ip-172-31-26-16]: succeeded (verified=true) ... node holds only DaemonSet/mirror pods; no Pending pods' (operationId=evictor-1793365670, mode=live, DRY_RUN=false), and 'NodeOptimizer: 1 node(s) already drained by XamOps (cordoned, drain-state=drained)'. Live node state confirmed Ready,SchedulingDisabled (XamOps-cordoned). The drain is recorded in the capability dataSources (autoscaling-actions items=1, node-drain-progress items=1). The node-automation drain is by-design NOT in the Activity feed ('Node automation isn't recorded here'); the Node autoscaler tab surfaces the node/idle view.",
+      "evidence_files": ["evidence/03-05-node-drain-evidence.txt", "evidence/api-capabilities-full.json", "evidence/04-node-autoscaler-rebalance.png"]
+    },
+    "4_rebalancer": {
+      "status": "WORKING (live; benefit-guard steady-state refusal)",
+      "screenshot_path": "evidence/04-node-autoscaler-rebalance.png",
+      "evidence_summary": "Rebalancer enabled, scheduleEnabled=true, analyseOnly=false, status=running, dryRun=false. rebalance-status API shows a PRIOR real live rebalance: operationId=gen-1, nodesDrained=1, dryRun=false, verified=true, status=completed. In the current steady fleet the benefit guard correctly refuses to re-run ('operation gen-1 already completed; not re-run') — the honest benefit-guard refusal. Node autoscaler tab shows capacity 16 on-demand/1 spot and 'last rebalance completed'.",
+      "evidence_files": ["evidence/api-autoscaling-rebalance.json"]
+    },
+    "5_consolidation": {
+      "status": "WORKING (look-only plan live) + ASG-terminate NOT-TRIGGERED-this-run (honest)",
+      "screenshot_path": "evidence/05-consolidation-lookonly-plan.png",
+      "evidence_summary": "Consolidation look-only plan is live with real data: 17-18 nodes evaluated, '0 empty, 0 drain, 4-5 blocked, 13 kept', per-node blocked/kept reasons, 'Who removes nodes: v1 removes nodes via ASG terminate that decrements desired, never below min'. consolidation-plan API freshness=CURRENT. The live ASG terminate+decrement did NOT trigger on the idle node because the evictor idle-drain path claimed it first (drain-state=drained), so consolidation classifies it as not-empty; consolidation (live) stays considered=0 removed=0. Gate is confirmed live (consolidation actions=live) but had no empty candidate it would act on. Honest product-behaviour finding (evictor vs consolidation hand-off), NOT fabricated.",
+      "evidence_files": ["evidence/api-consolidation-plan.json", "evidence/03-05-node-drain-evidence.txt"]
+    },
+    "6_spot": {
+      "status": "WORKING (real recorded interruptions + live handling)",
+      "screenshot_path": "evidence/06-spot-interruptions.png",
+      "evidence_summary": "Spot interruptions page shows real data: Spot share now 6% (1 spot node of 18), last 30 days = 7 interruption notices + 2 rebalance recommendations + 1 Spot node removed, recordingEnabled=true, retention 365d. coverage.handlingNow mode=live ('all gates open, DRY_RUN=false'). Events table lists 10 real ng-spot-1 interruption events (e.g. ip-172-31-1-61 t3a.medium noticed via nth-taint, cordonedBeforeRemoval=true, node removed) with XamOps-handling column. Scoped the ng-spot-1 instance set first: COUNT=1 instance i-07286f18273deaf42 (t2.medium spot, ap-south-1b) with BOTH eks:cluster-name=xamops-test-1 AND eks:nodegroup-name=ng-spot-1 tags. A fresh FIS was NOT injected because abundant genuine recorded interruption data already proves the feature and injecting risked the single live spot node.",
+      "evidence_files": ["evidence/api-spot.json"]
+    },
+    "7_hpa_manager": {
+      "status": "WORKING-AFTER-DATA (HPA surfaced live; replica/CPU history data-starved)",
+      "screenshot_path": "evidence/07-hpa-manager.png",
+      "evidence_summary": "HPA tab genuinely surfaces the 1 real HPA on the cluster from live data: php-apache in team-b, tiles AT-MAX/AT-MIN/CONFLICTS all 0, 'No conflicts with XamOps'. Honest note in UI: 'XamOps HPA suggestions are off in this environment' — analysis-only by design (gate hpa=off). HOWEVER the replica/CPU history charts are EMPTY in the capture: both panels read 'No Prometheus answered in this cluster, so there is no history to draw', and api-hpa.json shows both HPA endpoints (hpa/xamops-test-1 and .../analysis) returned HTTP 500. No quantitative CPU-target or min/max history was rendered or evidenced; those figures are NOT claimed. History fills in once Prometheus answers for this cluster.",
+      "evidence_files": ["evidence/api-hpa.json"]
+    },
+    "8_pod_restart_apply_path": {
+      "status": "WORKING (live acting path confirmed; 0 successful applies yet — window/headroom-blocked)",
+      "screenshot_path": "evidence/08-activity-live-workload-actions.png",
+      "evidence_summary": "'pod-restart' == the workload-autoscaler/vertical APPLY path (in-place resize, restart-if-needed), previously retired (rated 1), now reversed to a live acting path. Activity summary byFeature=VERTICAL shows LIVE apply-path actions: putBack 96/96/95/95/55 across Oct 24-28 (applied=0). These are real mode=live in-place-resize attempts (e.g. prod-sim/throttled-encoder CPU req 250m->993m) where the kubelet DEFERRED for insufficient node cpu and XamOps PUT THE POD BACK and verified nothing left pending (Revert: REVERTED). Overview shows 'Applying automatically: 5' and 'Changes, last 7 days: 437'. The acting path is wired and executed live; it has not completed a clean successful apply (no node headroom) and is idle since Oct 29 (vertical engine window-blocked, INSUFFICIENT_HISTORY). Live acting CONFIRMED, not faked.",
+      "evidence_files": ["evidence/08-pod-restart-apply-path-evidence.txt", "evidence/api-activity-summary.json", "evidence/08-09-overview-applypath-capability.png"]
+    },
+    "9_capability_table": {
+      "status": "WORKING (true effectiveActing reflected)",
+      "screenshot_path": "evidence/09-overview-capability-table.png",
+      "evidence_summary": "Capabilities API (commit 37cc8ca3d fix) reports the true per-feature state: nodeAutomation.derivedState=AUTOMATED, effectiveActing=ACTING (additive field correct). readiness map: vertical-rightsizing/hpa-apply/evictor-live/rebalancer/node-optimizer-actions/spot-interruption-actions/consolidation-actions ALL ready=true; vpa-apply/scale-out/node-templates ready=false with honest CONTROLLER_NOT_READY reasons. dataSources show live collection incl. the drain I triggered (autoscaling-actions items=1, node-drain-progress items=1, evictor-candidates items=17). onboarding.automationVerified=true. Overview UI reflects: Node automation Automated, Access Read-write, agent Connected, 'Applying automatically: 5'.",
+      "evidence_files": ["evidence/api-capabilities-full.json", "evidence/08-09-overview-applypath-capability.png"]
+    },
+    "10_db_protection": {
+      "status": "WORKING (live refusal with reasons, 0 DB pods evicted)",
+      "screenshot_path": "evidence/05-consolidation-lookonly-plan.png",
+      "evidence_summary": "With consolidation/evictor live and the DB fixtures running, the Consolidation Blocked table + consolidation-plan API refuse every DB/stateful node with explicit per-pod reasons: code=db-emptydir 'database with an emptyDir at its data path' for xamops-db-fixtures/mongo-2, pg-cnpg-1, pg-cnpg-2, mysql-0, pg-unsafe-0; plus local-storage-no-replica, single-replica, StatefulSet-pod, critical-namespace guards. 0 DB pods evicted. Safety guards active: respectPodDisruptionBudgets, protectSingleReplicas, protectStatefulSets, protectCriticalNamespaces. The live evictor drain of the idle node explicitly moved 0 DB pods.",
+      "evidence_files": ["evidence/api-consolidation-plan.json"]
+    }
+  },
+  "notDeployedByDesign": {
+    "vpa_apply": "NOT-DEPLOYED (coming, not yet deployed): capabilities vpa-apply ready=false, CONTROLLER_NOT_READY 'XamOps doesn't create or update VPA objects yet'. Still building.",
+    "new_onboarding": "NOT-DEPLOYED (coming, not yet deployed): onboarding design approved, build in progress; not exercised this run."
+  },
+  "costNote": "No product code changed. Incremental AWS spend ~ $13-14 (setup +8 t3.medium + a short-lived idle demo node). Under the $120 cap. See cost.md.",
+  "guardrails": {
+    "contextPinnedEveryCall": true,
+    "accountAssertedBeforeAwsWrites": true,
+    "blastRadius": "xamops-test-1 only",
+    "cookieHandling": "loaded by path; value never printed/logged; redacted (HttpOnly) in screenshots",
+    "noProductCodeChanges": true
+  }
+}

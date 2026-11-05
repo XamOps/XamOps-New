@@ -44,6 +44,18 @@ class MigrationRulesTest {
     /** {@code ALTER TABLE t DROP c} drops a column too: COLUMN is optional in PostgreSQL. */
     private static final Pattern DROP_WITHOUT_COLUMN_KEYWORD = Pattern.compile(
             "\\bDROP\\s+(?!CONSTRAINT\\b|DEFAULT\\b|NOT\\b|EXPRESSION\\b|IDENTITY\\b|COLUMN\\b)[A-Z_\"]");
+    /**
+     * {@code DROP <object> ... CASCADE} (P01-R4, before Phase 03's spine migrations). A cascading
+     * drop of a TYPE, SEQUENCE, FUNCTION, SCHEMA, TRIGGER, INDEX, VIEW, CONSTRAINT and the like can
+     * remove columns, defaults or triggers unseen, which is how an "additive" migration would
+     * delete things without naming them (plan §3). A foreign key's {@code ON DELETE CASCADE} /
+     * {@code ON UPDATE CASCADE} is the referential action, not a DROP, so it stays allowed: this
+     * pattern matches CASCADE only when a DROP opens the statement and no {@code ON DELETE}/
+     * {@code ON UPDATE} immediately precedes it.
+     */
+    private static final Pattern DROP = Pattern.compile("\\bDROP\\b");
+    private static final Pattern CASCADE = Pattern.compile("\\bCASCADE\\b");
+    private static final Pattern FK_CASCADE = Pattern.compile("\\bON\\s+(?:DELETE|UPDATE)\\s+CASCADE\\b");
     private static final Pattern TRUNCATE = Pattern.compile("\\bTRUNCATE\\b");
     private static final Pattern DELETE = Pattern.compile("\\bDELETE\\s+FROM\\b");
     private static final Pattern UPDATE = Pattern.compile(
@@ -89,7 +101,17 @@ class MigrationRulesTest {
             "DO $$ BEGIN IF to_regclass('t') IS NOT NULL THEN DELETE FROM t; END IF; END $$;",
             "UPDATE daily_spot_savings SET billable = true;",
             "UPDATE ONLY t AS x SET a = 1;",
-            "IF EXISTS (SELECT 1 FROM t WHERE a) THEN UPDATE t SET a = 2; END IF;"})
+            "IF EXISTS (SELECT 1 FROM t WHERE a) THEN UPDATE t SET a = 2; END IF;",
+            "DROP TYPE spot_state CASCADE;",
+            "DROP SEQUENCE some_id_seq CASCADE;",
+            "DROP FUNCTION f() CASCADE;",
+            "DROP SCHEMA x CASCADE;",
+            "drop trigger trg on t cascade;",
+            "DROP INDEX ix CASCADE;",
+            "DROP TABLE t CASCADE;",
+            "ALTER TABLE t DROP CONSTRAINT fk CASCADE;",
+            "drop type spot_state cascade; alter table u add constraint fk foreign key (a) "
+                    + "references v(id) on delete cascade;"})
     void scannerFlagsEachForbiddenForm(String sql) {
         assertThat(violations(sql)).isNotEmpty();
     }
@@ -108,6 +130,12 @@ class MigrationRulesTest {
             "/* TRUNCATE t; */ SELECT 1;",
             "COMMENT ON COLUMN t.c IS 'Never DROP TABLE or UPDATE t SET anything';",
             "ALTER TABLE t ADD CONSTRAINT fk FOREIGN KEY (a) REFERENCES u(id) ON UPDATE CASCADE ON DELETE SET NULL;",
+            "ALTER TABLE t ADD CONSTRAINT fk FOREIGN KEY (a) REFERENCES u(id) ON DELETE CASCADE;",
+            "ALTER TABLE t ADD CONSTRAINT fk FOREIGN KEY (a) REFERENCES u(id) "
+                    + "ON UPDATE CASCADE ON DELETE CASCADE;",
+            "CREATE TABLE t (id BIGINT, pid BIGINT REFERENCES t(id) ON DELETE CASCADE);",
+            "ALTER TABLE t DROP CONSTRAINT IF EXISTS fk; "
+                    + "ALTER TABLE t ADD CONSTRAINT fk FOREIGN KEY (a) REFERENCES u(id) ON DELETE CASCADE;",
             "SELECT * FROM t FOR UPDATE;"})
     void scannerAllowsAdditiveAndGuardedForms(String sql) {
         assertThat(violations(sql)).isEmpty();
@@ -152,6 +180,9 @@ class MigrationRulesTest {
             if (TRUNCATE.matcher(statement).find()) {
                 found.add("TRUNCATE");
             }
+            if (DROP.matcher(statement).find() && hasDestructiveCascade(statement)) {
+                found.add("DROP ... CASCADE");
+            }
             if (lacksWhereAfter(DELETE, statement)) {
                 found.add("DELETE without WHERE");
             }
@@ -160,6 +191,17 @@ class MigrationRulesTest {
             }
         }
         return found;
+    }
+
+    /**
+     * True when a statement opened by DROP carries a CASCADE that isn't a foreign key's
+     * {@code ON DELETE CASCADE}/{@code ON UPDATE CASCADE}. Each {@code ON DELETE/UPDATE CASCADE}
+     * accounts for one CASCADE; any CASCADE left over is a cascading DROP.
+     */
+    private static boolean hasDestructiveCascade(String statement) {
+        long cascades = CASCADE.matcher(statement).results().count();
+        long fkCascades = FK_CASCADE.matcher(statement).results().count();
+        return cascades > fkCascades;
     }
 
     private static boolean lacksWhereAfter(Pattern dml, String statement) {

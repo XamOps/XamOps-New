@@ -124,11 +124,13 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
         accountName: string;
         provider: string;
         accountId: string;
+        invoiceOnly?: boolean;
       }) => ({
         id: a.id,
         name: a.accountName,
         provider: a.provider as 'AWS' | 'GCP' | 'Azure',
         identifier: a.accountId,
+        invoiceOnly: Boolean(a.invoiceOnly),
       }));
 
       if (isMountedRef.current) {
@@ -297,18 +299,19 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
 
   /** The server's own message for a refused upload, or a fallback. */
   const uploadError = async (response: Response, fallback: string): Promise<string> => {
-    if (response.status === 403) return 'You don’t have permission to upload drafts.';
     if (response.status === 404 || response.status === 405) {
       return 'The BillOps server doesn’t have draft upload yet. Restart or redeploy billops and try again.';
     }
     if (response.status === 413) return 'That file is too large to upload.';
     const body = await response.json().catch(() => null);
-    // Messages from the upload endpoints are written to be shown as-is. Anything else
-    // (Spring's default error body has an empty message) gets the status, so the
-    // admin isn't told the PDF is bad when the server is the problem.
-    return typeof body?.message === 'string' && body.message
-      ? body.message
-      : `${fallback} (server responded ${response.status})`;
+    // Messages from the upload endpoints are written to be shown as-is, 403s included:
+    // the server refuses for specific reasons (no access to the account, access limited
+    // to assigned accounts) and a generic "no permission" hides which one it was.
+    if (typeof body?.message === 'string' && body.message) return body.message;
+    if (response.status === 403) return 'You don’t have permission to upload drafts.';
+    // Anything else (Spring's default error body has an empty message) gets the status,
+    // so the admin isn't told the PDF is bad when the server is the problem.
+    return `${fallback} (server responded ${response.status})`;
   };
 
   /**

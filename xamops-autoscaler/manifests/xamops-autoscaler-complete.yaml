@@ -120,6 +120,20 @@ rules:
       - pods/eviction
     verbs: ["create"]
 
+  # ── VPA Manager in-place resize (FEAT: cloudk8s-vpa-apply) ──────────────────
+  # TRUE in-place pod resize via the resize subresource (K8s >=1.33,
+  # InPlacePodVerticalScaling beta — the version where the /resize subresource + this
+  # pods/resize RBAC resource exist; matches xamops-workload-autoscaler-rbac.yaml:46
+  # "K8s 1.33+ resize subresource"). Restart-free, QoS-preserving: it can only change a
+  # running pod's spec.containers[].resources — never delete/evict a pod, never patch a
+  # workload template. Gated in code (gate.VPAManager Live + ENABLE_VPA_MANAGER +
+  # vpa-apply ready + DRY_RUN=false); dormant until that gate opens. Least-privilege:
+  # patch only.
+  - apiGroups: [""]
+    resources:
+      - pods/resize
+    verbs: ["patch"]
+
   # Patch Deployment resource requests (rightsizer)
   # DORMANT RESTART-CAPABLE GRANT: patching a Deployment template rolls its pods
   # (an effective restart). This write verb is gated in code (ENABLE_RIGHTSIZER_APPLY
@@ -286,6 +300,10 @@ data:
   ENABLE_VPA_MANAGER: "false"
   # Node optimizer: idle node detection, spot candidate analysis, spot interruption handling
   ENABLE_NODE_OPTIMIZER: "false"
+  # Consolidation: drain + terminate under-utilised nodes (gated behind a verified
+  # in-cycle drain; terminate is additionally gated on the consolidation-actions
+  # readiness key). Ships inert — leave "false" until explicitly enabled.
+  ENABLE_CONSOLIDATION: "false"
 
   # ── Leader election (FEAT-002 / agent-ha-design.md CHOICE B) ─────────────────
   # With replicas: 2 below, exactly one replica runs the apply/drain control loop at a
@@ -582,6 +600,16 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+
+    # EKS Pod Identity Agent — credential endpoint (link-local, IPv4 + IPv6)
+    - to:
+        - ipBlock:
+            cidr: 169.254.170.23/32
+        - ipBlock:
+            cidr: fd00:ec2::23/128
+      ports:
+        - protocol: TCP
+          port: 80
 
 ---
 # ── PodDisruptionBudget — protect the autoscaler itself ──────────────────────

@@ -119,6 +119,14 @@ export const GUARDED_PATHS: readonly string[] = [
   'components/CloudK8s/shared/charts/',
   // FEAT-003: the Workload autoscaler apply UI, re-skinned to bundled mdi:* icons (no Font Awesome).
   'components/EksDetails/tabs/EksAutomationTab.tsx',
+  // Dashboard Phase A: the cluster switcher, the node-automation bar and the code behind them.
+  // The proof panel is under components/EksDetails/sections/.
+  'components/EksDetails/ClusterSwitcher.tsx',
+  'components/EksDetails/AutomationControlBar.tsx',
+  'hooks/useK8sClusters.ts',
+  'hooks/useNodeAutomationControl.ts',
+  'utils/k8sAutomationControl.ts',
+  'utils/k8sPauseMarker.ts',
 ];
 
 const TAILWIND_PREFIX = '(?:text|bg|border|from|via|to|ring|fill|stroke|divide|outline|shadow|accent|decoration|placeholder|caret)';

@@ -21,6 +21,7 @@ import { getResponseSlaLabel } from '../utils/timeUtils';
 import { useSlaCountdown } from '../components/tickets/SlaCountdown';
 import { sanitizeRichText, htmlToPlainText, escapeHtml } from '../utils/sanitizeHtml';
 import CannedResponsesPicker from '../components/tickets/CannedResponsesPicker';
+import ReplyEditEditor, { ReplyEditValue } from '../components/tickets/ReplyEditEditor';
 import TicketEmailDetails from '../components/tickets/TicketEmailDetails';
 import TicketCallButton from '../components/calls/TicketCallButton';
 import TicketCallHistory from '../components/calls/TicketCallHistory';
@@ -96,8 +97,31 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
   // Edit / Delete state
   const [editingReplyId, setEditingReplyId] = useState<number | null>(null);
-  const [editContent, setEditContent] = useState('');
+  const [editValue, setEditValue] = useState<ReplyEditValue>({ html: '', text: '', changed: false });
   const [editWidth, setEditWidth] = useState<number | null>(null);
+
+  /**
+   * Saves a reply edit. The editor's HTML is sent as-is so the formatting is kept. When the user
+   * changed nothing, the stored HTML is left exactly as it was rather than re-saved.
+   */
+  const saveReplyEdit = async (replyId: number, originalHtml: string | undefined) => {
+    if (!editValue.changed) {
+      setEditingReplyId(null);
+      return;
+    }
+    const hasImage = /<img\b/i.test(editValue.html);
+    if (!editValue.text && !hasImage) return;
+    if (editValue.html === (originalHtml ?? '')) {
+      setEditingReplyId(null);
+      return;
+    }
+    try {
+      await editReply(replyId, editValue.html);
+      setEditingReplyId(null);
+    } catch (err) {
+      globalThis.alert('Failed to edit — ' + (err instanceof Error ? err.message : 'unknown'));
+    }
+  };
 
   // Activity feed filter — "all" shows the call history + system event cards,
   // "messages" strips them so an agent can read the conversation without noise.
@@ -1610,14 +1634,14 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
                           {/* ── Edit / Delete hover buttons ── */}
                           {isMine && !reply.deleted && ticket.status !== 'CLOSED' && (
-                            <div className="absolute top-2 right-2 opacity-0 group-hover/msg:opacity-100 transition-opacity flex items-center gap-1 z-10">
+                            <div className="absolute top-2 right-2 opacity-0 pointer-events-none group-hover/msg:opacity-100 group-hover/msg:pointer-events-auto transition-opacity flex items-center gap-1 z-10">
                               {/* Edit — allowed until the other side has seen (replied after) this message */}
                               {!isReplySeen(reply) && (
                                 <button
                                   onClick={() => {
                                     setEditingReplyId(reply.id);
                                     setEditWidth(null);
-                                    setEditContent(htmlToPlainText(reply.message));
+                                    setEditValue({ html: reply.message ?? '', text: '', changed: false });
                                   }}
                                   className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
                                   title="Edit (until seen by the other side)"
@@ -1671,12 +1695,11 @@ const BillOpsTicketDetailPage: React.FC = () => {
                                   className="absolute left-0 top-0 h-full w-2 -ml-1 cursor-ew-resize rounded-l-lg bg-transparent hover:bg-[rgba(0,0,0,0.15)] z-10"
                                   title="Drag to widen"
                                 />
-                                <textarea
-                                  value={editContent}
-                                  onChange={e => setEditContent(e.target.value)}
-                                  className="w-full rounded-lg border border-[rgba(0,0,0,0.18)] p-2 pl-3 text-sm text-[rgba(0,0,0,0.88)] bg-white resize-y max-h-[60vh] overflow-auto focus:outline-none focus:ring-2 focus:ring-[rgba(0,0,0,0.3)]"
-                                  rows={Math.min(16, Math.max(5, editContent.split('\n').length + 1))}
-                                  autoFocus
+                                <ReplyEditEditor
+                                  initialHtml={reply.message ?? ''}
+                                  onChange={setEditValue}
+                                  onSubmit={() => saveReplyEdit(reply.id, reply.message)}
+                                  onCancel={() => setEditingReplyId(null)}
                                 />
                               </div>
                               <div className="flex gap-2 justify-end">
@@ -1685,17 +1708,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                                   className="text-xs px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 text-white border border-white/30"
                                 >Cancel</button>
                                 <button
-                                  onClick={async () => {
-                                    if (!editContent.trim()) return;
-                                    try {
-                                      const htmlMsg = editContent
-                                        .split('\n')
-                                        .map(line => `<p>${escapeHtml(line) || '<br>'}</p>`)
-                                        .join('');
-                                      await editReply(reply.id, htmlMsg);
-                                      setEditingReplyId(null);
-                                    } catch (err) { globalThis.alert('Failed to edit — ' + (err instanceof Error ? err.message : 'unknown')); }
-                                  }}
+                                  onClick={() => saveReplyEdit(reply.id, reply.message)}
                                   className="text-xs px-3 py-1 rounded-lg bg-white text-[rgba(0,0,0,0.88)] font-semibold hover:bg-[rgba(0,0,0,0.04)]"
                                 >Save</button>
                               </div>

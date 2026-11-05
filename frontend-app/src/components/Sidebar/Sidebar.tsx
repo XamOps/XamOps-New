@@ -15,7 +15,7 @@ import NavItem from './NavItem';
 import NavSection from './NavSection';
 import SubNav from './SubNav';
 import { useTheme } from '../../contexts/ThemeContext';
-import { makeXamTabGate } from '../../constants/xamopsTabs';
+import { useXamTabAccess } from '../../contexts/XamTabAccessContext';
 import { makeBillopsTabGate } from '../../constants/billopsAdminTabs';
 import { XAMSECURE_SIDEBAR_TABS } from '../../constants/xamsecureTabs';
 import { XAMLENS_SIDEBAR_TABS } from '../../constants/xamlensTabs';
@@ -107,35 +107,19 @@ const Sidebar: React.FC = () => {
   const isAdminSubUser = hasAnyRole('ROLE_BILLOPS_ADMIN') && !hasAnyRole('ROLE_BILLOPS_ADMIN_SUB') && billopsProfile !== null && billopsProfile !== undefined && !billopsProfile.isPrimaryUser;
 
   // ── XamOps sidebar module/tab access ──
-  // Fetches the current XamOps user's allowedTabs. Empty/undefined = no restriction (full sidebar);
-  // a non-empty list restricts the sidebar to exactly those tab keys. Applies to both primary
-  // XamOps users (restricted at creation via the BillOps admin manager) and XamOps sub-users.
-  const isXamops = hasAnyRole('ROLE_XAMOPS');
-  const [xamAllowedTabs, setXamAllowedTabs] = useState<string[] | undefined>(undefined);
-  /**
-   * Whether this org holds XamLens (the Matters.ai DSPM add-on), from the same profile request.
-   * Only decides the "Locked" pill: the module is listed either way so its Request access screen stays
-   * reachable.
-   */
-  const [dspmEnabled, setDspmEnabled] = useState(false);
-  useEffect(() => {
-    if (isXamops) {
-      fetch('/api/xamops/team/profile', { credentials: 'include' })
-        .then(r => (r.ok ? r.json() : null))
-        .then(data => {
-          setXamAllowedTabs(data ? (data.allowedTabs || []) : []);
-          setDspmEnabled(Boolean(data?.mattersDspmEnabled));
-        })
-        .catch(() => setXamAllowedTabs([]));
-    }
-  }, [isXamops]);
-  // Optimistic while loading (xamAllowedTabs === undefined → not restricted → show all).
-  const xamGate = makeXamTabGate(isXamops ? xamAllowedTabs : null);
+  // From XamTabAccessContext, which reads /api/xamops/team/profile once for the Sidebar and the URL
+  // guard. Combines the user's own allowedTabs (empty = full sidebar, a list = exactly those tabs)
+  // with the platform-wide rules set in the BillOps admin User Manager → XamOps Page Visibility
+  // (HIDE removes a page for everyone, GRANT adds it for everyone, minus per-user exceptions).
+  // While the first profile request is in flight the XamOps nav renders as a skeleton (below).
+  const { isXamops, loaded: xamAccessLoaded, gate: xamGate, dspmEnabled } = useXamTabAccess();
   const isXamTabAllowed = xamGate.isTabAllowed;
   const isXamModuleAllowed = xamGate.isModuleAllowed;
 
-  // Not before the profile has loaded, or every entitled org would see the pill flash on each page load.
-  const xamLensLocked = isXamops && xamAllowedTabs !== undefined && !dspmEnabled;
+  // Whether this org holds XamLens (the Matters.ai DSPM add-on) only decides the "Locked" pill: the
+  // module is listed either way so its Request access screen stays reachable. Not before the profile
+  // has loaded, or every entitled org would see the pill flash on each page load.
+  const xamLensLocked = isXamops && xamAccessLoaded && !dspmEnabled;
 
   // Dropdown state - only one can be open at a time
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
@@ -338,7 +322,13 @@ const Sidebar: React.FC = () => {
           )}
 
           {/* Standard Cloud Ops / FinOps Sections */}
-          {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
+          {/* Skeleton until the XamOps profile answers: drawing the full nav first and removing hidden
+              pages a moment later made a page hidden for everyone flash on every reload. */}
+          {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_SUPER_ADMIN')) && (isXamops && !xamAccessLoaded ? (
+            [1, 2, 3, 4, 5, 6].map(i => (
+              <div key={i} className={`mx-2 my-0.5 h-[33px] rounded-md animate-pulse ${theme === 'dark' ? 'bg-[rgba(255,255,255,0.06)]' : 'bg-[rgba(0,0,0,0.04)]'}`} />
+            ))
+          ) : (
             <>
               {isXamTabAllowed('account-dashboard') && (
                 <NavItem
@@ -602,7 +592,7 @@ const Sidebar: React.FC = () => {
               </NavSection>
               )}
             </>
-          )}
+          ))}
         </div>
 
         {/* Sidebar Footer */}

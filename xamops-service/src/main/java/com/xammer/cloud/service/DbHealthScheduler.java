@@ -6,6 +6,7 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.DbAgentConfig;
 import com.xammer.cloud.domain.DbAgentDataCache;
 import com.xammer.cloud.domain.DbHealthSnapshot;
+import com.xammer.cloud.config.DbOpsFeatureFlags;
 import com.xammer.cloud.repository.DbAgentConfigRepository;
 import com.xammer.cloud.dto.dbops.AgentDiagnosticDto;
 import com.xammer.cloud.dto.dbops.AgentInstanceMetricsDto;
@@ -34,6 +35,7 @@ public class DbHealthScheduler {
     private final DbAgentDataCacheRepository dbAgentDataCacheRepository;
     private final DbAgentConfigRepository    dbAgentConfigRepository;
     private final ObjectMapper               objectMapper;
+    private final DbOpsFeatureFlags          dbOpsFeatureFlags;
 
     public DbHealthScheduler(CloudAccountRepository cloudAccountRepository,
                              DbOpsCostService dbOpsCostService,
@@ -41,7 +43,8 @@ public class DbHealthScheduler {
                              DbHealthAlertService alertService,
                              DbAgentDataCacheRepository dbAgentDataCacheRepository,
                              DbAgentConfigRepository dbAgentConfigRepository,
-                             ObjectMapper objectMapper) {
+                             ObjectMapper objectMapper,
+                             DbOpsFeatureFlags dbOpsFeatureFlags) {
         this.cloudAccountRepository  = cloudAccountRepository;
         this.dbOpsCostService        = dbOpsCostService;
         this.scoringService          = scoringService;
@@ -49,10 +52,16 @@ public class DbHealthScheduler {
         this.dbAgentDataCacheRepository = dbAgentDataCacheRepository;
         this.dbAgentConfigRepository    = dbAgentConfigRepository;
         this.objectMapper            = objectMapper;
+        this.dbOpsFeatureFlags       = dbOpsFeatureFlags;
     }
 
     @Scheduled(fixedRate = 600_000)
     public void runHealthCycle() {
+        // Phase 1a: the health feature is hidden end to end while disabled, so skip the cycle
+        // rather than spend API calls scoring data no one can see.
+        if (!dbOpsFeatureFlags.isHealthEnabled()) {
+            return;
+        }
         List<CloudAccount> accounts = cloudAccountRepository.findAll();
         logger.info("DbHealthScheduler: cycle starting for {} accounts", accounts.size());
         for (CloudAccount account : accounts) {

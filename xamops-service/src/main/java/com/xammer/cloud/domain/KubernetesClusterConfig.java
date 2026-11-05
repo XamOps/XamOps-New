@@ -1,6 +1,7 @@
 package com.xammer.cloud.domain;
 
 import jakarta.persistence.*;
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Entity
@@ -59,6 +60,70 @@ public class KubernetesClusterConfig {
 
     @Column(name = "cluster_type_detected_at")
     private LocalDateTime clusterTypeDetectedAt;
+
+    // ===== CloudK8s onboarding fields (design §2.1; all additive, nullable) =====
+    @Column(name = "agent_key_issued_at")
+    private Instant agentKeyIssuedAt;
+
+    @Column(name = "agent_key_last_used_at")
+    private Instant agentKeyLastUsedAt;
+
+    @Column(name = "last_agent_key_scope", length = 16)
+    private String lastAgentKeyScope; // CLUSTER | ACCOUNT | LEGACY_GLOBAL
+
+    @Column(name = "automation_agent_api_key", length = 64)
+    private String automationAgentApiKey;
+
+    @Column(name = "automation_key_issued_at")
+    private Instant automationKeyIssuedAt;
+
+    @Column(name = "automation_key_last_used_at")
+    private Instant automationKeyLastUsedAt;
+
+    @Column(name = "last_exchange_at")
+    private Instant lastExchangeAt;
+
+    @Column(name = "identity_mode", length = 16)
+    private String identityMode; // POD_IDENTITY | IRSA | NONE
+
+    @Column(name = "iam_stack_name", length = 128)
+    private String iamStackName;
+
+    @Column(name = "read_role_arn", length = 512)
+    private String readRoleArn;
+
+    @Column(name = "write_role_arn", length = 512)
+    private String writeRoleArn;
+
+    @Column(name = "node_scaler", length = 24)
+    private String nodeScaler; // KARPENTER | CLUSTER_AUTOSCALER | BOTH | NONE | EKS_AUTO_MODE | UNKNOWN
+
+    @Column(name = "node_scaler_detected_at")
+    private Instant nodeScalerDetectedAt;
+
+    @Column(name = "onboarding_features", length = 255)
+    private String onboardingFeatures; // comma list of FeatureId
+
+    @Column(name = "automation_consent_at")
+    private Instant automationConsentAt;
+
+    @Column(name = "automation_consent_by")
+    private Long automationConsentBy; // users.id, no FK
+
+    @Column(name = "automation_permission_hash", length = 64)
+    private String automationPermissionHash;
+
+    @Column(name = "automation_verified_at")
+    private Instant automationVerifiedAt;
+
+    @Column(name = "automation_identity_arn", length = 512)
+    private String automationIdentityArn;
+
+    @Column(name = "automation_identity_seen_at")
+    private Instant automationIdentitySeenAt;
+
+    @Column(name = "automation_disabled_at")
+    private Instant automationDisabledAt;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
@@ -230,6 +295,70 @@ public class KubernetesClusterConfig {
     public void setClusterTypeDetectedAt(LocalDateTime clusterTypeDetectedAt) {
         this.clusterTypeDetectedAt = clusterTypeDetectedAt;
     }
+
+    // ===== CloudK8s onboarding getters/setters =====
+    public Instant getAgentKeyIssuedAt() { return agentKeyIssuedAt; }
+    public void setAgentKeyIssuedAt(Instant agentKeyIssuedAt) { this.agentKeyIssuedAt = agentKeyIssuedAt; }
+
+    public Instant getAgentKeyLastUsedAt() { return agentKeyLastUsedAt; }
+    public void setAgentKeyLastUsedAt(Instant agentKeyLastUsedAt) { this.agentKeyLastUsedAt = agentKeyLastUsedAt; }
+
+    public String getLastAgentKeyScope() { return lastAgentKeyScope; }
+    public void setLastAgentKeyScope(String lastAgentKeyScope) { this.lastAgentKeyScope = lastAgentKeyScope; }
+
+    public String getAutomationAgentApiKey() { return automationAgentApiKey; }
+    public void setAutomationAgentApiKey(String automationAgentApiKey) { this.automationAgentApiKey = automationAgentApiKey; }
+
+    public Instant getAutomationKeyIssuedAt() { return automationKeyIssuedAt; }
+    public void setAutomationKeyIssuedAt(Instant automationKeyIssuedAt) { this.automationKeyIssuedAt = automationKeyIssuedAt; }
+
+    public Instant getAutomationKeyLastUsedAt() { return automationKeyLastUsedAt; }
+    public void setAutomationKeyLastUsedAt(Instant automationKeyLastUsedAt) { this.automationKeyLastUsedAt = automationKeyLastUsedAt; }
+
+    public Instant getLastExchangeAt() { return lastExchangeAt; }
+    public void setLastExchangeAt(Instant lastExchangeAt) { this.lastExchangeAt = lastExchangeAt; }
+
+    public String getIdentityMode() { return identityMode; }
+    public void setIdentityMode(String identityMode) { this.identityMode = identityMode; }
+
+    public String getIamStackName() { return iamStackName; }
+    public void setIamStackName(String iamStackName) { this.iamStackName = iamStackName; }
+
+    public String getReadRoleArn() { return readRoleArn; }
+    public void setReadRoleArn(String readRoleArn) { this.readRoleArn = readRoleArn; }
+
+    public String getWriteRoleArn() { return writeRoleArn; }
+    public void setWriteRoleArn(String writeRoleArn) { this.writeRoleArn = writeRoleArn; }
+
+    public String getNodeScaler() { return nodeScaler; }
+    public void setNodeScaler(String nodeScaler) { this.nodeScaler = nodeScaler; }
+
+    public Instant getNodeScalerDetectedAt() { return nodeScalerDetectedAt; }
+    public void setNodeScalerDetectedAt(Instant nodeScalerDetectedAt) { this.nodeScalerDetectedAt = nodeScalerDetectedAt; }
+
+    public String getOnboardingFeatures() { return onboardingFeatures; }
+    public void setOnboardingFeatures(String onboardingFeatures) { this.onboardingFeatures = onboardingFeatures; }
+
+    public Instant getAutomationConsentAt() { return automationConsentAt; }
+    public void setAutomationConsentAt(Instant automationConsentAt) { this.automationConsentAt = automationConsentAt; }
+
+    public Long getAutomationConsentBy() { return automationConsentBy; }
+    public void setAutomationConsentBy(Long automationConsentBy) { this.automationConsentBy = automationConsentBy; }
+
+    public String getAutomationPermissionHash() { return automationPermissionHash; }
+    public void setAutomationPermissionHash(String automationPermissionHash) { this.automationPermissionHash = automationPermissionHash; }
+
+    public Instant getAutomationVerifiedAt() { return automationVerifiedAt; }
+    public void setAutomationVerifiedAt(Instant automationVerifiedAt) { this.automationVerifiedAt = automationVerifiedAt; }
+
+    public String getAutomationIdentityArn() { return automationIdentityArn; }
+    public void setAutomationIdentityArn(String automationIdentityArn) { this.automationIdentityArn = automationIdentityArn; }
+
+    public Instant getAutomationIdentitySeenAt() { return automationIdentitySeenAt; }
+    public void setAutomationIdentitySeenAt(Instant automationIdentitySeenAt) { this.automationIdentitySeenAt = automationIdentitySeenAt; }
+
+    public Instant getAutomationDisabledAt() { return automationDisabledAt; }
+    public void setAutomationDisabledAt(Instant automationDisabledAt) { this.automationDisabledAt = automationDisabledAt; }
 
     /**
      * Check if cluster uses agent-based data collection

@@ -102,6 +102,29 @@ const deleteHeader = (headers: HeadersInit, key: string): HeadersInit => {
 };
 
 /**
+ * The AutoSpotting API prefixes that the backend CSRF/origin filter gates (design-core.md §11,
+ * DR-30). A non-GET to any of these must send X-XamOps-Intent: autospotting. Kept in sync with the
+ * filter's prefix list in SecurityConfig.
+ */
+const AUTOSPOTTING_PREFIXES = [
+  '/api/autospotting/v2/',
+  '/api/xamops/autospotting-admin/',
+  '/api/xamops/billops-admin/autospotting/',
+  '/api/autospotting/',
+  '/api/gcp/autospotting/',
+];
+
+/** True when the request path (ignoring any origin) is under an AutoSpotting prefix. */
+const isAutoSpottingPath = (url: string): boolean => {
+  let path = url;
+  const originMatch = /^https?:\/\/[^/]+/.exec(url);
+  if (originMatch) {
+    path = url.slice(originMatch[0].length);
+  }
+  return AUTOSPOTTING_PREFIXES.some(prefix => path.startsWith(prefix));
+};
+
+/**
  * Enhanced fetch with automatic header injection
  * Mimics the exact behavior of the original fetch interceptor
  */
@@ -201,6 +224,15 @@ export const apiFetch = async (url: string | URL, options: FetchOptions = {}): P
     headers = addHeader(headers, 'X-XSRF-TOKEN', csrfToken);
     headers = addHeader(headers, 'X-Tenant-ID', tenantId);
     headers = addHeader(headers, 'X-Impersonate-User', impersonateId);
+
+    // AutoSpotting CSRF/origin filter (design-core.md §11): every non-GET to an AutoSpotting
+    // prefix must carry X-XamOps-Intent: autospotting, or the filter returns 403
+    // CSRF_HEADER_REQUIRED. Scoped to the AutoSpotting prefixes so other features are untouched,
+    // and it keeps the legacy pages and the Phase 02 admin page working.
+    const method = (options.method || 'GET').toUpperCase();
+    if (method !== 'GET' && isAutoSpottingPath(urlStr)) {
+      headers = addHeader(headers, 'X-XamOps-Intent', 'autospotting');
+    }
 
     // SPECIAL CASE: Remove tenant ID for superadmin endpoints
     if (urlStr.includes('/api/xamops/superadmin/tenants')) {

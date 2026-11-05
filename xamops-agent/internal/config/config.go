@@ -13,6 +13,7 @@ type Config struct {
 	APIKey         string
 	ClusterName    string
 	CloudAccountID string
+	Region         string // AWS region for the cloud-nodegroups collector (optional)
 
 	// Collection settings
 	CollectInterval   int // seconds
@@ -35,6 +36,7 @@ type Config struct {
 	CollectorDisk              bool // disk usage collector (opt-in, for EBS/GCP disk rightsizing)
 	CollectorSreWatcher        bool // auto-detect pod anomalies and trigger SRE investigations (opt-in)
 	CollectorLogWatcher        bool // stream logs to OpenObserve + inline anomaly detection (opt-in)
+	CollectorCloudNodegroups   bool // EKS nodegroup scaling via eks:ListNodegroups/DescribeNodegroup (opt-in; read role)
 	LogWatcherInterval         int  // seconds between log collection runs (default 60)
 	LogWatcherBatchSize        int  // max log records per OpenObserve ingest call (default 500)
 
@@ -55,6 +57,17 @@ type Config struct {
 	DBDSNs          []string
 	DBQueryLimit    int // max queries to collect per DB instance (default 50)
 	DBCollectInterval int // seconds between DB query stat collections (default 300)
+	// PERF-7: per-collector deadline so one DB collector stalled on an ACCESS EXCLUSIVE lock cannot
+	// burn the whole cycle budget and zero the collectors that run after it (default 30s).
+	DBCollectorTimeoutSeconds int
+	// Phase 2 console: the governance catalog collectors (db-access-grants, db-fk-graph) are
+	// hourly, not per-cycle — they read the whole role/FK catalog, so the Manager gates them to
+	// this cadence and serves the last cached batch between runs (default 3600s).
+	DBCatalogCollectInterval int
+	// Phase 2 console: a single collector-side threshold (seconds) that bounds which sessions the
+	// lock-waits collector emits as long-running/idle-in-transaction; the health service classifies
+	// severity from the same value so the two can never disagree (LOW-5b, default 60s).
+	DBLongXactSecs int
 
 	// OpenCost settings
 	OpenCostServiceURL string
@@ -79,6 +92,7 @@ func Load() (*Config, error) {
 		APIKey:         getEnvRequired("XAMOPS_API_KEY"),
 		ClusterName:    getEnvRequired("CLUSTER_NAME"),
 		CloudAccountID: getEnvRequired("CLOUD_ACCOUNT_ID"),
+		Region:         getEnv("AWS_REGION", ""),
 
 		// Intervals
 		CollectInterval:   getEnvInt("COLLECT_INTERVAL", 300),
@@ -101,6 +115,7 @@ func Load() (*Config, error) {
 		CollectorDisk:              getEnvBool("COLLECTOR_DISK", false),               // opt-in
 		CollectorSreWatcher:        getEnvBool("COLLECTOR_SRE_WATCHER", false),        // opt-in
 		CollectorLogWatcher:        getEnvBool("COLLECTOR_LOG_WATCHER", false),        // opt-in
+		CollectorCloudNodegroups:   getEnvBool("COLLECTOR_CLOUD_NODEGROUPS", false),   // opt-in; set when a read role exists
 		LogWatcherInterval:         getEnvInt("LOG_WATCHER_INTERVAL", 60),
 		LogWatcherBatchSize:        getEnvInt("LOG_WATCHER_BATCH_SIZE", 500),
 
@@ -115,6 +130,9 @@ func Load() (*Config, error) {
 		DBDSNs:            getEnvDSNs(),
 		DBQueryLimit:      getEnvInt("DB_QUERY_LIMIT", 50),
 		DBCollectInterval: getEnvInt("DB_COLLECT_INTERVAL", 300),
+		DBCollectorTimeoutSeconds: getEnvInt("DB_COLLECTOR_TIMEOUT_SECONDS", 30),
+		DBCatalogCollectInterval:  getEnvInt("DB_CATALOG_COLLECT_INTERVAL", 3600),
+		DBLongXactSecs:            getEnvInt("DB_LONGXACT_SECS", 60),
 
 		// OpenCost
 		OpenCostServiceURL: getEnv("OPENCOST_SERVICE_URL", "http://opencost.opencost.svc.cluster.local:9003"),

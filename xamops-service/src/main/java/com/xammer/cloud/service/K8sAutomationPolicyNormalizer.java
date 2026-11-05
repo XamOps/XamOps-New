@@ -78,7 +78,23 @@ public class K8sAutomationPolicyNormalizer {
 
     /** The section a write endpoint replaces. */
     public enum Section {
-        SCALE_OUT, EVICTOR, WORKLOAD_RIGHTSIZER, SAFETY_GUARDS, NODE_OPTIMIZER, REBALANCER, CONSOLIDATION, MODE
+        SCALE_OUT, EVICTOR, WORKLOAD_RIGHTSIZER, SAFETY_GUARDS, NODE_OPTIMIZER, REBALANCER, CONSOLIDATION,
+        VPA_MANAGER, MODE
+    }
+
+    /**
+     * The VPA manager update-mode string sets. MUST stay byte-identical to the Go agent's
+     * {@code gate.isActingUpdateMode} acting set and the {@code policy.VPAManagerPolicy.UpdateMode}
+     * enum (design §6.2). {@code vpaActingUpdateModeSetMatchesGo} pins the parity so a one-sided edit
+     * fails the build.
+     */
+    private static final Set<String> VALID_UPDATE_MODES =
+            Set.of("Off", "Initial", "Recreate", "Auto", "InPlaceOrRecreate");
+    private static final Set<String> ACTING_UPDATE_MODES =
+            Set.of("Recreate", "Auto", "InPlaceOrRecreate");
+
+    private static boolean isActingUpdateMode(String mode) {
+        return mode != null && ACTING_UPDATE_MODES.contains(mode);
     }
 
     /**
@@ -263,6 +279,7 @@ public class K8sAutomationPolicyNormalizer {
             case SAFETY_GUARDS -> validateSafetyGuards(cast(body, SafetyGuardsDto.class));
             case REBALANCER -> validateRebalancer(cast(body, RebalancerConfigDto.class));
             case CONSOLIDATION -> validateConsolidation(cast(body, ConsolidationPolicyDto.class));
+            case VPA_MANAGER -> validateVpaManager(cast(body, VpaManagerPolicyDto.class));
             case MODE -> {
                 if (!(body instanceof String mode) || !MODES.contains(mode)) {
                     throw K8sAutomationRefusedException.of(K8sAutomationReason.INVALID_POLICY,
@@ -318,6 +335,8 @@ public class K8sAutomationPolicyNormalizer {
             }
             case CONSOLIDATION -> next.setConsolidationPolicy(
                     copy(cast(body, ConsolidationPolicyDto.class), ConsolidationPolicyDto.class));
+            case VPA_MANAGER -> next.setVpaManagerPolicy(
+                    copy(cast(body, VpaManagerPolicyDto.class), VpaManagerPolicyDto.class));
             case MODE -> next.setAutoscalerMode(cast(body, String.class));
         }
         return next;
@@ -428,6 +447,17 @@ public class K8sAutomationPolicyNormalizer {
         range("consolidateAfterSeconds", "Consolidate-after delay", p.getConsolidateAfterSeconds(), 60, 86400);
         range("maxConcurrentDisruptions", "Max concurrent disruptions", p.getMaxConcurrentDisruptions(), 1, 10);
         range("dwellSeconds", "Dwell", p.getDwellSeconds(), 60, 86400);
+    }
+
+    private void validateVpaManager(VpaManagerPolicyDto p) {
+        if (p.getUpdateMode() != null && !VALID_UPDATE_MODES.contains(p.getUpdateMode())) {
+            throw K8sAutomationRefusedException.of(K8sAutomationReason.INVALID_POLICY,
+                    "updateMode must be one of: Off, Initial, Recreate, Auto, InPlaceOrRecreate.", "updateMode");
+        }
+        boolean acting = p.isEnabled() && !p.isAnalyseOnly() && isActingUpdateMode(p.getUpdateMode());
+        if (acting) {
+            requireReady(K8sReadinessKey.VPA_APPLY, "enabled");
+        }
     }
 
     private void requireReady(K8sReadinessKey key, String field) {

@@ -113,6 +113,55 @@ jobs:
           fi
           echo "ok  installer shows no dropper patterns"
 
+      - name: Automation RBAC and NetworkPolicy served by the installer match the autoscaler manifest
+        run: |
+          # The phase-2 installer substitutes two markers (__AUTOMATION_RBAC__, __AUTOMATION_NETPOL__)
+          # with these served resource files. They must stay byte-exact slices of the single source
+          # of truth (xamops-autoscaler-complete.yaml) so a served script never installs RBAC or a
+          # NetworkPolicy that has drifted from what the autoscaler actually needs.
+          set -e
+          M=xamops-autoscaler/manifests/xamops-autoscaler-complete.yaml
+          RBAC=xamops-service/src/main/resources/agent-install/automation-rbac.yaml
+          NETPOL=xamops-service/src/main/resources/agent-install/automation-netpol.yaml
+          FAILED=0
+
+          # Every non-comment, non-blank line of a served copy must appear verbatim in the manifest.
+          check_subset() {
+            local served="$1" name="$2" missing
+            missing=$(grep -vE '^[[:space:]]*(#|$)' "$served" | while IFS= read -r line; do
+              grep -qF -- "$line" "$M" || printf '%s\n' "$line"
+            done)
+            if [ -n "$missing" ]; then
+              echo "::error file=$served::$name has lines not present in $M (drifted from the autoscaler manifest):"
+              printf '%s\n' "$missing" | sed 's/^/    /'
+              FAILED=1
+            else
+              echo "ok  $name matches the autoscaler manifest"
+            fi
+          }
+          check_subset "$RBAC" "automation-rbac.yaml"
+          check_subset "$NETPOL" "automation-netpol.yaml"
+
+          # The Pod Identity egress rule (169.254.170.23/32 + fd00:ec2::23/128 on port 80) must be in
+          # both the manifest and the served NetworkPolicy, or Pod Identity credentials are blocked.
+          for f in "$M" "$NETPOL"; do
+            if ! grep -qF '169.254.170.23/32' "$f" || ! grep -qF 'fd00:ec2::23/128' "$f"; then
+              echo "::error file=$f::missing the EKS Pod Identity egress rule (169.254.170.23/32 + fd00:ec2::23/128)"
+              FAILED=1
+            fi
+          done
+          [ "$FAILED" -eq 0 ] && echo "ok  Pod Identity egress rule present"
+
+          # The env layer of the four-layer consolidation safety gate must be auditable and OFF.
+          if ! grep -qE '^[[:space:]]*ENABLE_CONSOLIDATION:[[:space:]]*"false"' "$M"; then
+            echo "::error file=$M::ENABLE_CONSOLIDATION must be declared explicitly and set to \"false\""
+            FAILED=1
+          else
+            echo "ok  ENABLE_CONSOLIDATION is present and \"false\""
+          fi
+
+          exit $FAILED
+
       - name: Lint the installer script
         run: |
           # The installer is what customers actually run, so a shell bug in it is worse than a

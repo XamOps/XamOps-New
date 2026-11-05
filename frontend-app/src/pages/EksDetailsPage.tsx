@@ -9,10 +9,13 @@
  * chunk inside Suspense and an ErrorBoundary, so a section that fails leaves the rest of the page
  * working.
  */
-import React, { Fragment, Suspense, lazy, useCallback, useState } from 'react';
+import React, { Fragment, Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '@iconify/react';
-import { Navigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useAccounts } from '../contexts/AccountContext';
+import { writeLastCluster } from '../utils/k8sLastCluster';
 import { useEksDashboard } from '../hooks/useEksDashboard';
 import { useEksSectionRoute } from '../hooks/useEksSectionRoute';
 import { useK8sCacheIdentity } from '../hooks/useK8sCacheIdentity';
@@ -23,6 +26,7 @@ import { resolveClusterVersion } from '../utils/k8sVersion';
 import { parseClusterLink, type ClusterLink } from '../utils/k8sClusterLink';
 import ErrorBoundary from '../components/Shared/ErrorBoundary';
 import SessionExpiredOverlay from '../components/Shared/SessionExpiredOverlay';
+import { AutomationControlBar } from '../components/EksDetails/AutomationControlBar';
 import { ClusterHeader } from '../components/EksDetails/ClusterHeader';
 import { ClusterStatusStrip } from '../components/EksDetails/ClusterStatusStrip';
 import EksDiagnosticsPanel from '../components/EksDetails/EksDiagnosticsPanel';
@@ -153,9 +157,95 @@ function SectionPanel({ tab, ...props }: EksSectionProps & { tab: EksSectionId }
   );
 }
 
+/**
+ * Remembers the cluster this page is showing, so the CloudK8s resolver reopens it (design §3.1).
+ * ALWAYS keyed by `link.accountId` — the account the cluster BELONGS to — never the selected account,
+ * which may differ mid-switch. Writes on the cluster the link names (deep-link or switch), and skips
+ * nothing: a valid link always records.
+ */
+function useRememberLastCluster(link: ClusterLink): void {
+  const { userProfile } = useAuth();
+  const email = userProfile?.email ?? null;
+  const { clusterName, accountId, region } = link;
+  useEffect(() => {
+    writeLastCluster(email, accountId, { name: clusterName, region });
+  }, [email, accountId, clusterName, region]);
+}
+
+/**
+ * One net navigation to the CloudK8s resolver when the selected account genuinely changes away from
+ * the cluster this page is showing (design §3.1; review Finding 2).
+ *
+ * Fires `navigate('/cloudk8s', { replace: true })` only on a POST-MOUNT transition between two
+ * differing, non-null selections where the new selection differs from `link.accountId` — never on the
+ * initial value and never on a null→value transition. Both the `selectedAccountIds` change and a
+ * post-mount `account-changed` event are watched, but a single resolution ref guarantees exactly one
+ * net navigation per switch.
+ *
+ * It runs on a microtask AFTER the triggering selection settles and only navigates when the page is
+ * still on `/eks-details` for the OLD account: `AccountContext.applySelection` already soft-navigates
+ * away from `/eks-details` (to the provider dashboard) on a same-page switch, so if it has already
+ * moved us we add no second navigation.
+ */
+function useAccountSwitchReconciler(link: ClusterLink): void {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { selectedAccountIds } = useAccounts();
+  const selected = selectedAccountIds[0] ?? null;
+  const linkAccountId = link.accountId;
+
+  // The latest selection, so the event path reads a fresh value rather than a stale closure.
+  const selectedRef = useRef<string | null>(selected);
+  selectedRef.current = selected;
+  // The router's current path (never window.location, which MemoryRouter and SSR don't update).
+  const pathnameRef = useRef(location.pathname);
+  pathnameRef.current = location.pathname;
+  // The selection we last reconciled against; seeded so the initial value never navigates.
+  const prevSelectedRef = useRef<string | null>(selected);
+  // One navigation per switch, whichever trigger (state change or event) arrives first.
+  const reconciledRef = useRef(false);
+
+  // A single decision, shared by both triggers: navigate once on a genuine switch from `from` to a
+  // non-null selection that differs from this cluster's account, and only while we're still on
+  // /eks-details (AccountContext may have already soft-navigated us off it — review Finding 2).
+  const reconcile = useCallback((from: string | null) => {
+    if (reconciledRef.current) return;
+    const current = selectedRef.current;
+    if (!from || !current || from === current || current === linkAccountId) return;
+    if (pathnameRef.current !== '/eks-details') return;
+    reconciledRef.current = true;
+    navigate('/cloudk8s', { replace: true });
+  }, [linkAccountId, navigate]);
+
+  // React to the selection value changing (sidebar apply, URL sync, popstate): remember the new value
+  // and reconcile against the OLD one once it has settled (a microtask after this commit).
+  useEffect(() => {
+    const prev = prevSelectedRef.current;
+    if (prev !== selected && selected) {
+      // reconcile() ignores a null `from` (the initial / null -> value case), so we only ever
+      // navigate on a genuine value -> different-value switch.
+      prevSelectedRef.current = selected;
+      queueMicrotask(() => reconcile(prev));
+    }
+  }, [selected, reconcile]);
+
+  // React to a soft 'account-changed' broadcast meeting the same condition, against the last value we
+  // reconciled from.
+  useEffect(() => {
+    const onAccountChanged = () => {
+      const from = prevSelectedRef.current;
+      queueMicrotask(() => reconcile(from));
+    };
+    globalThis.addEventListener('account-changed', onAccountChanged);
+    return () => globalThis.removeEventListener('account-changed', onAccountChanged);
+  }, [reconcile]);
+}
+
 function ClusterPage({ link, debug }: { link: ClusterLink; debug: boolean }) {
   const { clusterName, accountId, region, version } = link;
   useK8sCacheIdentity();
+  useRememberLastCluster(link);
+  useAccountSwitchReconciler(link);
   // The sidebar's "View only" marker reads this page's capabilities (Addendum 1, A4).
   usePublishClusterNavAccess(clusterName, accountId);
   const eksData = useEksDashboard({ clusterName, accountId, region, version });
@@ -207,6 +297,14 @@ function ClusterPage({ link, debug }: { link: ClusterLink; debug: boolean }) {
           onOpenGuide={openGuide}
         />
 
+        {/* Depends only on capabilities, not the dashboard fetch, so it renders during the skeleton too. */}
+        <AutomationControlBar
+          clusterName={clusterName}
+          accountId={accountId}
+          workloadsHref={route.hrefFor('automation', 'workload-autoscaler')}
+          nodeAutoscalerHref={route.hrefFor('automation', 'node-autoscaler')}
+        />
+
         {loading && !dashboard && <PageSkeleton />}
 
         {/* The status strip (§4.2, D10) replaces the old summary cards; when the dashboard failed it
@@ -253,9 +351,15 @@ const EksDetailsPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const link = parseClusterLink(searchParams, isDemoMode());
   if (!link) return <Navigate to="/cloudk8s" replace state={{ notice: INVALID_LINK_NOTICE }} />;
+  // The capabilities provider stays mounted per account, while a cluster (or region) change remounts
+  // the ClusterPage subtree so no per-cluster hook keeps the previous cluster's data (design §3.1).
   return (
     <K8sCapabilitiesProvider accountId={link.accountId} provider="AWS">
-      <ClusterPage link={link} debug={searchParams.get('debug') === 'true'} />
+      <ClusterPage
+        key={`${link.accountId}|${link.region}|${link.clusterName}`}
+        link={link}
+        debug={searchParams.get('debug') === 'true'}
+      />
     </K8sCapabilitiesProvider>
   );
 };

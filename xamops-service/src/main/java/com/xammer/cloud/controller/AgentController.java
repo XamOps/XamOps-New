@@ -11,6 +11,7 @@ import com.xammer.cloud.dto.agent.AgentIngestResponse;
 import com.xammer.cloud.dto.agent.AgentPrincipal;
 import com.xammer.cloud.dto.autoscaling.AutomationPolicyBundle;
 import com.xammer.cloud.dto.sre.TriggerInvestigationRequest;
+import com.xammer.cloud.config.DbOpsFeatureFlags;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.K8sAutomationAccessService;
 import com.xammer.cloud.repository.AgentDataCacheRepository;
@@ -91,6 +92,7 @@ public class AgentController {
     private final AgentApiKeyService agentApiKeyService;
     private final K8sAutomationPolicyNormalizer policyNormalizer;
     private final K8sAutomationAccessService automationAccessService;
+    private final DbOpsFeatureFlags dbOpsFeatureFlags;
 
     public AgentController(
             AgentIngestService agentIngestService,
@@ -105,7 +107,8 @@ public class AgentController {
             ExplainRequestRepository explainRequestRepository,
             AgentApiKeyService agentApiKeyService,
             K8sAutomationPolicyNormalizer policyNormalizer,
-            K8sAutomationAccessService automationAccessService) {
+            K8sAutomationAccessService automationAccessService,
+            DbOpsFeatureFlags dbOpsFeatureFlags) {
         this.agentApiKeyService = agentApiKeyService;
         this.policyNormalizer = policyNormalizer;
         this.automationAccessService = automationAccessService;
@@ -119,6 +122,7 @@ public class AgentController {
         this.sreInvestigationService = sreInvestigationService;
         this.openObserveService = openObserveService;
         this.explainRequestRepository = explainRequestRepository;
+        this.dbOpsFeatureFlags = dbOpsFeatureFlags;
     }
 
     /**
@@ -197,12 +201,20 @@ public class AgentController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(AgentIngestResponse.error(denied));
         }
 
-        // 3a. Handle disk-usage batches — store in Redis keyed by instanceId, no cluster config needed
+        // 3a. Handle disk-usage batches — store in Redis keyed by instanceId, no cluster config needed.
+        // COR-14: a mixed payload may carry db-*/sre-alerts/cluster batches alongside disk-usage.
+        // Handle the disk batches here, but only short-circuit when the payload is disk-ONLY; otherwise
+        // fall through so the remaining batches still persist. handleDiskAgentPush already skips
+        // non-disk batches and the DB path keys cache rows by collector, so nothing is double-handled.
         boolean isDiskPush = payload.getBatches() != null && payload.getBatches().stream()
                 .anyMatch(b -> "disk-usage".equals(b.getCollector()));
         if (isDiskPush) {
             handleDiskAgentPush(payload);
-            return ResponseEntity.ok(AgentIngestResponse.success());
+            boolean diskOnly = payload.getBatches().stream()
+                    .noneMatch(b -> !"disk-usage".equals(b.getCollector()));
+            if (diskOnly) {
+                return ResponseEntity.ok(AgentIngestResponse.success());
+            }
         }
 
         // 3b-sre. Handle sre-alerts batches — auto-trigger investigations for detected anomalies
@@ -257,56 +269,10 @@ public class AgentController {
         return ResponseEntity.ok(response);
     }
 
-    /**
-     * Register a DB agent before deployment (called by the DbOps wizard).
-     * Idempotent — safe to call multiple times.
-     *
-     * POST /api/v1/agent/db/register
-     * Authorization: Bearer <global_api_key>
-     * Body: { "agentName": "my-rds-agent", "cloudAccountId": "015764906357" }
-     */
-    @PostMapping("/db/register")
-    public ResponseEntity<Map<String, Object>> registerDbAgent(
-            @RequestBody Map<String, String> body) {
-
-        String agentName = body.get("agentName");
-        String cloudAccountId = body.get("cloudAccountId");
-
-        if (agentName == null || agentName.isEmpty() || cloudAccountId == null || cloudAccountId.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(Map.of("error", "agentName and cloudAccountId are required"));
-        }
-
-        DbAgentConfig cfg = dbAgentService.registerDbAgent(cloudAccountId, agentName);
-        if (cfg == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Cloud account not found. Add account to XamOps first."));
-        }
-
-        return ResponseEntity.ok(Map.of(
-                "success", true,
-                "agentId", cfg.getId(),
-                "agentName", cfg.getAgentName(),
-                "status", cfg.getStatus()
-        ));
-    }
-
-    /**
-     * DELETE /api/v1/agent/db/register?agentName=xxx&cloudAccountId=xxx
-     * Deregisters a DB agent and deletes all its cached data.
-     */
-    @DeleteMapping("/db/register")
-    public ResponseEntity<Map<String, Object>> deleteDbAgent(
-            @RequestParam String agentName,
-            @RequestParam String cloudAccountId) {
-
-        boolean deleted = dbAgentService.deleteDbAgent(cloudAccountId, agentName);
-        if (!deleted) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Agent not found"));
-        }
-        return ResponseEntity.ok(Map.of("success", true));
-    }
+    // SEC-4: the browser-facing DB-agent wizard handlers (POST/DELETE /db/register,
+    // POST/GET /db/config, GET /db/status) moved off this unauthenticated /api/v1/agent/**
+    // path to the session-authenticated, entitlement-guarded DbAgentSetupController under
+    // /api/xamops/db-agent/**. Only the key-authenticated machine endpoints remain here.
 
     /**
      * Heartbeat endpoint - agent check-in without data.
@@ -381,6 +347,15 @@ public class AgentController {
         clusterConfig.setLastAgentCheckin(LocalDateTime.now());
         if (agentVersion != null) clusterConfig.setAgentVersion(agentVersion);
         clusterConfig.setAgentStatus("active");
+        // BP-3 (design §4.3): record which key authenticated and stamp its last-used time,
+        // throttled to one write per 5 min so a per-second heartbeat does not thrash the row.
+        applyKeyUsage(clusterConfig, principal, agentVersion);
+        // BP-9 (design §3.4): on every automation-agent heartbeat, record the identity — the key's
+        // account + role prove who it is; stamp automation_identity_seen_at and cache the ARN the
+        // body carries (if any). This is what makes K8sAutomationAccessService.clusterAutomationVerified
+        // fresh, so the per-cluster READ_ONLY_CONNECTION relaxation only ever follows a real, recent
+        // identity. Nothing here acts on the cluster.
+        applyAutomationIdentity(clusterConfig, principal, agentVersion, body);
         clusterConfigRepository.save(clusterConfig);
 
         AgentEvent event = new AgentEvent(clusterConfig.getId(), "checkin");
@@ -401,13 +376,25 @@ public class AgentController {
      * GET /api/v1/agent/status/{clusterConfigId}
      */
     @GetMapping("/status/{clusterConfigId}")
-    public ResponseEntity<Map<String, Object>> getAgentStatus(@PathVariable Long clusterConfigId) {
+    public ResponseEntity<Map<String, Object>> getAgentStatus(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @PathVariable Long clusterConfigId,
+            HttpServletRequest request) {
         Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository.findById(clusterConfigId);
         if (configOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
 
         KubernetesClusterConfig config = configOpt.get();
+
+        // FR-10.2 / F-25: this endpoint exposes agent telemetry (incl. agentIp via events), so it
+        // requires an agent key whose principal owns the cluster. 401 when unauthenticated, 403
+        // when authenticated but not entitled.
+        ResponseEntity<Map<String, Object>> denied = requireOwningAgent(authHeader, config, request);
+        if (denied != null) {
+            return denied;
+        }
+
         Map<String, Object> status = new HashMap<>();
 
         status.put("clusterName", config.getClusterName());
@@ -418,7 +405,7 @@ public class AgentController {
         status.put("dataSourceMode", config.getDataSourceMode());
 
         // Get data counts
-        List<AgentDataCache> cachedData = agentDataCacheRepository.findByClusterConfigId(clusterConfigId);
+        List<AgentDataCache> cachedData = agentDataCacheRepository.findByClusterConfigId(config.getId());
         Map<String, Object> dataCounts = new HashMap<>();
         for (AgentDataCache cache : cachedData) {
             dataCounts.put(cache.getDataType(), Map.of(
@@ -430,12 +417,12 @@ public class AgentController {
 
         // Get recent events
         List<AgentEvent> recentEvents = agentEventRepository.findRecentEvents(
-                clusterConfigId, LocalDateTime.now().minusHours(24));
+                config.getId(), LocalDateTime.now().minusHours(24));
         status.put("recentEventsCount", recentEvents.size());
 
         // Get last successful push
         List<AgentEvent> lastPush = agentEventRepository.findLastSuccessfulPush(
-                clusterConfigId, PageRequest.of(0, 1));
+                config.getId(), PageRequest.of(0, 1));
         if (!lastPush.isEmpty()) {
             status.put("lastSuccessfulPush", lastPush.get(0).getCreatedAt());
             status.put("lastPushItemCount", lastPush.get(0).getItemsReceived());
@@ -451,13 +438,24 @@ public class AgentController {
      */
     @GetMapping("/status")
     public ResponseEntity<Map<String, Object>> getAgentStatusByCluster(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
             @RequestParam String clusterName,
-            @RequestParam Long cloudAccountId) {
+            @RequestParam Long cloudAccountId,
+            HttpServletRequest request) {
 
         Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository
                 .findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
 
         if (configOpt.isEmpty()) {
+            // FR-10.2 / F-25: do not reveal cluster existence without an owning agent key. A
+            // non-existent (account, cluster) pair cannot be owned, so authenticate the key
+            // against the claimed account/cluster first; only then return the not-configured
+            // placeholder, so an unauthenticated caller cannot probe which clusters exist.
+            ResponseEntity<Map<String, Object>> denied =
+                    requireOwningAgent(authHeader, cloudAccountId, clusterName, request);
+            if (denied != null) {
+                return denied;
+            }
             return ResponseEntity.ok(Map.of(
                     "clusterName", clusterName,
                     "agentStatus", "not_configured",
@@ -465,7 +463,7 @@ public class AgentController {
             ));
         }
 
-        return getAgentStatus(configOpt.get().getId());
+        return getAgentStatus(authHeader, configOpt.get().getId(), request);
     }
 
     /**
@@ -578,6 +576,13 @@ public class AgentController {
                     .body(Map.of("error", "Invalid or missing API key"));
         }
 
+        // SEC-2/3: Explain is disabled server-side (xamops.dbops.explain.enabled, default
+        // false). Skip the explain lookup entirely and return 204 so nothing transitions to
+        // IN_FLIGHT; agents keep polling harmlessly until the feature is re-enabled.
+        if (!dbOpsFeatureFlags.isExplainEnabled()) {
+            return ResponseEntity.noContent().build();
+        }
+
         // NOTE: commands are addressed by agentName, which is not an account or cluster, so
         // there is nothing here to bind a scoped key against. Tightening this needs agentName
         // resolved back to its owning account first — tracked separately rather than left as a
@@ -619,99 +624,10 @@ public class AgentController {
         return ResponseEntity.ok(List.of(cmd));
     }
 
-    /**
-     * POST /api/v1/agent/db/config
-     * Save connection configuration from the wizard (Step 2).
-     */
-    @PostMapping("/db/config")
-    public ResponseEntity<Map<String, Object>> saveDbAgentConfig(
-            @RequestBody Map<String, String> body) {
-
-        String agentName     = body.get("agentName");
-        String cloudAccountId = body.get("cloudAccountId");
-        if (agentName == null || cloudAccountId == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "agentName and cloudAccountId are required"));
-        }
-
-        DbAgentConfig cfg = dbAgentService.saveConnectionConfig(
-                cloudAccountId, agentName,
-                body.get("dbEngine"), body.get("dbHost"), body.get("dbPort"),
-                body.get("dbName"), body.get("dbUser"), body.get("dbPassword"),
-                body.get("serverUrl"));
-
-        if (cfg == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Cloud account not found"));
-        }
-
-        return ResponseEntity.ok(Map.of("success", true, "agentId", cfg.getId()));
-    }
-
-    /**
-     * GET /api/v1/agent/db/config?agentName=xxx&cloudAccountId=xxx
-     * Load saved connection configuration — pre-fills the wizard fields.
-     */
-    @GetMapping("/db/config")
-    public ResponseEntity<Map<String, Object>> loadDbAgentConfig(
-            @RequestParam String agentName,
-            @RequestParam String cloudAccountId) {
-
-        DbAgentConfig cfg = dbAgentService.loadConnectionConfig(cloudAccountId, agentName);
-        if (cfg == null) {
-            return ResponseEntity.ok(Map.of("found", false));
-        }
-
-        Map<String, Object> result = new HashMap<>();
-        result.put("found", true);
-        result.put("dbEngine",  cfg.getDbEngine()   != null ? cfg.getDbEngine()   : "");
-        result.put("dbHost",    cfg.getDbHost()     != null ? cfg.getDbHost()     : "");
-        result.put("dbPort",    cfg.getDbPort()     != null ? cfg.getDbPort()     : "");
-        result.put("dbName",    cfg.getDbName()     != null ? cfg.getDbName()     : "");
-        result.put("dbUser",    cfg.getDbUser()     != null ? cfg.getDbUser()     : "");
-        result.put("dbPassword",cfg.getDbPassword() != null ? cfg.getDbPassword() : "");
-        result.put("serverUrl", cfg.getServerUrl()  != null ? cfg.getServerUrl()  : "");
-        return ResponseEntity.ok(result);
-    }
-
-    /**
-     * GET /api/v1/agent/db/status?agentName=xxx&cloudAccountId=xxx
-     * Returns live status of a registered DB agent — used by the wizard polling.
-     */
-    @GetMapping("/db/status")
-    public ResponseEntity<Map<String, Object>> getDbAgentStatus(
-            @RequestParam String agentName,
-            @RequestParam String cloudAccountId) {
-
-        java.util.Optional<DbAgentConfig> cfgOpt = dbAgentService.findDbAgent(cloudAccountId, agentName);
-        if (cfgOpt.isEmpty()) {
-            return ResponseEntity.ok(Map.of(
-                    "registered", false,
-                    "status", "not_registered"
-            ));
-        }
-
-        DbAgentConfig cfg = cfgOpt.get();
-        Map<String, Object> result = new HashMap<>();
-        result.put("registered", true);
-        result.put("status", cfg.getStatus());
-        result.put("agentVersion", cfg.getAgentVersion() != null ? cfg.getAgentVersion() : "");
-        result.put("agentIp", cfg.getAgentIp() != null ? cfg.getAgentIp() : "");
-        result.put("lastCheckin", cfg.getLastCheckin() != null ? cfg.getLastCheckin().toString() : null);
-        result.put("isActive", cfg.isActive());
-
-        // Data counts from db_agent_data_cache
-        List<com.xammer.cloud.domain.DbAgentDataCache> data = dbAgentService.getCachedData(cfg.getId());
-        Map<String, Object> dataCounts = new HashMap<>();
-        for (com.xammer.cloud.domain.DbAgentDataCache cache : data) {
-            dataCounts.put(cache.getDataType(), Map.of(
-                    "itemCount", cache.getItemCount() != null ? cache.getItemCount() : 0,
-                    "collectedAt", cache.getCollectedAt().toString()
-            ));
-        }
-        result.put("dataCounts", dataCounts);
-
-        return ResponseEntity.ok(result);
-    }
+    // SEC-4: saveDbAgentConfig (POST /db/config), loadDbAgentConfig (GET /db/config) and
+    // getDbAgentStatus (GET /db/status) moved to DbAgentSetupController (/api/xamops/db-agent/**).
+    // The old GET /db/config returned the stored DB password in plaintext; the new GET /config
+    // returns only a hasPassword boolean (SEC-5).
 
     /**
      * Get agent events for a cluster.
@@ -720,13 +636,113 @@ public class AgentController {
      */
     @GetMapping("/events/{clusterConfigId}")
     public ResponseEntity<List<AgentEvent>> getAgentEvents(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
             @PathVariable Long clusterConfigId,
-            @RequestParam(defaultValue = "50") int limit) {
+            @RequestParam(defaultValue = "50") int limit,
+            HttpServletRequest request) {
+
+        Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository.findById(clusterConfigId);
+        if (configOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        // FR-10.2 / F-25: events include agentIp, so require an agent key owning the cluster.
+        ResponseEntity<Map<String, Object>> denied = requireOwningAgent(authHeader, configOpt.get(), request);
+        if (denied != null) {
+            return ResponseEntity.status(denied.getStatusCode()).build();
+        }
 
         List<AgentEvent> events = agentEventRepository.findByClusterConfigIdOrderByCreatedAtDesc(
                 clusterConfigId, PageRequest.of(0, limit)).getContent();
 
         return ResponseEntity.ok(events);
+    }
+
+    /**
+     * BP-3 (design §4.3): stamp the appropriate key's last-used time and record the scope the
+     * data agent last authenticated with. Throttled to one write per 5 min. The automation agent
+     * is identified as a CLUSTER principal whose role is AUTOMATION (or by the {@code -autoscaler}
+     * version suffix as a fallback); everything else stamps the data key.
+     */
+    private void applyKeyUsage(KubernetesClusterConfig config, AgentPrincipal principal, String agentVersion) {
+        java.time.Instant now = java.time.Instant.now();
+        boolean automation =
+                (principal.getScope() == AgentPrincipal.Scope.CLUSTER
+                        && principal.getRole() == AgentPrincipal.AgentRole.AUTOMATION)
+                || (agentVersion != null && agentVersion.endsWith("-autoscaler"));
+
+        if (automation) {
+            if (throttled(config.getAutomationKeyLastUsedAt(), now)) {
+                config.setAutomationKeyLastUsedAt(now);
+            }
+            return;
+        }
+
+        if (throttled(config.getAgentKeyLastUsedAt(), now)) {
+            config.setAgentKeyLastUsedAt(now);
+        }
+        // last_agent_key_scope tracks the DATA agent's authentication scope only.
+        config.setLastAgentKeyScope(switch (principal.getScope()) {
+            case CLUSTER -> "CLUSTER";
+            case ACCOUNT -> "ACCOUNT";
+            case LEGACY_GLOBAL -> "LEGACY_GLOBAL";
+        });
+    }
+
+    /** True when the last-used stamp is null or older than the 5-minute throttle window. */
+    private static boolean throttled(java.time.Instant last, java.time.Instant now) {
+        return last == null || last.isBefore(now.minusSeconds(300));
+    }
+
+    /**
+     * BP-9 (design §3.4): when the authenticating principal is the automation agent (a CLUSTER key
+     * with the AUTOMATION role, or the {@code -autoscaler} version suffix as a fallback), stamp the
+     * identity it just proved — {@code automation_identity_seen_at = now} and, when the body carries
+     * one, the cached {@code automation_identity_arn}. The principal's account + role are the
+     * identity; the ARN is an optional, log/UI-safe hint (never a key). The verification freshness
+     * window ({@code K8sAutomationAccessService.AUTOMATION_VERIFIED_FRESHNESS}) then decides whether
+     * the per-cluster relaxation applies, so a lapsed agent naturally ages out.
+     */
+    private void applyAutomationIdentity(KubernetesClusterConfig config, AgentPrincipal principal,
+                                         String agentVersion, Map<String, Object> body) {
+        boolean automation =
+                (principal.getScope() == AgentPrincipal.Scope.CLUSTER
+                        && principal.getRole() == AgentPrincipal.AgentRole.AUTOMATION)
+                || (agentVersion != null && agentVersion.endsWith("-autoscaler"));
+        if (!automation) {
+            return;
+        }
+        config.setAutomationIdentitySeenAt(java.time.Instant.now());
+        Object arn = body == null ? null : body.get("identityArn");
+        if (arn instanceof String s && !s.isBlank()) {
+            config.setAutomationIdentityArn(s.trim());
+        }
+    }
+
+    /**
+     * FR-10.2 / F-25 guard for the agent read endpoints. Authenticates the bearer agent key and
+     * requires its principal to own the cluster. Returns {@code null} when allowed, a 401 body
+     * when the key is missing/invalid, or a 403 body when the key is valid but not entitled.
+     */
+    private ResponseEntity<Map<String, Object>> requireOwningAgent(
+            String authHeader, KubernetesClusterConfig config, HttpServletRequest request) {
+        return requireOwningAgent(authHeader, config.getCloudAccountId(), config.getClusterName(), request);
+    }
+
+    private ResponseEntity<Map<String, Object>> requireOwningAgent(
+            String authHeader, Long cloudAccountId, String clusterName, HttpServletRequest request) {
+        String apiKey = extractApiKey(authHeader);
+        AgentPrincipal principal = apiKey == null ? null : agentIngestService.authenticate(apiKey, getClientIp(request));
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "Invalid or missing API key"));
+        }
+        String ownershipDenied = agentIngestService.checkOwnership(
+                principal, cloudAccountId == null ? null : String.valueOf(cloudAccountId), clusterName);
+        if (ownershipDenied != null) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", ownershipDenied));
+        }
+        return null;
     }
 
     // =========================================================================
@@ -773,6 +789,12 @@ public class AgentController {
         // 3. By zero-padded AWS account ID via cloud_account table (handles leading-zero stripping:
         //    Long.parseLong("080310056620") = 80310056620, pad back to "080310056620" for DB lookup)
         Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository.findByAgentApiKey(apiKey);
+        // Tier 1b (design §4.3, R2-4): the automation agent authenticates with a dedicated key, so
+        // resolve the config by that key before the cloudAccountId fallbacks. This is the normal
+        // path for the only caller of this endpoint; the account/legacy fallbacks stay for them.
+        if (configOpt.isEmpty()) {
+            configOpt = clusterConfigRepository.findByAutomationAgentApiKey(apiKey);
+        }
         if (configOpt.isEmpty()) {
             configOpt = clusterConfigRepository.findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
         }

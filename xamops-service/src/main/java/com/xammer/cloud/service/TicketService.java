@@ -439,50 +439,66 @@ public class TicketService {
         Ticket updatedTicket = ticketRepository.save(ticket);
         evictCountCache(updatedTicket.getCategory());
 
-        try {
-            User ticketCreator = ticket.getCreator();
-            String subject = String.format("New Reply on Ticket [ID: %d]: %s", ticket.getId(), ticket.getSubject());
-            String displayMessage = (reply.getMessage() == null || reply.getMessage().isBlank())
-                    ? "(Attachment only)"
-                    : reply.getMessage();
-            String html = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'><title>New Reply on Ticket</title></head>" +
-                "<body style='margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;'>" +
-                "<table role='presentation' width='100%' cellpadding='0' cellspacing='0'><tr><td style='padding:32px 16px;'>" +
-                "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='max-width:680px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);border:1px solid #e2e8f0;'>" +
-                "<tr><td style='background:#000000;padding:40px;'>" +
-                "  <div style='margin-bottom:16px;'><span style='display:inline-block;background:#ffffff;color:#000000;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;'>XamOps</span></div>" +
-                "  <div style='margin-bottom:14px;color:#ffffff;'>" + EmailIcons.messageSquare(40) + "</div>" +
-                "  <h1 style='margin:0 0 6px;color:#fff;font-size:24px;font-weight:700;'>New Reply on Ticket</h1>" +
-                "  <p style='margin:0;color:rgba(255,255,255,0.85);font-size:15px;'>Ticket #" + ticket.getId() + ": " + ticket.getSubject() + "</p>" +
-                "</td></tr>" +
-                "<tr><td style='padding:32px 40px;'>" +
-                "<p style='margin:0 0 16px;color:#374151;font-size:15px;'><strong>" + author.getUsername() + "</strong> has replied to this ticket.</p>" +
-                "<div style='background:#f8fafc;border-left:4px solid #000000;border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:16px;'>" +
-                "  <p style='margin:0;color:#1e293b;font-size:14px;line-height:1.6;'>" + displayMessage + "</p>" +
-                "</div>" +
-                (!nonEmpty.isEmpty() ? "<p style='margin:0;color:#64748b;font-size:13px;'>[" + nonEmpty.size() + " attachment(s)]</p>" : "") +
-                "</td></tr>" +
-                "<tr><td style='background:#f8fafc;border-top:1px solid #e2e8f0;padding:24px 40px;text-align:center;'>" +
-                "  <span style='display:inline-block;background:#000000;padding:7px 18px;border-radius:6px;color:#fff;font-size:13px;font-weight:700;letter-spacing:1px;'>XAMOPS</span>" +
-                "  <p style='margin:12px 0 4px;color:#64748b;font-size:12px;'>Cloud Cost Management &amp; Security Platform</p>" +
-                "  <p style='margin:0;color:#cbd5e1;font-size:11px;'>&copy; 2026 XamOps. All rights reserved.</p>" +
-                "</td></tr>" +
-                "</table></td></tr></table></body></html>";
-            if (isAdminReply) {
-                if (ticketCreator != null && ticketCreator.getEmail() != null) {
-                    emailService.sendHtmlEmail(ticketCreator.getEmail(), subject, html);
+        // Internal notes are for staff only, so they are never emailed (billops skips them the
+        // same way). Without this check an admin's internal note was mailed to the ticket's
+        // creator, and with reply files now attached, its files would have gone too.
+        if (!replyDto.isInternal()) {
+            try {
+                User ticketCreator = ticket.getCreator();
+                String subject = String.format("New Reply on Ticket [ID: %d]: %s", ticket.getId(), ticket.getSubject());
+                String displayMessage = (reply.getMessage() == null || reply.getMessage().isBlank())
+                        ? "(Attachment only)"
+                        : reply.getMessage();
+                // The reply's files travel with the email. A file count was not enough: the in-app
+                // links are presigned URLs that expire after 15 minutes, and the ticket needs a login.
+                ReplyEmailFiles emailFiles = replyEmailFiles(nonEmpty);
+                StringBuilder attachmentHtml = new StringBuilder();
+                for (EmailService.Attachment attachment : emailFiles.attached()) {
+                    attachmentHtml.append(replyFileRowHtml(attachment.fileName(), "Attached to this email"));
                 }
-            } else {
-                if ("Account and Billing".equalsIgnoreCase(ticket.getCategory())) {
-                    emailService.sendHtmlEmail(billingAdminEmail, subject, html);
+                for (String name : emailFiles.notAttached()) {
+                    attachmentHtml.append(replyFileRowHtml(name,
+                            "Not attached to this email. Open the ticket in XamOps to view it."));
+                }
+                String html = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'><title>New Reply on Ticket</title></head>" +
+                    "<body style='margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;'>" +
+                    "<table role='presentation' width='100%' cellpadding='0' cellspacing='0'><tr><td style='padding:32px 16px;'>" +
+                    "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='max-width:680px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);border:1px solid #e2e8f0;'>" +
+                    "<tr><td style='background:#000000;padding:40px;'>" +
+                    "  <div style='margin-bottom:16px;'><span style='display:inline-block;background:#ffffff;color:#000000;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;'>XamOps</span></div>" +
+                    "  <div style='margin-bottom:14px;color:#ffffff;'>" + EmailIcons.messageSquare(40) + "</div>" +
+                    "  <h1 style='margin:0 0 6px;color:#fff;font-size:24px;font-weight:700;'>New Reply on Ticket</h1>" +
+                    "  <p style='margin:0;color:rgba(255,255,255,0.85);font-size:15px;'>Ticket #" + ticket.getId() + ": " + ticket.getSubject() + "</p>" +
+                    "</td></tr>" +
+                    "<tr><td style='padding:32px 40px;'>" +
+                    "<p style='margin:0 0 16px;color:#374151;font-size:15px;'><strong>" + author.getUsername() + "</strong> has replied to this ticket.</p>" +
+                    "<div style='background:#f8fafc;border-left:4px solid #000000;border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:16px;'>" +
+                    "  <p style='margin:0;color:#1e293b;font-size:14px;line-height:1.6;'>" + displayMessage + "</p>" +
+                    "</div>" +
+                    attachmentHtml +
+                    "</td></tr>" +
+                    "<tr><td style='background:#f8fafc;border-top:1px solid #e2e8f0;padding:24px 40px;text-align:center;'>" +
+                    "  <span style='display:inline-block;background:#000000;padding:7px 18px;border-radius:6px;color:#fff;font-size:13px;font-weight:700;letter-spacing:1px;'>XAMOPS</span>" +
+                    "  <p style='margin:12px 0 4px;color:#64748b;font-size:12px;'>Cloud Cost Management &amp; Security Platform</p>" +
+                    "  <p style='margin:0;color:#cbd5e1;font-size:11px;'>&copy; 2026 XamOps. All rights reserved.</p>" +
+                    "</td></tr>" +
+                    "</table></td></tr></table></body></html>";
+                if (isAdminReply) {
+                    if (ticketCreator != null && ticketCreator.getEmail() != null) {
+                        emailService.sendHtmlEmail(ticketCreator.getEmail(), subject, html, emailFiles.attached());
+                    }
                 } else {
-                    for (String email : adminTechnicalEmails()) {
-                        emailService.sendHtmlEmail(email, subject, html);
+                    if ("Account and Billing".equalsIgnoreCase(ticket.getCategory())) {
+                        emailService.sendHtmlEmail(billingAdminEmail, subject, html, emailFiles.attached());
+                    } else {
+                        for (String email : adminTechnicalEmails()) {
+                            emailService.sendHtmlEmail(email, subject, html, emailFiles.attached());
+                        }
                     }
                 }
+            } catch (Exception e) {
+                logger.error("Failed to send reply notification email for ticket {}", ticket.getId(), e);
             }
-        } catch (Exception e) {
-            logger.error("Failed to send reply notification email for ticket {}", ticket.getId(), e);
         }
 
         broadcastTicketChange();
@@ -979,5 +995,55 @@ public class TicketService {
     private String escapeHtml(String s) {
         if (s == null) return "";
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
+    }
+
+    /**
+     * Most bytes of reply files one notification email carries, before encoding. Base64 adds
+     * about 37%, so this makes a message of roughly 9.6 MB: inside the 10 MB receive limit some
+     * corporate mail servers still apply, and well under Gmail's 25 MB sending limit. Files past
+     * it are named in the email but not attached.
+     */
+    private static final long MAX_EMAIL_ATTACHMENT_BYTES = 7L * 1024 * 1024;
+
+    /** A reply's files, split into those its notification email attaches and those it only names. */
+    private record ReplyEmailFiles(List<EmailService.Attachment> attached, List<String> notAttached) {
+    }
+
+    /**
+     * Picks the reply files to attach to its notification email, in upload order, until
+     * {@link #MAX_EMAIL_ATTACHMENT_BYTES} is used up. A file that does not fit is skipped rather
+     * than ending the selection, so a smaller file after it can still go.
+     */
+    private ReplyEmailFiles replyEmailFiles(List<MultipartFile> files) {
+        List<EmailService.Attachment> attached = new ArrayList<>();
+        List<String> notAttached = new ArrayList<>();
+        long remaining = MAX_EMAIL_ATTACHMENT_BYTES;
+        for (MultipartFile f : files) {
+            // The uploader chooses the name and it ends up in a MIME header, so control characters
+            // are replaced to keep it from breaking out of the attachment's headers.
+            String name = (f.getOriginalFilename() != null ? f.getOriginalFilename() : "attachment")
+                    .replaceAll("\\p{Cntrl}", "_");
+            if (f.getSize() > remaining) {
+                notAttached.add(name);
+                continue;
+            }
+            try {
+                byte[] content = f.getBytes();
+                attached.add(new EmailService.Attachment(name, f.getContentType(), content));
+                remaining -= content.length;
+            } catch (java.io.IOException e) {
+                logger.warn("Could not read {} to attach it to the reply notification email", name, e);
+                notAttached.add(name);
+            }
+        }
+        return new ReplyEmailFiles(attached, notAttached);
+    }
+
+    private String replyFileRowHtml(String fileName, String note) {
+        return "<div style='margin-top:10px;padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;"
+                + "border-radius:8px;font-size:13px;color:#334155;'>"
+                + "📎 <strong>" + escapeHtml(fileName) + "</strong>"
+                + "<div style='margin-top:2px;font-size:12px;color:#64748b;'>" + note + "</div>"
+                + "</div>";
     }
 }

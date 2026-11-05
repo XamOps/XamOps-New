@@ -10,7 +10,11 @@ import com.xammer.cloud.domain.DbAgentDataCache;
 import com.xammer.cloud.domain.DbAgentMetricsHistory;
 import com.xammer.cloud.dto.agent.AgentIngestPayload;
 import com.xammer.cloud.dto.agent.AgentIngestResponse;
+import com.xammer.cloud.dto.dbops.AgentAccessGraphDoc;
 import com.xammer.cloud.dto.dbops.AgentDiagnosticDto;
+import com.xammer.cloud.dto.dbops.AgentFkGraphDoc;
+import com.xammer.cloud.dto.dbops.AgentLockWaitDto;
+import com.xammer.cloud.dto.dbops.AgentReplicationDto;
 import com.xammer.cloud.dto.dbops.AgentWaitEventDto;
 import com.xammer.cloud.dto.dbops.MongoInstanceMetricsDto;
 import com.xammer.cloud.dto.dbops.MongoSlowOpDto;
@@ -19,6 +23,7 @@ import com.xammer.cloud.dto.dbops.MongoReplStatusDto;
 import com.xammer.cloud.dto.dbops.RedisInstanceMetricsDto;
 import com.xammer.cloud.dto.dbops.RedisSlowLogDto;
 import com.xammer.cloud.dto.dbops.RedisKeyspaceDto;
+import com.xammer.cloud.config.DbOpsFeatureFlags;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DbAgentConfigRepository;
 import com.xammer.cloud.repository.DbAgentDataCacheRepository;
@@ -30,6 +35,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -44,6 +50,7 @@ public class DbAgentService {
     private final DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository;
     private final CloudAccountRepository cloudAccountRepository;
     private final ExplainRequestRepository explainRequestRepository;
+    private final DbOpsFeatureFlags dbOpsFeatureFlags;
     private final ObjectMapper objectMapper;
 
     public DbAgentService(
@@ -51,12 +58,14 @@ public class DbAgentService {
             DbAgentDataCacheRepository dbAgentDataCacheRepository,
             DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository,
             CloudAccountRepository cloudAccountRepository,
-            ExplainRequestRepository explainRequestRepository) {
+            ExplainRequestRepository explainRequestRepository,
+            DbOpsFeatureFlags dbOpsFeatureFlags) {
         this.dbAgentConfigRepository = dbAgentConfigRepository;
         this.dbAgentDataCacheRepository = dbAgentDataCacheRepository;
         this.dbAgentMetricsHistoryRepository = dbAgentMetricsHistoryRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.explainRequestRepository = explainRequestRepository;
+        this.dbOpsFeatureFlags = dbOpsFeatureFlags;
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule());
     }
@@ -157,13 +166,18 @@ public class DbAgentService {
                 cache.setDataJson(dataJson);
                 cache.setItemCount(itemCount);
                 cache.setAgentVersion(payload.getAgentVersion());
-                cache.setCollectedAt(batch.getCollectedAt() != null ? batch.getCollectedAt() : LocalDateTime.now());
+                // COR-17: agent rows are UTC; a missing collectedAt must fall back to UTC, not local.
+                cache.setCollectedAt(batch.getCollectedAt() != null ? batch.getCollectedAt() : LocalDateTime.now(ZoneOffset.UTC));
                 dbAgentDataCacheRepository.save(cache);
 
                 // Special handling for new batch types
                 if ("db-wait-events".equals(batch.getCollector())
                         || "db-diagnostics".equals(batch.getCollector())
                         || "db-explain-result".equals(batch.getCollector())
+                        || "db-lock-waits".equals(batch.getCollector())
+                        || "db-replication".equals(batch.getCollector())
+                        || "db-access-grants".equals(batch.getCollector())
+                        || "db-fk-graph".equals(batch.getCollector())
                         || "mongo-instance-metrics".equals(batch.getCollector())
                         || "mongo-slow-ops".equals(batch.getCollector())
                         || "mongo-index-stats".equals(batch.getCollector())
@@ -181,7 +195,8 @@ public class DbAgentService {
                     history.setDataType(batch.getCollector());
                     history.setDataJson(dataJson);
                     history.setItemCount(itemCount);
-                    history.setCollectedAt(batch.getCollectedAt() != null ? batch.getCollectedAt() : LocalDateTime.now());
+                    // COR-17: UTC fallback keeps history timestamps consistent with the UTC read window.
+                    history.setCollectedAt(batch.getCollectedAt() != null ? batch.getCollectedAt() : LocalDateTime.now(ZoneOffset.UTC));
                     dbAgentMetricsHistoryRepository.save(history);
                 }
 
@@ -251,21 +266,57 @@ public class DbAgentService {
                     }
                 }
                 case "db-explain-result" -> {
-                    List<Map<String, Object>> items = objectMapper.readValue(
-                        itemsJson, new TypeReference<List<Map<String, Object>>>() {});
-                    for (Map<String, Object> item : items) {
-                        String commandId = (String) item.get("commandId");
-                        String planJson  = (String) item.get("planJson");
-                        String error     = (String) item.getOrDefault("error", "");
-                        if (commandId == null) continue;
-                        explainRequestRepository.findById(commandId).ifPresent(req -> {
-                            req.setStatus(error != null && !error.isEmpty() ? "FAILED" : "COMPLETED");
-                            req.setResultJson(planJson);
-                            req.setErrorMessage(error != null && !error.isEmpty() ? error : null);
-                            req.setCompletedAt(LocalDateTime.now());
-                            explainRequestRepository.save(req);
-                            logger.info("Explain request {} completed, status={}", commandId, req.getStatus());
-                        });
+                    // SEC-2/3: Explain is disabled server-side (xamops.dbops.explain.enabled,
+                    // default false). Ignore a late result from an in-flight command so it
+                    // cannot mutate an explain_request row while the feature is off.
+                    if (!dbOpsFeatureFlags.isExplainEnabled()) {
+                        logger.debug("db-explain-result ignored — Explain is disabled");
+                    } else {
+                        List<Map<String, Object>> items = objectMapper.readValue(
+                            itemsJson, new TypeReference<List<Map<String, Object>>>() {});
+                        for (Map<String, Object> item : items) {
+                            String commandId = (String) item.get("commandId");
+                            String planJson  = (String) item.get("planJson");
+                            String error     = (String) item.getOrDefault("error", "");
+                            if (commandId == null) continue;
+                            explainRequestRepository.findById(commandId).ifPresent(req -> {
+                                req.setStatus(error != null && !error.isEmpty() ? "FAILED" : "COMPLETED");
+                                req.setResultJson(planJson);
+                                req.setErrorMessage(error != null && !error.isEmpty() ? error : null);
+                                req.setCompletedAt(LocalDateTime.now());
+                                explainRequestRepository.save(req);
+                                logger.info("Explain request {} completed, status={}", commandId, req.getStatus());
+                            });
+                        }
+                    }
+                }
+                case "db-lock-waits" -> {
+                    // Row batch — group per DSN as a JSON array, like db-wait-events.
+                    List<AgentLockWaitDto> items = objectMapper.readValue(
+                        itemsJson, new TypeReference<List<AgentLockWaitDto>>() {});
+                    saveGroupedByDsn(agentConfig, "db-lock-waits", items,
+                        i -> ((AgentLockWaitDto)i).getDsnAlias());
+                }
+                case "db-replication" -> {
+                    List<AgentReplicationDto> items = objectMapper.readValue(
+                        itemsJson, new TypeReference<List<AgentReplicationDto>>() {});
+                    saveGroupedByDsn(agentConfig, "db-replication", items,
+                        i -> ((AgentReplicationDto)i).getDsnAlias());
+                }
+                case "db-access-grants" -> {
+                    // Composite document per DSN — store each doc as a single JSON OBJECT
+                    // (saveDocPerDsn), not wrapped in a one-element array.
+                    List<AgentAccessGraphDoc> docs = objectMapper.readValue(
+                        itemsJson, new TypeReference<List<AgentAccessGraphDoc>>() {});
+                    for (AgentAccessGraphDoc doc : docs) {
+                        saveDocPerDsn(agentConfig, "db-access-grants", doc, doc.getDsnAlias());
+                    }
+                }
+                case "db-fk-graph" -> {
+                    List<AgentFkGraphDoc> docs = objectMapper.readValue(
+                        itemsJson, new TypeReference<List<AgentFkGraphDoc>>() {});
+                    for (AgentFkGraphDoc doc : docs) {
+                        saveDocPerDsn(agentConfig, "db-fk-graph", doc, doc.getDsnAlias());
                     }
                 }
                 case "mongo-instance-metrics" -> {
@@ -332,7 +383,38 @@ public class DbAgentService {
         items.stream()
             .collect(java.util.stream.Collectors.groupingBy(i -> dsnExtractor.apply(i)))
             .forEach((dsnAlias, group) -> saveToCache(agentConfig,
-                batchType + ":" + agentConfig.getCloudAccountId() + ":" + dsnAlias, group));
+                boundedCacheKey(batchType, agentConfig.getCloudAccountId(), dsnAlias), group));
+    }
+
+    /**
+     * Store a composite console document (access graph / FK graph) for one DSN as a single JSON
+     * OBJECT under the bounded per-DSN key — NOT wrapped in a one-element array, so the read side
+     * parses it back as the doc type directly.
+     */
+    private void saveDocPerDsn(DbAgentConfig agentConfig, String batchType, Object doc, String dsnAlias) {
+        saveToCache(agentConfig, boundedCacheKey(batchType, agentConfig.getCloudAccountId(), dsnAlias), doc);
+    }
+
+    /** Longest {@code db_agent_data_cache.data_type} the schema allows (varchar(50)). */
+    static final int MAX_DATA_TYPE_LEN = 50;
+
+    /**
+     * Build a {@code {batchType}:{accountId}:{dsnAlias}} cache key, truncating the {@code dsnAlias}
+     * segment so the whole key stays within {@code data_type}'s {@code varchar(50)}.
+     *
+     * <p>The design body widened {@code data_type} to {@code varchar(255)} via an ALTER TABLE, but
+     * that is owner-requiring DDL and the Flyway role does not own the DbOps tables on UAT/prod, so
+     * owner-DDL migrations fail on deploy. The reconciliation decision keeps {@code varchar(50)} and
+     * no migration, bounding the alias instead. The agent emits short {@code db-N} aliases, so this
+     * never actually truncates today; it is a defensive bound (and {@code dbHost} is never in a key).
+     */
+    static String boundedCacheKey(String batchType, Long accountId, String dsnAlias) {
+        String prefix = batchType + ":" + accountId + ":";
+        String alias = dsnAlias == null ? "" : dsnAlias;
+        int budget = MAX_DATA_TYPE_LEN - prefix.length();
+        if (budget < 0) budget = 0;
+        if (alias.length() > budget) alias = alias.substring(0, budget);
+        return prefix + alias;
     }
 
     /**
@@ -354,11 +436,17 @@ public class DbAgentService {
     /**
      * Save connection configuration for a DB agent.
      * Creates the agent registration if it doesn't exist yet.
+     *
+     * <p>
+     * SEC-5: the DB password is deliberately NOT a parameter and is never written. The agent
+     * reads its DSN (password included) from its own {@code DB_DSN_n} environment variable on
+     * the customer host; the server has no use for the value, so storing it only created a
+     * plaintext liability. Existing rows are nulled by migration V20261029_1.
      */
     @Transactional
     public DbAgentConfig saveConnectionConfig(String providerAccountId, String agentName,
                                                String dbEngine, String dbHost, String dbPort,
-                                               String dbName, String dbUser, String dbPassword,
+                                               String dbName, String dbUser,
                                                String serverUrl) {
         DbAgentConfig cfg = registerDbAgent(providerAccountId, agentName);
         if (cfg == null) return null;
@@ -368,7 +456,6 @@ public class DbAgentService {
         cfg.setDbPort(dbPort);
         cfg.setDbName(dbName);
         cfg.setDbUser(dbUser);
-        if (dbPassword != null && !dbPassword.isEmpty()) cfg.setDbPassword(dbPassword);
         cfg.setServerUrl(serverUrl);
         return dbAgentConfigRepository.save(cfg);
     }

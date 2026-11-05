@@ -32,6 +32,12 @@ import static org.mockito.Mockito.when;
  * The cross-tenant cases here are the regression guard for the unauthenticated/unowned
  * CloudShell access path, where naming another customer's account ID was enough to be
  * handed an interactive shell with that customer's cloud credentials.
+ *
+ * <p>This is also the FR-CMP-04 "fail-closed guard" regression owned by B2 (design-ux-ops.md §9.8,
+ * AC-CMP-06; plan-phase-09.md task 9.5): the owner (root user, own client), the exhaustive grant
+ * list, a sub-user without grants, a platform admin and a missing client are all exercised by the
+ * {@code canAccess} cases below, so a change to {@code CloudAccountAccessService.canAccess} that
+ * weakened any of them fails here.
  */
 class CloudAccountAccessServiceTest {
 
@@ -193,6 +199,34 @@ class CloudAccountAccessServiceTest {
 
         assertThat(service.canAccess(caller("ROLE_USER"), account(ACCOUNT_ID, CALLER_CLIENT_ID)))
                 .isFalse();
+    }
+
+    // ── requirePrimaryUser: SEC-9 interim for the sensitive console endpoints ──
+
+    @Test
+    void requirePrimaryUser_admitsRootUser() {
+        givenRootUser();
+        service.requirePrimaryUser(caller("ROLE_USER"), account(ACCOUNT_ID, CALLER_CLIENT_ID)); // no throw
+    }
+
+    @Test
+    void requirePrimaryUser_refusesSubUser() {
+        givenSubUser();
+        assertThatThrownBy(() -> service.requirePrimaryUser(caller("ROLE_USER"), account(ACCOUNT_ID, CALLER_CLIENT_ID)))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void requirePrimaryUser_admitsPlatformAdminWithoutUserLookup() {
+        service.requirePrimaryUser(caller("ROLE_SUPER_ADMIN"), account(ACCOUNT_ID, OTHER_CLIENT_ID)); // no throw
+        verify(userRepository, never()).findById(anyLong());
+    }
+
+    @Test
+    void requirePrimaryUser_nullPrincipalRequiresAuthentication() {
+        assertThatThrownBy(() -> service.requirePrimaryUser(null, account(ACCOUNT_ID, CALLER_CLIENT_ID)))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessage("Authentication required.");
     }
 
     // ── requireAwsAccess: the AWS AutoSpotting account-id contract ───────────

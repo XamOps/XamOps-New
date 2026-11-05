@@ -1,0 +1,1 @@
+render API returned no PNG (image-renderer not installed); dashboard JSON model captured instead

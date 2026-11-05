@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AutoSpotting structured logging (design-ux-ops.md §8, plan-phase-10.md task 10.4).
+
+  Today's plain pattern is kept for EVERY logger through Spring Boot's own console appender (which
+  honours `logging.pattern.console`, so the profile overrides in application-*.properties still
+  apply, and existing greps and dashboards are unchanged). Only the two AutoSpotting logger trees
+  emit ECS JSON, on a dedicated appender with additivity=false so their lines are NOT also printed
+  in the plain format. The JSON carries the MDC keys operationId, groupId, provider, cloudAccountId,
+  requestId and job (AutoSpottingMdc), which is what a support engineer greps to follow one op.
+
+  This is scoped by logback, not the global `logging.structured.format.console` property, so the rest
+  of the platform's output is byte-for-byte what it was before this phase.
+-->
+<configuration>
+    <!-- Spring Boot defaults: CONSOLE_LOG_PATTERN (honours logging.pattern.console), conversion rules. -->
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!-- The platform-wide plain console appender (today's pattern, unchanged). -->
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <!-- ECS JSON appender used ONLY by the AutoSpotting loggers below. -->
+    <appender name="AUTOSPOTTING_JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="org.springframework.boot.logging.logback.StructuredLogEncoder">
+            <format>ecs</format>
+        </encoder>
+    </appender>
+
+    <!-- AutoSpotting service and controller trees: JSON only, never the plain pattern (additivity=false).
+         No explicit level is set here, so the per-profile `logging.level.com.xammer.cloud[.autospotting]`
+         properties still decide the level (e.g. DEBUG in local, INFO in prod). -->
+    <logger name="com.xammer.cloud.service.autospotting" additivity="false">
+        <appender-ref ref="AUTOSPOTTING_JSON"/>
+    </logger>
+    <logger name="com.xammer.cloud.controller.autospotting" additivity="false">
+        <appender-ref ref="AUTOSPOTTING_JSON"/>
+    </logger>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

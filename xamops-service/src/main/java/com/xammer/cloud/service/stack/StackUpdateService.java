@@ -78,6 +78,12 @@ public class StackUpdateService {
     /** Output a connection stack publishes when it carries its own updater role. */
     private static final String EMBEDDED_UPDATER_OUTPUT = "XamOpsStackUpdaterRoleArn";
 
+    /**
+     * Fixed-name stack the one-click grant (xamops-stack-updater.yml) creates. Named to match
+     * {@code AccountManagerController.UPDATER_STACK_NAME} and the quick-create link's stackName.
+     */
+    private static final String UPDATER_STACK_NAME = "XamOps-StackUpdater";
+
     /** How long to wait for a change set to finish computing before giving up. */
     private static final int CHANGE_SET_POLL_ATTEMPTS = 30;
     private static final long CHANGE_SET_POLL_MS = 1000;
@@ -503,6 +509,65 @@ public class StackUpdateService {
             }
         }
         return "arn:aws:iam::" + account.getAwsAccountId() + ":role/" + UPDATER_ROLE_NAME;
+    }
+
+    /**
+     * Whether this account already carries what XamOps needs to run a change set: either the
+     * embedded updater role (newer connection stacks publish it as the {@value #EMBEDDED_UPDATER_OUTPUT}
+     * output) or the separately deployed {@value #UPDATER_STACK_NAME} stack from the one-click grant.
+     *
+     * <p>Read-only and deliberately silent — every failure, a plain AccessDenied included, comes
+     * back as {@code false}. It exists so the Update modal can watch for a one-time grant to land
+     * after the customer approves it in AWS, then preview on its own, instead of making them press
+     * Update a second time. A false negative costs one more poll; it never permits anything a real
+     * preview would refuse, because the authoritative check is still CreateChangeSet in {@link #preview}.
+     *
+     * <p>The region mirrors {@code AccountManagerController.addGrant}: the stored stack region, or
+     * us-east-1 when none is recorded, which is where the quick-create link puts the grant stack.
+     */
+    public boolean updaterPresent(CloudAccount account) {
+        String region = account.getStackRegion() != null && !account.getStackRegion().isBlank()
+                ? account.getStackRegion() : "us-east-1";
+        try {
+            CloudFormationClient cfn = awsClientProvider.getCloudFormationClient(account, region);
+
+            // 1) Embedded: the connection stack itself publishes the updater role as an output.
+            String connStackRef = account.getStackId() != null && !account.getStackId().isBlank()
+                    ? account.getStackId() : account.getStackName();
+            if (connStackRef != null && !connStackRef.isBlank()) {
+                try {
+                    Stack connStack = cfn.describeStacks(DescribeStacksRequest.builder()
+                            .stackName(connStackRef).build()).stacks().get(0);
+                    if (connStack.hasOutputs()) {
+                        for (Output o : connStack.outputs()) {
+                            if (EMBEDDED_UPDATER_OUTPUT.equals(o.outputKey())
+                                    && o.outputValue() != null && !o.outputValue().isBlank()) {
+                                return true;
+                            }
+                        }
+                    }
+                } catch (Exception connLookupFailed) {
+                    // Not fatal — fall through to the standalone grant stack check below.
+                    logger.debug("[stack] connection-stack output check for {} failed: {}",
+                            account.getAwsAccountId(), connLookupFailed.getMessage());
+                }
+            }
+
+            // 2) Standalone: the one-click grant created XamOps-StackUpdater. Count it only once it
+            //    has finished — an in-progress or rolled-back create cannot grant anything yet.
+            try {
+                Stack updater = cfn.describeStacks(DescribeStacksRequest.builder()
+                        .stackName(UPDATER_STACK_NAME).build()).stacks().get(0);
+                String status = updater.stackStatusAsString();
+                return "CREATE_COMPLETE".equals(status) || "UPDATE_COMPLETE".equals(status);
+            } catch (Exception notDeployedYet) {
+                return false;
+            }
+        } catch (Exception e) {
+            logger.debug("[stack] updaterPresent check for {} failed: {}",
+                    account.getAwsAccountId(), e.getMessage());
+            return false;
+        }
     }
 
     private String regionFromQueueUrl(String queueUrl) {

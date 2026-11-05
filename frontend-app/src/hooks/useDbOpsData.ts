@@ -349,14 +349,115 @@ function clearCache(accountId: string) {
   localStorage.removeItem(`dbops_${accountId}`);
 }
 
+// Throws on a non-ok response or a network error so a genuine failure is distinguishable from a
+// successful-but-empty payload. The caller's try/catch sets the `error` state; a succeeded scan
+// with zero rows resolves normally to an empty list (COR-13 / UX-2).
 async function fetchJson<T>(url: string): Promise<T | null> {
+  const res = await fetch(url, { credentials: 'include', headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(`DbOps request failed (${res.status}): ${url}`);
+  return res.json() as Promise<T>;
+}
+
+// Status-carrying result for the Phase 2 console views. Unlike fetchJson's `T | null` (which
+// collapses 403, 404, 500, network error AND a valid-but-empty body into the same `null` — the UX-2
+// bug), this lets a view branch: 403 → "no access"; >= 500 or network/parse failure (status 0) →
+// error banner; ok with an empty/sparse document → the honest empty state. Added WITHOUT touching
+// the existing fetchJson callers (review LOW-9 blast radius).
+export type FetchResult<T> = { ok: true; data: T } | { ok: false; status: number };
+
+export async function fetchResult<T>(url: string): Promise<FetchResult<T>> {
   try {
     const res = await fetch(url, { credentials: 'include', headers: { Accept: 'application/json' } });
-    if (!res.ok) return null;
-    return res.json() as Promise<T>;
+    if (!res.ok) return { ok: false, status: res.status };
+    const data = (await res.json()) as T;
+    return { ok: true, data };
   } catch {
-    return null;
+    return { ok: false, status: 0 }; // network / parse failure — distinct from a 4xx/5xx status
   }
+}
+
+// ── Phase 2 console DTOs (mirror the backend §6.4 response records) ───────────
+
+export interface ConsoleFinding {
+  id: string; severity: string; metric: string; title: string; evidence: string; recommendation: string;
+}
+export interface DbHealthViewDto {
+  dsnAlias: string | null; dbHost: string | null; status: string; collectedAt: string | null;
+  stale: boolean; dsnCount: number; availableDsnAliases: string[]; findings: ConsoleFinding[];
+}
+
+export interface AgNodeData {
+  dbHost?: string | null; roleCount?: number | null; principalCount?: number | null;
+  privilegeClass?: string | null; objectCount?: number | null; hasPublic?: boolean | null;
+  isGroup?: boolean | null; memberOf?: string[] | null; grantsClasses?: string[] | null;
+  canLogin?: boolean | null; isSuperuser?: boolean | null; bypassRls?: boolean | null; connLimit?: number | null;
+  inheritedFrom?: string[] | null; effectivePrivilegeClasses?: string[] | null; flags?: string[] | null;
+}
+export interface AgNode { id: string; kind: string; label: string; data: AgNodeData; severity: string | null; }
+export interface AgEdge { id: string; source: string; target: string; kind: string; }
+export interface AgInsight { id: string; severity: string; subject: string; title: string; detail: string; }
+export interface AgMeta { hiddenPrincipalCount: number; truncated: boolean; totalPrincipals: number; }
+export interface AccessGraphDocDto {
+  dsnAlias: string | null; collectedAt: string | null; stale: boolean;
+  nodes: AgNode[]; edges: AgEdge[]; insights: AgInsight[]; meta: AgMeta; availableDsnAliases: string[];
+}
+
+export interface FkNode {
+  id: string; schema: string; table: string; sizeBytes: number; rowEstimate: number;
+  activityScore: number | null; boundary: boolean;
+}
+export interface FkEdge { id: string; source: string; target: string; columns: string[]; onDelete: string; onUpdate: string; }
+export interface FkMeta {
+  declaredFkCount: number; tableCount: number; boundaryNodeCount: number; droppedEdgeCount: number; truncated: boolean;
+}
+export interface FkGraphDocDto {
+  dsnAlias: string | null; collectedAt: string | null; stale: boolean;
+  nodes: FkNode[]; edges: FkEdge[]; meta: FkMeta; availableDsnAliases: string[];
+}
+
+export interface AgentLockWait {
+  dsnAlias: string; dbEngine: string; dbHost: string; category: string; pid: number;
+  usename: string; applicationName: string; state: string; waitEventType: string; waitEvent: string;
+  backendXid: string; xactStart: string; queryStart: string; stateChange: string;
+  xactAgeSeconds: number; blockedByPids: string; queryId?: string; collectedAt: string;
+}
+export interface AgentReplication {
+  dsnAlias: string; dbEngine: string; dbHost: string; role: string; clientAddr?: string;
+  applicationName?: string; state?: string; writeLagSeconds?: number | null; flushLagSeconds?: number | null;
+  replayLagSeconds?: number | null; lastReplayTime?: string; collectedAt: string;
+}
+
+// ── Phase 2 console fetchers (status-carrying, via fetchResult) ───────────────
+
+export function fetchConsoleHealth(accountId: string, dsnAlias?: string): Promise<FetchResult<DbHealthViewDto>> {
+  const q = dsnAlias ? `?dsnAlias=${encodeURIComponent(dsnAlias)}` : '';
+  return fetchResult<DbHealthViewDto>(`/api/dbops/aws/${accountId}/console/health${q}`);
+}
+export function fetchConsoleLockWaits(accountId: string): Promise<FetchResult<AgentLockWait[]>> {
+  return fetchResult<AgentLockWait[]>(`/api/dbops/aws/${accountId}/console/lock-waits`);
+}
+export function fetchConsoleReplication(accountId: string): Promise<FetchResult<AgentReplication[]>> {
+  return fetchResult<AgentReplication[]>(`/api/dbops/aws/${accountId}/console/replication`);
+}
+export function fetchConsoleAccessGraph(
+  accountId: string, dsnAlias?: string, topN?: number
+): Promise<FetchResult<AccessGraphDocDto>> {
+  const p = new URLSearchParams();
+  if (dsnAlias) p.set('dsnAlias', dsnAlias);
+  if (topN) p.set('topN', String(topN));
+  const q = p.toString() ? `?${p.toString()}` : '';
+  return fetchResult<AccessGraphDocDto>(`/api/dbops/aws/${accountId}/console/access-graph${q}`);
+}
+export function fetchConsoleTableGraph(
+  accountId: string, opts: { dsnAlias?: string; schema?: string; topN?: number; focus?: string } = {}
+): Promise<FetchResult<FkGraphDocDto>> {
+  const p = new URLSearchParams();
+  if (opts.dsnAlias) p.set('dsnAlias', opts.dsnAlias);
+  if (opts.schema) p.set('schema', opts.schema);
+  if (opts.topN) p.set('topN', String(opts.topN));
+  if (opts.focus) p.set('focus', opts.focus);
+  const q = p.toString() ? `?${p.toString()}` : '';
+  return fetchResult<FkGraphDocDto>(`/api/dbops/aws/${accountId}/console/table-graph${q}`);
 }
 
 export function useDbOpsData(accountId: string | null) {
@@ -492,7 +593,7 @@ export function useDbOpsData(accountId: string | null) {
     if (!accountId) return null;
     return fetchJson<DbInstanceTimeseries>(
       `/api/dbops/aws/${accountId}/instance/${encodeURIComponent(instanceId)}/timeseries?hours=${hours}`
-    );
+    ).catch(() => null);
   }, [accountId]);
 
   const fetchAgentTimeseries = useCallback(async (
@@ -501,42 +602,42 @@ export function useDbOpsData(accountId: string | null) {
     if (!accountId) return [];
     return fetchJson<AgentTimeseries[]>(
       `/api/dbops/aws/${accountId}/agent-timeseries?hours=${hours}`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [accountId]);
 
   const fetchAgentTableSizes = useCallback(async (): Promise<AgentTableSize[]> => {
     if (!accountId) return [];
     return fetchJson<AgentTableSize[]>(
       `/api/dbops/aws/${accountId}/agent-table-sizes`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [accountId]);
 
   const fetchAgentIndexUsage = useCallback(async (): Promise<AgentIndexUsage[]> => {
     if (!accountId) return [];
     return fetchJson<AgentIndexUsage[]>(
       `/api/dbops/aws/${accountId}/agent-index-usage`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [accountId]);
 
   const fetchAgentTableActivity = useCallback(async (): Promise<AgentTableActivity[]> => {
     if (!accountId) return [];
     return fetchJson<AgentTableActivity[]>(
       `/api/dbops/aws/${accountId}/agent-table-activity`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [accountId]);
 
   const fetchAgentVacuumStats = useCallback(async (): Promise<AgentVacuumStat[]> => {
     if (!accountId) return [];
     return fetchJson<AgentVacuumStat[]>(
       `/api/dbops/aws/${accountId}/agent-vacuum-stats`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [accountId]);
 
   const fetchAgentUserActivity = useCallback(async (): Promise<AgentUserActivity[]> => {
     if (!accountId) return [];
     return fetchJson<AgentUserActivity[]>(
       `/api/dbops/aws/${accountId}/agent-user-activity`
-    ).then(r => r ?? []);
+    ).then(r => r ?? []).catch(() => []);
   }, [accountId]);
 
   return {

@@ -8,6 +8,7 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.DbAgentConfig;
 import com.xammer.cloud.domain.DbAgentDataCache;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
+import com.xammer.cloud.config.DbOpsFeatureFlags;
 import com.xammer.cloud.dto.dbops.*;
 import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.CachedDataRepository;
@@ -20,6 +21,8 @@ import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -57,6 +60,9 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -89,6 +95,9 @@ public class DbOpsCostService {
     private static final double RIGHTSIZING_CPU_THRESHOLD  = 10.0;  // %
     private static final int    SNAPSHOT_WASTE_AGE_DAYS    = 30;    // days
     private static final double SNAPSHOT_COST_PER_GB       = 0.095; // $/GB/month
+
+    // CloudWatch GetMetricData accepts at most 500 MetricDataQuery per call; stay comfortably under.
+    private static final int    MAX_METRIC_QUERIES_PER_CALL = 450;
 
     // ── Regions to scan ──────────────────────────────────────────────────────
     private static final List<String> SCAN_REGIONS = List.of(
@@ -170,6 +179,25 @@ public class DbOpsCostService {
     private final DbAgentDataCacheRepository dbAgentDataCacheRepository;
     private final DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository;
     private final SpotPricingService spotPricingService;
+    private final DbOpsFeatureFlags dbOpsFeatureFlags;
+
+    /** PERF-1: dedicated bounded pool for DbOps cloud I/O (off {@code ForkJoinPool.commonPool()}). */
+    private final Executor dbOpsTaskExecutor;
+
+    /**
+     * PERF-2/PERF-3: per-cache-key in-flight scan registry. Concurrent cold-cache callers (a page
+     * open fans out to summary/inventory/metrics/security as separate requests) share ONE scan
+     * instead of each launching its own. Cache-HIT fast paths never enter this map.
+     */
+    private final ConcurrentHashMap<String, CompletableFuture<?>> inFlightScans = new ConcurrentHashMap<>();
+
+    /**
+     * PERF-5: the agent metrics-history retention horizon. A timeseries read is clamped to this
+     * window so it can never scan older than what the scheduled purge keeps. Matches the purge
+     * default in {@code AgentDataCleanupScheduler} ({@code xamops.dbops.metrics-history.retention-days}).
+     */
+    @Value("${xamops.dbops.metrics-history.retention-days:30}")
+    private int metricsHistoryRetentionDays;
 
     @Autowired
     public DbOpsCostService(
@@ -183,7 +211,9 @@ public class DbOpsCostService {
             DbAgentConfigRepository dbAgentConfigRepository,
             DbAgentDataCacheRepository dbAgentDataCacheRepository,
             DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository,
-            @Lazy SpotPricingService spotPricingService) {
+            @Lazy SpotPricingService spotPricingService,
+            DbOpsFeatureFlags dbOpsFeatureFlags,
+            @Qualifier("dbOpsTaskExecutor") Executor dbOpsTaskExecutor) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.redisCache = redisCache;
@@ -195,7 +225,50 @@ public class DbOpsCostService {
         this.dbAgentDataCacheRepository = dbAgentDataCacheRepository;
         this.dbAgentMetricsHistoryRepository = dbAgentMetricsHistoryRepository;
         this.spotPricingService = spotPricingService;
+        this.dbOpsFeatureFlags = dbOpsFeatureFlags;
+        this.dbOpsTaskExecutor = dbOpsTaskExecutor;
         logger.info("DbOpsCostService initialized");
+    }
+
+    // =========================================================================
+    // PERF-1 / PERF-2 / PERF-3 — executor routing + per-key single-flight helpers
+    // =========================================================================
+
+    /**
+     * PERF-1: run a DbOps cloud/DB I/O task on the dedicated bounded {@code dbOpsTaskExecutor}
+     * instead of {@code ForkJoinPool.commonPool()}. Every bare {@code supplyAsync} in this service
+     * goes through here so a burst of DbOps scans cannot starve the shared common pool.
+     */
+    private <T> CompletableFuture<T> dbOpsAsync(Supplier<T> supplier) {
+        return CompletableFuture.supplyAsync(supplier, dbOpsTaskExecutor);
+    }
+
+    /**
+     * PERF-2/PERF-3: per-key single-flight. The first caller for a given {@code cacheKey} runs the
+     * loader; concurrent callers that arrive while it is in flight receive the SAME future. The slot
+     * is cleared when the result settles (success OR failure) so the next cache miss recomputes.
+     * Only the compute branch calls this — the Redis/DB cache-HIT fast paths return directly and
+     * never enter the map.
+     */
+    @SuppressWarnings("unchecked")
+    private <T> CompletableFuture<T> singleFlight(String cacheKey, Supplier<CompletableFuture<T>> loader) {
+        CompletableFuture<T> created = new CompletableFuture<>();
+        CompletableFuture<?> existing = inFlightScans.putIfAbsent(cacheKey, created);
+        if (existing != null) {
+            return (CompletableFuture<T>) existing;
+        }
+        // We own the slot. Clear it once the result settles (created is still incomplete here, so
+        // this never fires synchronously inside putIfAbsent).
+        created.whenComplete((r, e) -> inFlightScans.remove(cacheKey, created));
+        try {
+            loader.get().whenComplete((r, e) -> {
+                if (e != null) created.completeExceptionally(e);
+                else created.complete(r);
+            });
+        } catch (RuntimeException ex) {
+            created.completeExceptionally(ex);
+        }
+        return created;
     }
 
     // =========================================================================
@@ -207,6 +280,27 @@ public class DbOpsCostService {
      * API cost: 1 × describeDBInstances per region (cached 24h).
      * Security checks, right-sizing, and idle detection all derive from this result.
      */
+    /**
+     * Enumerate the AWS regions this account has actually enabled, rather than a fixed list.
+     * Mirrors {@code AwsInventoryReconciler}: DescribeRegions, then drop regions whose opt-in
+     * status is {@code not-opted-in}. Falls back to {@link #SCAN_REGIONS} on any failure (or an
+     * empty result) so a DescribeRegions outage can never shrink coverage below the old behaviour.
+     */
+    private List<String> resolveScanRegions(CloudAccount account) {
+        try {
+            List<String> enabled = awsClientProvider.getEc2Client(account, "us-east-1")
+                    .describeRegions().regions().stream()
+                    .filter(r -> !"not-opted-in".equals(r.optInStatus()))
+                    .map(r -> r.regionName())
+                    .collect(Collectors.toList());
+            return enabled.isEmpty() ? SCAN_REGIONS : enabled;
+        } catch (Exception e) {
+            logger.debug("[DbOps] describeRegions failed for account {}; falling back to default scan regions: {}",
+                    account.getAwsAccountId(), e.getMessage());
+            return SCAN_REGIONS;
+        }
+    }
+
     @Async("awsTaskExecutor")
     public CompletableFuture<List<DbInstanceDto>> getDbInventory(String accountId, boolean forceRefresh) {
         String cacheKey = "dbops:aws:inventory:" + accountId;
@@ -225,35 +319,46 @@ public class DbOpsCostService {
             }
         }
 
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                CloudAccount account = getAccount(accountId);
-                List<DbInstanceDto> instances = new ArrayList<>();
+        // PERF-2: concurrent cold-cache callers (summary + inventory + metrics + security all call
+        // this) share one scan instead of each launching its own.
+        return singleFlight(cacheKey, () -> dbOpsAsync(() -> {
+            // Account/client setup failures propagate (complete the future exceptionally) and are
+            // never cached — see the failure-vs-empty contract below.
+            CloudAccount account = getAccount(accountId);
+            List<DbInstanceDto> instances = new ArrayList<>();
 
-                for (String region : SCAN_REGIONS) {
-                    try {
-                        RdsClient rds = awsClientProvider.getRdsClient(account, region);
-                        // Paginator — single logical call per region, handles multiple pages
-                        for (DescribeDbInstancesResponse page :
-                                rds.describeDBInstancesPaginator(DescribeDbInstancesRequest.builder().build())) {
-                            for (DBInstance db : page.dbInstances()) {
-                                instances.add(toInstanceDto(db, region));
-                            }
+            List<String> regions = resolveScanRegions(account);
+            int regionSuccesses = 0;
+            for (String region : regions) {
+                try {
+                    RdsClient rds = awsClientProvider.getRdsClient(account, region);
+                    // Paginator — single logical call per region, handles multiple pages
+                    for (DescribeDbInstancesResponse page :
+                            rds.describeDBInstancesPaginator(DescribeDbInstancesRequest.builder().build())) {
+                        for (DBInstance db : page.dbInstances()) {
+                            instances.add(toInstanceDto(db, region));
                         }
-                    } catch (Exception e) {
-                        logger.debug("[DbOps] No RDS access in region {} (account {}): {}", region, accountId, e.getMessage());
                     }
+                    regionSuccesses++;
+                } catch (Exception e) {
+                    logger.debug("[DbOps] No RDS access in region {} (account {}): {}", region, accountId, e.getMessage());
                 }
-
-                redisCache.put(cacheKey, instances, INVENTORY_TTL);
-                saveToDb(cacheKey, instances);
-                logger.info("✅ [DbOps] Inventory fetched: {} instances for account {}", instances.size(), accountId);
-                return instances;
-            } catch (Exception e) {
-                logger.error("❌ [DbOps] Inventory error for account {}: {}", accountId, e.getMessage());
-                return Collections.emptyList();
             }
-        });
+
+            // Failure-vs-empty contract (COR-13): a wholly-failed scan — no region could be
+            // scanned — must NOT be cached as an empty "no databases" result. It completes
+            // EXCEPTIONALLY so the async controller returns a non-2xx and the frontend can show an
+            // error banner. A scan that succeeded with zero rows is a genuine empty and IS cached.
+            if (regionSuccesses == 0 && !regions.isEmpty()) {
+                throw new IllegalStateException(
+                        "DbOps inventory scan failed for account " + accountId + ": no region could be scanned");
+            }
+
+            redisCache.put(cacheKey, instances, INVENTORY_TTL);
+            saveToDb(cacheKey, instances);
+            logger.info("✅ [DbOps] Inventory fetched: {} instances for account {}", instances.size(), accountId);
+            return instances;
+        }));
     }
 
     // =========================================================================
@@ -283,8 +388,10 @@ public class DbOpsCostService {
             }
         }
 
-        // Need inventory first; cache hit expected after getDbInventory runs
-        return getDbInventory(accountId, false).thenApply(instances -> {
+        // Need inventory first; cache hit expected after getDbInventory runs. PERF-1: pin the
+        // CloudWatch work to the DbOps pool (thenApplyAsync); PERF-2: single-flight so concurrent
+        // metrics callers share one compute.
+        return singleFlight(cacheKey, () -> getDbInventory(accountId, false).thenApplyAsync(instances -> {
             if (instances.isEmpty()) return Collections.<String, DbMetricsDto>emptyMap();
             try {
                 CloudAccount account = getAccount(accountId);
@@ -301,49 +408,56 @@ public class DbOpsCostService {
                     String region = entry.getKey();
                     List<DbInstanceDto> regionInstances = entry.getValue();
 
-                    // Build one batch of MetricDataQuery for all instances in this region
-                    // CloudWatch allows up to 500 queries per call; 5 metrics × instance << 500
-                    List<MetricDataQuery> queries = new ArrayList<>();
-                    for (DbInstanceDto inst : regionInstances) {
-                        String sid = sanitizeId(inst.getInstanceId());
-                        String dbId = inst.getInstanceId();
-                        // One-day period average over 7 days → 7 data points per metric
-                        queries.add(buildMetricQuery("cpu_"   + sid, "AWS/RDS", "CPUUtilization",            dbId, 86400));
-                        queries.add(buildMetricQuery("conn_"  + sid, "AWS/RDS", "DatabaseConnections",        dbId, 86400));
-                        queries.add(buildMetricQuery("mem_"   + sid, "AWS/RDS", "FreeableMemory",             dbId, 86400));
-                        queries.add(buildMetricQuery("riops_" + sid, "AWS/RDS", "ReadIOPS",                   dbId, 86400));
-                        queries.add(buildMetricQuery("wiops_" + sid, "AWS/RDS", "WriteIOPS",                  dbId, 86400));
-                        // Datadog-equivalent metrics
-                        queries.add(buildMetricQuery("rlat_"  + sid, "AWS/RDS", "ReadLatency",                dbId, 86400));
-                        queries.add(buildMetricQuery("wlat_"  + sid, "AWS/RDS", "WriteLatency",               dbId, 86400));
-                        queries.add(buildMetricQuery("dq_"    + sid, "AWS/RDS", "DiskQueueDepth",             dbId, 86400));
-                        queries.add(buildMetricQuery("fs_"    + sid, "AWS/RDS", "FreeStorageSpace",           dbId, 86400));
-                        queries.add(buildMetricQuery("rl_"    + sid, "AWS/RDS", "ReplicaLag",                 dbId, 86400));
-                        queries.add(buildMetricQuery("nrx_"   + sid, "AWS/RDS", "NetworkReceiveThroughput",   dbId, 86400));
-                        queries.add(buildMetricQuery("ntx_"   + sid, "AWS/RDS", "NetworkTransmitThroughput",  dbId, 86400));
-                        queries.add(buildMetricQuery("swap_"  + sid, "AWS/RDS", "SwapUsage",                  dbId, 86400));
-                        queries.add(buildMetricQuery("burst_" + sid, "AWS/RDS", "BurstBalance",               dbId, 86400));
-                    }
+                    // Per-region isolation: one region's CloudWatch failure must not blank out the
+                    // metrics of every other region (the old single outer try returned an empty map
+                    // for ALL regions on any failure). Each region logs and continues on its own.
+                    try {
+                        // Build one batch of MetricDataQuery for all instances in this region (14
+                        // queries per instance). CloudWatch caps GetMetricData at 500 queries/call,
+                        // so >35 instances in a region exceeds the cap — we chunk below.
+                        List<MetricDataQuery> queries = new ArrayList<>();
+                        for (DbInstanceDto inst : regionInstances) {
+                            String sid = sanitizeId(inst.getInstanceId());
+                            String dbId = inst.getInstanceId();
+                            // One-day period average over 7 days → 7 data points per metric
+                            queries.add(buildMetricQuery("cpu_"   + sid, "AWS/RDS", "CPUUtilization",            dbId, 86400));
+                            queries.add(buildMetricQuery("conn_"  + sid, "AWS/RDS", "DatabaseConnections",        dbId, 86400));
+                            queries.add(buildMetricQuery("mem_"   + sid, "AWS/RDS", "FreeableMemory",             dbId, 86400));
+                            queries.add(buildMetricQuery("riops_" + sid, "AWS/RDS", "ReadIOPS",                   dbId, 86400));
+                            queries.add(buildMetricQuery("wiops_" + sid, "AWS/RDS", "WriteIOPS",                  dbId, 86400));
+                            // Datadog-equivalent metrics
+                            queries.add(buildMetricQuery("rlat_"  + sid, "AWS/RDS", "ReadLatency",                dbId, 86400));
+                            queries.add(buildMetricQuery("wlat_"  + sid, "AWS/RDS", "WriteLatency",               dbId, 86400));
+                            queries.add(buildMetricQuery("dq_"    + sid, "AWS/RDS", "DiskQueueDepth",             dbId, 86400));
+                            queries.add(buildMetricQuery("fs_"    + sid, "AWS/RDS", "FreeStorageSpace",           dbId, 86400));
+                            queries.add(buildMetricQuery("rl_"    + sid, "AWS/RDS", "ReplicaLag",                 dbId, 86400));
+                            queries.add(buildMetricQuery("nrx_"   + sid, "AWS/RDS", "NetworkReceiveThroughput",   dbId, 86400));
+                            queries.add(buildMetricQuery("ntx_"   + sid, "AWS/RDS", "NetworkTransmitThroughput",  dbId, 86400));
+                            queries.add(buildMetricQuery("swap_"  + sid, "AWS/RDS", "SwapUsage",                  dbId, 86400));
+                            queries.add(buildMetricQuery("burst_" + sid, "AWS/RDS", "BurstBalance",               dbId, 86400));
+                        }
 
-                    // Single API call covers all instances in this region
-                    CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, region);
-                    Map<String, Double> valueMap = new HashMap<>();
+                        CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, region);
+                        Map<String, Double> valueMap = new HashMap<>();
 
-                    GetMetricDataRequest req = GetMetricDataRequest.builder()
-                            .startTime(startTime)
-                            .endTime(endTime)
-                            .metricDataQueries(queries)
-                            .build();
+                        // Chunk under the 500-query cap (≤450/call), one GetMetricData call per chunk.
+                        for (List<MetricDataQuery> chunk : partition(queries, MAX_METRIC_QUERIES_PER_CALL)) {
+                            GetMetricDataRequest req = GetMetricDataRequest.builder()
+                                    .startTime(startTime)
+                                    .endTime(endTime)
+                                    .metricDataQueries(chunk)
+                                    .build();
 
-                    // Handle CloudWatch pagination (rare for DB counts, but correct)
-                    GetMetricDataResponse resp = cw.getMetricData(req);
-                    collectMetricValues(resp, valueMap);
-                    while (resp.nextToken() != null && !resp.nextToken().isEmpty()) {
-                        resp = cw.getMetricData(req.toBuilder().nextToken(resp.nextToken()).build());
-                        collectMetricValues(resp, valueMap);
-                    }
+                            // Handle CloudWatch pagination (rare for DB counts, but correct)
+                            GetMetricDataResponse resp = cw.getMetricData(req);
+                            collectMetricValues(resp, valueMap);
+                            while (resp.nextToken() != null && !resp.nextToken().isEmpty()) {
+                                resp = cw.getMetricData(req.toBuilder().nextToken(resp.nextToken()).build());
+                                collectMetricValues(resp, valueMap);
+                            }
+                        }
 
-                    for (DbInstanceDto inst : regionInstances) {
+                        for (DbInstanceDto inst : regionInstances) {
                         String sid = sanitizeId(inst.getInstanceId());
                         DbMetricsDto dto = new DbMetricsDto();
                         dto.setInstanceId(inst.getInstanceId());
@@ -368,6 +482,10 @@ public class DbOpsCostService {
                         dto.setAvgSwapUsageMb(round2(valueMap.getOrDefault("swap_"  + sid, 0.0) / (1024.0 * 1024.0)));
                         dto.setBurstBalance(round2(valueMap.getOrDefault("burst_" + sid, 0.0)));
                         metricsMap.put(inst.getInstanceId(), dto);
+                        }
+                    } catch (Exception e) {
+                        logger.warn("[DbOps] Metrics fetch failed for region {} (account {}): {}",
+                                region, accountId, e.getMessage());
                     }
                 }
 
@@ -379,7 +497,7 @@ public class DbOpsCostService {
                 logger.error("❌ [DbOps] Metrics error for account {}: {}", accountId, e.getMessage());
                 return Collections.<String, DbMetricsDto>emptyMap();
             }
-        });
+        }, dbOpsTaskExecutor));
     }
 
     // =========================================================================
@@ -408,7 +526,7 @@ public class DbOpsCostService {
             }
         }
 
-        return CompletableFuture.supplyAsync(() -> {
+        return singleFlight(cacheKey, () -> dbOpsAsync(() -> {
             try {
                 CloudAccount account = getAccount(accountId);
                 CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
@@ -469,7 +587,7 @@ public class DbOpsCostService {
                 logger.error("❌ [DbOps] Costs error for account {}: {}", accountId, e.getMessage());
                 return Collections.emptyList();
             }
-        });
+        }));
     }
 
     // =========================================================================
@@ -498,13 +616,13 @@ public class DbOpsCostService {
             }
         }
 
-        return CompletableFuture.supplyAsync(() -> {
+        return singleFlight(cacheKey, () -> dbOpsAsync(() -> {
             try {
                 CloudAccount account = getAccount(accountId);
                 List<DbSnapshotWasteDto> wasteList = new ArrayList<>();
                 Instant cutoff = Instant.now().minus(SNAPSHOT_WASTE_AGE_DAYS, ChronoUnit.DAYS);
 
-                for (String region : SCAN_REGIONS) {
+                for (String region : resolveScanRegions(account)) {
                     try {
                         RdsClient rds = awsClientProvider.getRdsClient(account, region);
                         DescribeDbSnapshotsRequest req = DescribeDbSnapshotsRequest.builder()
@@ -527,7 +645,7 @@ public class DbOpsCostService {
                                 dto.setSizeGb(sizeGb);
                                 dto.setEstimatedMonthlyCost(round2(sizeGb * SNAPSHOT_COST_PER_GB));
                                 dto.setRecommendation(ageDays > 90
-                                        ? "Safe to delete — over 90 days old with no recent access"
+                                        ? "Review retention before deleting — over 90 days old"
                                         : "Review — created " + ageDays + " days ago");
                                 wasteList.add(dto);
                             }
@@ -546,7 +664,7 @@ public class DbOpsCostService {
                 logger.error("❌ [DbOps] Snapshots error for account {}: {}", accountId, e.getMessage());
                 return Collections.emptyList();
             }
-        });
+        }));
     }
 
     // =========================================================================
@@ -694,11 +812,21 @@ public class DbOpsCostService {
 
     @Async("awsTaskExecutor")
     public CompletableFuture<DbSavingsSummaryDto> getSavingsSummary(String accountId, boolean forceRefresh) {
-        CompletableFuture<List<DbInstanceDto>>     inventoryFuture    = getDbInventory(accountId, false);
-        CompletableFuture<List<DbIdleInstanceDto>> idleFuture         = getIdleInstances(accountId, forceRefresh);
-        CompletableFuture<List<DbRightsizingDto>>  rightsizingFuture  = getRightsizingRecommendations(accountId, false);
-        CompletableFuture<List<DbSnapshotWasteDto>> snapshotsFuture   = getDbSnapshots(accountId, false);
-        CompletableFuture<List<DbCostDto>>         costsFuture        = getDbCosts(accountId, false);
+        // PERF-3: propagate forceRefresh UNIFORMLY. Previously only idle received it, so a forced
+        // refresh mixed fresh metrics with stale inventory/snapshots/costs (and returned fully-cached
+        // cards when idle/rightsizing were gated off). With the per-key single-flight above, the now
+        // consistent force calls collapse to ONE inventory scan and ONE metrics fetch for the refresh.
+        CompletableFuture<List<DbInstanceDto>>     inventoryFuture    = getDbInventory(accountId, forceRefresh);
+        // Phase 1a: a disabled pillar contributes an empty list, so its count/savings are 0 and it
+        // never enters the savings total — the summary omits it rather than faking a value.
+        CompletableFuture<List<DbIdleInstanceDto>> idleFuture         = dbOpsFeatureFlags.isIdleEnabled()
+                ? getIdleInstances(accountId, forceRefresh)
+                : CompletableFuture.completedFuture(Collections.emptyList());
+        CompletableFuture<List<DbRightsizingDto>>  rightsizingFuture  = dbOpsFeatureFlags.isRightsizingEnabled()
+                ? getRightsizingRecommendations(accountId, forceRefresh)
+                : CompletableFuture.completedFuture(Collections.emptyList());
+        CompletableFuture<List<DbSnapshotWasteDto>> snapshotsFuture   = getDbSnapshots(accountId, forceRefresh);
+        CompletableFuture<List<DbCostDto>>         costsFuture        = getDbCosts(accountId, forceRefresh);
 
         return CompletableFuture.allOf(inventoryFuture, idleFuture, rightsizingFuture, snapshotsFuture, costsFuture)
                 .thenApply(v -> {
@@ -756,7 +884,7 @@ public class DbOpsCostService {
 
     @Async
     public CompletableFuture<List<AgentInstanceMetricsDto>> getAgentInstanceMetrics(String accountId) {
-        return CompletableFuture.supplyAsync(() -> {
+        return dbOpsAsync(() -> {
             try {
                 Optional<CloudAccount> accountOpt = cloudAccountRepository
                         .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId);
@@ -833,7 +961,7 @@ public class DbOpsCostService {
     @Async("awsTaskExecutor")
     public CompletableFuture<DbInstanceTimeseriesDto> getInstanceTimeseries(
             String accountId, String instanceId, int hours) {
-        return CompletableFuture.supplyAsync(() -> {
+        return dbOpsAsync(() -> {
             try {
                 CloudAccount account = getAccount(accountId);
 
@@ -941,6 +1069,15 @@ public class DbOpsCostService {
         return s.length() > 120 ? s.substring(0, 120) : s;
     }
 
+    /** Split a list into consecutive sublists of at most {@code size} elements (views, read-only). */
+    private static <T> List<List<T>> partition(List<T> items, int size) {
+        List<List<T>> chunks = new ArrayList<>();
+        for (int i = 0; i < items.size(); i += size) {
+            chunks.add(items.subList(i, Math.min(i + size, items.size())));
+        }
+        return chunks;
+    }
+
     private MetricDataQuery buildMetricQuery(String id, String namespace, String metricName,
                                               String dbInstanceId, int periodSeconds) {
         return MetricDataQuery.builder()
@@ -1025,32 +1162,44 @@ public class DbOpsCostService {
 
                 Instant since = Instant.now().minus(7, ChronoUnit.DAYS);
 
+                // PERF-11: fetch each instance's slow-query log in parallel on the DbOps pool rather
+                // than one-at-a-time. Futures are joined in instance order and appended in that order,
+                // so the final sort/limit — and the ordering of equal query-times — is byte-for-byte
+                // identical to the old sequential loop. Each task keeps its own ResourceNotFound/catch
+                // behaviour (a failing instance contributes nothing, exactly as before).
+                List<CompletableFuture<Map.Entry<Boolean, List<SlowQueryDto>>>> perInstance = new ArrayList<>();
                 for (DbInstanceDto inst : instances) {
-                    String logGroup = inst.getEngine().startsWith("postgres")
-                            ? "/aws/rds/instance/" + inst.getInstanceId() + "/postgresql"
-                            : "/aws/rds/instance/" + inst.getInstanceId() + "/slowquery";
+                    perInstance.add(dbOpsAsync(() -> {
+                        String logGroup = inst.getEngine().startsWith("postgres")
+                                ? "/aws/rds/instance/" + inst.getInstanceId() + "/postgresql"
+                                : "/aws/rds/instance/" + inst.getInstanceId() + "/slowquery";
+                        try {
+                            CloudWatchLogsClient logs = awsClientProvider.getCloudWatchLogsClient(account, inst.getRegion());
+                            FilterLogEventsResponse resp = logs.filterLogEvents(
+                                    FilterLogEventsRequest.builder()
+                                            .logGroupName(logGroup)
+                                            .startTime(since.toEpochMilli())
+                                            .limit(200)
+                                            .build());
 
-                    try {
-                        CloudWatchLogsClient logs = awsClientProvider.getCloudWatchLogsClient(account, inst.getRegion());
-                        FilterLogEventsResponse resp = logs.filterLogEvents(
-                                FilterLogEventsRequest.builder()
-                                        .logGroupName(logGroup)
-                                        .startTime(since.toEpochMilli())
-                                        .limit(200)
-                                        .build());
-
-                        if (!resp.events().isEmpty()) {
-                            anyEnabled = true;
-                            List<SlowQueryDto> parsed = inst.getEngine().startsWith("postgres")
-                                    ? parsePgLogs(resp.events(), inst.getInstanceId(), inst.getRegion())
-                                    : parseMysqlSlowLogs(resp.events(), inst.getInstanceId(), inst.getRegion());
-                            allQueries.addAll(parsed);
+                            if (!resp.events().isEmpty()) {
+                                List<SlowQueryDto> parsed = inst.getEngine().startsWith("postgres")
+                                        ? parsePgLogs(resp.events(), inst.getInstanceId(), inst.getRegion())
+                                        : parseMysqlSlowLogs(resp.events(), inst.getInstanceId(), inst.getRegion());
+                                return Map.entry(Boolean.TRUE, parsed);
+                            }
+                        } catch (ResourceNotFoundException e) {
+                            logger.debug("[DbOps] Slow query log group {} not found for instance {}", logGroup, inst.getInstanceId());
+                        } catch (Exception e) {
+                            logger.debug("[DbOps] Could not fetch slow query logs for {}: {}", inst.getInstanceId(), e.getMessage());
                         }
-                    } catch (ResourceNotFoundException e) {
-                        logger.debug("[DbOps] Slow query log group {} not found for instance {}", logGroup, inst.getInstanceId());
-                    } catch (Exception e) {
-                        logger.debug("[DbOps] Could not fetch slow query logs for {}: {}", inst.getInstanceId(), e.getMessage());
-                    }
+                        return Map.entry(Boolean.FALSE, Collections.<SlowQueryDto>emptyList());
+                    }));
+                }
+                for (CompletableFuture<Map.Entry<Boolean, List<SlowQueryDto>>> f : perInstance) {
+                    Map.Entry<Boolean, List<SlowQueryDto>> r = f.join();
+                    if (r.getKey()) anyEnabled = true;
+                    allQueries.addAll(r.getValue());
                 }
 
                 allQueries.sort(Comparator.comparingDouble(SlowQueryDto::getQueryTimeSeconds).reversed());
@@ -1090,7 +1239,7 @@ public class DbOpsCostService {
                 // Flush previous query
                 if (sqlBuilder.length() > 0 && queryTime > 0) {
                     queries.add(new SlowQueryDto(instanceId, region, round2(queryTime), round2(lockTime),
-                            rowsExamined, rowsSent, truncateSql(sqlBuilder.toString()), timestamp));
+                            rowsExamined, rowsSent, truncateSql(maskSqlLiterals(sqlBuilder.toString())), timestamp));
                 }
                 timestamp = line.substring(7).trim();
                 sqlBuilder = new StringBuilder();
@@ -1108,7 +1257,7 @@ public class DbOpsCostService {
         // Flush last
         if (sqlBuilder.length() > 0 && queryTime > 0) {
             queries.add(new SlowQueryDto(instanceId, region, round2(queryTime), round2(lockTime),
-                    rowsExamined, rowsSent, truncateSql(sqlBuilder.toString()), timestamp));
+                    rowsExamined, rowsSent, truncateSql(maskSqlLiterals(sqlBuilder.toString())), timestamp));
         }
         return queries;
     }
@@ -1130,7 +1279,7 @@ public class DbOpsCostService {
 
                 String ts  = msg.length() > 23 ? msg.substring(0, 23) : "";
                 queries.add(new SlowQueryDto(instanceId, region, round2(ms / 1000.0), 0, 0, 0,
-                        truncateSql(sql), ts));
+                        truncateSql(maskSqlLiterals(sql)), ts));
             } catch (Exception ignored) {}
         }
         return queries;
@@ -1148,6 +1297,23 @@ public class DbOpsCostService {
     private String truncateSql(String sql) {
         sql = sql.trim();
         return sql.length() > 300 ? sql.substring(0, 297) + "..." : sql;
+    }
+
+    /**
+     * SEC-8: normalise query text parsed from CloudWatch slow logs so stored/displayed queries carry
+     * no literal values (PII, secrets). Mirrors the agent's pg_stat_statements normalisation:
+     *   single-quoted string literals → {@code ?}, standalone numeric literals → {@code ?},
+     *   and {@code IN (?, ?, …)} collapsed to {@code IN (?)}.
+     */
+    private String maskSqlLiterals(String sql) {
+        if (sql == null || sql.isEmpty()) return sql;
+        // Single-quoted string literals (handles doubled '' escapes) → ?
+        String masked = sql.replaceAll("'(?:[^']|'')*'", "?");
+        // Standalone numeric literals (not part of an identifier) → ?
+        masked = masked.replaceAll("(?<![A-Za-z0-9_.])\\d+(?:\\.\\d+)?", "?");
+        // Collapse an IN-list of placeholders → IN (?)
+        masked = masked.replaceAll("(?i)\\bIN\\s*\\(\\s*\\?(?:\\s*,\\s*\\?)*\\s*\\)", "IN (?)");
+        return masked;
     }
 
     /** Persist data to DB cache as JSON (fallback when Redis is cold). */
@@ -1192,7 +1358,7 @@ public class DbOpsCostService {
      */
     @Async
     public CompletableFuture<List<AgentQueryStatDto>> getAgentQueryStats(String accountId) {
-        return CompletableFuture.supplyAsync(() -> {
+        return dbOpsAsync(() -> {
             try {
                 // 1. Resolve the CloudAccount internal ID from the accountId string
                 Optional<CloudAccount> accountOpt = cloudAccountRepository
@@ -1268,7 +1434,7 @@ public class DbOpsCostService {
      */
     @Async
     public CompletableFuture<List<AgentTimeseriesDto>> getAgentTimeseries(String accountId, int hours) {
-        return CompletableFuture.supplyAsync(() -> {
+        return dbOpsAsync(() -> {
             try {
                 Optional<CloudAccount> accountOpt = cloudAccountRepository
                         .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId);
@@ -1278,7 +1444,11 @@ public class DbOpsCostService {
                 List<DbAgentConfig> agents = dbAgentConfigRepository.findByCloudAccountId(internalAccountId);
                 if (agents.isEmpty()) return List.of();
 
-                LocalDateTime since = LocalDateTime.now().minusHours(hours);
+                // PERF-5: clamp the requested window to the retention horizon (floor 1h) so a read
+                // can never scan older than the scheduled purge keeps.
+                int cappedHours = Math.max(1, Math.min(hours, metricsHistoryRetentionDays * 24));
+                // Agent rows are stamped UTC (time.Now().UTC()); the cutoff must be UTC too.
+                LocalDateTime since = LocalDateTime.now(java.time.ZoneOffset.UTC).minusHours(cappedHours);
                 List<AgentTimeseriesDto> result = new ArrayList<>();
 
                 for (DbAgentConfig agent : agents) {
@@ -1344,7 +1514,7 @@ public class DbOpsCostService {
      * Reads from db_agent_data_cache (upserted — always the freshest push).
      */
     public CompletableFuture<List<AgentTableSizeDto>> getAgentTableSizes(String accountId) {
-        return CompletableFuture.supplyAsync(() -> {
+        return dbOpsAsync(() -> {
             try {
                 Optional<CloudAccount> accountOpt = cloudAccountRepository
                         .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId);
@@ -1382,7 +1552,7 @@ public class DbOpsCostService {
      * Returns the latest "db-index-usage" batch for all DB agents in the account.
      */
     public CompletableFuture<List<AgentIndexUsageDto>> getAgentIndexUsage(String accountId) {
-        return CompletableFuture.supplyAsync(() -> {
+        return dbOpsAsync(() -> {
             try {
                 Optional<CloudAccount> accountOpt = cloudAccountRepository
                         .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId);
@@ -1414,7 +1584,7 @@ public class DbOpsCostService {
      * Returns the latest "db-table-activity" batch for all DB agents in the account.
      */
     public CompletableFuture<List<AgentTableActivityDto>> getAgentTableActivity(String accountId) {
-        return CompletableFuture.supplyAsync(() -> {
+        return dbOpsAsync(() -> {
             try {
                 Optional<CloudAccount> accountOpt = cloudAccountRepository
                         .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId);
@@ -1447,7 +1617,7 @@ public class DbOpsCostService {
      * PostgreSQL only — contains pg_stat_user_tables vacuum/analyze history and dead tuple ratios.
      */
     public CompletableFuture<List<AgentVacuumStatDto>> getAgentVacuumStats(String accountId) {
-        return CompletableFuture.supplyAsync(() -> {
+        return dbOpsAsync(() -> {
             try {
                 Optional<CloudAccount> accountOpt = cloudAccountRepository
                         .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId);
@@ -1486,7 +1656,7 @@ public class DbOpsCostService {
      * Contains per-user connection counts and cumulative query stats.
      */
     public CompletableFuture<List<AgentUserActivityDto>> getAgentUserActivity(String accountId) {
-        return CompletableFuture.supplyAsync(() -> {
+        return dbOpsAsync(() -> {
             try {
                 Optional<CloudAccount> accountOpt = cloudAccountRepository
                         .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId);

@@ -1,0 +1,332 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  XamOps AutoSpotting monitoring (design-ux-ops.md §6.4, plan-phase-10.md task 10.3). Deployed in the
+  XamOps account (NOT the customer template). Owns the on-call SNS topic and the engine alarms that
+  fire on the Micrometer custom metrics exported to CloudWatch under namespace XamOps/AutoSpotting/{env}
+  (AutoSpottingMetricsExportConfig). Ledger alarms (ledger.variance_ratio, ledger.last_success_age,
+  ledger.close_status, ledger.unknown) are intentionally absent here; they are added in Phases 17/25/32
+  when their meters exist. The engine-stack SQS alarms (DLQ depth, queue age) live in
+  autospotting-engine.yaml and take this topic's ARN through its OncallTopicArn parameter.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues:
+      - local
+      - uat
+      - preprod
+      - prod
+    Description: Environment suffix; must match management.cloudwatch.metrics.export.namespace (XamOps/AutoSpotting/{env})
+
+  OncallEmail:
+    Type: String
+    Default: ''
+    Description: Optional email subscribed to the on-call SNS topic (leave blank to subscribe out of band)
+
+  ReconcilerIntervalSeconds:
+    Type: Number
+    Default: 300
+    Description: autospotting.reconciler.interval in seconds; alarm thresholds are multiples of it (§6.4)
+
+Conditions:
+  HasOncallEmail: !Not [!Equals [!Ref OncallEmail, '']]
+
+Mappings:
+  # Not used for logic; kept so the namespace is declared in one place for readers.
+  Namespace:
+    Prefix:
+      Value: XamOps/AutoSpotting
+
+Resources:
+  # ============================================================================
+  # On-call SNS topic (design-ux-ops.md §6.4). Page and Ticket alarms both publish here; the phone
+  # channel (V-OBS-02) subscribes out of band.
+  # ============================================================================
+  OncallTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'xamops-autospotting-oncall-${Environment}'
+      DisplayName: !Sub 'XamOps AutoSpotting on-call (${Environment})'
+
+  OncallEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasOncallEmail
+    Properties:
+      TopicArn: !Ref OncallTopic
+      Protocol: email
+      Endpoint: !Ref OncallEmail
+
+  # ============================================================================
+  # Alarms (design-ux-ops.md §6.4). One alarm per FR-OBS-03 condition, each with AlarmActions ->
+  # the on-call topic. The metric namespace carries the environment so prod never collides.
+  # ============================================================================
+
+  # Group needs a human: autospotting.groups{state=FAILED} Max > 0, 5 min, Page, not breaching.
+  GroupNeedsHumanAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'autospotting-group-needs-human-${Environment}'
+      AlarmDescription: A managed group is FAILED and needs an operator (design-ux-ops.md §6.4, Page)
+      Namespace: !Sub 'XamOps/AutoSpotting/${Environment}'
+      MetricName: autospotting.groups
+      Dimensions:
+        - Name: state
+          Value: FAILED
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref OncallTopic
+      OKActions:
+        - !Ref OncallTopic
+
+  # Stuck operation: autospotting.ops.stuck Max > 0, 5 min, Page, not breaching.
+  StuckOperationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'autospotting-stuck-operation-${Environment}'
+      AlarmDescription: An operation is stuck (wait_reason=STUCK) (design-ux-ops.md §6.4, Page)
+      Namespace: !Sub 'XamOps/AutoSpotting/${Environment}'
+      MetricName: autospotting.ops.stuck
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref OncallTopic
+      OKActions:
+        - !Ref OncallTopic
+
+  # Reconciler behind: staleness_seconds Max > 2 x interval, 10 min, Ticket, breaching (liveness).
+  ReconcilerBehindAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'autospotting-reconciler-behind-${Environment}'
+      AlarmDescription: Reconciler staleness over 2x interval (design-ux-ops.md §6.4, Ticket)
+      Namespace: !Sub 'XamOps/AutoSpotting/${Environment}'
+      MetricName: autospotting.reconcile.staleness_seconds
+      Statistic: Maximum
+      Period: 600
+      EvaluationPeriods: 1
+      # 2 x the default ReconcilerIntervalSeconds (300). Bump this with the interval if it changes; a
+      # Page variant at 4x is left to the operator runbook until FR-HLT finalises the band (§6.4).
+      Threshold: 600
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: breaching
+      AlarmActions:
+        - !Ref OncallTopic
+      OKActions:
+        - !Ref OncallTopic
+
+  # Conversion failure rate: (failed+compensated)/completed > 5%, only when completed >= 20, 24 h,
+  # Ticket, not breaching. Metric math over the autospotting.conversions.completed outcomes.
+  ConversionFailureRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'autospotting-conversion-failure-rate-${Environment}'
+      AlarmDescription: Conversion failure+compensation rate over 5% with >=20 completions (design-ux-ops.md §6.4, Ticket)
+      ComparisonOperator: GreaterThanThreshold
+      EvaluationPeriods: 1
+      Threshold: 5
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref OncallTopic
+      OKActions:
+        - !Ref OncallTopic
+      Metrics:
+        - Id: failed
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: !Sub 'XamOps/AutoSpotting/${Environment}'
+              MetricName: autospotting.conversions.completed
+              Dimensions:
+                - Name: outcome
+                  Value: failed
+            Period: 86400
+            Stat: Sum
+        - Id: compensated
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: !Sub 'XamOps/AutoSpotting/${Environment}'
+              MetricName: autospotting.conversions.completed
+              Dimensions:
+                - Name: outcome
+                  Value: compensated
+            Period: 86400
+            Stat: Sum
+        - Id: completed
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: !Sub 'XamOps/AutoSpotting/${Environment}'
+              MetricName: autospotting.conversions.completed
+            Period: 86400
+            Stat: Sum
+        # Guard: only evaluate when completed >= 20, else return 0 so the alarm stays OK.
+        - Id: rate
+          ReturnData: true
+          Expression: 'IF(completed >= 20, 100 * (failed + compensated) / completed, 0)'
+          Label: conversion-failure-rate-percent
+
+  # Degraded too long: groups{state=DEGRADED} Max > 0 for N consecutive periods, 5 min, Page.
+  DegradedTooLongAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'autospotting-degraded-too-long-${Environment}'
+      AlarmDescription: A group has been DEGRADED past the FR-HLT threshold (design-ux-ops.md §6.4, Page)
+      Namespace: !Sub 'XamOps/AutoSpotting/${Environment}'
+      MetricName: autospotting.groups
+      Dimensions:
+        - Name: state
+          Value: DEGRADED
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 6  # ~30 min default (FR-HLT), 6 x 5 min
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref OncallTopic
+      OKActions:
+        - !Ref OncallTopic
+
+  # Fallback entered: fallbacks{direction=enter} Sum > 0, 5 min, Ticket, not breaching.
+  FallbackEnteredAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'autospotting-fallback-entered-${Environment}'
+      AlarmDescription: A group entered On-Demand fallback (design-ux-ops.md §6.4, Ticket)
+      Namespace: !Sub 'XamOps/AutoSpotting/${Environment}'
+      MetricName: autospotting.fallbacks
+      Dimensions:
+        - Name: direction
+          Value: enter
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref OncallTopic
+      OKActions:
+        - !Ref OncallTopic
+
+  # Fallback too long: groups{state=FALLBACK} Max > 0 past the FR-HLT threshold, 15 min, Page.
+  FallbackTooLongAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'autospotting-fallback-too-long-${Environment}'
+      AlarmDescription: A group has been in FALLBACK past the FR-HLT threshold (design-ux-ops.md §6.4, Page)
+      Namespace: !Sub 'XamOps/AutoSpotting/${Environment}'
+      MetricName: autospotting.groups
+      Dimensions:
+        - Name: state
+          Value: FALLBACK
+      Statistic: Maximum
+      Period: 900
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref OncallTopic
+      OKActions:
+        - !Ref OncallTopic
+
+  # Interruption spike: interruptions Sum per provider > 20 per hour, 1 h, Ticket, not breaching.
+  InterruptionSpikeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'autospotting-interruption-spike-${Environment}'
+      AlarmDescription: Interruptions over 20 per hour (design-ux-ops.md §6.4, Ticket; tune after shadow month)
+      Namespace: !Sub 'XamOps/AutoSpotting/${Environment}'
+      MetricName: autospotting.interruptions
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 20
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref OncallTopic
+      OKActions:
+        - !Ref OncallTopic
+
+  # Drift: groups.drift{severity=MATERIAL} Max > 3, 15 min, Ticket, not breaching.
+  DriftAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'autospotting-drift-${Environment}'
+      AlarmDescription: More than 3 groups with MATERIAL drift (design-ux-ops.md §6.4, Ticket)
+      Namespace: !Sub 'XamOps/AutoSpotting/${Environment}'
+      MetricName: autospotting.groups.drift
+      Dimensions:
+        - Name: severity
+          Value: MATERIAL
+      Statistic: Maximum
+      Period: 900
+      EvaluationPeriods: 1
+      Threshold: 3
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref OncallTopic
+      OKActions:
+        - !Ref OncallTopic
+
+  # Reconciler not running: reconcile.last_success_age Max > 3 x interval, 5 min, Page, breaching.
+  ReconcilerNotRunningAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'autospotting-reconciler-not-running-${Environment}'
+      AlarmDescription: No successful reconciler sweep in over 3x interval (design-ux-ops.md §6.4, Page)
+      Namespace: !Sub 'XamOps/AutoSpotting/${Environment}'
+      MetricName: autospotting.reconcile.last_success_age
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 900  # 3 x 300 s default interval
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: breaching
+      AlarmActions:
+        - !Ref OncallTopic
+      OKActions:
+        - !Ref OncallTopic
+
+  # Lease store errors: lease.failures{reason=store_error} Sum > 0, 5 min, Page, not breaching.
+  LeaseStoreErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'autospotting-lease-store-errors-${Environment}'
+      AlarmDescription: Lease store errors (fail-closed, AC-SPN-02) (design-ux-ops.md §6.4, Page)
+      Namespace: !Sub 'XamOps/AutoSpotting/${Environment}'
+      MetricName: autospotting.lease.failures
+      Dimensions:
+        - Name: reason
+          Value: store_error
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref OncallTopic
+      OKActions:
+        - !Ref OncallTopic
+
+Outputs:
+  XamOpsAutoSpottingOncallTopicArn:
+    Description: ARN of the on-call SNS topic; pass to autospotting-engine.yaml OncallTopicArn
+    Value: !Ref OncallTopic
+    Export:
+      Name: !Sub 'xamops-autospotting-oncall-topic-arn-${Environment}'

@@ -427,6 +427,12 @@ jobs:
           fi
           echo "ok  no duplicate migration versions"
 
+      - name: Check AutoSpotting CloudWatch alarms (AC-OBS-02)
+        # One alarm per FR-OBS-03 condition, each with a non-empty AlarmActions (design-ux-ops.md §6.4,
+        # plan-phase-10.md 10.3). Pure python3 (no pip install). Fails the build on a missing or
+        # action-less alarm before the monitoring stack is ever deployed.
+        run: python3 scripts/autospotting/check_alarms.py cloudformation/xamops-autospotting-monitoring.yaml cloudformation/autospotting-engine.yaml
+
       - name: Run tests
         run: mvn test -B --no-transfer-progress -pl xamops-service -am
 
@@ -605,7 +611,9 @@ jobs:
 
             docker network inspect xamops-network >/dev/null 2>&1 || docker network create xamops-network
 
-            docker stop xamops-service 2>/dev/null || true
+            # -t 45 > the 20s AutoSpotting drain + a 45s cloud-call cap, so SIGKILL can't land inside
+            # the graceful-shutdown window (design-core.md §4.4, V-item; server.shutdown=graceful).
+            docker stop -t 45 xamops-service 2>/dev/null || true
             docker rm   xamops-service 2>/dev/null || true
 
             docker run -d \

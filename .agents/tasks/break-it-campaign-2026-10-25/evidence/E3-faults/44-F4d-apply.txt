@@ -1,0 +1,2 @@
+networkchaos.chaos-mesh.org/e3-net-partition-backend-30m created
+networkchaos.chaos-mesh.org "e3-net-partition-backend-30m" deleted from chaos-testing namespace

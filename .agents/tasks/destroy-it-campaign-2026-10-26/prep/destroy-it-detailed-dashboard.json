@@ -1,0 +1,246 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "name": "Campaign phases & faults",
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "iconColor": "red",
+        "tags": ["destroy-it", "phase", "fault"],
+        "type": "tags"
+      }
+    ]
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "tags": ["destroy-it", "xamops", "chaos", "detailed"],
+  "time": { "from": "now-30m", "to": "now" },
+  "timepicker": { "refresh_intervals": ["5s", "10s", "30s", "1m"] },
+  "refresh": "15s",
+  "title": "Destroy-It — DETAILED campaign (xamops-test-1)",
+  "uid": "destroy-it-detailed",
+  "templating": {
+    "list": [
+      {
+        "name": "ns",
+        "label": "fleet namespace",
+        "type": "custom",
+        "query": "stress,stress-db,xamops-system",
+        "current": { "text": "stress", "value": "stress" },
+        "includeAll": false
+      },
+      {
+        "name": "controller",
+        "label": "controller",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(xamops_gate_decision, controller)",
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    { "id": 100, "type": "row", "title": "1 · CAMPAIGN STATE", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "collapsed": false },
+    {
+      "id": 101, "type": "stat", "title": "Chaos active now?",
+      "description": "Sum of Chaos Mesh controller reconcile rate (5m). >0 = chaos is actively being driven right now. Use to separate chaos-induced damage from a real tool bug.",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum(rate(controller_runtime_reconcile_total{job=\"chaos-mesh-controller-manager\", controller=~\".*chaos.*\"}[5m]))", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "mappings": [ { "type": "value", "options": { "0": { "text": "IDLE", "color": "green" } } } ], "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 0.001 } ] }, "unit": "ops" } },
+      "options": { "colorMode": "background", "graphMode": "area", "textMode": "value_and_name" }
+    },
+    {
+      "id": 102, "type": "stat", "title": "Node count (no-growth guardrail)",
+      "description": "Live node count. ng-ondemand-1 capped at 26; this should NOT climb during the campaign. A jump = unexpected node growth.",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "count(kube_node_info)", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 33 }, { "color": "red", "value": 40 } ] }, "unit": "none" } },
+      "options": { "colorMode": "background", "graphMode": "area", "textMode": "value" }
+    },
+    {
+      "id": 103, "type": "stat", "title": "Single-leader invariant (HA)",
+      "description": "count(xamops_leader==1). Exactly 1 = healthy. 0 = no leader (outage). >1 = SPLIT-BRAIN (critical).",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "count(xamops_leader == 1)", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 }, { "color": "red", "value": 2 } ] }, "unit": "none", "mappings": [ { "type": "value", "options": { "0": { "text": "NO LEADER", "color": "red" } } } ] } },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "id": 104, "type": "stat", "title": "DB pods evicted (must stay 0)",
+      "description": "xamops_consolidation_pods_evicted_total — the I15/I16 fail-closed headline. ANY non-zero needs scrutiny against which pod.",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum(xamops_consolidation_pods_evicted_total)", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }, "unit": "none" } },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value" }
+    },
+
+    { "id": 200, "type": "row", "title": "2 · THE 5 ACTING CONTROLLERS (gate state + action counters)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 6 }, "collapsed": false },
+    {
+      "id": 201, "type": "state-timeline", "title": "Gate decision per controller (live / analyse / off)",
+      "description": "xamops_gate_decision. Encodes each controller's chosen mode as a lit state. The 5 acting = consolidation-actions, cordon, evictor, idle-drain, interruption, rebalancer should read live. rightsizer/rightsizer-apply/hpa-manager off BY DESIGN.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "max by (controller) (xamops_gate_decision{mode=\"live\",controller=~\"$controller\"}) * 2 + max by (controller) (xamops_gate_decision{mode=\"analyse\",controller=~\"$controller\"}) * 1", "legendFormat": "{{controller}}", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 80 }, "mappings": [ { "type": "value", "options": { "0": { "text": "off", "color": "dark-red" }, "1": { "text": "analyse", "color": "orange" }, "2": { "text": "live", "color": "green" } } } ] } }
+    },
+    {
+      "id": 202, "type": "timeseries", "title": "Consolidation runs by terminal status (rate)",
+      "description": "xamops_consolidation_runs_total{status}. status=skipped climbing while pods_evicted stays 0 is the DB-protection fail-closed signature (tool CORRECTLY refused). status=executed with evictions = it acted.",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 15 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum by (status) (rate(xamops_consolidation_runs_total[5m]))", "legendFormat": "runs/s {{status}}", "refId": "A" },
+        { "expr": "sum(rate(xamops_consolidation_pods_evicted_total[5m]))", "legendFormat": "pods evicted/s", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 15 } } }
+    },
+    {
+      "id": 203, "type": "timeseries", "title": "Agent control-loop: cycle p95, action-rate, drain inflight",
+      "description": "xamops_cycle_duration_seconds (p95), xamops_consolidation_action_rate (node removals last run), xamops_drain_budget_inflight (nodes draining now).",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 15 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(xamops_cycle_duration_seconds_bucket[5m])))", "legendFormat": "cycle p95 (s)", "refId": "A" },
+        { "expr": "max(xamops_consolidation_action_rate)", "legendFormat": "consolidation action-rate", "refId": "B" },
+        { "expr": "max(xamops_drain_budget_inflight)", "legendFormat": "drains inflight", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10 } } }
+    },
+
+    { "id": 300, "type": "row", "title": "3 · SAFETY INVARIANTS (PDB / HA-floor / drains / leader)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 }, "collapsed": false },
+    {
+      "id": 301, "type": "timeseries", "title": "PDB disruptionsAllowed (per PDB, ns=$ns)",
+      "description": "kube_poddisruptionbudget_status_pod_disruptions_allowed. A floor of 0 means the PDB is blocking further voluntary eviction — exactly what should stop the tool from taking the last replica.",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "kube_poddisruptionbudget_status_pod_disruptions_allowed{namespace=\"$ns\"}", "legendFormat": "{{poddisruptionbudget}}", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "stepAfter": true, "fillOpacity": 10 }, "min": 0 } }
+    },
+    {
+      "id": 302, "type": "timeseries", "title": "Leader identity & count (xamops_leader)",
+      "description": "count(xamops_leader==1) over time. Must stay at 1 across the Phase-6 failover. A momentary 0 during handover is OK; a sustained 0 or any 2 is a bug. NOTE: pod-kills here may be chaos-caused (Phase 6) vs tool-caused (none expected).",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "count(xamops_leader == 1)", "legendFormat": "leaders", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "stepAfter": true, "fillOpacity": 20 }, "min": 0, "max": 3, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 }, { "color": "red", "value": 2 } ] } } }
+    },
+    {
+      "id": 303, "type": "timeseries", "title": "Ready replicas vs spec (stress fleet HA-floor)",
+      "description": "kube_deployment_status_replicas_available vs spec. Chaos-caused dips recover; a dip that the tool caused by over-eviction would not.",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 30 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(kube_deployment_status_replicas_available{namespace=\"stress\"})", "legendFormat": "available", "refId": "A" },
+        { "expr": "sum(kube_deployment_spec_replicas{namespace=\"stress\"})", "legendFormat": "desired", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10 } } }
+    },
+
+    { "id": 400, "type": "row", "title": "4 · DB PROTECTION HEADLINE (ng-stateful-1) — the money panel", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 37 }, "collapsed": false },
+    {
+      "id": 401, "type": "table", "title": "ng-stateful-1 DB pods — status / restarts / age",
+      "description": "kube_pod_info joined with restart + created for the DB fixtures. Evicted status = pod disappears; expected ZERO disappearances. Refusal reason recorded in report.md (blanket 'db-emptydir', OBS-DB-001 — not role-aware).",
+      "gridPos": { "h": 9, "w": 16, "x": 0, "y": 38 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "max by (pod) (kube_pod_container_status_restarts_total{namespace=\"xamops-db-fixtures\", pod=~\"pg-.*|mysql-.*|mongo-[0-9].*|load-.*\"})", "format": "table", "instant": true, "legendFormat": "", "refId": "A" },
+        { "expr": "max by (pod) (time() - kube_pod_created{namespace=\"xamops-db-fixtures\", pod=~\"pg-.*|mysql-.*|mongo-[0-9].*|load-.*\"})", "format": "table", "instant": true, "refId": "B" }
+      ],
+      "transformations": [
+        { "id": "merge", "options": {} },
+        { "id": "organize", "options": { "renameByName": { "pod": "DB pod", "Value #A": "restarts", "Value #B": "age (s)" } } }
+      ]
+    },
+    {
+      "id": 402, "type": "stat", "title": "consolidation_pods_evicted_total (DB nodes)",
+      "description": "The headline counter. MUST remain 0 for the full campaign. Carry-forward: setup + phases 1-6 all = 0.",
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 38 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum(xamops_consolidation_pods_evicted_total)", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }, "unit": "none" } },
+      "options": { "colorMode": "background", "graphMode": "area", "textMode": "value_and_name" }
+    },
+
+    { "id": 500, "type": "row", "title": "5 · CLUSTER DAMAGE vs CHAOS (overlay chaos-active)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 47 }, "collapsed": false },
+    {
+      "id": 501, "type": "timeseries", "title": "OOMKills (10m increase, by ns)",
+      "description": "kube_pod_container_status_last_terminated_reason=OOMKilled. Phase-3 memory chaos drives this; compare against the chaos-active stat to confirm it's chaos, not a tool/leak bug.",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 48 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum by (namespace) (increase(kube_pod_container_status_last_terminated_reason{reason=\"OOMKilled\", namespace=~\"stress|stress-db|xamops-system\"}[10m]))", "legendFormat": "{{namespace}}", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60 }, "color": { "mode": "fixed", "fixedColor": "red" } } }
+    },
+    {
+      "id": 502, "type": "timeseries", "title": "Pod restarts (10m increase, by ns)",
+      "description": "kube_pod_container_status_restarts_total. Chaos pod-kill / OOM drives restarts; overlay with chaos-active to separate.",
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 48 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum by (namespace) (increase(kube_pod_container_status_restarts_total{namespace=~\"stress|stress-db|xamops-system\"}[10m]))", "legendFormat": "{{namespace}}", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60 } } }
+    },
+    {
+      "id": 503, "type": "timeseries", "title": "REAL CFS throttle ratio (top 10 pods)",
+      "description": "container_cpu_cfs_throttled_periods_total / cfs_periods_total — genuine CPU-limit throttling. Phase-4 CPU chaos pushes over-profile pods toward ratio=1.0.",
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 48 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "topk(10, sum by (namespace, pod) (rate(container_cpu_cfs_throttled_periods_total{namespace=~\"stress|stress-db|xamops-system\"}[5m])) / clamp_min(sum by (namespace, pod) (rate(container_cpu_cfs_periods_total{namespace=~\"stress|stress-db|xamops-system\"}[5m])), 1))", "legendFormat": "{{namespace}}/{{pod}}", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10 }, "unit": "percentunit", "max": 1 } }
+    },
+    {
+      "id": 504, "type": "timeseries", "title": "Pending pods (stress) — scale ceiling (Phase 2)",
+      "description": "kube_pod_status_phase=Pending in stress. Phase-2 showed ~23 Pending at the ~178-pod ceiling (BUG-SCALE-002) — capacity, not a crash.",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 55 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum(kube_pod_status_phase{namespace=\"stress\", phase=\"Pending\"})", "legendFormat": "pending", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "stepAfter": true, "fillOpacity": 20 }, "color": { "mode": "fixed", "fixedColor": "orange" } } }
+    },
+
+    { "id": 600, "type": "row", "title": "6 · SERVING SLO (k6 — see note)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 62 }, "collapsed": false },
+    {
+      "id": 601, "type": "text", "title": "k6 metrics NOTE",
+      "description": "",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 63 },
+      "options": { "mode": "markdown", "content": "### k6 SLO source\n\n`k6_*` series are **NOT retained** in this Prometheus (remote-write receiver not landing them — confirmed empty via `/api/v1/query`). The **authoritative k6 SLO values** (http_req_failed, p95/p99, checks%) are captured per phase from the **k6 Job logs** and recorded in `report.md`.\n\nPhase results so far (req-failed / p95):\n- P1 0.00% / 9.45ms\n- P2 0.00% / 7.84ms\n- P3 0.00% / 2.16ms\n- P4 0.00% / 10.03ms\n- P5 0.00% (2/108678) / 2.92ms\n\nServing-proxy below uses in-cluster request latency where available." },
+      "datasource": { "type": "prometheus", "uid": "prometheus" }
+    },
+    {
+      "id": 602, "type": "timeseries", "title": "fleet pods Running (serving fan-out proxy)",
+      "description": "Count of Running fleet pods backing fleet-http. The 145-pod serving fleet stayed fully available through phases 1-6; dips = chaos pod-kills recovering.",
+      "gridPos": { "h": 7, "w": 16, "x": 8, "y": 63 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum(kube_pod_status_phase{namespace=\"stress\", phase=\"Running\"})", "legendFormat": "stress Running", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10 }, "color": { "mode": "fixed", "fixedColor": "green" } } }
+    },
+
+    { "id": 700, "type": "row", "title": "7 · RESILIENCE (agent health / leak-hunt / fail-closed)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 70 }, "collapsed": false },
+    {
+      "id": 701, "type": "timeseries", "title": "Agent memory working-set (256Mi→1Gi fix)",
+      "description": "container_memory_working_set_bytes for the automation pods. Soak leak-hunt: a steadily climbing line toward 1Gi would indicate a leak; flat = healthy. Limit is now 1Gi.",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 71 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"xamops-system\", pod=~\"xamops-automation.*\", container=\"automation\"})", "legendFormat": "{{pod}}", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10 }, "unit": "bytes" } }
+    },
+    {
+      "id": 702, "type": "timeseries", "title": "Agent restarts & policy-fetch errors (fail-closed)",
+      "description": "kube restarts of the automation pods + xamops_policy_fetch_errors_total (backend-unreachable → fail-closed). Both should stay flat at 0 outside the deliberate Phase-6 leader kill.",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 71 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"xamops-system\", pod=~\"xamops-automation.*\"}[10m]))", "legendFormat": "agent restarts (10m)", "refId": "A" },
+        { "expr": "sum(rate(xamops_policy_fetch_errors_total[5m]))", "legendFormat": "policy-fetch errors/s", "refId": "B" },
+        { "expr": "sum(rate(xamops_orphans_recovered_total[5m]))", "legendFormat": "orphans recovered/s", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10 } } }
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 package com.xammer.cloud.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.xammer.cloud.domain.AgentDataCache;
@@ -89,7 +90,8 @@ public class AgentIngestService {
             "k8s-resources",
             "prometheus-metrics",
             "node-optimizer-report",
-            "autoscaling-consolidation-plan"
+            "autoscaling-consolidation-plan",
+            "cloud-nodegroups" // BP-16 (design §8.1): single EKS nodegroup-scaling object
     );
 
     private final KubernetesClusterConfigRepository clusterConfigRepository;
@@ -99,7 +101,10 @@ public class AgentIngestService {
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
-    @Value("${xamops.agent.api-key:xamops_DEFAULT_KEY_CHANGE_IN_PRODUCTION}")
+    // SEC-6: no committed default. When XAMOPS_AGENT_API_KEY is unset this is empty, and the
+    // empty-key guard in authenticate() plus the constant-time compare make the legacy
+    // shared-key branch fail closed. Account-scoped xak_ keys are unaffected.
+    @Value("${xamops.agent.api-key:}")
     private String globalAgentApiKey;
 
     /**
@@ -114,6 +119,21 @@ public class AgentIngestService {
 
     /** Null when constructed without it (tests): usage capture is then skipped. */
     private final UsageSampleCapture usageSampleCapture;
+
+    /**
+     * BP-10 (design §6.3): optional so the four-collaborator test constructors keep working. When
+     * both are present, a successful {@code k8s-resources} push runs node-scaler detection and
+     * persists a changed value with a {@code NODE_SCALER_CHANGED} audit.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.xammer.cloud.service.onboarding.NodeScalerDetector nodeScalerDetector;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.xammer.cloud.service.onboarding.OnboardingAuditService onboardingAuditService;
+
+    /** BP-13: optional tombstone guard; when present, blocks ingest from recreating offboarded rows. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.xammer.cloud.service.onboarding.ClusterTombstoneGuard clusterTombstoneGuard;
 
     public AgentIngestService(
             KubernetesClusterConfigRepository clusterConfigRepository,
@@ -185,7 +205,23 @@ public class AgentIngestService {
                         cfg.getClusterName(), cfg.getCloudAccountId());
                 return null;
             }
-            return AgentPrincipal.cluster(providerAccountId, cfg.getClusterName());
+            return AgentPrincipal.cluster(providerAccountId, cfg.getClusterName(), AgentPrincipal.AgentRole.DATA);
+        }
+
+        // 1b. Automation-agent cluster key (design §4.3). Checked before the account/legacy tiers
+        //     so the automation agent authenticates with a dedicated key and resolves to the same
+        //     cluster, tagged with the AUTOMATION role.
+        Optional<KubernetesClusterConfig> automationCluster =
+                clusterConfigRepository.findByAutomationAgentApiKey(apiKey);
+        if (automationCluster.isPresent()) {
+            KubernetesClusterConfig cfg = automationCluster.get();
+            String providerAccountId = resolveProviderAccountId(cfg.getCloudAccountId());
+            if (providerAccountId == null) {
+                logger.warn("Automation agent key resolved to cluster {} whose cloud account {} no longer exists",
+                        cfg.getClusterName(), cfg.getCloudAccountId());
+                return null;
+            }
+            return AgentPrincipal.cluster(providerAccountId, cfg.getClusterName(), AgentPrincipal.AgentRole.AUTOMATION);
         }
 
         // 2. Account-scoped key — VM agents (disk, database) that have no cluster row.
@@ -337,13 +373,35 @@ public class AgentIngestService {
      * @return the existing or newly created config, or null if the account is unknown
      *         or belongs to a provider that registers before pushing
      */
+    /**
+     * BP-13: true when the tombstone guard is wired and (account, cluster) is tombstoned. Audits
+     * {@code TOMBSTONE_BLOCKED} (throttled). When no guard is wired (older tests), never blocks.
+     */
+    private boolean tombstoneGuardBlocks(Long cloudAccountPk, String clusterName) {
+        if (clusterTombstoneGuard == null || !clusterTombstoneGuard.blocked(cloudAccountPk, clusterName)) {
+            return false;
+        }
+        if (onboardingAuditService != null && clusterTombstoneGuard.shouldAudit(cloudAccountPk, clusterName)) {
+            onboardingAuditService.record(null, cloudAccountPk, clusterName, null, "TOMBSTONE_BLOCKED",
+                    com.xammer.cloud.service.onboarding.OnboardingAuditService.ACTOR_AGENT, null,
+                    "{\"blocked\":true}");
+        }
+        return true;
+    }
+
+    /** Take the per-(account, cluster) advisory lock when the repository supports it (design §2.2). */
+    private void lockAccountCluster(Long cloudAccountPk, String clusterName) {
+        try {
+            clusterConfigRepository.lockAccountCluster(cloudAccountPk, clusterName);
+        } catch (RuntimeException e) {
+            // H2/other test DBs may not support pg_advisory_xact_lock; the lock is a Postgres
+            // serialisation aid, not a correctness gate for a single-threaded test.
+            logger.debug("advisory lock skipped ({})", e.getClass().getSimpleName());
+        }
+    }
+
     @Transactional
     public KubernetesClusterConfig findOrAutoRegisterClusterConfig(String clusterName, String cloudAccountId) {
-        KubernetesClusterConfig existing = findClusterConfig(clusterName, cloudAccountId);
-        if (existing != null) {
-            return existing;
-        }
-
         CloudAccount account = null;
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(cloudAccountId);
         if (!accounts.isEmpty()) {
@@ -356,6 +414,19 @@ public class AgentIngestService {
         if (account == null) {
             logger.warn("Auto-register skipped: no cloud account for id {}", cloudAccountId);
             return null;
+        }
+
+        // BP-13 (design §2.2, §4.3, F-14/F-15): guard BEFORE the existing-row lookup so a row recreated
+        // after offboarding by any path is never written to until a new connect token clears the
+        // tombstone. Take the advisory lock to serialise concurrent creators for this (account, cluster).
+        if (tombstoneGuardBlocks(account.getId(), clusterName)) {
+            return null;
+        }
+        lockAccountCluster(account.getId(), clusterName);
+
+        KubernetesClusterConfig existing = findClusterConfig(clusterName, cloudAccountId);
+        if (existing != null) {
+            return existing;
         }
 
         String provider = account.getProvider();
@@ -403,6 +474,13 @@ public class AgentIngestService {
             return null;
         }
 
+        // BP-13 (design §2.2, §4.3, F-14/F-15): guard + advisory lock before the existing-row lookup,
+        // so the DB-agent creator is tombstone-blocked and serialised just like the k8s-agent creator.
+        if (tombstoneGuardBlocks(account.getId(), clusterName)) {
+            return null;
+        }
+        lockAccountCluster(account.getId(), clusterName);
+
         // Try normal lookup first
         Optional<KubernetesClusterConfig> existing = clusterConfigRepository
                 .findByCloudAccountIdAndClusterName(account.getId(), clusterName);
@@ -448,6 +526,7 @@ public class AgentIngestService {
                         totalItemsReceived += result.getItemsProcessed();
                         if (K8S_RESOURCES.equals(batch.getCollector())) {
                             captureUsageSafely(clusterConfig, batch);
+                            detectNodeScalerSafely(clusterConfig, batch);
                         }
                     }
                 } catch (Exception e) {
@@ -490,6 +569,49 @@ public class AgentIngestService {
         } catch (RuntimeException e) {
             logger.warn("Usage rollup capture could not be scheduled for cluster config {}: {}",
                     clusterConfig.getId(), e.toString());
+        }
+    }
+
+    /**
+     * BP-10 (design §6.3): detect the node scaler from a k8s-resources snapshot and persist it if it
+     * changed, auditing {@code NODE_SCALER_CHANGED}. Only the detector and PF-COMPUTE write
+     * {@code config.node_scaler}. A detector failure is logged at WARN; ingest still succeeds and the
+     * value is left as it was. An {@code EKS_AUTO_MODE} value set by the server preflight is never
+     * overwritten by deployment-based detection.
+     */
+    private void detectNodeScalerSafely(KubernetesClusterConfig config, DataBatch batch) {
+        if (nodeScalerDetector == null) {
+            return;
+        }
+        try {
+            if (batch.getItems() == null || batch.getItems().isEmpty()) {
+                return;
+            }
+            JsonNode snapshot = objectMapper.valueToTree(batch.getItems().get(0));
+            String detected = nodeScalerDetector.detect(snapshot);
+            if (detected == null
+                    || com.xammer.cloud.service.onboarding.NodeScalerDetector.UNKNOWN.equals(detected)) {
+                return; // never downgrade a known value to UNKNOWN from a bad payload
+            }
+            String current = config.getNodeScaler();
+            if ("EKS_AUTO_MODE".equals(current)) {
+                return; // server preflight (PF-COMPUTE) owns this value; don't clobber it
+            }
+            if (detected.equals(current)) {
+                return;
+            }
+            config.setNodeScaler(detected);
+            config.setNodeScalerDetectedAt(Instant.now());
+            clusterConfigRepository.save(config);
+            if (onboardingAuditService != null) {
+                onboardingAuditService.record(null, config.getCloudAccountId(), config.getClusterName(),
+                        config.getId(), "NODE_SCALER_CHANGED",
+                        com.xammer.cloud.service.onboarding.OnboardingAuditService.ACTOR_AGENT, null,
+                        "{\"from\":\"" + (current == null ? "null" : current) + "\",\"to\":\"" + detected + "\"}");
+            }
+        } catch (RuntimeException e) {
+            logger.warn("Node-scaler detection failed for cluster config {}: {}",
+                    config.getId(), e.toString());
         }
     }
 

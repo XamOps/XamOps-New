@@ -21,6 +21,19 @@ Parameters:
     Description: ARN of the IAM User/Role that runs the backend (for local dev or cross-account access)
     Default: 'arn:aws:iam::605134457560:user/sahil'
 
+  # AutoSpotting on-call SNS topic (design-ux-ops.md §6.4, U-9). Output by
+  # xamops-autospotting-monitoring.yaml as XamOpsAutoSpottingOncallTopicArn. Passed in so the DLQ and
+  # queue-age alarms below notify on-call (previously they had no AlarmActions and fired silently).
+  OncallTopicArn:
+    Type: String
+    Default: ''
+    Description: ARN of the xamops-autospotting-oncall-{env} SNS topic for alarm actions
+
+Conditions:
+  # AlarmActions are wired only when the on-call topic ARN is supplied, so an isolated engine-stack
+  # deploy (no monitoring stack yet) still validates. In every real environment the ARN is passed.
+  HasOncallTopic: !Not [!Equals [!Ref OncallTopicArn, '']]
+
 Resources:
   # ============================================================================
   # SQS FIFO Queue for AutoSpotting Events
@@ -236,6 +249,11 @@ Resources:
         - Name: QueueName
           Value: !GetAtt AutoSpottingDLQ.QueueName
       TreatMissingData: notBreaching
+      # U-9: notify on-call. "Page" severity per design-ux-ops.md §6.4 DLQ-depth row.
+      AlarmActions:
+        - !If [HasOncallTopic, !Ref OncallTopicArn, !Ref 'AWS::NoValue']
+      OKActions:
+        - !If [HasOncallTopic, !Ref OncallTopicArn, !Ref 'AWS::NoValue']
 
   # Alarm for queue age (indicates processing delays)
   QueueAgeAlarm:
@@ -254,6 +272,11 @@ Resources:
         - Name: QueueName
           Value: !GetAtt AutoSpottingEventQueue.QueueName
       TreatMissingData: notBreaching
+      # U-9: notify on-call. "Ticket" severity per design-ux-ops.md §6.4 event-lag row.
+      AlarmActions:
+        - !If [HasOncallTopic, !Ref OncallTopicArn, !Ref 'AWS::NoValue']
+      OKActions:
+        - !If [HasOncallTopic, !Ref OncallTopicArn, !Ref 'AWS::NoValue']
 
   # ============================================================================
   # IAM Role for Backend Service (Optional - for EC2/ECS deployment)

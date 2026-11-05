@@ -71,6 +71,37 @@ public record K8sCapabilitiesDto(
     public record DataSource(String type, String collectedAt, Integer items, boolean displayed) {
     }
 
+    /**
+     * The onboarding view of a cluster (design §3.2), derived by {@code OnboardingStateDeriver}.
+     * ADDITIVE on {@link Cluster}: older payloads/consumers that omit it are unaffected.
+     */
+    public record Onboarding(
+            String state,                 // NOT_INSTALLED | CONNECTED_READ_ONLY | AUTOMATION_ENABLED | UNKNOWN
+            boolean awaitingAgent,
+            boolean stale,
+            boolean automationDisabled,
+            String automationSubState,    // OFF | ANALYSIS | AUTOMATED | UNKNOWN | null
+            boolean automationVerified,
+            String identitySeenAt,        // ISO-8601 or null
+            String identityMode,          // POD_IDENTITY | IRSA | NONE | null
+            String nodeScaler,            // KARPENTER | CLUSTER_AUTOSCALER | BOTH | NONE | EKS_AUTO_MODE | UNKNOWN | null
+            String dataKeyScope,          // CLUSTER | ACCOUNT | LEGACY_GLOBAL | null
+            KeyMeta dataKey,
+            KeyMeta automationKey) {
+    }
+
+    /** Log/UI-safe key metadata — a 12-char prefix only, never the key itself (design §3.2). */
+    public record KeyMeta(String prefix, String issuedAt, String lastUsedAt) {
+    }
+
+    /**
+     * @param writeGate the account-scope write gate (workload rightsizing / HPA apply paths),
+     *        unchanged by the per-cluster relaxation
+     * @param nodeAutomationWriteGate the node-automation-scope write gate (BP-9 / OQ-6): identical
+     *        to {@code writeGate} except that {@code READ_ONLY_CONNECTION} is dropped once the
+     *        cluster has completed Enable-automation and is verified fresh. ADDITIVE and last in the
+     *        record: an older payload/consumer that omits it falls back to {@code writeGate}.
+     */
     public record Cluster(
             String clusterName,
             boolean registered,
@@ -80,6 +111,8 @@ public record K8sCapabilitiesDto(
             XamopsAgent agent,
             AutomationAgent automationAgent,
             NodeAutomation nodeAutomation,
-            List<DataSource> dataSources) {
+            List<DataSource> dataSources,
+            Onboarding onboarding,
+            WriteGate nodeAutomationWriteGate) {
     }
 }

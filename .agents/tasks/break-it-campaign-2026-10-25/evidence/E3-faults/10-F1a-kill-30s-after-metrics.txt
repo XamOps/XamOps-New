@@ -1,0 +1,14 @@
+### pod xamops-automation-7fd5b5749d-p97pw
+xamops_cycle_duration_seconds_sum 0
+xamops_cycle_duration_seconds_count 0
+xamops_drain_budget_inflight 0
+xamops_leader{is_leader="xamops-automation-7fd5b5749d-p97pw"} 0
+xamops_orphans_recovered_total 0
+xamops_policy_fetch_errors_total 0
+### pod xamops-automation-7fd5b5749d-tfgtr
+xamops_cycle_duration_seconds_sum 0
+xamops_cycle_duration_seconds_count 0
+xamops_drain_budget_inflight 0
+xamops_leader{is_leader="xamops-automation-7fd5b5749d-tfgtr"} 1
+xamops_orphans_recovered_total 0
+xamops_policy_fetch_errors_total 0

@@ -1,0 +1,2 @@
+networkchaos.chaos-mesh.org/e3-net-loss created
+networkchaos.chaos-mesh.org "e3-net-loss" deleted from chaos-testing namespace

@@ -95,6 +95,8 @@ export interface CloudAccount {
   name: string;
   provider: 'AWS' | 'GCP' | 'Azure';
   identifier: string;
+  /** Added by an uploaded AWS bill for invoicing only; BillOps has no access to the account itself. */
+  invoiceOnly?: boolean;
 }
 
 export interface GenerationParams {

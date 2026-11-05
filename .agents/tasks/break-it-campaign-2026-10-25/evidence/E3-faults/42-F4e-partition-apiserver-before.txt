@@ -1,0 +1,7 @@
+=== 42-F4e-partition-apiserver-before @ 2026-10-26T16:35:38Z ===
+--- pods ---
+NAME                                 READY   STATUS    RESTARTS       AGE    IP              NODE                                           NOMINATED NODE   READINESS GATES
+xamops-automation-7fd5b5749d-f2fkk   1/1     Running   2 (158m ago)   166m   172.31.41.245   ip-172-31-38-131.ap-south-1.compute.internal   <none>           <none>
+xamops-automation-7fd5b5749d-sl5gw   1/1     Running   2 (157m ago)   166m   172.31.26.119   ip-172-31-26-143.ap-south-1.compute.internal   <none>           <none>
+--- lease ---
+xamops-automation-7fd5b5749d-f2fkk
