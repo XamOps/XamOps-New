@@ -35,6 +35,7 @@ import com.xammer.cloud.service.RedisCacheService;
 import com.xammer.cloud.service.security.SecuritySeverity;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -64,6 +65,10 @@ public class GcpCloudGuardService {
     private final AlertNotificationDeduplicator deduplicator;
     private final AlertDigestSeverityGate severityGate;
     private final PermissionGapRegistry permissionGapRegistry;
+
+    /** Most distinct resource names carried on one security alert row; the row's count stays exact. */
+    @Value("${xamops.gcp.security.alert-max-resources:100}")
+    private int alertMaxResources = 100;
 
     // Define Quota details
     private static final String NETWORK_QUOTA_NAME = "NETWORKS";
@@ -682,18 +687,33 @@ public class GcpCloudGuardService {
                         ? gcpSecurityService.refreshSecurityFindings(gcpProjectId).join()
                         : gcpSecurityService.getSecurityFindings(gcpProjectId, false).join();
 
-                List<GcpSecurityFinding> relevant = findings.stream()
-                        .filter(f -> f.getSeverity() != null)
-                        .filter(f -> "CRITICAL".equalsIgnoreCase(f.getSeverity())
-                                || "HIGH".equalsIgnoreCase(f.getSeverity()))
-                        .collect(Collectors.toList());
+                // Exact totals for a truncated project, so the rows below do not report the cap.
+                // Only used when the list was actually cut; otherwise the list is the truth.
+                GcpSecurityDigest digest = gcpSecurityService.getSecurityDigest(gcpProjectId)
+                        .filter(GcpSecurityDigest::truncated)
+                        .orElse(null);
 
-                List<AlertDto> alerts = groupSecurityFindings(relevant);
+                List<AlertDto> alerts = groupSecurityFindings(gcpProjectId, findings, digest);
+                long criticalHigh = digest != null
+                        ? digest.severityTotals().getOrDefault("CRITICAL", 0L)
+                                + digest.severityTotals().getOrDefault("HIGH", 0L)
+                        : alerts.stream().mapToLong(AlertDto::getAffectedCount).sum();
                 log.info("Found {} CRITICAL/HIGH GCP security findings for project {}, grouped into {} alert rows",
-                        relevant.size(), gcpProjectId, alerts.size());
+                        criticalHigh, gcpProjectId, alerts.size());
                 return CheckOutcome.ok(alerts);
 
             } catch (Exception e) {
+                // join() wraps what the supplier threw. An OutOfMemoryError must not be reported as
+                // an ordinary failed check, so it is logged with the project and rethrown.
+                for (Throwable t = e; t != null; t = t.getCause()) {
+                    if (t instanceof OutOfMemoryError oom) {
+                        log.error("OutOfMemoryError checking GCP security findings for project {}", gcpProjectId, oom);
+                        throw oom;
+                    }
+                    if (t.getCause() == t) {
+                        break;
+                    }
+                }
                 log.error("Error checking GCP security findings for project {}: {}", gcpProjectId, e.getMessage(), e);
                 return CheckOutcome.failed("Security findings could not be checked: " + e.getMessage());
             }
@@ -723,27 +743,50 @@ public class GcpCloudGuardService {
      * entire digest, while swapping five findings for five others changed nothing and sent none.
      * A dozen category-level rows change only when a category genuinely appears or disappears.
      */
-    private List<AlertDto> groupSecurityFindings(List<GcpSecurityFinding> findings) {
+    private List<AlertDto> groupSecurityFindings(String gcpProjectId, List<GcpSecurityFinding> findings,
+                                                  GcpSecurityDigest digest) {
+        // One pass, keeping per group only a count, the first finding and a bounded set of resource
+        // names. Holding every member of every group is what multiplied a 262k-finding project
+        // into several more full-size copies of the list.
         // LinkedHashMap so the order findings arrived in is preserved. GcpSecurityService returns
         // SCC results before merged Prowler results, which is a more useful order than hash order.
-        Map<String, List<GcpSecurityFinding>> groups = new LinkedHashMap<>();
+        Map<String, SecurityGroup> groups = new LinkedHashMap<>();
         for (GcpSecurityFinding finding : findings) {
-            groups.computeIfAbsent(groupKey(finding), k -> new ArrayList<>()).add(finding);
+            if (finding.getSeverity() == null
+                    || !("CRITICAL".equalsIgnoreCase(finding.getSeverity())
+                    || "HIGH".equalsIgnoreCase(finding.getSeverity()))) {
+                continue;
+            }
+            SecurityGroup group = groups.computeIfAbsent(groupKey(finding), k -> new SecurityGroup(finding));
+            group.count++;
+            if (finding.getResourceName() != null) {
+                if (group.resources.size() < alertMaxResources) {
+                    group.resources.add(finding.getResourceName());
+                } else if (!group.resources.contains(finding.getResourceName())) {
+                    group.resourcesTrimmed = true;
+                }
+            }
         }
 
         List<AlertDto> alerts = new ArrayList<>(groups.size());
-        for (Map.Entry<String, List<GcpSecurityFinding>> entry : groups.entrySet()) {
-            List<GcpSecurityFinding> members = entry.getValue();
-            GcpSecurityFinding first = members.get(0);
+        for (Map.Entry<String, SecurityGroup> entry : groups.entrySet()) {
+            SecurityGroup group = entry.getValue();
+            GcpSecurityFinding first = group.first;
+            // The digest holds the exact count when the list was truncated.
+            long exact = digest != null
+                    ? digest.criticalHighGroupCounts().getOrDefault(entry.getKey(), (long) group.count)
+                    : group.count;
+            int count = (int) Math.min(Integer.MAX_VALUE, Math.max(exact, group.count));
 
             String category = blankToDefault(first.getCategory(), "SECURITY_FINDING");
             String severity = first.getSeverity().toUpperCase();
 
-            List<String> resources = members.stream()
-                    .map(GcpSecurityFinding::getResourceName)
-                    .filter(Objects::nonNull)
-                    .distinct()
-                    .collect(Collectors.toList());
+            List<String> resources = new ArrayList<>(group.resources);
+            if (group.resourcesTrimmed) {
+                log.warn("[GcpCloudGuard] project={} group={} lists {} resources of more (cap "
+                                + "xamops.gcp.security.alert-max-resources={}); the count stays exact",
+                        gcpProjectId, entry.getKey(), resources.size(), alertMaxResources);
+            }
 
             // The id is derived from the group key rather than a running counter. A counter-based id
             // changes whenever the surrounding list changes, which breaks React keys, breaks
@@ -754,7 +797,7 @@ public class GcpCloudGuardService {
                     uniqueId,
                     category,
                     humanizeCategory(category),
-                    describeGroup(first, members.size(), resources),
+                    describeGroup(first, count, resources, group.resourcesTrimmed, digest != null && digest.approximate()),
                     severity,
                     0, // Usage/Limit not applicable
                     0,
@@ -762,7 +805,7 @@ public class GcpCloudGuardService {
                     // SCC findings are reported without a region on this path, and inventing one
                     // would be worse than saying so. GcpSecurityFinding carries no region field.
                     "global",
-                    members.size(),
+                    count,
                     resources));
         }
 
@@ -776,41 +819,21 @@ public class GcpCloudGuardService {
         return alerts;
     }
 
-    /** category + severity + resource group, which is the identity of one row. */
-    private String groupKey(GcpSecurityFinding finding) {
-        return blankToDefault(finding.getCategory(), "SECURITY_FINDING").toUpperCase()
-                + "|" + finding.getSeverity().toUpperCase()
-                + "|" + resourceGroup(finding.getResourceName());
+    /** Running state of one alert row while findings are streamed through it. */
+    private static final class SecurityGroup {
+        final GcpSecurityFinding first;
+        int count;
+        final Set<String> resources = new LinkedHashSet<>();
+        boolean resourcesTrimmed;
+
+        SecurityGroup(GcpSecurityFinding first) {
+            this.first = first;
+        }
     }
 
-    /**
-     * The stable part of a resource name, with the version-specific tail removed.
-     *
-     * <p>
-     * For an Artifact Registry image the digest is what differs between findings that are otherwise
-     * the same problem, so {@code .../dockerImages/api-server@sha256:abc…} groups with
-     * {@code .../dockerImages/api-server@sha256:def…} under {@code .../dockerImages/api-server}.
-     * Tags are treated the same way. Anything without a version marker is returned unchanged, which
-     * makes each such resource its own group — correct, since we have no evidence they are related.
-     */
-    private String resourceGroup(String resourceName) {
-        if (resourceName == null || resourceName.isBlank()) {
-            return "unknown";
-        }
-        String trimmed = resourceName;
-        int digest = trimmed.indexOf('@');
-        if (digest > 0) {
-            trimmed = trimmed.substring(0, digest);
-        } else {
-            // A tag separator, but only in the last path segment — a colon earlier in the string is
-            // part of the scheme (`//artifactregistry.googleapis.com/...`), not a tag.
-            int lastSlash = trimmed.lastIndexOf('/');
-            int tag = trimmed.indexOf(':', lastSlash + 1);
-            if (tag > 0) {
-                trimmed = trimmed.substring(0, tag);
-            }
-        }
-        return trimmed;
+    /** category + severity + resource group, which is the identity of one row. */
+    private String groupKey(GcpSecurityFinding finding) {
+        return GcpSecurityGrouping.groupKey(finding);
     }
 
     /**
@@ -822,7 +845,8 @@ public class GcpCloudGuardService {
      * description is what made the old rows unreadable, and it denied the UI any chance to render
      * the resource properly — truncated, copyable, linked.
      */
-    private String describeGroup(GcpSecurityFinding first, int count, List<String> resources) {
+    private String describeGroup(GcpSecurityFinding first, int count, List<String> resources, boolean resourcesTrimmed,
+                                 boolean countIsLowerBound) {
         String base = first.getDescription() != null && !first.getDescription().isBlank()
                 ? first.getDescription().trim()
                 : humanizeCategory(blankToDefault(first.getCategory(), "SECURITY_FINDING"));
@@ -832,9 +856,13 @@ public class GcpCloudGuardService {
         }
 
         int distinctResources = resources.size();
+        // When the SCC fetch was capped and exact totals were unavailable the count is a lower bound.
+        String n = countIsLowerBound ? count + "+" : String.valueOf(count);
         String scope = distinctResources == 1
-                ? String.format("%d findings on 1 resource", count)
-                : String.format("%d findings across %d resources", count, distinctResources);
+                ? String.format("%s findings on 1 resource", n)
+                : resourcesTrimmed || countIsLowerBound
+                        ? String.format("%s findings across %d+ resources", n, distinctResources)
+                        : String.format("%s findings across %d resources", n, distinctResources);
 
         String separator = base.endsWith(".") ? " " : ". ";
         return base + separator + scope + ".";
@@ -872,7 +900,7 @@ public class GcpCloudGuardService {
     }
 
     private String blankToDefault(String value, String fallback) {
-        return (value == null || value.isBlank()) ? fallback : value;
+        return GcpSecurityGrouping.blankToDefault(value, fallback);
     }
 
     private String determineQuotaStatus(double usage, double limit) {
