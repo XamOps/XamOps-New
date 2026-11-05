@@ -18,6 +18,16 @@ const REGION = /^[a-z]{2}(-gov)?-[a-z]+-\d$/;
 /** The existing default when a link has no region (§13). */
 export const DEFAULT_REGION = 'us-east-1';
 
+/** The query param that asks the CloudK8s landing route for the fleet view instead of the last cluster. */
+export const FLEET_VIEW_PARAM = 'view';
+/** The {@link FLEET_VIEW_PARAM} value that means "show every cluster", i.e. the fleet list. */
+export const FLEET_VIEW_ALL = 'all';
+
+/** The URL that forces the CloudK8s fleet view: `/cloudk8s?view=all`. */
+export function fleetHref(): string {
+  return `/cloudk8s?${FLEET_VIEW_PARAM}=${FLEET_VIEW_ALL}`;
+}
+
 export interface ClusterLink {
   clusterName: string;
   accountId: string;

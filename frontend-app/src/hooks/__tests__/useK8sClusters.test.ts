@@ -5,7 +5,7 @@ const { get } = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock('../../utils/apiClient', () => ({ default: { get } }));
 
 import { clearK8sCaches, k8sCacheKey, userKey } from '../../utils/k8sCache';
-import { useK8sClusters } from '../useK8sClusters';
+import { deriveErrorKind, sanitizeClusters, useK8sClusters } from '../useK8sClusters';
 
 const LIST = [
   { name: 'prod', region: 'us-east-1', version: '1.30', connected: true },
@@ -85,5 +85,109 @@ describe('useK8sClusters', () => {
     await waitFor(() => expect(result.current.status).toBe('ready'));
     await act(async () => resolveFirst(LIST));
     expect(result.current.clusters.map((c) => c.name)).toEqual(['other']);
+  });
+
+  it('does not cache an empty response, so a second mount refetches', async () => {
+    get.mockResolvedValue([]);
+    const first = renderHook(() => useK8sClusters('111'));
+    await waitFor(() => expect(first.result.current.status).toBe('ready'));
+    expect(first.result.current.clusters).toHaveLength(0);
+    first.unmount();
+
+    const second = renderHook(() => useK8sClusters('111'));
+    await waitFor(() => expect(second.result.current.status).toBe('ready'));
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it('accepts a {clusters:[...]} object body', async () => {
+    get.mockResolvedValue({ clusters: LIST });
+    const { result } = renderHook(() => useK8sClusters('111'));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(result.current.clusters.map((c) => c.name)).toEqual(['prod', 'stage']);
+    expect(result.current.complete).toBeNull();
+    expect(result.current.failedRegions).toEqual([]);
+  });
+
+  it('clears to loading with no clusters immediately on an account switch', async () => {
+    get.mockResolvedValueOnce(LIST);
+    const { result, rerender } = renderHook(({ id }) => useK8sClusters(id), { initialProps: { id: '111' } });
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    get.mockImplementationOnce(() => new Promise(() => {}));
+    rerender({ id: '222' });
+    expect(result.current.status).toBe('loading');
+    expect(result.current.clusters).toEqual([]);
+  });
+
+  it('reload emits forceRefresh=false and rescan emits forceRefresh=true', async () => {
+    get.mockResolvedValue(LIST);
+    const { result } = renderHook(() => useK8sClusters('111'));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(get).toHaveBeenLastCalledWith('/api/xamops/k8s/clusters?accountIds=111&forceRefresh=false');
+
+    // reload is passed straight to an onClick, so it must ignore a click event and stay non-forced.
+    act(() => (result.current.reload as (e?: unknown) => void)({ type: 'click' }));
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    expect(get).toHaveBeenLastCalledWith('/api/xamops/k8s/clusters?accountIds=111&forceRefresh=false');
+
+    act(() => result.current.rescan());
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(3));
+    expect(get).toHaveBeenLastCalledWith('/api/xamops/k8s/clusters?accountIds=111&forceRefresh=true');
+  });
+
+  it('classifies the error kind for 401, 500, timeout and a non-array body', async () => {
+    get.mockRejectedValueOnce(new Error('HTTP 401: Unauthorized'));
+    const { result } = renderHook(() => useK8sClusters('111'));
+    await waitFor(() => expect(result.current.status).toBe('error'));
+    expect(result.current.errorKind).toBe('unauthorized');
+
+    get.mockRejectedValueOnce(new Error('HTTP 500: Internal Server Error'));
+    act(() => result.current.reload());
+    await waitFor(() => expect(result.current.errorKind).toBe('server'));
+
+    get.mockRejectedValueOnce(new Error('Request timed out after 15000ms: /x'));
+    act(() => result.current.reload());
+    await waitFor(() => expect(result.current.errorKind).toBe('network'));
+
+    get.mockResolvedValueOnce({ not: 'an array' });
+    act(() => result.current.reload());
+    await waitFor(() => expect(result.current.status).toBe('error'));
+    expect(result.current.errorKind).toBe('invalid');
+  });
+
+  it('leaves errorKind null for a ready read of 0 clusters while complete stays null', async () => {
+    // complete is always null this task, so a ready empty read is plain "no clusters", not
+    // "incomplete" — the 'incomplete' derivation only fires once a backend reports complete:false.
+    get.mockResolvedValue({ clusters: [], complete: false });
+    const { result } = renderHook(() => useK8sClusters('111'));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(result.current.clusters).toHaveLength(0);
+    expect(result.current.complete).toBeNull();
+    expect(result.current.errorKind).toBeNull();
+  });
+
+  it('deriveErrorKind returns incomplete only for a ready, empty, partial-scan read (synthetic complete:false)', () => {
+    expect(deriveErrorKind('ready', 0, false, null)).toBe('incomplete');
+    expect(deriveErrorKind('ready', 0, null, null)).toBeNull();
+    expect(deriveErrorKind('ready', 2, false, null)).toBeNull();
+    expect(deriveErrorKind('error', 0, false, 'server')).toBe('server');
+  });
+
+  it('sanitizeClusters is exported and drops invalid/duplicate items', () => {
+    expect(sanitizeClusters('x')).toBeNull();
+    expect(sanitizeClusters([{ name: 'a', region: 'us-east-1' }, { name: 'a', region: 'us-east-1' }])).toHaveLength(1);
+  });
+
+  it('exposes isRefreshing only during a forced rescan over a rendered list', async () => {
+    get.mockResolvedValueOnce(LIST);
+    const { result } = renderHook(() => useK8sClusters('111'));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(result.current.isRefreshing).toBe(false);
+
+    let resolveRescan!: (v: unknown) => void;
+    get.mockImplementationOnce(() => new Promise((resolve) => { resolveRescan = resolve; }));
+    act(() => result.current.rescan());
+    await waitFor(() => expect(result.current.isRefreshing).toBe(true));
+    await act(async () => resolveRescan(LIST));
+    await waitFor(() => expect(result.current.isRefreshing).toBe(false));
   });
 });

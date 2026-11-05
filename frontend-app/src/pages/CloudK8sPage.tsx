@@ -28,6 +28,8 @@ export interface EKSCluster {
   name: string;
   region: string;
   version: string;
+  /** The cluster's lifecycle status as the backend reports it (e.g. ACTIVE); absent from older cached lists. */
+  status?: string;
   /** Whether the Container Insights performance log group exists (the backend's exact-match check). */
   connected: boolean;
   /** The same check in detail; absent from lists cached before it existed. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_REGION, clusterSwitchHref, isSwitchableCluster, parseClusterLink, serializeClusterLink } from '../k8sClusterLink';
+import { DEFAULT_REGION, FLEET_VIEW_ALL, FLEET_VIEW_PARAM, clusterSwitchHref, fleetHref, isSwitchableCluster, parseClusterLink, serializeClusterLink } from '../k8sClusterLink';
 import { parseClusterLink as fromPage } from '../../pages/EksDetailsPage';
 
 const parse = (search: string, demo = false) => parseClusterLink(new URLSearchParams(search), demo);
@@ -68,5 +68,12 @@ describe('serializeClusterLink / isSwitchableCluster / clusterSwitchHref', () =>
     expect(isSwitchableCluster({ name: '-bad', region: 'us-east-1' })).toBe(false);
     expect(isSwitchableCluster({ name: 'ok', region: 'useast1' })).toBe(false);
     expect(isSwitchableCluster({ name: 5, region: 'us-east-1' })).toBe(false);
+  });
+});
+
+describe('fleetHref', () => {
+  it('is exactly /cloudk8s?view=all', () => {
+    expect(fleetHref()).toBe('/cloudk8s?view=all');
+    expect(fleetHref()).toBe(`/cloudk8s?${FLEET_VIEW_PARAM}=${FLEET_VIEW_ALL}`);
   });
 });
