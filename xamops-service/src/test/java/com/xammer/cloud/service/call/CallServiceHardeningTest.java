@@ -92,6 +92,9 @@ class CallServiceHardeningTest {
 
         // @Value fields are not populated outside a Spring context.
         ReflectionTestUtils.setField(service, "ringSeconds", 40L);
+        // The hold queue's deadline; the application default is 600. Left unset it is 0, and the
+        // queue deadline collapses onto the ring deadline.
+        ReflectionTestUtils.setField(service, "queueSeconds", 600L);
         ReflectionTestUtils.setField(service, "activeStaleSeconds", 120L);
         ReflectionTestUtils.setField(service, "maxSessionHours", 12L);
 

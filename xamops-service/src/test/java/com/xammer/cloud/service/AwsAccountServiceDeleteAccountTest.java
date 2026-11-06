@@ -13,6 +13,7 @@ import com.xammer.cloud.repository.FinOpsReportScheduleRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.repository.KubernetesClusterRepository;
 import com.xammer.cloud.repository.ResourceLabelAssignmentRepository;
+import com.xammer.cloud.repository.ServiceLabelAssignmentRepository;
 import com.xammer.cloud.repository.SpotOptimizationEventRepository;
 import com.xammer.cloud.repository.SreInvestigationRepository;
 import com.xammer.cloud.repository.StatefulAsgConfigRepository;
@@ -69,6 +70,8 @@ class AwsAccountServiceDeleteAccountTest {
 
         ReflectionTestUtils.setField(service, "resourceLabelAssignmentRepository",
                 mock(ResourceLabelAssignmentRepository.class));
+        ReflectionTestUtils.setField(service, "serviceLabelAssignmentRepository",
+                mock(ServiceLabelAssignmentRepository.class));
         ReflectionTestUtils.setField(service, "ebsVolumeActionRepository", mock(EbsVolumeActionRepository.class));
         ReflectionTestUtils.setField(service, "spotOptimizationEventRepository",
                 mock(SpotOptimizationEventRepository.class));
