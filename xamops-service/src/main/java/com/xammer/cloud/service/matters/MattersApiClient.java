@@ -15,11 +15,17 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.web.util.UriUtils;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * HTTP client for the Matters.ai All-Assets v1 API.
@@ -43,7 +49,7 @@ import java.util.Map;
  *   <li><b>5xx and connection failures</b> — retried once after a short fixed delay. Transient vendor
  *       blips are the common case; a sustained outage should surface quickly rather than double every
  *       page load's latency.</li>
- *   <li><b>401, 403, 404</b> — never retried. None of them become true by trying again.</li>
+ *   <li><b>400, 401, 403, 404</b> — never retried. None of them become true by trying again.</li>
  * </ul>
  *
  * <h2>What is never logged</h2>
@@ -60,6 +66,35 @@ public class MattersApiClient {
     public static final String PATH_ASSETS = API_PREFIX + "/assets";
     public static final String PATH_FILTERS = API_PREFIX + "/assets/filters";
     public static final String PATH_SUMMARY = API_PREFIX + "/assets/summary";
+
+    // Console routes behind the XamLens datastore drawer. Keyed by the row's 24-hex source_id.
+    public static final String PATH_INVENTORY_OVERVIEW = API_PREFIX + "/data/inventory/overview";
+    public static final String PATH_INVENTORY_SENSITIVES = API_PREFIX + "/data/inventory/sensitives";
+    public static final String PATH_INVENTORY_SENSITIVE_ENTITY = API_PREFIX + "/data/inventory/sensitives/entity";
+    public static final String PATH_INVENTORY_ISSUES = API_PREFIX + "/data/inventory/issues/overview";
+    public static final String PATH_INVENTORY_ACCESS_GRAPH = API_PREFIX + "/data/inventory/access_graph/overview";
+    public static final String PATH_SCAN_STATUS = API_PREFIX + "/data/security/inventory/scan/status";
+    /** Followed by {@code {sourceId}/history}. */
+    public static final String PATH_SCAN_HISTORY_PREFIX = API_PREFIX + "/data/security/scan/asset/";
+    /** Followed by {@code {sourceId}/detail}. */
+    public static final String PATH_SAAS_ASSET_PREFIX = API_PREFIX + "/data/security/saas/asset/";
+
+    // Data Flow routes. They answer bare objects ({data[], pagination}) without a success flag.
+    public static final String PATH_DATABASE_SCHEMA = API_PREFIX + "/data/security/database-schema";
+
+    private static final Pattern SOURCE_ID = Pattern.compile("^[0-9a-fA-F]{24}$");
+    private static final Pattern UUID = Pattern.compile(
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
+
+    /**
+     * Vendor 400 messages that mean "no such asset". The console routes answer an unknown id with 400
+     * rather than 404, worded differently per route.
+     */
+    private static final List<String> NOT_FOUND_PHRASES =
+            List.of("no asset data found", "asset not found", "not inventory found", "no asset found");
+
+    static final String ASSET_NOT_FOUND_MESSAGE = "Asset not found";
+    static final String FORBIDDEN_SCOPE_MESSAGE = "This Matters key needs the PLATFORM scope";
 
     /**
      * The vendor's hard ceiling on {@code page_size}. Larger values are clamped upstream rather than
@@ -135,13 +170,117 @@ public class MattersApiClient {
         return get(credential, PATH_ASSETS, Map.of("page_size", List.of("1")));
     }
 
+    // ── console routes (datastore drawer) ────────────────────────────────────────────────────────
+    //
+    // These answer {"success": false, ...} with a 200 on some failures, so they pass consoleRoute=true.
+    // Every id has been validated by the caller; the assertions here only catch programming errors.
+
+    /** {@code GET /api/v1/data/inventory/overview?asset_id=}. Carries raw samples: whitelist downstream. */
+    public JsonNode inventoryOverview(MattersCredential credential, String sourceId) {
+        return get(credential, PATH_INVENTORY_OVERVIEW, assetQuery(sourceId), true);
+    }
+
+    /** {@code GET /api/v1/data/inventory/sensitives?asset_id=}. Carries raw samples. */
+    public JsonNode inventorySensitives(MattersCredential credential, String sourceId) {
+        return get(credential, PATH_INVENTORY_SENSITIVES, assetQuery(sourceId), true);
+    }
+
+    /**
+     * {@code GET /api/v1/data/inventory/sensitives/entity} — one page of an entity's occurrences.
+     *
+     * @param hideFalsePositives sends {@code isFalsePositive=false} when true; no filter otherwise.
+     */
+    public JsonNode inventorySensitiveEntity(MattersCredential credential, String sourceId, String entityName,
+                                             int skip, int limit, boolean hideFalsePositives) {
+        if (entityName == null || entityName.isBlank()) {
+            throw new IllegalArgumentException("entityName is required");
+        }
+        Map<String, List<String>> query = assetQuery(sourceId);
+        query.put("entityName", List.of(entityName));
+        query.put("skip", List.of(String.valueOf(skip)));
+        query.put("limit", List.of(String.valueOf(limit)));
+        if (hideFalsePositives) {
+            query.put("isFalsePositive", List.of("false"));
+        }
+        return get(credential, PATH_INVENTORY_SENSITIVE_ENTITY, query, true);
+    }
+
+    /** {@code GET /api/v1/data/inventory/issues/overview?asset_id=}. */
+    public JsonNode inventoryIssues(MattersCredential credential, String sourceId) {
+        return get(credential, PATH_INVENTORY_ISSUES, assetQuery(sourceId), true);
+    }
+
+    /** {@code GET /api/v1/data/inventory/access_graph/overview?asset_id=}. */
+    public JsonNode inventoryAccessGraph(MattersCredential credential, String sourceId) {
+        return get(credential, PATH_INVENTORY_ACCESS_GRAPH, assetQuery(sourceId), true);
+    }
+
+    /** {@code GET /api/v1/data/security/inventory/scan/status?asset_id=}. */
+    public JsonNode scanStatus(MattersCredential credential, String sourceId) {
+        return get(credential, PATH_SCAN_STATUS, assetQuery(sourceId), true);
+    }
+
+    /** {@code GET /api/v1/data/security/scan/asset/{sourceId}/history}. */
+    public JsonNode scanHistory(MattersCredential credential, String sourceId) {
+        return get(credential, PATH_SCAN_HISTORY_PREFIX + requireSourceId(sourceId) + "/history", Map.of(), true);
+    }
+
+    /** {@code GET /api/v1/data/security/saas/asset/{sourceId}/detail}. */
+    public JsonNode saasAssetDetail(MattersCredential credential, String sourceId) {
+        return get(credential, PATH_SAAS_ASSET_PREFIX + requireSourceId(sourceId) + "/detail", Map.of(), true);
+    }
+
+    // ── Data Flow routes ─────────────────────────────────────────────────────────────────────────
+
+    /** {@code GET …/database-schema/datastores/{sourceId}/databases?page=&page_size=}. */
+    public JsonNode schemaDatabases(MattersCredential credential, String sourceId, int page, int pageSize) {
+        return get(credential, PATH_DATABASE_SCHEMA + "/datastores/" + requireSourceId(sourceId) + "/databases",
+                pageQuery(page, pageSize));
+    }
+
+    /** {@code GET …/database-schema/databases/{databaseId}/schemas?page=&page_size=}. */
+    public JsonNode schemaSchemas(MattersCredential credential, String databaseId, int page, int pageSize) {
+        return get(credential, PATH_DATABASE_SCHEMA + "/databases/" + requireUuid(databaseId) + "/schemas",
+                pageQuery(page, pageSize));
+    }
+
+    /** {@code GET …/database-schema/schemas/{schemaId}/tables?page=&page_size=}. */
+    public JsonNode schemaTables(MattersCredential credential, String schemaId, int page, int pageSize) {
+        return get(credential, PATH_DATABASE_SCHEMA + "/schemas/" + requireUuid(schemaId) + "/tables",
+                pageQuery(page, pageSize));
+    }
+
+    /** {@code GET …/database-schema/databases/{databaseId}/tables?page=&page_size=}, for schema-less engines. */
+    public JsonNode schemaDatabaseTables(MattersCredential credential, String databaseId, int page, int pageSize) {
+        return get(credential, PATH_DATABASE_SCHEMA + "/databases/" + requireUuid(databaseId) + "/tables",
+                pageQuery(page, pageSize));
+    }
+
+    /** {@code GET …/database-schema/tables/{tableId}/columns?page=&page_size=}. */
+    public JsonNode schemaColumns(MattersCredential credential, String tableId, int page, int pageSize) {
+        return get(credential, PATH_DATABASE_SCHEMA + "/tables/" + requireUuid(tableId) + "/columns",
+                pageQuery(page, pageSize));
+    }
+
     // ── internals ────────────────────────────────────────────────────────────────────────────────
 
     private JsonNode get(MattersCredential credential, String path, Map<String, List<String>> query) {
+        return get(credential, path, query, false);
+    }
+
+    /**
+     * @param consoleRoute the route may answer 200 with {@code success:false}; that is treated as a
+     *                     failure inside the audited block, so the failure row is written.
+     */
+    private JsonNode get(MattersCredential credential, String path, Map<String, List<String>> query,
+                         boolean consoleRoute) {
         URI uri = buildUri(credential.baseUrl(), path, query);
         long startedAt = System.currentTimeMillis();
         try {
             JsonNode body = exchange(uri, credential, path, false);
+            if (consoleRoute) {
+                requireSuccess(body, path);
+            }
             auditService.recordCredentialUse(credential.clientId(), credential.keyId(),
                     credential.projectId(), path, System.currentTimeMillis() - startedAt);
             return body;
@@ -184,12 +323,17 @@ public class MattersApiClient {
             }
             if (status.value() == 403) {
                 throw new MattersApiException(MattersApiException.Reason.FORBIDDEN_SCOPE,
-                        "The Matters API key is not permitted for this action — it likely lacks the "
-                                + "PLATFORM scope", e);
+                        FORBIDDEN_SCOPE_MESSAGE, e);
             }
             if (status.value() == 404) {
                 throw new MattersApiException(MattersApiException.Reason.ASSET_NOT_FOUND,
-                        "Asset not found", e);
+                        ASSET_NOT_FOUND_MESSAGE, e);
+            }
+            // The console routes answer an unknown asset id with 400 and a not-found message. Any other
+            // 400 falls through to BAD_UPSTREAM_RESPONSE below. Neither is retried.
+            if (status.value() == 400 && isNotFoundMessage(vendorMessage(e))) {
+                throw new MattersApiException(MattersApiException.Reason.ASSET_NOT_FOUND,
+                        ASSET_NOT_FOUND_MESSAGE, e);
             }
 
             if (status.is5xxServerError()) {
@@ -240,17 +384,46 @@ public class MattersApiClient {
                 "Matters rejected the API key", e);
     }
 
-    /** Pulls {@code message} out of the vendor's {@code {"success":false,"message":"..."}} body. */
+    /** Pulls the message out of the vendor's {@code {"success":false,"message":"..."}} error body. */
     private String vendorMessage(RestClientResponseException e) {
         try {
-            JsonNode body = objectMapper.readTree(e.getResponseBodyAsString());
-            String message = body.path("message").asText(null);
-            if (message == null) {
-                message = body.path("error").asText("");
-            }
-            return message == null ? "" : message;
+            return vendorMessage(objectMapper.readTree(e.getResponseBodyAsString()));
         } catch (Exception ignored) {
             return "";
+        }
+    }
+
+    /**
+     * {@code message}, then {@code Message} (the console routes capitalise it), then {@code error}.
+     * Used only for classification; never copied into an exception message.
+     */
+    private static String vendorMessage(JsonNode body) {
+        if (body == null) {
+            return "";
+        }
+        for (String field : List.of("message", "Message", "error")) {
+            JsonNode value = body.path(field);
+            if (value.isTextual()) {
+                return value.asText();
+            }
+        }
+        return "";
+    }
+
+    private static boolean isNotFoundMessage(String message) {
+        String lower = message.toLowerCase(Locale.ROOT);
+        return NOT_FOUND_PHRASES.stream().anyMatch(lower::contains);
+    }
+
+    /** A console-route body with {@code success: false} is a failure, whatever the HTTP status said. */
+    private static void requireSuccess(JsonNode body, String path) {
+        JsonNode success = body.path("success");
+        if (success.isBoolean() && !success.booleanValue()) {
+            if (isNotFoundMessage(vendorMessage(body))) {
+                throw new MattersApiException(MattersApiException.Reason.ASSET_NOT_FOUND, ASSET_NOT_FOUND_MESSAGE);
+            }
+            throw new MattersApiException(MattersApiException.Reason.BAD_UPSTREAM_RESPONSE,
+                    "Matters answered success:false for " + path);
         }
     }
 
@@ -295,19 +468,60 @@ public class MattersApiClient {
     }
 
     /**
-     * Builds the URI, encoding every value.
+     * Builds the URI, encoding every query value strictly.
      *
-     * {@code build()} without {@code encode()} would pass a customer's search term through raw, so a
-     * {@code q} containing a space or ampersand would either fail or silently truncate the query.
+     * Template encoding ({@code queryParam(..).encode()}) leaves {@code +}, {@code @} and the other
+     * sub-delimiters literal, and a server that decodes the query as form data reads a literal {@code +}
+     * as a space. So each value is encoded here with {@link #encodeValue}, and the already-encoded
+     * components are assembled with {@code build(true)} so nothing is encoded twice.
      */
     private URI buildUri(String baseUrl, String path, Map<String, List<String>> query) {
-        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(baseUrl).path(path);
+        // Base URL and path: encoded as before. The path is a constant plus an id validated by the caller.
+        URI base = UriComponentsBuilder.fromUriString(baseUrl).path(path).encode().build().toUri();
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUri(base);
         query.forEach((key, values) -> {
             if (values != null && !values.isEmpty()) {
-                builder.queryParam(key, values.toArray());
+                builder.queryParam(key, values.stream().map(MattersApiClient::encodeValue).toArray());
             }
         });
-        return builder.encode().build().toUri();
+        return builder.build(true).toUri();   // every component is already encoded; do not encode again
+    }
+
+    /** UriUtils.encode leaves only unreserved characters literal; commas stay literal as the value separator. */
+    static String encodeValue(String joined) {
+        return Arrays.stream(joined.split(",", -1))
+                .map(part -> UriUtils.encode(part, StandardCharsets.UTF_8))
+                .collect(Collectors.joining(","));
+    }
+
+    private static Map<String, List<String>> assetQuery(String sourceId) {
+        Map<String, List<String>> query = new LinkedHashMap<>();
+        query.put("asset_id", List.of(requireSourceId(sourceId)));
+        return query;
+    }
+
+    private static Map<String, List<String>> pageQuery(int page, int pageSize) {
+        if (page < 1 || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
+            throw new IllegalArgumentException("page must be at least 1 and pageSize from 1 to " + MAX_PAGE_SIZE);
+        }
+        Map<String, List<String>> query = new LinkedHashMap<>();
+        query.put("page", List.of(String.valueOf(page)));
+        query.put("page_size", List.of(String.valueOf(pageSize)));
+        return query;
+    }
+
+    private static String requireSourceId(String sourceId) {
+        if (sourceId == null || !SOURCE_ID.matcher(sourceId).matches()) {
+            throw new IllegalArgumentException("sourceId must be 24 hexadecimal characters");
+        }
+        return sourceId;
+    }
+
+    private static String requireUuid(String id) {
+        if (id == null || !UUID.matcher(id).matches()) {
+            throw new IllegalArgumentException("Data Flow id must be a UUID");
+        }
+        return id;
     }
 
     private void sleep(long millis) {
