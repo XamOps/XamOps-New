@@ -203,7 +203,7 @@ const CascadeLabelDialog: React.FC<CascadeLabelDialogProps> = ({
     setApplying(true);
     setError(null);
     try {
-      await bulkAssignLabel(accountId, label.id, targets.map(refFor));
+      await bulkAssignLabel(accountId, label.id, targets.map(refFor), 'CASCADE');
       onApplied(
         targets.map((t) => t.resourceId),
         label,

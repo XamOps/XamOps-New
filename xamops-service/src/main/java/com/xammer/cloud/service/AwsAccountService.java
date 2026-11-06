@@ -18,6 +18,7 @@ import com.xammer.cloud.repository.FinOpsReportScheduleRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.repository.KubernetesClusterRepository;
 import com.xammer.cloud.repository.ResourceLabelAssignmentRepository;
+import com.xammer.cloud.repository.ServiceLabelAssignmentRepository;
 import com.xammer.cloud.repository.SpotOptimizationEventRepository;
 import com.xammer.cloud.repository.SreInvestigationRepository;
 import com.xammer.cloud.repository.StatefulAsgConfigRepository;
@@ -683,6 +684,7 @@ public class AwsAccountService {
     long onboardCurRetryBackoffMs = 12_000;
 
     @Autowired private ResourceLabelAssignmentRepository resourceLabelAssignmentRepository;
+    @Autowired private ServiceLabelAssignmentRepository serviceLabelAssignmentRepository;
     @Autowired private EbsVolumeActionRepository ebsVolumeActionRepository;
     @Autowired private SpotOptimizationEventRepository spotOptimizationEventRepository;
     @Autowired private DailySpotSavingsRepository dailySpotSavingsRepository;
@@ -707,6 +709,7 @@ public class AwsAccountService {
         deleteFinancialDependents(accountId);
 
         resourceLabelAssignmentRepository.deleteByCloudAccountId(accountId);
+        serviceLabelAssignmentRepository.deleteByCloudAccountId(accountId);
         ebsVolumeActionRepository.deleteByAccountId(accountId);
         spotOptimizationEventRepository.deleteByAccountId(accountId);
         dailySpotSavingsRepository.deleteByAccountId(accountId);

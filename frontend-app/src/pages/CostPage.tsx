@@ -365,11 +365,11 @@ const CostPage: React.FC = () => {
                 it change" because the first question is what was billed; the comparison
                 explains it afterwards. */}
             <RevealSection>
-              {/* "Why spend changed" is now the card's third tab rather than a section of its own
+              {/* "Why spend changed" is now the card's second tab rather than a section of its own
                   further down the page, and each resource row opens a panel with its detail. Both
                   changes trade page height for layering: the depth is reachable in one click instead of
                   a scroll, and the reader keeps their place in the table. */}
-              <CostDetailTabs accountId={curAccountId} environmentAllocation />
+              <CostDetailTabs accountId={curAccountId} />
             </RevealSection>
 
             {/* Network costs, directly under the invoice. They are scattered across every

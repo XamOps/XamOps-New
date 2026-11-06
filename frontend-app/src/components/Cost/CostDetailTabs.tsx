@@ -21,7 +21,6 @@ import { type ServiceResourcesCopy } from './ServiceResourcesDrawer';
 import { type ConnectivityFetchers } from './ResourceConnectivityTab';
 import { awsSecurity, type SecurityFetchers } from './ResourceSecurityTab';
 import PriceVsVolumeSection from './PriceVsVolumeSection';
-import EnvironmentAllocationSection from './EnvAllocation/EnvironmentAllocationSection';
 
 /**
  * Two views of the same bill, switched from the card's own heading.
@@ -70,7 +69,7 @@ import EnvironmentAllocationSection from './EnvAllocation/EnvironmentAllocationS
  * the card exists, and each panel only decides what fills it.
  */
 
-type TabId = 'charges' | 'change' | 'environments';
+type TabId = 'charges' | 'change';
 
 interface CostDetailTabsProps {
   /**
@@ -191,12 +190,6 @@ interface CostDetailTabsProps {
     | null;
   /** What the reconciliation ledger calls the billing source, and its per-code labels. */
   chargeTypesCopy?: ChargeTypeReconciliationCopy;
-  /**
-   * Whether to offer the "By environment" tab: the bill split across the client's environments by
-   * ordered rules. AWS only — the rules and runs read the Cost and Usage Report — so it is off unless
-   * the AWS Cost page turns it on.
-   */
-  environmentAllocation?: boolean;
 }
 
 /** The current billing month, in the form the CUR endpoints take. */
@@ -222,7 +215,6 @@ const CostDetailTabs: React.FC<CostDetailTabsProps> = ({
   chargeTypesFetcher = fetchChargeTypes,
   scopedResourcesFetcher = fetchServiceResources,
   chargeTypesCopy,
-  environmentAllocation = false,
 }) => {
   const [tab, setTab] = useState<TabId>('charges');
   /** Tabs the reader has opened, so the comparison's query is never issued unasked. */
@@ -271,14 +263,10 @@ const CostDetailTabs: React.FC<CostDetailTabsProps> = ({
           // moved. "Which resource" sits between the two and is no longer a tab — it opens from
           // the service row itself, where the figure that raises it is.
           { id: 'change', label: 'Why spend changed', icon: 'mdi:swap-vertical' },
-          // Third: the same bill cut by who it belongs to rather than by what it was for.
-          ...(environmentAllocation
-            ? [{ id: 'environments', label: 'By environment', icon: 'mdi:shape-outline' }]
-            : []),
         ]}
       />
     ),
-    [tab, environmentAllocation],
+    [tab],
   );
 
   if (!accountId) return null;
@@ -344,13 +332,6 @@ const CostDetailTabs: React.FC<CostDetailTabsProps> = ({
             insightName={`${insightPrefix}price-vs-volume`}
             currency={currency}
           />
-        </div>
-      )}
-
-      {/* Mounted only once opened, for the same reason: its first read may be a live Athena scan. */}
-      {environmentAllocation && visited.has('environments') && (
-        <div hidden={tab !== 'environments'}>
-          <EnvironmentAllocationSection accountId={accountId} heading={control} currency={currency} />
         </div>
       )}
     </div>

@@ -1,11 +1,15 @@
 package com.xammer.cloud.controller;
 
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.ConnectedResourceDto;
 import com.xammer.cloud.dto.LabelAssignRequest;
+import com.xammer.cloud.dto.LabelSplitRequest;
 import com.xammer.cloud.dto.LabeledResourceDto;
 import com.xammer.cloud.dto.ResourceLabelDto;
 import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.security.CloudAccountAccessService;
 import com.xammer.cloud.service.ConnectedResourceService;
+import com.xammer.cloud.service.LabelAuditService;
 import com.xammer.cloud.service.ResourceLabelService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +18,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,6 +26,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 
 @RestController
 @RequestMapping("/api/xamops/labels")
@@ -30,11 +36,55 @@ public class ResourceLabelController {
 
     private final ResourceLabelService labelService;
     private final ConnectedResourceService connectedResourceService;
+    private final LabelAuditService audit;
+    private final CloudAccountAccessService accessService;
 
     public ResourceLabelController(ResourceLabelService labelService,
-                                   ConnectedResourceService connectedResourceService) {
+                                   ConnectedResourceService connectedResourceService,
+                                   LabelAuditService audit,
+                                   CloudAccountAccessService accessService) {
         this.labelService = labelService;
         this.connectedResourceService = connectedResourceService;
+        this.audit = audit;
+        this.accessService = accessService;
+    }
+
+    /**
+     * Runs a label write, and records it in the audit trail as refused if the service rejects it.
+     *
+     * <p>Only {@link IllegalArgumentException} counts as a refusal: that is what the label service
+     * throws for a bad request — shares over 100%, a label that is not the caller's, a duplicate
+     * name. The error still reaches the caller unchanged; a failure to record it is logged and
+     * dropped, so it can never replace the original error.
+     */
+    private <T> T auditingRejection(ClientUserDetails user, LabelAuditService.Attempt attempt, Supplier<T> write) {
+        try {
+            return write.get();
+        } catch (IllegalArgumentException e) {
+            try {
+                audit.recordRejected(user.getClientId(), user.getUsername(), attempt, e.getMessage());
+            } catch (RuntimeException auditFailure) {
+                logger.warn("[LabelAudit] Could not record a refused {}: {}", attempt.action(), auditFailure.getMessage());
+            }
+            throw e;
+        }
+    }
+
+    private static List<LabelAuditService.Target> targetsOf(List<LabelAssignRequest.ResourceRef> refs) {
+        if (refs == null) return List.of();
+        return refs.stream()
+                .filter(r -> r != null && r.getResourceId() != null && !r.getResourceId().isBlank())
+                .map(r -> new LabelAuditService.Target(r.getResourceId(), r.getResourceName()))
+                .toList();
+    }
+
+    /** The shares a refused save asked for, in the shape stored for an accepted one. */
+    private static List<LabelAuditService.ShareSnapshot> attempted(List<LabelSplitRequest.Entry> entries) {
+        if (entries == null) return List.of();
+        return entries.stream()
+                .filter(e -> e != null)
+                .map(e -> new LabelAuditService.ShareSnapshot(e.getLabelId(), null, null, e.getPercent()))
+                .toList();
     }
 
     // -----------------------------------------------------------------------
@@ -53,12 +103,17 @@ public class ResourceLabelController {
     public ResponseEntity<ResourceLabelDto> createLabel(
             @AuthenticationPrincipal ClientUserDetails user,
             @RequestBody CreateLabelRequest body) {
-        ResourceLabelDto created = labelService.createLabel(
+        LabelAuditService.Attempt attempt = new LabelAuditService.Attempt(
+                LabelAuditService.Action.LABEL_CREATED, null, body.getSource(), null, LabelAuditService.LABEL,
+                List.of(new LabelAuditService.Target(null, body.getName())),
+                new LabelAuditService.LabelSnapshot(null, body.getName(), body.getColor(), body.getDescription()));
+        ResourceLabelDto created = auditingRejection(user, attempt, () -> labelService.createLabel(
                 user.getClientId(),
                 body.getName(),
                 body.getColor(),
                 body.getDescription(),
-                user.getUsername());
+                user.getUsername(),
+                body.getSource()));
         return ResponseEntity.ok(created);
     }
 
@@ -68,9 +123,14 @@ public class ResourceLabelController {
             @AuthenticationPrincipal ClientUserDetails user,
             @PathVariable Long labelId,
             @RequestBody CreateLabelRequest body) {
-        ResourceLabelDto updated = labelService.updateLabel(
+        LabelAuditService.Attempt attempt = new LabelAuditService.Attempt(
+                LabelAuditService.Action.LABEL_UPDATED, null, body.getSource(), labelId, LabelAuditService.LABEL,
+                List.of(new LabelAuditService.Target(String.valueOf(labelId), body.getName())),
+                new LabelAuditService.LabelSnapshot(labelId, body.getName(), body.getColor(), body.getDescription()));
+        ResourceLabelDto updated = auditingRejection(user, attempt, () -> labelService.updateLabel(
                 user.getClientId(), labelId,
-                body.getName(), body.getColor(), body.getDescription());
+                body.getName(), body.getColor(), body.getDescription(),
+                user.getUsername(), body.getSource()));
         return ResponseEntity.ok(updated);
     }
 
@@ -78,8 +138,15 @@ public class ResourceLabelController {
     @DeleteMapping("/{labelId}")
     public ResponseEntity<Void> deleteLabel(
             @AuthenticationPrincipal ClientUserDetails user,
-            @PathVariable Long labelId) {
-        labelService.deleteLabel(user.getClientId(), labelId);
+            @PathVariable Long labelId,
+            @RequestParam(required = false) String source) {
+        LabelAuditService.Attempt attempt = new LabelAuditService.Attempt(
+                LabelAuditService.Action.LABEL_DELETED, null, source, labelId, LabelAuditService.LABEL,
+                List.of(new LabelAuditService.Target(String.valueOf(labelId), null)), null);
+        auditingRejection(user, attempt, () -> {
+            labelService.deleteLabel(user.getClientId(), labelId, user.getUsername(), source);
+            return null;
+        });
         return ResponseEntity.noContent().build();
     }
 
@@ -92,7 +159,11 @@ public class ResourceLabelController {
     public ResponseEntity<Map<String, Object>> assignLabel(
             @AuthenticationPrincipal ClientUserDetails user,
             @RequestBody LabelAssignRequest req) {
-        int count = labelService.assignLabel(user.getClientId(), req, user.getUsername());
+        LabelAuditService.Attempt attempt = new LabelAuditService.Attempt(
+                LabelAuditService.Action.LABEL_ASSIGNED, req.getAccountId(), req.getSource(), req.getLabelId(),
+                LabelAuditService.RESOURCE, targetsOf(req.getResources()), null);
+        int count = auditingRejection(user, attempt,
+                () -> labelService.assignLabel(user.getClientId(), req, user.getUsername()));
         return ResponseEntity.ok(Map.of("assigned", count));
     }
 
@@ -101,8 +172,100 @@ public class ResourceLabelController {
     public ResponseEntity<Void> removeLabel(
             @AuthenticationPrincipal ClientUserDetails user,
             @RequestBody LabelAssignRequest req) {
-        labelService.removeLabel(user.getClientId(), req);
+        LabelAuditService.Attempt attempt = new LabelAuditService.Attempt(
+                LabelAuditService.Action.LABEL_REMOVED, req.getAccountId(), req.getSource(), req.getLabelId(),
+                LabelAuditService.RESOURCE, targetsOf(req.getResources()), null);
+        auditingRejection(user, attempt, () -> {
+            labelService.removeLabel(user.getClientId(), req, user.getUsername());
+            return null;
+        });
         return ResponseEntity.noContent().build();
+    }
+
+    // -----------------------------------------------------------------------
+    // Label shares — set every label on one resource or service at once
+    // -----------------------------------------------------------------------
+
+    /**
+     * Replaces a resource's labels with exactly the ones given, each with an optional percent.
+     *
+     * PUT body: { "accountId": "...", "resource": { "resourceId": "...", ... },
+     *             "labels": [ { "labelId": 3, "percent": 40 }, { "labelId": 5, "percent": 40 } ] }
+     *
+     * The shares may add up to less than 100 — the rest is unallocated — but never more.
+     */
+    @PutMapping("/resource-split")
+    public ResponseEntity<List<ResourceLabelDto>> setResourceLabels(
+            @AuthenticationPrincipal ClientUserDetails user,
+            @RequestBody LabelSplitRequest req) {
+        // The cost page's label controls are AWS-only, so the account must be one the caller holds.
+        accessService.requireAwsAccess(user, req.getAccountId());
+        LabelAssignRequest.ResourceRef ref = req.getResource();
+        LabelAuditService.Attempt attempt = new LabelAuditService.Attempt(
+                LabelAuditService.Action.LABELS_SET, req.getAccountId(), req.getSource(), null,
+                LabelAuditService.RESOURCE,
+                ref == null ? List.of() : targetsOf(List.of(ref)), attempted(req.getLabels()));
+        return ResponseEntity.ok(auditingRejection(user, attempt,
+                () -> labelService.setResourceLabels(user.getClientId(), req, user.getUsername())));
+    }
+
+    /** Every service label on one account: { "Amazon Elastic Compute Cloud": [label, ...], ... }. */
+    @GetMapping("/service-map")
+    public ResponseEntity<Map<String, List<ResourceLabelDto>>> getServiceLabels(
+            @AuthenticationPrincipal ClientUserDetails user,
+            @RequestParam String accountId) {
+        accessService.requireAwsAccess(user, accountId);
+        return ResponseEntity.ok(labelService.getServiceLabels(user.getClientId(), accountId));
+    }
+
+    /** As {@code /resource-split}, for a whole billing service. Body carries "service" instead of "resource". */
+    @PutMapping("/service-split")
+    public ResponseEntity<List<ResourceLabelDto>> setServiceLabels(
+            @AuthenticationPrincipal ClientUserDetails user,
+            @RequestBody LabelSplitRequest req) {
+        accessService.requireAwsAccess(user, req.getAccountId());
+        String service = req.getService() == null ? null : req.getService().trim();
+        LabelAuditService.Attempt attempt = new LabelAuditService.Attempt(
+                LabelAuditService.Action.LABELS_SET, req.getAccountId(), req.getSource(), null,
+                LabelAuditService.SERVICE,
+                service == null || service.isEmpty() ? List.of() : List.of(new LabelAuditService.Target(service, service)),
+                attempted(req.getLabels()));
+        return ResponseEntity.ok(auditingRejection(user, attempt,
+                () -> labelService.setServiceLabels(user.getClientId(), req, user.getUsername())));
+    }
+
+    // -----------------------------------------------------------------------
+    // Audit trail
+    // -----------------------------------------------------------------------
+
+    /**
+     * Who changed which labels and shares, newest first.
+     *
+     * <p>Without {@code targetType}: everything on the account, plus the client's label edits.
+     * With {@code targetType=RESOURCE|SERVICE} and {@code targetId}: one resource or service. Page
+     * back with {@code beforeId}, the id of the oldest event already shown.
+     *
+     * Example: GET /api/xamops/labels/history?accountId=123456789012&targetType=SERVICE&targetId=Kiro
+     */
+    @GetMapping("/history")
+    public ResponseEntity<LabelAuditService.HistoryPage> history(
+            @AuthenticationPrincipal ClientUserDetails user,
+            @RequestParam String accountId,
+            @RequestParam(required = false) String targetType,
+            @RequestParam(required = false) String targetId,
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(defaultValue = "30") int size) {
+        CloudAccount account = accessService.requireAwsAccess(user, accountId);
+        if (targetType == null || targetType.isBlank()) {
+            return ResponseEntity.ok(audit.accountHistory(user.getClientId(), account, beforeId, size));
+        }
+        return ResponseEntity.ok(audit.targetHistory(user.getClientId(), account, targetType, targetId, beforeId, size));
+    }
+
+    /** 404, not 403, so these endpoints cannot be used to learn which account ids exist. */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<Map<String, String>> denied(AccessDeniedException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Not found."));
     }
 
     // -----------------------------------------------------------------------
@@ -225,6 +388,12 @@ public class ResourceLabelController {
 
         public String getDescription() { return description; }
         public void setDescription(String description) { this.description = description; }
+
+        /** Which screen made the change, for the audit trail. Optional. */
+        private String source;
+
+        public String getSource() { return source; }
+        public void setSource(String source) { this.source = source; }
     }
 
     public static class ResourceMapRequest {

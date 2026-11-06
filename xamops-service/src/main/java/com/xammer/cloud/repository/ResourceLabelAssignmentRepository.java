@@ -52,8 +52,8 @@ public interface ResourceLabelAssignmentRepository extends JpaRepository<Resourc
     /**
      * Every label this client has put on any resource in one account.
      *
-     * <p>Read by environment allocation, which matches label rules against a whole month of the
-     * bill at once. Client-scoped for the same reason as the bulk read above.
+     * <p>Read by the label spend figures, which divide a whole month of the bill by label at once.
+     * Client-scoped for the same reason as the bulk read above.
      */
     @Query("SELECT a FROM ResourceLabelAssignment a JOIN FETCH a.label l "
             + "WHERE a.cloudAccount.id = :accountId AND l.client.id = :clientId")

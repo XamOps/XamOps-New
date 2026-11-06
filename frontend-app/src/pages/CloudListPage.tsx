@@ -455,7 +455,7 @@ const CloudListPage: React.FC = () => {
       .map(r => ({ resourceId: r.id, resourceType: r.type, resourceName: r.name ?? undefined, region: r.region }));
 
     try {
-      await assignLabel({ accountId: accountKey, labelId: label.id, resources });
+      await assignLabel({ accountId: accountKey, labelId: label.id, resources, source: 'CLOUD_LIST' });
       // Update local label map optimistically
       setLabelMap(prev => {
         const next = { ...prev };
@@ -503,6 +503,7 @@ const CloudListPage: React.FC = () => {
         accountId: accountKey,
         labelId: label.id,
         resources: [{ resourceId: resource.id, resourceType: resource.type, resourceName: resource.name ?? undefined, region: resource.region }],
+        source: 'CLOUD_LIST',
       });
     } catch (err) {
       // Roll back on failure
@@ -1127,7 +1128,7 @@ const CloudListPage: React.FC = () => {
                                                       const crLabels = labelMap[cr.id] ?? cr.labels ?? [];
                                                       const currentIds = new Set(crLabels.map((l: ResourceLabel) => l.id));
                                                       for (const lbl of sourceLabels.filter((l: ResourceLabel) => !currentIds.has(l.id))) {
-                                                        await assignLabel({ accountId: selectedAccountId.split(',')[0], labelId: lbl.id, resources: [{ resourceId: cr.id, resourceType: cr.type, resourceName: cr.name ?? undefined, region: cr.region }] });
+                                                        await assignLabel({ accountId: selectedAccountId.split(',')[0], labelId: lbl.id, resources: [{ resourceId: cr.id, resourceType: cr.type, resourceName: cr.name ?? undefined, region: cr.region }], source: 'CLOUD_LIST' });
                                                         handleLabelMapChange(cr.id, [...crLabels, lbl]);
                                                       }
                                                     }

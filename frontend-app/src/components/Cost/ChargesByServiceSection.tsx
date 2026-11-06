@@ -1,5 +1,16 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
+import {
+  invalidateResourceLabels,
+  setServiceLabels,
+  useLabels,
+  useServiceLabelMap,
+} from '../../hooks/useResourceLabels';
+import { downloadLabelSpendPdf, setServiceLabelShares } from '../../services/resourceLabelsApi';
+import type { LabelShare, ResourceLabel, ServiceLabelMap } from '../../types/resourceLabels';
+import LabelHistoryDrawer from './LabelHistoryDrawer';
+import LabelShareCell from './LabelShareCell';
+import LabelSpendPanel from './LabelSpendPanel';
 import {
   fetchChargeTypes,
   fetchChargesByService,
@@ -344,6 +355,10 @@ interface ServiceNode {
   regions: RegionNode[];
 }
 
+// Shared empties, so a pending query does not hand every row a new object on each render.
+const NO_LABELS: ResourceLabel[] = [];
+const NO_SERVICE_LABELS: ServiceLabelMap = {};
+
 const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
   accountId,
   heading,
@@ -394,6 +409,66 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
    * header's control row.
    */
   const [basis, setBasis] = useState<CostBasis>('unblended');
+
+  /*
+   * ── Service labels ───────────────────────────────────────────────────────────────────────
+   *
+   * A label on a whole service row, each with an optional share of the cost — the same model as
+   * the resource labels in the panel this row opens. It reaches spend a resource label cannot,
+   * such as a Marketplace subscription with no resource behind it. Labels belong to the account,
+   * not the month, so the map is read once and does not change with the month selector.
+   */
+  const serviceLabelling = labels && Boolean(accountId);
+  const { data: allLabelsData } = useLabels(serviceLabelling);
+  const { data: serviceLabelData } = useServiceLabelMap(serviceLabelling ? accountId : null);
+  const allLabels = allLabelsData ?? NO_LABELS;
+  const serviceLabelMap = serviceLabelData ?? NO_SERVICE_LABELS;
+
+  /** The label whose spend is shown above the table, or null for none. */
+  const [labelFilterId, setLabelFilterId] = useState<number | null>(null);
+  /** Whether the account's label history panel is open. */
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const closeHistory = useCallback(() => setHistoryOpen(false), []);
+
+  /** The label report download: in flight, and why it last failed. */
+  const [labelPdfBusy, setLabelPdfBusy] = useState(false);
+  const [labelPdfError, setLabelPdfError] = useState<string | null>(null);
+  // A label deleted elsewhere drops out of the filter rather than showing a stale panel.
+  const labelFilter = allLabels.find((l) => l.id === labelFilterId) ?? null;
+
+  const saveServiceShares = useCallback(
+    async (service: string, shares: LabelShare[]) => {
+      if (!accountId) return;
+      const stored = await setServiceLabelShares({
+        accountId,
+        service,
+        labels: shares,
+        source: 'COST_SERVICE_ROW',
+      });
+      setServiceLabels(accountId, service, stored);
+      invalidateResourceLabels();
+    },
+    [accountId],
+  );
+
+  // The chip's ×: the chip goes first and comes back if the write fails.
+  const removeServiceLabel = useCallback(
+    async (service: string, label: ResourceLabel) => {
+      const before = serviceLabelMap[service] ?? NO_LABELS;
+      const next = before.filter((l) => l.id !== label.id);
+      setServiceLabels(accountId, service, next);
+      try {
+        await saveServiceShares(
+          service,
+          next.map((l) => ({ labelId: l.id, percent: l.percent ?? null })),
+        );
+      } catch (err) {
+        console.error('[Labels] Service label remove failed, rolling back:', err);
+        setServiceLabels(accountId, service, before);
+      }
+    },
+    [accountId, serviceLabelMap, saveServiceShares],
+  );
   /**
    * True only for the instant the print dialog is capturing the card. It forces every row
    * to render expanded on paper without touching `open`, so the on-screen tree keeps
@@ -405,6 +480,26 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
   const [period, setPeriod] = useState<string>(months[0].value);
   const monthLabel = months.find((m) => m.value === period)?.label ?? '';
   const isCurrentMonth = period === months[0].value;
+
+  /** Downloads the label report for the month, basis and label the card is showing. */
+  const handleLabelPdf = async () => {
+    if (!accountId || labelPdfBusy) return;
+    setLabelPdfBusy(true);
+    setLabelPdfError(null);
+    try {
+      await downloadLabelSpendPdf({
+        accountId,
+        period,
+        basis,
+        labelId: labelFilter?.id ?? null,
+        currency,
+      });
+    } catch (err) {
+      setLabelPdfError(err instanceof Error ? err.message : 'Could not create the PDF.');
+    } finally {
+      setLabelPdfBusy(false);
+    }
+  };
 
   /**
    * Prints the whole bill, fully expanded, without changing what is on screen.
@@ -610,6 +705,60 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
             <CostBasisToggle value={basis} onChange={setBasis} capabilities={capabilities} />
           )}
 
+          {/* Label filter: picks one label and shows its spend for the month above the table. */}
+          {serviceLabelling && allLabels.length > 0 && (
+            <select
+              value={labelFilterId ?? ''}
+              onChange={(e) => setLabelFilterId(e.target.value === '' ? null : Number(e.target.value))}
+              aria-label="Label"
+              className="no-print px-3 py-1.5 text-[12.5px] border border-[rgba(0,0,0,0.15)] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-black/5"
+            >
+              <option value="">All labels</option>
+              {allLabels.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {/* The audit trail: who changed which labels and shares on this account, and when. */}
+          {serviceLabelling && (
+            <button
+              type="button"
+              onClick={() => setHistoryOpen(true)}
+              aria-haspopup="dialog"
+              title="Who changed which labels and shares on this account, and when"
+              className="no-print inline-flex items-center gap-1.5 px-3 py-1.5 text-[12.5px] font-medium border border-[rgba(0,0,0,0.15)] rounded-lg hover:border-[rgba(0,0,0,0.35)] transition-colors"
+            >
+              <Icon icon="mdi:history" width={15} />
+              Label history
+            </button>
+          )}
+
+          {/* The label spend for the chosen month and label as a PDF. Separate from Download PDF,
+              which prints the bill itself. */}
+          {serviceLabelling && allLabels.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void handleLabelPdf()}
+              disabled={labelPdfBusy || basisFailed}
+              title={
+                labelFilter
+                  ? `Download ${labelFilter.name}'s spend for ${monthLabel} as a PDF`
+                  : `Download every label's spend for ${monthLabel} as a PDF`
+              }
+              className="no-print inline-flex items-center gap-1.5 px-3 py-1.5 text-[12.5px] font-medium border border-[rgba(0,0,0,0.15)] rounded-lg hover:border-[rgba(0,0,0,0.35)] transition-colors disabled:opacity-40"
+            >
+              <Icon
+                icon={labelPdfBusy ? 'mdi:loading' : 'mdi:tag-arrow-down-outline'}
+                width={15}
+                className={labelPdfBusy ? 'animate-spin' : ''}
+              />
+              {labelPdfBusy ? 'Preparing…' : 'Label report'}
+            </button>
+          )}
+
           <select
             value={period}
             onChange={(e) => setPeriod(e.target.value)}
@@ -694,6 +843,34 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
             {text.amortizedNote}
           </div>
         </div>
+      )}
+
+      {labelPdfError && (
+        <div className="no-print flex items-start justify-between gap-3 px-3.5 py-2.5 mb-3 bg-[rgba(185,28,28,0.05)] border border-[rgba(185,28,28,0.2)] rounded-lg text-[11.5px] text-[#B91C1C]">
+          <span>{labelPdfError}</span>
+          <button
+            type="button"
+            onClick={() => setLabelPdfError(null)}
+            aria-label="Dismiss"
+            className="flex-shrink-0 hover:opacity-70"
+          >
+            <Icon icon="mdi:close" width={14} />
+          </button>
+        </div>
+      )}
+
+      {/* The bill split by label. Shown whenever the client has labels, not only once one is picked:
+          with "All labels" it is the whole bill by label, with one label it is that label by resource. */}
+      {serviceLabelling && accountId && allLabels.length > 0 && !basisFailed && (
+        <LabelSpendPanel
+          accountId={accountId}
+          period={period}
+          basis={basis}
+          monthLabel={`${monthLabel}${isCurrentMonth ? ' so far' : ''}`}
+          selected={labelFilter}
+          money={money}
+          onSelect={setLabelFilterId}
+        />
       )}
 
       {!isEmpty && !loading && !basisFailed && (
@@ -791,15 +968,33 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
                         is the actual control, and announcing this as well would give screen
                         readers two things to do where there is one. */}
                     <td className="px-2 py-2.5 text-right">
-                      {resourcesEnabled && (
-                        <span
-                          aria-hidden="true"
-                          className="no-print inline-flex items-center gap-1 text-[11px] font-medium text-[#4285F4] whitespace-nowrap"
-                        >
-                          Resources
-                          <Icon icon="mdi:chevron-right" width={12} />
-                        </span>
-                      )}
+                      <span className="inline-flex items-center justify-end gap-3 max-w-full">
+                        {/* The service's own labels. Kept off the row's click, which opens the
+                            resource panel. */}
+                        {serviceLabelling && (
+                          <LabelShareCell
+                            kind="service"
+                            subject={svc.service}
+                            labels={serviceLabelMap[svc.service] ?? NO_LABELS}
+                            allLabels={allLabels}
+                            onSave={(shares) => saveServiceShares(svc.service, shares)}
+                            onLabelCreated={invalidateResourceLabels}
+                            onRemove={(lbl) => void removeServiceLabel(svc.service, lbl)}
+                            history={
+                              accountId ? { accountId, type: 'SERVICE', id: svc.service } : undefined
+                            }
+                          />
+                        )}
+                        {resourcesEnabled && (
+                          <span
+                            aria-hidden="true"
+                            className="no-print inline-flex items-center gap-1 text-[11px] font-medium text-[#4285F4] whitespace-nowrap"
+                          >
+                            Resources
+                            <Icon icon="mdi:chevron-right" width={12} />
+                          </span>
+                        )}
+                      </span>
                     </td>
                     <td className="px-2 py-2.5 text-right font-bold text-black whitespace-nowrap">
                       {money(svc.cost)}
@@ -952,6 +1147,15 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
           currency={currency}
           labels={labels}
           copy={resourcesCopy}
+        />
+      )}
+
+      {serviceLabelling && accountId && (
+        <LabelHistoryDrawer
+          open={historyOpen}
+          accountId={accountId}
+          allLabels={allLabels}
+          onClose={closeHistory}
         />
       )}
     </div>

@@ -16,15 +16,15 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Reads one month of the bill at the grain environment allocation rules match on.
+ * Reads one month of the bill as grouped lines, for dividing it up — today, by label
+ * ({@code LabelSpendService}).
  *
  * <p>Lives in this package because the partition predicate, the basis expression and the tag
  * columns are package-private here on purpose — every CUR query goes through the same three, so
  * none can quietly scan the whole table or read a tag the report does not carry.
  *
- * <p>The grain is chosen by the caller and kept as coarse as the rules allow. Resource id is only
- * grouped on when a rule needs it (resource id or label rules), because it multiplies the row
- * count by the number of resources; tag columns are only selected when a rule reads them.
+ * <p>The grain is chosen by the caller. Resource id is only grouped on when asked for, because it
+ * multiplies the row count by the number of resources; tag columns are only selected when asked for.
  */
 @Service
 public class CurAllocationLineReader {

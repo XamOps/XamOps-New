@@ -2,6 +2,7 @@ package com.xammer.cloud.dto;
 
 import com.xammer.cloud.domain.ResourceLabel;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 public class ResourceLabelDto {
@@ -13,6 +14,12 @@ public class ResourceLabelDto {
     private LocalDateTime createdAt;
     private String createdBy;
     private long resourceCount; // populated in summary responses
+    /**
+     * The share of the resource's or service's cost this label takes, when the DTO describes an
+     * assignment rather than the label itself. Null means the whole cost, and is always null on
+     * the plain label list.
+     */
+    private BigDecimal percent;
 
     public static ResourceLabelDto from(ResourceLabel label) {
         ResourceLabelDto dto = new ResourceLabelDto();
@@ -45,4 +52,14 @@ public class ResourceLabelDto {
 
     public long getResourceCount() { return resourceCount; }
     public void setResourceCount(long resourceCount) { this.resourceCount = resourceCount; }
+
+    public BigDecimal getPercent() { return percent; }
+    public void setPercent(BigDecimal percent) { this.percent = percent; }
+
+    /** The label as assigned, carrying the assignment's share. */
+    public static ResourceLabelDto from(ResourceLabel label, BigDecimal percent) {
+        ResourceLabelDto dto = from(label);
+        dto.percent = percent;
+        return dto;
+    }
 }
