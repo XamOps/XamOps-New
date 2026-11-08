@@ -1,7 +1,8 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import type {
-  DatastoreOverview, DatastoreRow, DatastoreScanHistory, DatastoreSensitives,
+  DataFlowDatabases, DatastoreAccessGraph, DatastoreOverview, DatastoreRisks, DatastoreRow, DatastoreScanHistory,
+  DatastoreSensitives,
 } from '../../../../types/dspmDatastores';
 import {
   datastoreDrawerApi, useLazyResource, type DatastoreDrawerApi, type LazyResource,
@@ -12,21 +13,28 @@ import { DrawerHeader, DrawerInfoCard } from './DrawerHeader';
 import { ResourceView } from './TabParts';
 import SensitiveTab from './SensitiveTab';
 import InformationTab from './InformationTab';
+import RiskTab from './RiskTab';
+import DataFlowTab from './DataFlowTab';
+import AccessGraphTab from './AccessGraphTab';
 import ScanHistoryTab from './ScanHistoryTab';
 
 /** A cloud or on-prem row. The page opens the drawer only for rows whose `sourceId` is 24 hex. */
 export type DrawerRow = DatastoreRow & { sourceId: string };
 
-/** What a tab body reads: the fetchers and the drawer's resources, each with its own state. */
+/** What a tab body reads: the row, the fetchers and the drawer's resources, each with its own state. */
 interface TabBodyContext {
   api: DatastoreDrawerApi;
+  row: DrawerRow;
   overview: LazyResource<DatastoreOverview>;
   sensitives: LazyResource<DatastoreSensitives>;
+  risks: LazyResource<DatastoreRisks>;
+  dataFlowDatabases: LazyResource<DataFlowDatabases>;
+  accessGraph: LazyResource<DatastoreAccessGraph>;
   scanHistory: LazyResource<DatastoreScanHistory>;
 }
 
 /** The body of each tab, drawn from the drawer's resources. */
-const TAB_BODIES: Partial<Record<DrawerTabId, (context: TabBodyContext) => React.ReactNode>> = {
+const TAB_BODIES: Record<DrawerTabId, (context: TabBodyContext) => React.ReactNode> = {
   sensitive: ({ api, overview, sensitives }) => (
     <ResourceView resource={sensitives}>
       {data => <SensitiveTab api={api} sensitives={data} overview={overview.data} />}
@@ -34,6 +42,14 @@ const TAB_BODIES: Partial<Record<DrawerTabId, (context: TabBodyContext) => React
   ),
   information: ({ overview }) => (
     <ResourceView resource={overview}>{data => <InformationTab overview={data} />}</ResourceView>
+  ),
+  risk: ({ risks }) => (
+    <ResourceView resource={risks}>{data => <RiskTab risks={data} />}</ResourceView>
+  ),
+  // The tab shows the databases' loading and error states in its right pane, beside the tree.
+  dataFlow: ({ api, row, dataFlowDatabases }) => <DataFlowTab api={api} row={row} databases={dataFlowDatabases} />,
+  accessGraph: ({ row, accessGraph }) => (
+    <ResourceView resource={accessGraph}>{data => <AccessGraphTab graph={data} row={row} />}</ResourceView>
   ),
   scanHistory: ({ scanHistory }) => (
     <ResourceView resource={scanHistory}>{data => <ScanHistoryTab history={data} />}</ResourceView>
@@ -66,12 +82,13 @@ const DatastoreDrawer: React.FC<Props> = ({ row, onClose }) => {
   const scanStatus = useLazyResource(api.scanStatus, true);
   const sensitives = useLazyResource(api.sensitives, true);
 
-  const tabs = drawerTabsFor(row.category, overview.data?.canDiscoverSchema)
-    // Risk, Data Flow and Access Graph bodies arrive in the next commit
-    .filter(t => TAB_BODIES[t.id] !== undefined);
+  const tabs = drawerTabsFor(row.category, overview.data?.canDiscoverSchema);
   const active = tabs.some(t => t.id === tab) ? tab : DEFAULT_DRAWER_TAB;
   const body = TAB_BODIES[active];
 
+  const risks = useLazyResource(api.risks, active === 'risk');
+  const dataFlowDatabases = useLazyResource(api.dataFlowDatabases, active === 'dataFlow');
+  const accessGraph = useLazyResource(api.accessGraph, active === 'accessGraph');
   const scanHistory = useLazyResource(api.scanHistory, active === 'scanHistory');
 
   const aside = useRef<HTMLElement>(null);
@@ -128,7 +145,7 @@ const DatastoreDrawer: React.FC<Props> = ({ row, onClose }) => {
             </div>
 
             <div role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-tab-${active}`}>
-              {body?.({ api, overview, sensitives, scanHistory })}
+              {body({ api, row, overview, sensitives, risks, dataFlowDatabases, accessGraph, scanHistory })}
             </div>
           </div>
         </EscapeStack>

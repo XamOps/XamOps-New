@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, type RefObject } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, type RefObject } from 'react';
 import { EscapeStackContext, type EscapeEntry, type EscapeStackApi } from '../ui/escapeStackContext';
 
 /** A drawer's Escape stack: the API its layers register with, and the drawer's own close-topmost. */
@@ -48,3 +48,30 @@ export function useEscapeStack(fallbackFocus: RefObject<HTMLElement | null>): Es
 export const EscapeStack: React.FC<{ stack: EscapeStackController; children: React.ReactNode }> = ({ stack, children }) => (
   <EscapeStackContext.Provider value={stack.api}>{children}</EscapeStackContext.Provider>
 );
+
+/**
+ * A side panel's part in the drawer's Escape stack (design 6.7), for the Risk detail panel and the
+ * Permissions panel. While the panel is mounted it is registered with `returnFocus`, the row or box that
+ * opened it, and on open its close X takes focus.
+ *
+ * Escape closes the panel through the stack. The X uses the returned `close`, which returns focus the
+ * same way, because unregistering never moves focus: to the opener while it is still in the document,
+ * else to the drawer. `onClose` should be stable, or the entry is re-registered on every render.
+ */
+export function useSidePanel(returnFocus: HTMLElement | null, onClose: () => void) {
+  const stack = useContext(EscapeStackContext);
+  const closeButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => { closeButton.current?.focus(); }, []);
+  useEffect(() => stack?.register({ close: onClose, returnFocus }), [stack, onClose, returnFocus]);
+
+  const close = useCallback(() => {
+    const target = returnFocus?.isConnected
+      ? returnFocus
+      : closeButton.current?.closest<HTMLElement>('[role="dialog"]') ?? null;
+    onClose();
+    target?.focus();
+  }, [returnFocus, onClose]);
+
+  return { closeButton, close };
+}

@@ -5,6 +5,8 @@ import { usePopoverEscape } from './ui/usePopoverEscape';
 
 interface Props extends FilterOptionListProps {
   label: string;
+  /** Iconify id drawn before the label (the Risk tab's funnel). */
+  icon?: string;
 }
 
 /**
@@ -14,7 +16,7 @@ interface Props extends FilterOptionListProps {
  * wrapper and stopped there (no document listener), so inside a drawer it closes the popover and not the
  * drawer; while open, the popover is also on the drawer's Escape stack.
  */
-const FilterDropdown: React.FC<Props> = ({ label, ...listProps }) => {
+const FilterDropdown: React.FC<Props> = ({ label, icon, ...listProps }) => {
   const [open, setOpen] = useState(false);
   const wrapper = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -53,6 +55,7 @@ const FilterDropdown: React.FC<Props> = ({ label, ...listProps }) => {
             : 'border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)]'
         }`}
       >
+        {icon && <Icon icon={icon} width={14} className="text-[rgba(0,0,0,0.45)]" />}
         {label}{' '}
         {count > 0 && (
           <span className="rounded-full bg-[rgba(0,0,0,0.88)] px-1.5 text-[10px] tabular-nums text-white">{count}</span>

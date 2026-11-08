@@ -2,13 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type {
-  DatastoreFilePage, DatastoreOccurrence, DatastoreOccurrencePage, DatastoreOverview, DatastoreScanHistory,
-  DatastoreSensitives,
+  DataFlowColumnPage, DataFlowDatabases, DataFlowSchemas, DataFlowTable, DataFlowTablePage, DatastoreAccessGraph,
+  DatastoreFilePage, DatastoreOccurrence, DatastoreOccurrencePage, DatastoreOverview, DatastoreRisks,
+  DatastoreScanHistory, DatastoreSensitives,
 } from '../../../../../types/dspmDatastores';
 
 vi.mock('../../../../../utils/apiClient', () => ({ default: { get: vi.fn() } }));
 
 import apiClient from '../../../../../utils/apiClient';
+import { ThemeProvider } from '../../../../../contexts/ThemeContext';
 import DatastoreDrawer, { type DrawerRow } from '../DatastoreDrawer';
 import { formatConsoleDate } from '../../datastoreFormat';
 
@@ -215,13 +217,95 @@ const HISTORY: DatastoreScanHistory = {
   ],
 };
 
+const RISKS: DatastoreRisks = {
+  items: [
+    {
+      title: 'Bucket policy allows anonymous reads', source: 'UPWIND', severity: 'MEDIUM', severityLabel: 'Medium',
+      description: 'Anyone can read objects in **this bucket**.\n\n```json\n{"Effect": "Allow", "Principal": "*"}\n```',
+      remediation: 'Remove the anonymous statement from the policy.',
+      cli: 'aws s3api delete-bucket-policy --bucket <bucket_name>',
+    },
+    {
+      title: 'Access logging is turned off', source: 'MATTERS', severity: 'LOW', severityLabel: 'Low',
+      description: 'Requests are not logged.', remediation: 'Turn on server access logging.', cli: null,
+    },
+    {
+      title: 'Objects are stored unencrypted', source: 'UPWIND', severity: 'CRITICAL', severityLabel: 'Critical',
+      description: null, remediation: null, cli: null,
+    },
+  ],
+};
+
+const ACCESS_GRAPH: DatastoreAccessGraph = {
+  rootName: 'orders-archive',
+  rootType: 'S3',
+  principalCount: 4,
+  groups: [
+    {
+      id: 'READ|ROLE', permissions: ['READ'], principalType: 'ROLE', actionOnly: false, count: 3,
+      principals: ['analytics-reader', 'billing-reader', 'reporting-role'],
+    },
+    {
+      id: 'READ,WRITE,MANAGEMENT|USER', permissions: ['READ', 'WRITE', 'MANAGEMENT'], principalType: 'USER',
+      actionOnly: false, count: 1, principals: ['pat.example'],
+    },
+  ],
+};
+
+const FLOW_DATABASES: DataFlowDatabases = {
+  items: [{ id: 'db-ledger', name: 'ledger', engine: 'POSTGRES', schemaless: false }],
+  truncated: false,
+};
+
+const FLOW_SCHEMAS: DataFlowSchemas = {
+  items: [{ id: 'schema-public', name: 'public' }, { id: 'schema-audit', name: 'audit' }],
+  truncated: false,
+};
+
+const FLOW_TABLES: DataFlowTable[] = [
+  { id: 'table-payments', name: 'payments', rowCountEstimate: 12_400, foreignKeyCount: 2, sensitiveCount: 3 },
+  { id: 'table-refunds', name: 'refunds', rowCountEstimate: null, foreignKeyCount: 0, sensitiveCount: 0 },
+];
+
+function tablePage(url: URL, rows = FLOW_TABLES): DataFlowTablePage {
+  const page = Number(url.searchParams.get('page'));
+  const pageSize = Number(url.searchParams.get('pageSize'));
+  return { rows, page, pageSize, total: rows.length, totalPages: 1, searchCapped: false };
+}
+
+const FLOW_COLUMNS: DataFlowColumnPage = {
+  rows: [
+    { id: 'column-amount', name: 'amount', nativeType: 'numeric', sensitiveCount: 0, dataElements: [] },
+    { id: 'column-payer', name: 'payer_name', nativeType: 'varchar', sensitiveCount: 4, dataElements: ['PERSON NAME', 'EMAIL ADDRESS'] },
+  ],
+  page: 1, pageSize: 10, total: 2, totalPages: 1,
+};
+
 // ─── mocked API ──────────────────────────────────────────────────────────────────────────────────
 
 type Answer = (url: URL) => unknown;
 
 const DRAWER_PATH = /^\/api\/dspm\/datastores\/([0-9a-f]{24})\/(.+)$/;
+const FLOW_PATH = /^\/api\/dspm\/data-flow\/(.+)$/;
 
 let answers: Record<string, Answer>;
+
+/** Answers `/api/dspm/data-flow/<path>`. */
+let flow: (path: string, url: URL) => unknown;
+
+function flowAnswer(path: string, url: URL): unknown {
+  if (path === 'databases/db-ledger/schemas') return FLOW_SCHEMAS;
+  if (/^schemas\/[^/]+\/tables$/.test(path)) return tablePage(url);
+  if (/^tables\/[^/]+\/columns$/.test(path)) return FLOW_COLUMNS;
+  throw new Error(`HTTP 404: ${JSON.stringify({ code: 'ASSET_NOT_FOUND', message: 'gone' })}`);
+}
+
+/** Requests the test answers by hand, oldest first. */
+let deferred: Array<{ url: URL; resolve: (value: unknown) => void }>;
+const defer = (url: URL) => new Promise(resolve => { deferred.push({ url, resolve }); });
+
+/** Waits past the 300 ms search debounce. */
+const afterDebounce = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 400)); });
 
 const fail = (status: number, body: object): Answer => () => {
   throw new Error(`HTTP ${status}: ${JSON.stringify(body)}`);
@@ -230,6 +314,8 @@ const pending: Answer = () => new Promise(() => {});
 
 const calls = () => get.mock.calls.map(([raw]) => new URL(String(raw), 'http://localhost'));
 const requestsTo = (endpoint: string) => calls().filter(url => DRAWER_PATH.exec(url.pathname)?.[2] === endpoint);
+const flowCalls = () => calls().filter(url => FLOW_PATH.test(url.pathname));
+const tableSearches = () => flowCalls().filter(url => url.pathname.endsWith('/tables') && url.searchParams.has('q'));
 function last<T>(items: T[]): T {
   return items[items.length - 1];
 }
@@ -241,10 +327,17 @@ beforeEach(() => {
     sensitives: () => FILE_SENSITIVES,
     'sensitives/files': url => filePage(url),
     'sensitives/occurrences': url => occurrencePage(url),
+    risks: () => RISKS,
+    'access-graph': () => ACCESS_GRAPH,
+    'data-flow/databases': () => FLOW_DATABASES,
     'scan-history': () => HISTORY,
   };
+  flow = flowAnswer;
+  deferred = [];
   get.mockImplementation(async (raw: string) => {
     const url = new URL(raw, 'http://localhost');
+    const flowPath = FLOW_PATH.exec(url.pathname)?.[1];
+    if (flowPath !== undefined) return flow(flowPath, url);
     const answer = answers[DRAWER_PATH.exec(url.pathname)?.[2] ?? ''];
     if (!answer) throw new Error(`HTTP 404: unexpected ${raw}`);
     return answer(url);
@@ -257,9 +350,23 @@ afterEach(() => {
 
 function renderDrawer(row: DrawerRow = CLOUD_ROW) {
   const onClose = vi.fn();
-  render(<DatastoreDrawer row={row} onClose={onClose} />);
+  // The Risk tab's Upwind badge reads the theme.
+  render(<ThemeProvider><DatastoreDrawer row={row} onClose={onClose} /></ThemeProvider>);
   return { onClose, drawer: screen.getByRole('dialog', { name: row.name ?? '' }) };
 }
+
+/** Opens Data Flow on the on-prem database; the first schema's tables are then listed (DA1). */
+async function openDataFlow(user: ReturnType<typeof userEvent.setup>) {
+  answers.overview = () => POSTGRES_OVERVIEW;
+  answers.sensitives = () => DB_SENSITIVES;
+  const rendered = renderDrawer(ON_PREM_ROW);
+  await user.click(await within(rendered.drawer).findByRole('tab', { name: 'Data Flow' }));
+  await within(rendered.drawer).findByText('payments');
+  return rendered;
+}
+
+/** The pane's search; its name is its placeholder. */
+const tableSearch = (drawer: HTMLElement) => within(drawer).getByRole('searchbox', { name: 'Search tables (min 3 characters)' });
 
 const scanChipElement = () => document.querySelector('[data-scan-chip]') as HTMLElement;
 const scanChipDot = () => scanChipElement().querySelector('[data-dot]')?.getAttribute('data-dot');
@@ -310,15 +417,36 @@ describe('DatastoreDrawer', () => {
   });
 
   it.each([
-    ['cloud', CLOUD_ROW, S3_OVERVIEW],
-    ['on-prem', ON_PREM_ROW, POSTGRES_OVERVIEW],
-  ])('lists only the tabs that have a body (%s), Sensitive first and selected', async (_kind, row, overview) => {
+    ['a cloud bucket has Risk', CLOUD_ROW, S3_OVERVIEW, ['Sensitive', 'Information', 'Risk', 'Access Graph', 'Scan History']],
+    ['an on-prem database has Data Flow and no Risk', ON_PREM_ROW, POSTGRES_OVERVIEW, ['Sensitive', 'Information', 'Data Flow', 'Access Graph', 'Scan History']],
+  ])('lists the A14 tabs of drawerTabsFor: %s, Sensitive first and selected', async (_kind, row, overview, expected) => {
     answers.overview = () => overview;
     answers.sensitives = () => (row === ON_PREM_ROW ? DB_SENSITIVES : FILE_SENSITIVES);
     const { drawer } = renderDrawer(row);
     await within(drawer).findByRole('table');
-    expect(within(drawer).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Sensitive', 'Information', 'Scan History']);
+    expect(within(drawer).getAllByRole('tab').map(tab => tab.textContent)).toEqual(expected);
     expect(within(drawer).getByRole('tab', { name: 'Sensitive' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('requests risks and the access graph only on first activation and keeps them', async () => {
+    const user = userEvent.setup();
+    const { drawer } = renderDrawer();
+    await within(drawer).findByText('EMAIL ADDRESS');
+    expect(requestsTo('risks')).toHaveLength(0);
+    expect(requestsTo('access-graph')).toHaveLength(0);
+
+    await user.click(within(drawer).getByRole('tab', { name: 'Risk' }));
+    expect(await within(drawer).findByText('Bucket policy allows anonymous reads')).toBeInTheDocument();
+    await user.click(within(drawer).getByRole('tab', { name: 'Access Graph' }));
+    expect(await within(drawer).findByText('4 principals')).toBeInTheDocument();
+    await user.click(within(drawer).getByRole('tab', { name: 'Risk' }));
+    expect(within(drawer).getByText('Bucket policy allows anonymous reads')).toBeInTheDocument();
+    await user.click(within(drawer).getByRole('tab', { name: 'Access Graph' }));
+    expect(within(drawer).getByText('4 principals')).toBeInTheDocument();
+
+    expect(requestsTo('risks')).toHaveLength(1);
+    expect(requestsTo('access-graph')).toHaveLength(1);
+    expect(requestsTo('data-flow/databases')).toHaveLength(0);
   });
 
   it('requests Scan History only on first activation and keeps it', async () => {
@@ -717,6 +845,202 @@ describe('DatastoreDrawer', () => {
     });
   });
 
+  describe('Risk tab', () => {
+    it('lists misconfigurations with "Columns 3", the Upwind badge on Upwind findings only and Alerts not offered', async () => {
+      const user = userEvent.setup();
+      const { drawer } = renderDrawer();
+      await user.click(within(drawer).getByRole('tab', { name: 'Risk' }));
+      const table = await within(drawer).findByRole('table');
+
+      expect(headers(table)).toEqual(['Misconfiguration', 'Misconfiguration Type', 'Severity']);
+      expect(within(drawer).getByRole('button', { name: /^Columns/ })).toHaveTextContent('3');
+      expect(within(drawer).getByRole('button', { name: /Alerts/ })).toHaveAttribute('aria-disabled', 'true');
+      expect(within(drawer).getByRole('button', { name: /Alerts/ })).toHaveTextContent('Soon');
+      const rows = within(table).getAllByRole('row').slice(1) as HTMLTableRowElement[];
+      // The title is the cell's first text; the badge, when there is one, follows it.
+      expect(rows.map(row => row.cells[0].firstElementChild?.firstChild?.textContent))
+        .toEqual(['Bucket policy allows anonymous reads', 'Access logging is turned off', 'Objects are stored unencrypted']);
+      expect(rows.map(row => within(row).queryByAltText('Upwind') !== null)).toEqual([true, false, true]);
+      expect(rows.map(row => row.cells[1].textContent)).toEqual(['-', '-', '-']);
+      expect(within(drawer).getByText('Showing 1 - 3 of 3')).toBeInTheDocument();
+    });
+
+    it('sorts by severity, Critical first, and filters by the severities present without an Exclude choice', async () => {
+      const user = userEvent.setup();
+      const { drawer } = renderDrawer();
+      await user.click(within(drawer).getByRole('tab', { name: 'Risk' }));
+      const table = await within(drawer).findByRole('table');
+      const severities = () => (within(table).getAllByRole('row').slice(1) as HTMLTableRowElement[])
+        .map(row => row.cells[2].textContent);
+      expect(severities()).toEqual(['Medium', 'Low', 'Critical']);
+
+      await user.click(within(table).getByRole('button', { name: 'Severity' }));
+      expect(severities()).toEqual(['Critical', 'Medium', 'Low']);
+      await user.click(within(table).getByRole('button', { name: 'Severity' }));
+      expect(severities()).toEqual(['Low', 'Medium', 'Critical']);
+
+      await user.click(within(drawer).getByRole('button', { name: /^Severity/, expanded: false }));
+      const menu = within(drawer).getByRole('dialog', { name: 'Severity' });
+      expect(within(menu).queryByRole('combobox', { name: 'Include or exclude' })).toBeNull();
+      const options = within(menu).getAllByRole('checkbox').slice(1).map(box => box.closest('label')?.textContent);
+      expect(options).toEqual(['Critical 1', 'Medium 1', 'Low 1']);
+      await user.click(within(menu).getByRole('checkbox', { name: /Medium/ }));
+      expect(severities()).toEqual(['Medium']);
+
+      fireEvent.change(within(drawer).getByRole('searchbox', { name: 'Search issues' }), { target: { value: 'logging' } });
+      expect(within(table).getByText('No matches')).toBeInTheDocument();
+    });
+
+    it('shows the empty state for a datastore without misconfigurations', async () => {
+      const user = userEvent.setup();
+      answers.risks = () => ({ items: [] });
+      const { drawer } = renderDrawer();
+      await user.click(within(drawer).getByRole('tab', { name: 'Risk' }));
+      expect(await within(drawer).findByText('No misconfigurations found for this datastore.')).toBeInTheDocument();
+    });
+  });
+
+  describe('Access Graph tab', () => {
+    it('shows and hides principals, highlights search matches and zooms between 20% and 150%', async () => {
+      const user = userEvent.setup();
+      const { drawer } = renderDrawer();
+      await user.click(within(drawer).getByRole('tab', { name: 'Access Graph' }));
+      await within(drawer).findByText('4 principals');
+      expect(within(drawer).getByText('Path: Datastore > Permission set > Role type > Principals. Click a permission set or a principal for details.'))
+        .toBeInTheDocument();
+      expect(within(drawer).getByRole('button', { name: 'Permissions READ WRITE MANAGEMENT' })).toBeInTheDocument();
+      expect(within(drawer).queryByText('analytics-reader')).toBeNull();
+
+      await user.click(within(drawer).getByRole('button', { name: 'Show roles' }));
+      expect(within(drawer).getByText('analytics-reader')).toBeInTheDocument();
+      expect(within(drawer).getByRole('button', { name: 'Hide' })).toHaveAttribute('aria-expanded', 'true');
+      await user.click(within(drawer).getByRole('button', { name: 'Expand all' }));
+      expect(within(drawer).getByText('pat.example')).toBeInTheDocument();
+      await user.click(within(drawer).getByRole('button', { name: 'Collapse all' }));
+      expect(within(drawer).queryByText('analytics-reader')).toBeNull();
+
+      fireEvent.change(within(drawer).getByRole('searchbox', { name: 'Search principals, roles…' }), { target: { value: 'PAT' } });
+      expect(within(drawer).getByText('pat.example')).toHaveAttribute('data-match', 'true');
+      expect(within(drawer).queryByText('analytics-reader')).toBeNull();
+
+      const zoomOut = within(drawer).getByRole('button', { name: 'Zoom out' });
+      expect(within(drawer).getByText('70%')).toBeInTheDocument();
+      for (let i = 0; i < 5; i += 1) await user.click(zoomOut);
+      expect(within(drawer).getByText('20%')).toBeInTheDocument();
+      expect(zoomOut).toBeDisabled();
+      const zoomIn = within(drawer).getByRole('button', { name: 'Zoom in' });
+      for (let i = 0; i < 13; i += 1) await user.click(zoomIn);
+      expect(within(drawer).getByText('150%')).toBeInTheDocument();
+      expect(zoomIn).toBeDisabled();
+    });
+  });
+
+  describe('Data Flow tab', () => {
+    it('opens on the first database and schema, and sends no search under 3 characters', async () => {
+      const user = userEvent.setup();
+      const { drawer } = await openDataFlow(user);
+      expect(within(drawer).getByRole('button', { name: 'ledger' })).toHaveAttribute('aria-expanded', 'true');
+      expect(within(drawer).getByRole('button', { name: 'public' })).toHaveAttribute('aria-current', 'true');
+      expect(within(drawer).getByRole('heading', { name: 'public' })).toBeInTheDocument();
+      expect(requestsTo('data-flow/databases')).toHaveLength(1);
+      expect(last(flowCalls()).pathname).toBe('/api/dspm/data-flow/schemas/schema-public/tables');
+
+      const table = within(drawer).getByRole('table');
+      expect(headers(table)).toEqual(['Table', 'Rows', 'Foreign Keys', 'Sensitives']);
+      expect((within(table).getAllByRole('row')[1] as HTMLTableRowElement).textContent).toBe('payments12,40023');
+      expect((within(table).getAllByRole('row')[2] as HTMLTableRowElement).cells[1].textContent).toBe('-');
+      expect(within(drawer).getByRole('button', { name: /^Column/ })).toHaveTextContent('Column 4');
+      expect(within(drawer).getByRole('button', { name: 'Sync schema' })).toHaveAttribute('aria-disabled', 'true');
+      expect(within(drawer).getByRole('button', { name: /Graph View/ })).toHaveAttribute('aria-disabled', 'true');
+
+      const search = tableSearch(drawer);
+      expect(search).toHaveAttribute('maxlength', '200');
+      fireEvent.change(search, { target: { value: 'pa' } });
+      await afterDebounce();
+      expect(tableSearches()).toHaveLength(0);
+    });
+
+    it('sends one search at a time: three terms typed during a pending search make two q requests', async () => {
+      const user = userEvent.setup();
+      flow = (path, url) => (url.searchParams.has('q') ? defer(url) : flowAnswer(path, url));
+      const { drawer } = await openDataFlow(user);
+      const search = tableSearch(drawer);
+
+      fireEvent.change(search, { target: { value: 'pay' } });
+      await waitFor(() => expect(tableSearches()).toHaveLength(1));
+      fireEvent.change(search, { target: { value: 'paym' } });
+      await afterDebounce();
+      fireEvent.change(search, { target: { value: 'payme' } });
+      await afterDebounce();
+      expect(tableSearches()).toHaveLength(1);
+
+      await act(async () => { deferred[0].resolve(tablePage(deferred[0].url)); });
+      await waitFor(() => expect(tableSearches()).toHaveLength(2));
+      expect(tableSearches().map(url => url.searchParams.get('q'))).toEqual(['pay', 'payme']);
+      expect(last(tableSearches()).searchParams.get('page')).toBe('1');
+    });
+
+    it('holds the next schema\'s search until the pending one settles', async () => {
+      const user = userEvent.setup();
+      flow = (path, url) => (url.searchParams.has('q') ? defer(url) : flowAnswer(path, url));
+      const { drawer } = await openDataFlow(user);
+      fireEvent.change(tableSearch(drawer), { target: { value: 'pay' } });
+      await waitFor(() => expect(tableSearches()).toHaveLength(1));
+
+      await user.click(within(drawer).getByRole('button', { name: 'audit' }));
+      expect(await within(drawer).findByRole('heading', { name: 'audit' })).toBeInTheDocument();
+      // The new schema's first page is not a search, so it does not wait.
+      await waitFor(() => expect(last(flowCalls()).pathname).toBe('/api/dspm/data-flow/schemas/schema-audit/tables'));
+      expect(tableSearch(drawer)).toHaveValue('');
+      fireEvent.change(tableSearch(drawer), { target: { value: 'refund' } });
+      await afterDebounce();
+      expect(tableSearches()).toHaveLength(1);
+
+      await act(async () => { deferred[0].resolve(tablePage(deferred[0].url)); });
+      await waitFor(() => expect(tableSearches()).toHaveLength(2));
+      const next = last(tableSearches());
+      expect(next.pathname).toBe('/api/dspm/data-flow/schemas/schema-audit/tables');
+      expect(next.searchParams.get('q')).toBe('refund');
+    });
+
+    it('opens a table\'s columns on a row click with focus on their heading, and the schema crumb goes back', async () => {
+      const user = userEvent.setup();
+      const { drawer } = await openDataFlow(user);
+      await user.click(within(drawer).getByText('payments'));
+
+      const heading = await within(drawer).findByRole('heading', { name: 'payments' });
+      await waitFor(() => expect(heading).toHaveFocus());
+      expect(last(flowCalls()).pathname).toBe('/api/dspm/data-flow/tables/table-payments/columns');
+      const table = await within(drawer).findByRole('table');
+      expect(headers(table)).toEqual(['Column', 'Type', 'Sensitives', 'Data Elements']);
+      const [plain, sensitive] = within(table).getAllByRole('row').slice(1) as HTMLTableRowElement[];
+      expect([...plain.cells].map(cell => cell.textContent)).toEqual(['amount', 'numeric', '0', '-']);
+      expect(sensitive.cells[3].textContent).toBe('PERSON NAME, EMAIL ADDRESS');
+      expect(within(drawer).getByRole('button', { name: 'Sync schema' })).toHaveAttribute('aria-disabled', 'true');
+      expect(within(drawer).queryByRole('searchbox', { name: 'Search tables (min 3 characters)' })).toBeNull();
+
+      const crumbs = within(drawer).getByRole('navigation', { name: 'Breadcrumb' });
+      await user.click(within(crumbs).getByRole('button', { name: 'public' }));
+      const tablesHeading = await within(drawer).findByRole('heading', { name: 'public' });
+      await waitFor(() => expect(tablesHeading).toHaveFocus());
+      expect(await within(drawer).findByText('refunds')).toBeInTheDocument();
+    });
+
+    it('shows a stale id\'s not-found copy in the right pane only', async () => {
+      const user = userEvent.setup();
+      flow = (path, url) => (path.endsWith('/tables') ? fail(404, { code: 'ASSET_NOT_FOUND', message: 'gone' })(url) : flowAnswer(path, url));
+      answers.overview = () => POSTGRES_OVERVIEW;
+      answers.sensitives = () => DB_SENSITIVES;
+      const { drawer } = renderDrawer(ON_PREM_ROW);
+      await user.click(await within(drawer).findByRole('tab', { name: 'Data Flow' }));
+
+      expect(await within(drawer).findByRole('alert')).toHaveTextContent('This datastore could not be found. It may have been removed.');
+      const tree = within(drawer).getByRole('navigation', { name: 'Asset Hierarchy' });
+      expect(within(tree).getByRole('button', { name: 'audit' })).toBeInTheDocument();
+      expect(within(tree).queryByRole('alert')).toBeNull();
+    });
+  });
+
   describe('Escape', () => {
     it('hides the Start Scan tooltip first and closes the drawer on the next Escape', async () => {
       const user = userEvent.setup();
@@ -780,6 +1104,69 @@ describe('DatastoreDrawer', () => {
       expect(columns).toHaveFocus();
       expect(onClose).not.toHaveBeenCalled();
       expect(screen.getByRole('dialog', { name: 'orders-archive' })).toBeInTheDocument();
+    });
+
+    it('closes the Risk panel on Escape before the drawer, with focus back on its row', async () => {
+      const user = userEvent.setup();
+      const { drawer, onClose } = renderDrawer();
+      await user.click(within(drawer).getByRole('tab', { name: 'Risk' }));
+      const row = (await within(drawer).findByText('Bucket policy allows anonymous reads')).closest('tr') as HTMLElement;
+      await user.click(row);
+
+      const panel = within(drawer).getByRole('region', { name: /^Bucket policy allows anonymous reads/ });
+      expect(within(panel).getByRole('button', { name: 'Close details' })).toHaveFocus();
+      expect(within(panel).getByText('this bucket').tagName).toBe('STRONG');
+      expect(within(panel).getByText('json')).toBeInTheDocument();
+      expect(within(panel).getByText('Bash')).toBeInTheDocument();
+      expect(within(panel).getByText('aws s3api delete-bucket-policy --bucket <bucket_name>')).toBeInTheDocument();
+
+      await user.keyboard('{Escape}');
+      expect(within(drawer).queryByRole('region', { name: /^Bucket policy/ })).toBeNull();
+      expect(row).toHaveFocus();
+      expect(onClose).not.toHaveBeenCalled();
+
+      await user.keyboard('{Escape}');
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns focus to the row when the panel's X closes it, and the next Escape closes the drawer", async () => {
+      const user = userEvent.setup();
+      const { drawer, onClose } = renderDrawer();
+      await user.click(within(drawer).getByRole('tab', { name: 'Risk' }));
+      const row = (await within(drawer).findByText('Access logging is turned off')).closest('tr') as HTMLElement;
+      act(() => row.focus());
+      await user.keyboard('{Enter}');
+      expect(within(drawer).getByRole('region', { name: 'Access logging is turned off' })).toBeInTheDocument();
+
+      await user.click(within(drawer).getByRole('button', { name: 'Close details' }));
+      expect(within(drawer).queryByRole('region', { name: 'Access logging is turned off' })).toBeNull();
+      expect(row).toHaveFocus();
+      expect(onClose).not.toHaveBeenCalled();
+
+      await user.keyboard('{Escape}');
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('closes the Permissions panel opened from a type box on Escape, with focus back on that box', async () => {
+      const user = userEvent.setup();
+      const { drawer, onClose } = renderDrawer();
+      await user.click(within(drawer).getByRole('tab', { name: 'Access Graph' }));
+      await within(drawer).findByText('4 principals');
+      const typeBox = within(drawer).getByRole('button', { name: 'Roles 3' });
+      await user.click(typeBox);
+
+      const panel = within(drawer).getByRole('region', { name: 'Permissions' });
+      expect(within(panel).getByText('Roles - 3 principals')).toBeInTheDocument();
+      expect(within(panel).getByRole('button', { name: 'Close permissions' })).toHaveFocus();
+      expect(within(panel).getAllByRole('button', { name: /^Copy / }).map(button => button.getAttribute('aria-label')))
+        .toEqual(['Copy analytics-reader', 'Copy billing-reader', 'Copy reporting-role']);
+      fireEvent.change(within(panel).getByRole('searchbox', { name: 'Search principals' }), { target: { value: 'BILL' } });
+      expect(within(panel).getAllByRole('listitem').map(item => item.textContent)).toEqual(['billing-reader']);
+
+      await user.keyboard('{Escape}');
+      expect(within(drawer).queryByRole('region', { name: 'Permissions' })).toBeNull();
+      expect(typeBox).toHaveFocus();
+      expect(onClose).not.toHaveBeenCalled();
     });
 
     it('closes on the overlay and the close button', async () => {

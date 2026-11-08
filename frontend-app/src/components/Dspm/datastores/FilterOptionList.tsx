@@ -18,6 +18,12 @@ export interface FilterOptionListProps {
   /** True when the filter-options request failed. */
   error: boolean;
   onChange: (next: DatastoreFilterState) => void;
+  /**
+   * Local mode, for a filter over rows already loaded (the drawer's Risk severities): Include only, so
+   * there is no Include / Exclude choice, and every listed value can be chosen, because none is sent to
+   * the backend and its value rules do not apply.
+   */
+  local?: boolean;
 }
 
 const EMPTY_OPTIONS: DatastoreFilterOption[] = [];
@@ -31,7 +37,7 @@ const EMPTY_OPTIONS: DatastoreFilterOption[] = [];
  * values are selected the remaining boxes are disabled too.
  */
 const FilterOptionList: React.FC<FilterOptionListProps> = ({
-  dimension, options, hasMore, filters, labelMemory, loading, error, onChange,
+  dimension, options, hasMore, filters, labelMemory, loading, error, onChange, local = false,
 }) => {
   const [query, setQuery] = useState('');
   const [stoppedShort, setStoppedShort] = useState(false);
@@ -48,7 +54,8 @@ const FilterOptionList: React.FC<FilterOptionListProps> = ({
   );
   const needle = query.trim().toLowerCase();
   const visible = needle ? listed.filter(option => option.label.toLowerCase().includes(needle)) : listed;
-  const selectable = visible.filter(option => isSelectable(dimension, option));
+  const canSelect = (option: { value: string }) => local || isSelectable(dimension, option);
+  const selectable = visible.filter(canSelect);
   const allVisibleChecked = selectable.length > 0 && selectable.every(option => option.checked);
 
   const apply = (next: DatastoreFilterState) => { if (next !== filters) onChange(next); };
@@ -59,7 +66,7 @@ const FilterOptionList: React.FC<FilterOptionListProps> = ({
       setStoppedShort(false);
       return;
     }
-    const result = selectAllVisible(filters, dimension, visible);
+    const result = selectAllVisible(filters, dimension, visible, canSelect);
     apply(result.state);
     setStoppedShort(result.stoppedShort);
   };
@@ -68,21 +75,23 @@ const FilterOptionList: React.FC<FilterOptionListProps> = ({
     <div className="flex min-h-0 flex-col">
       <div className="flex items-center gap-2 border-b border-[rgba(0,0,0,0.06)] p-2">
         <SearchInput value={query} onChange={setQuery} placeholder="Search" autoFocus className="min-w-0 flex-1" />
-        <select
-          aria-label="Include or exclude"
-          value={mode}
-          onChange={e => apply(setMode(filters, dimension, e.target.value as FilterMode))}
-          className="rounded-lg border border-[rgba(0,0,0,0.1)] bg-white px-1.5 py-1.5 text-xs text-[rgba(0,0,0,0.7)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)]"
-        >
-          <option value="include">Include</option>
-          <option
-            value="exclude"
-            disabled={!excludable}
-            title={excludable ? undefined : 'Exclude is not available for this filter'}
+        {!local && (
+          <select
+            aria-label="Include or exclude"
+            value={mode}
+            onChange={e => apply(setMode(filters, dimension, e.target.value as FilterMode))}
+            className="rounded-lg border border-[rgba(0,0,0,0.1)] bg-white px-1.5 py-1.5 text-xs text-[rgba(0,0,0,0.7)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)]"
           >
-            Exclude
-          </option>
-        </select>
+            <option value="include">Include</option>
+            <option
+              value="exclude"
+              disabled={!excludable}
+              title={excludable ? undefined : 'Exclude is not available for this filter'}
+            >
+              Exclude
+            </option>
+          </select>
+        )}
       </div>
 
       <div className="max-h-64 overflow-y-auto p-1">
@@ -123,7 +132,7 @@ const FilterOptionList: React.FC<FilterOptionListProps> = ({
         )}
 
         {visible.map(option => {
-          const usable = isSelectable(dimension, option);
+          const usable = canSelect(option);
           return (
             <label
               key={`v:${option.value}`}

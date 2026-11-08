@@ -138,12 +138,14 @@ export function selectAllVisible(
   state: DatastoreFilterState,
   dimension: string,
   visibleOptions: ReadonlyArray<{ value: string }>,
+  /** Which options may be chosen; a local filter, whose values are never sent, accepts every one. */
+  canSelect: (option: { value: string }) => boolean = option => isSelectable(dimension, option),
 ): { state: DatastoreFilterState; stoppedShort: boolean } {
   const current = state[dimension];
   const values = [...(current?.values ?? [])];
   let stoppedShort = false;
   for (const option of visibleOptions) {
-    if (!isSelectable(dimension, option) || values.includes(option.value)) continue;
+    if (!canSelect(option) || values.includes(option.value)) continue;
     if (values.length >= MAX_FILTER_VALUES) {
       stoppedShort = true;
       break;
