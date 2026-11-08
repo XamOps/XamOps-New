@@ -2,9 +2,15 @@ package com.xammer.cloud.controller.advice;
 
 import com.xammer.cloud.controller.DspmAdminController;
 import com.xammer.cloud.controller.DspmController;
+import com.xammer.cloud.controller.DspmDatastoreController;
+import com.xammer.cloud.security.XamLensAccessDeniedException;
+import com.xammer.cloud.service.matters.DspmBadRequestException;
 import com.xammer.cloud.service.matters.MattersApiException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -13,22 +19,53 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Translates {@link MattersApiException} into an HTTP response.
+ * Translates {@link MattersApiException}, {@link DspmBadRequestException} and
+ * {@link XamLensAccessDeniedException} into an HTTP response.
  *
  * <p>Scoped to the DSPM controllers with {@code assignableTypes} rather than registered globally. The
  * application already has a {@code GlobalExceptionHandler}, and adding a vendor-specific exception to it
- * would couple a shared file to this integration; scoping keeps the blast radius to these two
- * controllers.
+ * would couple a shared file to this integration; scoping keeps the blast radius to these controllers.
+ *
+ * <p>{@code @Order(HIGHEST_PRECEDENCE)} because {@code GlobalExceptionHandler} has no order and handles
+ * {@code Exception}: Spring uses the first applicable advice that has a matching method, so without the
+ * order these exceptions would become 500s whenever that bean happened to register first. Exception
+ * types this class has no method for still fall through to {@code GlobalExceptionHandler}.
  *
  * <h2>The response contract</h2>
- * {@code code} is the {@link MattersApiException.Reason} name and is what the frontend branches on.
- * {@code message} is prose and may be reworded at any time — a UI that switched on message text would
- * break the first time someone improved it. The status comes from the reason itself, so it cannot drift
- * between endpoints.
+ * {@code code} is the {@link MattersApiException.Reason} name, {@code INVALID_REQUEST} or
+ * {@code TAB_ACCESS_DENIED}, and is what the frontend branches on. {@code message} is prose and may be
+ * reworded at any time — a UI that switched on message text would break the first time someone improved
+ * it. The status comes from the reason itself, so it cannot drift between endpoints.
  */
-@RestControllerAdvice(assignableTypes = {DspmController.class, DspmAdminController.class})
+@RestControllerAdvice(assignableTypes = {DspmController.class, DspmAdminController.class,
+        DspmDatastoreController.class})
+@Order(Ordered.HIGHEST_PRECEDENCE)
 @Slf4j
 public class MattersExceptionHandler {
+
+    /**
+     * 400 for a Datastores request that failed validation, before any vendor call. The message names
+     * the parameter and the rule it broke, never the rejected value.
+     */
+    @ExceptionHandler(DspmBadRequestException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidRequest(DspmBadRequestException e) {
+        log.debug("[DSPM] INVALID_REQUEST — {}", e.getMessage());
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", "INVALID_REQUEST");
+        body.put("message", e.getMessage());
+        body.put("parameter", e.parameter());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
+
+    /** 403 for a caller without the {@code secops-xamlens} tab ({@code XamLensTabGuard}). */
+    @ExceptionHandler(XamLensAccessDeniedException.class)
+    public ResponseEntity<Map<String, Object>> handleTabAccessDenied(XamLensAccessDeniedException e) {
+        log.debug("[DSPM] TAB_ACCESS_DENIED");
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", "TAB_ACCESS_DENIED");
+        body.put("message", XamLensAccessDeniedException.MESSAGE);
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(body);
+    }
 
     @ExceptionHandler(MattersApiException.class)
     public ResponseEntity<Map<String, Object>> handle(MattersApiException e) {
