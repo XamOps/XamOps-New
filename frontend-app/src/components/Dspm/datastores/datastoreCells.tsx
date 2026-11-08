@@ -59,8 +59,11 @@ const SensitiveDataCell: React.FC<{ row: DatastoreRow }> = ({ row }) => {
   );
 };
 
-/** The account's icon: the cloud's mark, Google Drive for Google Workspace, else the provider; none for endpoints. */
-function accountIcon(row: DatastoreRow): React.ReactNode {
+/**
+ * The account's icon: the cloud's mark, Google Drive for Google Workspace, else the provider; none for
+ * endpoints. Also the drawer's Source/Account icon, which follows the list rule.
+ */
+export function accountIcon(row: DatastoreRow): React.ReactNode {
   if (row.category === 'endpoint') return null;
   const provider = row.source.provider;
   if (provider && CLOUD_MARK_PROVIDERS.has(provider)) return <DspmCloudMark provider={provider} size={14} />;

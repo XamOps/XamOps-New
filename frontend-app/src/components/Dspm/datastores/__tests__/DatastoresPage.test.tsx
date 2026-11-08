@@ -97,6 +97,9 @@ const optionRequests = () => requests('/api/dspm/datastores/filter-options');
 const kpiRequests = () => requests('/api/dspm/datastores/kpis');
 const assetRequests = () =>
   get.mock.calls.map(([url]) => String(url)).filter(url => url.startsWith('/api/dspm/assets/'));
+const DRAWER_PATH = /^\/api\/dspm\/datastores\/[0-9a-f]{24}\//;
+const drawerRequests = () =>
+  get.mock.calls.map(([url]) => new URL(String(url), 'http://localhost').pathname).filter(path => DRAWER_PATH.test(path));
 const last = (urls: URL[]) => urls[urls.length - 1];
 
 beforeEach(() => {
@@ -108,8 +111,10 @@ beforeEach(() => {
     if (url.pathname === '/api/dspm/datastores/kpis') return kpiAnswer(url.searchParams.get('tab') ?? '');
     if (url.pathname === '/api/dspm/datastores/filter-options') return optionsAnswer(url);
     if (url.pathname === '/api/dspm/datastores') return listAnswer(url);
-    // The drawers stay in their loading state: their content is not under test here.
+    // The drawers stay in their loading state: their content is not under test here
+    // (DatastoreDrawer.test.tsx covers the cloud / on-prem drawer).
     if (url.pathname.startsWith('/api/dspm/assets/')) return new Promise(() => {});
+    if (DRAWER_PATH.test(url.pathname)) return new Promise(() => {});
     throw new Error(`HTTP 404: unexpected ${raw}`);
   });
 });
@@ -288,18 +293,58 @@ describe('DatastoresPage', () => {
     expect(assetRequests()).toHaveLength(0);
   });
 
-  it('opens nothing for cloud and on-prem rows, which are not focusable', async () => {
+  it('opens DatastoreDrawer for cloud and on-prem rows', async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText('orders-archive');
-    for (const name of ['orders-archive', 'ledger_db']) {
-      const tr = screen.getAllByText(name)[0].closest('tr') as HTMLTableRowElement;
-      expect(tr).not.toHaveAttribute('tabindex');
-      await user.click(tr);
-    }
-    expect(assetRequests()).toHaveLength(0);
+
+    const cloud = rowOf('orders-archive');
+    expect(cloud).toHaveAttribute('tabindex', '0');
+    await user.click(cloud);
+    const cloudDrawer = await screen.findByRole('dialog', { name: 'orders-archive' });
+    expect(within(cloudDrawer).getByRole('tab', { name: 'Sensitive' })).toHaveAttribute('aria-selected', 'true');
+    expect(drawerRequests()).toEqual([
+      '/api/dspm/datastores/0123456789abcdef01234567/overview',
+      '/api/dspm/datastores/0123456789abcdef01234567/scan-status',
+      '/api/dspm/datastores/0123456789abcdef01234567/sensitives',
+    ]);
+    await user.click(within(cloudDrawer).getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull();
+
+    const onPrem = screen.getAllByText('ledger_db')[0].closest('tr') as HTMLTableRowElement;
+    expect(onPrem).toHaveAttribute('tabindex', '0');
+    await user.click(onPrem);
+    expect(await screen.findByRole('dialog', { name: 'ledger_db' })).toBeInTheDocument();
+    expect(drawerRequests().slice(3)).toEqual([
+      '/api/dspm/datastores/fedcba9876543210fedcba98/overview',
+      '/api/dspm/datastores/fedcba9876543210fedcba98/scan-status',
+      '/api/dspm/datastores/fedcba9876543210fedcba98/sensitives',
+    ]);
+    expect(assetRequests()).toHaveLength(0);
+  });
+
+  it('opens a focused cloud row on Enter', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('orders-archive');
+    const cloud = rowOf('orders-archive');
+    act(() => cloud.focus());
+    await user.keyboard('{Enter}');
+    expect(await screen.findByRole('dialog', { name: 'orders-archive' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
+    expect(drawerRequests()).toHaveLength(3);
+  });
+
+  it('does not open a cloud row whose source id is not 24 hex', async () => {
+    const user = userEvent.setup();
+    listAnswer = () => page([{ ...CLOUD, sourceId: 'not-a-source-id' }]);
+    renderPage();
+    const tr = await screen.findByText('orders-archive').then(el => el.closest('tr') as HTMLTableRowElement);
+    expect(tr).not.toHaveAttribute('tabindex');
+    await user.click(tr);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(drawerRequests()).toHaveLength(0);
+    expect(assetRequests()).toHaveLength(0);
   });
 
   it('opens DspmSaasDrawer for a SaaS row, with the account label', async () => {

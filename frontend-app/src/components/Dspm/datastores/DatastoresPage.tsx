@@ -17,6 +17,7 @@ import DatastoreTabStrip from './DatastoreTabStrip';
 import DatastoreKpiStrip from './DatastoreKpiStrip';
 import DatastoreFilterBar from './DatastoreFilterBar';
 import DatastoreTable from './DatastoreTable';
+import DatastoreDrawer, { type DrawerRow } from './drawer/DatastoreDrawer';
 import { TableFooter, listPageLimit } from './ui/TableFooter';
 
 /**
@@ -26,11 +27,17 @@ import { TableFooter, listPageLimit } from './ui/TableFooter';
  * Read-only. Every console action (scans, export, row menus, bulk selection) is greyed and calls nothing.
  */
 
-/**
- * SaaS and endpoint rows open the existing drawers, which load `/api/dspm/assets/{id}`. Cloud and
- * on-prem rows open nothing yet: their drawer arrives with the next change.
- */
-const canOpen = (row: DatastoreRow) => (row.category === 'saas' || row.category === 'endpoint') && !!row.id;
+const SOURCE_ID = /^[0-9a-fA-F]{24}$/;
+
+/** Cloud and on-prem rows open the datastore drawer, which loads everything by the row's 24-hex source id. */
+const opensDatastoreDrawer = (row: DatastoreRow): row is DrawerRow =>
+  (row.category === 'cloud' || row.category === 'on_prem') && row.sourceId !== null && SOURCE_ID.test(row.sourceId);
+
+/** SaaS and endpoint rows open the existing drawers, which load `/api/dspm/assets/{id}`. */
+const opensAssetDrawer = (row: DatastoreRow) => (row.category === 'saas' || row.category === 'endpoint') && !!row.id;
+
+/** Any other row (an unknown category, a missing id) opens nothing and is not focusable. */
+const canOpen = (row: DatastoreRow) => opensDatastoreDrawer(row) || opensAssetDrawer(row);
 
 const DETAIL_ERROR = 'Could not load this asset. It may have been removed since the list was loaded.';
 
@@ -47,11 +54,13 @@ const DatastoreTabBody: React.FC<{ apiTab: DatastoreApiTab; config: DatastoreTab
   const detailSeq = useRef(0);
 
   const open = useCallback(async (row: DatastoreRow) => {
-    if (!row.id) return;
     const seq = ++detailSeq.current;
     setOpenRow(row);
     setDetail(null);
     setDetailError(null);
+    setDetailLoading(false);
+    // The datastore drawer loads its own data; only the SaaS and endpoint drawers need the asset detail.
+    if (!opensAssetDrawer(row) || !row.id) return;
     setDetailLoading(true);
     try {
       const loaded = await apiClient.get<DspmAssetDetail>(`/api/dspm/assets/${encodeURIComponent(row.id)}`);
@@ -139,6 +148,9 @@ const DatastoreTabBody: React.FC<{ apiTab: DatastoreApiTab; config: DatastoreTab
           error={detailError}
           onClose={close}
         />
+      )}
+      {openRow && opensDatastoreDrawer(openRow) && (
+        <DatastoreDrawer key={openRow.sourceId} row={openRow} onClose={close} />
       )}
     </div>
   );
