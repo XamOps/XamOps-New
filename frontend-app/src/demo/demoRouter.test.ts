@@ -7,6 +7,12 @@ import { demoAccounts, demoChargeTypes, demoK8sClusters,
 import { READINESS_KEYS } from '../types/k8sAutomation';
 import { isEmptyDashboard, nodeGroups, podCounts } from '../utils/k8sDerivations';
 import { toVerticalEngineView } from '../api/verticalRecommendationsAdapter';
+import { trendBadge } from '../components/Dspm/datastores/datastoreFormat';
+import type { DspmPage } from '../types/dspm';
+import type {
+  DataFlowColumnPage, DataFlowDatabases, DataFlowSchemas, DataFlowTablePage, DatastoreFilterOptions, DatastoreKpis,
+  DatastoreOccurrencePage, DatastoreOverview, DatastoreRow, DatastoreSensitives,
+} from '../types/dspmDatastores';
 
 /**
  * The generic `/api/xamops/*` fallback answers `{}`, which is wrong for any
@@ -1098,5 +1104,164 @@ describe('demo router — DbOps console (ROLE_XAMOPS)', () => {
     expect(Array.isArray(body)).toBe(false);
     expect(body).toEqual(demoFkGraph);
     expect(body.edges.length).toBeGreaterThan(0);
+  });
+});
+
+describe('demo router — XamLens Datastores page and drawer (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+  const DS = '/api/dspm/datastores';
+  const S3 = 'xammer-prod-customer-exports';
+  const rowsOf = async (query: string): Promise<DatastoreRow[]> =>
+    ((await readDemoBody(`${DS}?${query}&pageSize=100`)) as DspmPage<DatastoreRow>).data;
+  const dimensionOf = async (query: string, key: string) =>
+    ((await readDemoBody(`${DS}/filter-options?${query}`)) as DatastoreFilterOptions).dimensions.find(d => d.key === key);
+  const sourceIdOf = async (name: string) => (await rowsOf('tab=all')).find(row => row.name === name)!.sourceId!;
+  const resourceOf = (sourceId: string, path: string) => readDemoBody(`${DS}/${sourceId}/${path}`);
+
+  it('answers every Datastores path with its data, never the {} catch-all', async () => {
+    const s3 = await sourceIdOf(S3);
+    const bodies: unknown[] = [
+      await readDemoBody(`${DS}?tab=all`),
+      await readDemoBody(`${DS}/filter-options?tab=cloud`),
+      await readDemoBody(`${DS}/kpis?tab=all`),
+    ];
+    for (const path of [
+      'overview', 'scan-status', 'sensitives', 'sensitives/files?page=1&pageSize=10',
+      'sensitives/occurrences?entityName=PERSON%20NAME&skip=0&limit=10&showFalsePositives=false',
+      'risks', 'access-graph', 'scan-history', 'data-flow/databases',
+    ]) {
+      bodies.push(await resourceOf(s3, path));
+    }
+    const databases = await resourceOf(await sourceIdOf('crm_production'), 'data-flow/databases') as DataFlowDatabases;
+    const schemas = await readDemoBody(`/api/dspm/data-flow/databases/${databases.items[0].id}/schemas`) as DataFlowSchemas;
+    const tables = await readDemoBody(
+      `/api/dspm/data-flow/schemas/${schemas.items[0].id}/tables?page=1&pageSize=10`,
+    ) as DataFlowTablePage;
+    const contacts = tables.rows.find(table => table.name === 'contacts')!;
+    const columns = await readDemoBody(
+      `/api/dspm/data-flow/tables/${contacts.id}/columns?page=2&pageSize=10`,
+    ) as DataFlowColumnPage;
+    bodies.push(databases, schemas, tables, columns);
+    for (const body of bodies) expect(body).not.toEqual({});
+    expect(tables).toMatchObject({ total: 23, searchCapped: false });
+    expect(columns).toMatchObject({ total: 14, page: 2 });
+    expect(columns.rows).toHaveLength(4);
+    const searched = await readDemoBody(
+      `/api/dspm/data-flow/schemas/${schemas.items[0].id}/tables?page=1&pageSize=10&q=DEAL`,
+    ) as DataFlowTablePage;
+    expect(searched.rows.map(table => table.name)).toEqual(['deal_notes', 'deal_stages', 'deals']);
+  });
+
+  it('still serves the existing SaaS and endpoint drawers on /api/dspm/assets/{id}', async () => {
+    for (const tab of ['saas', 'endpoint']) {
+      const [row] = await rowsOf(`tab=${tab}`);
+      const detail = await readDemoBody(`/api/dspm/assets/${row.id}`);
+      expect(detail.id).toBe(row.id);
+      expect(detail.objects.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('honours Include and Exclude', async () => {
+    const cloud = await rowsOf('tab=cloud');
+    const included = await rowsOf('tab=cloud&provider=S3');
+    const excluded = await rowsOf('tab=cloud&provider_exclude=S3');
+    expect(included.length).toBeGreaterThan(0);
+    expect(included.every(row => row.source.provider === 'S3')).toBe(true);
+    expect(excluded.some(row => row.source.provider === 'S3')).toBe(false);
+    expect(included.length + excluded.length).toBe(cloud.length);
+    expect((await rowsOf('tab=cloud&provider=AZURE_BLOB&scan_status=NOT_SCANNED')).map(row => row.name))
+      .toEqual(['ledger-exports-weu']);
+  });
+
+  it('counts every dimension disjunctively and drops its own excluded values', async () => {
+    const provider = await dimensionOf('tab=cloud', 'provider');
+    // A dimension's own selection never shrinks its own options...
+    expect(await dimensionOf('tab=cloud&provider=S3', 'provider')).toEqual(provider);
+    // ...while every other dimension counts only the matching rows.
+    const statuses = await dimensionOf('tab=cloud&provider=S3', 'scan_status');
+    const s3Rows = await rowsOf('tab=cloud&provider=S3');
+    expect(statuses!.options.reduce((sum, option) => sum + (option.count ?? 0), 0)).toBe(s3Rows.length);
+    const withoutEbs = await dimensionOf('tab=cloud&provider_exclude=EBS', 'provider');
+    expect(withoutEbs!.options.map(option => option.value)).not.toContain('EBS');
+    expect(withoutEbs!.options).toHaveLength(provider!.options.length - 1);
+    expect(await dimensionOf('tab=all', 'region')).toBeUndefined();
+    const hostnames = await dimensionOf('tab=endpoint', 'hostname');
+    expect(hostnames!.options.length).toBeGreaterThan(0);
+    expect(hostnames!.options.every(option => option.count === null)).toBe(true);
+  });
+
+  it('pages the occurrences of an entity', async () => {
+    const s3 = await sourceIdOf(S3);
+    const page = (skip: number) => resourceOf(
+      s3, `sensitives/occurrences?entityName=PERSON%20NAME&skip=${skip}&limit=10&showFalsePositives=false`,
+    ) as Promise<DatastoreOccurrencePage>;
+    const first = await page(0);
+    expect(first).toMatchObject({ entityName: 'PERSON NAME', total: 72, skip: 0, limit: 10 });
+    expect(first.rows).toHaveLength(10);
+    expect(first.rows[0].samples).toHaveLength(5);
+    expect(first.rows[0].samples[0]).toBe('<<Jane Doe>>');
+    expect(first.rows.some(row => row.samples.length === 0)).toBe(true);
+    const last = await page(70);
+    expect(last).toMatchObject({ total: 72, skip: 70 });
+    expect(last.rows).toHaveLength(2);
+  });
+
+  it('answers an unknown datastore or Data Flow id with 404 ASSET_NOT_FOUND', async () => {
+    for (const url of [
+      `${DS}/ffffffffffffffffffffffff/overview`,
+      `${DS}/ffffffffffffffffffffffff/sensitives/occurrences?entityName=PERSON%20NAME`,
+      '/api/dspm/data-flow/schemas/00000000-0000-4000-8000-000000000000/tables?page=1&pageSize=10',
+    ]) {
+      const response = resolveDemoResponse(url);
+      expect(response?.status, url).toBe(404);
+      expect((await response!.json()).code).toBe('ASSET_NOT_FOUND');
+    }
+  });
+
+  it('agrees with the drawer on the records and types of every cloud and on-prem row', async () => {
+    const datastores = [...await rowsOf('tab=cloud'), ...await rowsOf('tab=on_prem')];
+    expect(datastores).toHaveLength(23);
+    for (const row of datastores) {
+      const name = row.name!;
+      const sensitives = await resourceOf(row.sourceId!, 'sensitives') as DatastoreSensitives;
+      const overview = await resourceOf(row.sourceId!, 'overview') as DatastoreOverview;
+      expect(sensitives.entities.reduce((sum, entity) => sum + entity.count, 0), name).toBe(row.sensitives.recordCount);
+      // A never-scanned row has no total, and the list counts it as 0 ("-").
+      if (row.scan.status === 'NOT_SCANNED') {
+        expect(overview.sensitiveRecords.total, name).toBeNull();
+        expect(row.sensitives.recordCount, name).toBe(0);
+      } else {
+        expect(overview.sensitiveRecords.total, name).toBe(row.sensitives.recordCount);
+      }
+      expect(overview.sensitiveRecords.groups.map(group => group.label), name).toEqual(row.sensitives.typeLabels);
+    }
+    const byName = (name: string) => datastores.find(row => row.name === name)!.sensitives;
+    expect(byName(S3)).toEqual({ recordCount: 2156, typeLabels: ['Personal', 'IT & Security'] });
+    expect(byName('crm_production')).toEqual({ recordCount: 8591, typeLabels: ['IT & Security', 'Personal'] });
+  });
+
+  it.each([
+    ['all', '+1%', '+6'],
+    ['cloud', '+10%', '+4'],
+    ['endpoint', '+25%', null],
+    ['saas', null, null],
+    ['on_prem', null, null],
+  ])('ends both %s KPI trends, 14 readings each, at the card values', async (tab, recordsBadge, assetsBadge) => {
+    const kpis = await readDemoBody(`${DS}/kpis?tab=${tab}`) as DatastoreKpis;
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    expect(kpis.tab).toBe(tab);
+    for (const metric of [kpis.totalSensitiveRecords, kpis.assetCount]) {
+      expect(metric.trend).toHaveLength(14);
+      expect(metric.trend[13]).toEqual({ date: today, value: metric.value });
+    }
+    expect(trendBadge(kpis.totalSensitiveRecords.trend, 'percent')?.text ?? null).toBe(recordsBadge);
+    expect(trendBadge(kpis.assetCount.trend, 'delta')?.text ?? null).toBe(assetsBadge);
+    // The tab strip's count, the asset card and the list agree.
+    expect(kpis.tabCounts[tab]).toBe(kpis.assetCount.value);
+    expect(((await readDemoBody(`${DS}?tab=${tab}`)) as DspmPage<DatastoreRow>).total).toBe(kpis.assetCount.value);
   });
 });

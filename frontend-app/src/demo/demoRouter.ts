@@ -20,6 +20,7 @@ import * as identity from './xamopsIdentityMockData';
 import * as billops from './billopsAdminMockData';
 import * as xamsecure from './xamsecureMockData';
 import * as xamlens from './xamlensMockData';
+import * as xamlensDrawer from './xamlensDrawerMockData';
 import type { DspmSurface } from '../hooks/useDspmData';
 import * as soc2 from './soc2MockData';
 import * as war from './warMockData';
@@ -51,6 +52,17 @@ function makeResponse(data: unknown, status = 200): Response {
     headers: { 'Content-Type': 'application/json' },
   });
 }
+
+/** A DSPM error body, `{code, message}`, as the backend's DSPM routes answer one. */
+function makeDspmError(status: number, code: string, message: string): Response {
+  return makeResponse({ code, message }, status);
+}
+
+/** A cloud or on-prem datastore's drawer resources (design 7.1). */
+const DATASTORE_RESOURCE =
+  /^\/api\/dspm\/datastores\/([0-9a-f]{24})\/(overview|scan-status|sensitives|sensitives\/files|sensitives\/occurrences|risks|access-graph|scan-history|data-flow\/databases)$/;
+/** The Data Flow routes below a database, schema or table. */
+const DATA_FLOW_RESOURCE = /^\/api\/dspm\/data-flow\/(databases|schemas|tables)\/([0-9a-f-]{36})\/(schemas|tables|columns)$/;
 
 const AUTOSPOTTING_ADMIN_PREFIX = '/api/xamops/autospotting-admin/';
 
@@ -1102,6 +1114,28 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   // POST action whose response is ignored.
   if (url.includes('/api/xamsecure/'))
     return makeResponse({});
+
+  // XamLens Datastores page and drawer (design 7.1). Ahead of the block below, so neither its
+  // /api/dspm/assets/{id} matcher nor the /api/dspm/ catch-all answers these paths: a {} would break
+  // every table that reads an array.
+  if (url.includes('/api/dspm/datastores') || url.includes('/api/dspm/data-flow/')) {
+    const path = new URL(url, 'http://localhost').pathname;
+    if (path === '/api/dspm/datastores')
+      return makeResponse(xamlens.demoDatastores(url));
+    if (path === '/api/dspm/datastores/filter-options')
+      return makeResponse(xamlens.demoDatastoreFilterOptions(url));
+    if (path === '/api/dspm/datastores/kpis')
+      return makeResponse(xamlens.demoDatastoreKpis(url));
+    const resource = path.match(DATASTORE_RESOURCE);
+    const flow = path.match(DATA_FLOW_RESOURCE);
+    const body = resource ? xamlensDrawer.demoDatastoreResource(resource[1], resource[2], url)
+      : flow ? xamlensDrawer.demoDataFlowResource(flow[1], flow[2], flow[3], url)
+        : null;
+    if (body) return makeResponse(body);
+    // Any other id under these routes is one the demo does not know, answered as the backend would.
+    if (path.startsWith('/api/dspm/datastores/') || path.startsWith('/api/dspm/data-flow/'))
+      return makeDspmError(404, 'ASSET_NOT_FOUND', 'That datastore could not be found.');
+  }
 
   // XamLens (DSPM). The list and filter routes carry the surface; asset detail does not.
   {
