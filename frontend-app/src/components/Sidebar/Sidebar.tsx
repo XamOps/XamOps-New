@@ -18,7 +18,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useXamTabAccess } from '../../contexts/XamTabAccessContext';
 import { makeBillopsTabGate } from '../../constants/billopsAdminTabs';
 import { XAMSECURE_SIDEBAR_TABS } from '../../constants/xamsecureTabs';
-import { XAMLENS_SIDEBAR_TABS } from '../../constants/xamlensTabs';
+import { XAMLENS_HOME, XAMLENS_SIDEBAR_TABS } from '../../constants/xamlensTabs';
 import { ClusterSectionsNav } from '../CloudK8s/shared/ClusterSectionsNav';
 import clsx from 'clsx';
 
@@ -438,7 +438,7 @@ const Sidebar: React.FC = () => {
                 {isXamTabAllowed('secops-xamlens') && (
                   <>
                     <NavItem
-                      href="/xamlens/cloud"
+                      href={XAMLENS_HOME}
                       icon="fas fa-eye"
                       label="XamLens"
                       badge={xamLensLocked ? 'Locked' : undefined}
@@ -449,10 +449,10 @@ const Sidebar: React.FC = () => {
                       {XAMLENS_SIDEBAR_TABS.map((t) => (
                         <NavItem
                           key={t.id}
-                          href={`/xamlens/${t.id}`}
+                          href={t.href}
                           icon={t.icon}
                           label={t.label}
-                          isActive={location.pathname === `/xamlens/${t.id}`}
+                          isActive={location.pathname.startsWith(t.activePrefix)}
                         />
                       ))}
                     </SubNav>

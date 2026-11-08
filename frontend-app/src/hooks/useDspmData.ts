@@ -1,23 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import apiClient from '../utils/apiClient';
-import type {
-  DspmAssetDetail, DspmAssetRow, DspmError, DspmFilters, DspmPage, DspmReason, DspmStatus,
-} from '../types/dspm';
+import type { DspmError, DspmStatus } from '../types/dspm';
 
 const BASE = '/api/dspm';
 
 /** 10 first, as the console's tables have it. */
 export const DSPM_PAGE_SIZES = [10, 25, 50, 100] as const;
-
-/**
- * Opening sort per surface. SaaS and Endpoint have no risk score on any row, so risk order would be
- * arbitrary there; the console opens them on most sensitive records first.
- */
-const DEFAULT_SORT: Record<DspmSurface, string> = {
-  cloud: '-risk_score',
-  saas: '-sensitive_record_count',
-  endpoint: '-sensitive_record_count',
-};
 
 /**
  * The three asset surfaces, matching the backend's `DspmAssetQuery.Surface` slugs.
@@ -30,32 +18,13 @@ const DEFAULT_SORT: Record<DspmSurface, string> = {
 export type DspmSurface = 'cloud' | 'saas' | 'endpoint';
 
 /**
- * The filter dimensions the bar renders, in the order they appear.
- *
- * `resource_type` is deliberately excluded. It is how each surface scopes itself server-side, so
- * offering it as a filter would either be redundant or let someone select `SAAS_PRINCIPAL` on the Cloud
- * tab and empty the table.
- */
-export const DSPM_FILTER_DIMENSIONS = [
-  'severity',
-  'scan_status',
-  'provider',
-  'sensitive_type',
-  'data_element',
-  'integration_id',
-  'lifecycle',
-] as const;
-
-export type DspmFilterState = Record<string, string[]>;
-
-/**
  * Parses a DSPM error body.
  *
  * The backend answers every failure with `{code, message}` where `code` is a stable enum name. Branching
  * on the code is the contract; the message is prose and will be reworded. `apiFetchJson` throws
  * `Error("HTTP 409: <body>")`, so the JSON has to be dug back out of the message string.
  */
-function parseDspmError(err: unknown): DspmError | null {
+export function parseDspmError(err: unknown): DspmError | null {
   const raw = err instanceof Error ? err.message : String(err);
   const brace = raw.indexOf('{');
   if (brace < 0) return null;
@@ -66,6 +35,10 @@ function parseDspmError(err: unknown): DspmError | null {
     return null;
   }
 }
+
+/** Whether `apiFetchJson` rejected with this HTTP status (its message starts "HTTP <status>:"). */
+const hasHttpStatus = (err: unknown, status: number) =>
+  err instanceof Error && err.message.startsWith(`HTTP ${status}:`);
 
 /**
  * Connection state for the DSPM surface.
@@ -82,7 +55,19 @@ export function useDspmStatus() {
     setLoading(true);
     try {
       setStatus(await apiClient.get<DspmStatus>(`${BASE}/status`));
-    } catch {
+    } catch (err) {
+      // A user whose XamLens tab grant is missing gets 403 TAB_ACCESS_DENIED from every DSPM endpoint.
+      // That is an answer, not an outage, so it becomes its own not-ready state.
+      const parsed = parseDspmError(err);
+      if (parsed?.code === 'TAB_ACCESS_DENIED' && hasHttpStatus(err, 403)) {
+        setStatus({
+          ready: false, entitled: false, configured: false,
+          reason: 'TAB_ACCESS_DENIED',
+          message: parsed.message,
+          projectName: null, lastVerifiedAt: null,
+        });
+        return;
+      }
       // The status endpoint is designed not to fail, so a rejection here means the request itself did
       // not land. Reported as an unreachable upstream rather than left null, which the UI would
       // otherwise render as a permanent spinner.
@@ -100,153 +85,4 @@ export function useDspmStatus() {
   useEffect(() => { void loadStatus(); }, [loadStatus]);
 
   return { status, statusLoading: loading, reloadStatus: loadStatus };
-}
-
-interface AssetQuery {
-  search: string;
-  sort: string;
-  page: number;
-  pageSize: number;
-  filters: DspmFilterState;
-}
-
-function buildQuery({ search, sort, page, pageSize, filters }: AssetQuery): string {
-  const params = new URLSearchParams();
-  if (search.trim()) params.set('q', search.trim());
-  params.set('sort', sort);
-  params.set('page', String(page));
-  params.set('pageSize', String(pageSize));
-  // Comma-joined, which the API reads as OR within a dimension and AND across dimensions.
-  for (const [dimension, values] of Object.entries(filters)) {
-    if (values.length) params.set(dimension, values.join(','));
-  }
-  return params.toString();
-}
-
-/**
- * One surface's asset list, its filter facets, and asset detail.
- *
- * Takes the surface rather than hardcoding `cloud`, so the three tabs share one implementation. The
- * surface only appears in the request path; everything below it — paging, sorting, faceting, detail — is
- * identical, because the backend scopes all three the same way.
- *
- * <h3>Why the list and the filters are fetched together</h3>
- * The upstream computes facet counts disjunctively — each dimension's counts ignore its own selection —
- * which is what keeps the bar usable after a user filters on it. That only holds if both calls carry the
- * same filter parameters, so they are issued as a pair from one effect rather than independently.
- *
- * <h3>No caching</h3>
- * Unlike the XamSecure hook, which caches against sync stamps, this reads through to a live vendor API
- * behind a short server-side Redis cache. A second client-side cache would add a second staleness window
- * over data that is already only two minutes old, for a page nobody keeps open for hours.
- */
-export function useDspmAssets(surface: DspmSurface, enabled: boolean) {
-  const [assets, setAssets] = useState<DspmPage<DspmAssetRow> | null>(null);
-  const [filters, setFilters] = useState<DspmFilters | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<DspmError | null>(null);
-
-  const [search, setSearch] = useState('');
-  const [sort, setSort] = useState(DEFAULT_SORT[surface]);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(DSPM_PAGE_SIZES[0]);
-  const [selected, setSelected] = useState<DspmFilterState>({});
-
-  /** Guards against an earlier in-flight response overwriting a later one. */
-  const requestSeq = useRef(0);
-
-  // No reset-on-surface-change effect: the caller keys the component by surface, so switching tabs
-  // remounts with fresh state. An effect here would also double-fetch on every mount.
-
-  const load = useCallback(async () => {
-    if (!enabled) return;
-    const seq = ++requestSeq.current;
-    setLoading(true);
-    setError(null);
-
-    const query = buildQuery({ search, sort, page, pageSize, filters: selected });
-    // The filter call ignores page and sort upstream, but sending the same string keeps the two requests
-    // provably identical in their filter terms, which is what the disjunctive counting depends on.
-    try {
-      const [assetPage, facets] = await Promise.all([
-        apiClient.get<DspmPage<DspmAssetRow>>(`${BASE}/${surface}/assets?${query}`),
-        apiClient.get<DspmFilters>(`${BASE}/${surface}/filters?${query}`),
-      ]);
-      if (seq !== requestSeq.current) return;
-      setAssets(assetPage);
-      setFilters(facets);
-    } catch (err) {
-      if (seq !== requestSeq.current) return;
-      setError(parseDspmError(err) ?? {
-        code: 'UPSTREAM_UNAVAILABLE' as DspmReason,
-        message: err instanceof Error ? err.message : 'Failed to load data security assets.',
-      });
-    } finally {
-      if (seq === requestSeq.current) setLoading(false);
-    }
-  }, [surface, enabled, search, sort, page, pageSize, selected]);
-
-  useEffect(() => { void load(); }, [load]);
-
-  /**
-   * Toggles one filter value.
-   *
-   * Resets to page 1, because staying on page 7 of a narrower result set shows an empty table and reads
-   * as "the filter broke".
-   */
-  const toggleFilter = useCallback((dimension: string, value: string) => {
-    setPage(1);
-    setSelected(prev => {
-      const current = prev[dimension] ?? [];
-      const next = current.includes(value)
-        ? current.filter(v => v !== value)
-        : [...current, value];
-      const updated = { ...prev };
-      if (next.length) updated[dimension] = next;
-      else delete updated[dimension];
-      return updated;
-    });
-  }, []);
-
-  const clearFilters = useCallback(() => { setPage(1); setSelected({}); }, []);
-
-  /** Clears one dimension, for the Clear action inside a filter dropdown. */
-  const clearDimension = useCallback((dimension: string) => {
-    setPage(1);
-    setSelected(prev => {
-      if (!(dimension in prev)) return prev;
-      const next = { ...prev };
-      delete next[dimension];
-      return next;
-    });
-  }, []);
-
-  /**
-   * Sets the sort field, flipping direction when the same column is chosen again.
-   *
-   * Descending first for every field except name: for risk score and record counts the interesting end is
-   * the top, and ascending would open on a page of zeroes.
-   */
-  const toggleSort = useCallback((field: string) => {
-    setPage(1);
-    setSort(prev => {
-      const descending = `-${field}`;
-      if (prev === descending) return field;
-      if (prev === field) return descending;
-      return field === 'name' ? field : descending;
-    });
-  }, []);
-
-  const updateSearch = useCallback((value: string) => { setPage(1); setSearch(value); }, []);
-
-  const loadAsset = useCallback(async (assetId: string): Promise<DspmAssetDetail> =>
-    apiClient.get<DspmAssetDetail>(`${BASE}/assets/${encodeURIComponent(assetId)}`), []);
-
-  return {
-    assets, filters, loading, error,
-    search, sort, page, pageSize, selected,
-    setPage, setPageSize, updateSearch, toggleFilter, clearFilters, clearDimension, toggleSort,
-    refresh: load, loadAsset,
-    activeFilterCount: Object.values(selected).reduce((n, v) => n + v.length, 0),
-  };
 }

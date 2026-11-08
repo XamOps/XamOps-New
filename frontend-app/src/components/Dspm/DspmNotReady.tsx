@@ -68,6 +68,12 @@ const COPY: Record<string, StateCopy> = {
     tone: 'warn',
     retry: true,
   },
+  TAB_ACCESS_DENIED: {
+    icon: 'mdi:shield-lock-outline',
+    title: "You don't have access to XamLens",
+    body: 'Ask your XamOps administrator to give you access to XamLens.',
+    tone: 'neutral',
+  },
 };
 
 /** Every credential fault falls here: a real problem, but not the customer's to fix. */
