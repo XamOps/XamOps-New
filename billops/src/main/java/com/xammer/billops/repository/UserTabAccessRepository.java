@@ -16,7 +16,9 @@ public interface UserTabAccessRepository extends JpaRepository<UserTabAccess, Lo
     @Query("SELECT uta.tabName FROM UserTabAccess uta WHERE uta.user.id = :userId")
     List<String> findTabNamesByUserId(@Param("userId") Long userId);
 
+    /** Bulk delete so the SQL runs immediately, before the app_user row is deleted. */
     @Modifying
     @Transactional
-    void deleteByUserId(Long userId);
+    @Query("DELETE FROM UserTabAccess uta WHERE uta.user.id = :userId")
+    void deleteByUserId(@Param("userId") Long userId);
 }

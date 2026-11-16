@@ -24,6 +24,7 @@ import jakarta.persistence.PersistenceContext;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -202,7 +203,7 @@ public class TeamUserService {
         User newUser = new User();
         newUser.setUsername(dto.getUsername());
         newUser.setEmail(dto.getEmail());
-        newUser.setPassword(passwordEncoder.encode(dto.getPassword()));
+        newUser.setPassword(resolveCreatePasswordHash(dto.getPassword()));
         newUser.setRole(currentUser.getRole()); // Inherit role from parent
         newUser.setClient(currentUser.getClient()); // Same client
         newUser.setCreatedBy(currentUserId);
@@ -232,9 +233,9 @@ public class TeamUserService {
             }
         }
 
-        // Send welcome email with credentials
+        // Send welcome email (passwordless — the user signs in with email + OTP)
         try {
-            sendWelcomeEmail(saved.getEmail(), dto.getUsername(), dto.getPassword(), currentUser.getUsername());
+            sendWelcomeEmail(saved.getEmail(), dto.getUsername(), currentUser.getUsername());
             log.info("Welcome email sent successfully to: {}", saved.getEmail());
         } catch (Exception e) {
             log.error("Failed to send welcome email to: {}", saved.getEmail(), e);
@@ -374,8 +375,24 @@ public class TeamUserService {
         userRepository.save(currentUser);
     }
 
-    private void sendWelcomeEmail(String email, String username, String password, String createdBy) {
-        String subject = "Welcome to XamOps - Your Account Credentials";
+    /**
+     * Returns a BCrypt hash to store for a newly created account.
+     *
+     * <p>Accounts authenticate only via email + OTP, so the My Profile page never sends a password
+     * on create. The {@code app_user.password} column is still NOT NULL in the database (the entity
+     * marks it nullable, but {@code ddl-auto=update} never drops an existing constraint), so when no
+     * password is supplied we encode a random UUID: an unusable secret nobody knows. Mirrors
+     * BillOps' TeamUserService and the OAuth user creation in GoogleAuthController.
+     */
+    private String resolveCreatePasswordHash(String rawPassword) {
+        String raw = (rawPassword == null || rawPassword.isBlank())
+                ? UUID.randomUUID().toString()
+                : rawPassword;
+        return passwordEncoder.encode(raw);
+    }
+
+    private void sendWelcomeEmail(String email, String username, String createdBy) {
+        String subject = "Welcome to XamOps - Your Account is Ready";
 
         String htmlBody = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'><title>Welcome to XamOps!</title></head>" +
                 "<body style='margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;'>" +
@@ -388,15 +405,14 @@ public class TeamUserService {
                 "<p style='margin:0;color:rgba(255,255,255,0.85);font-size:15px;'>Your Cloud Management Platform</p>" +
                 "</td></tr>" +
                 "<tr><td style='padding:32px 40px;'>" +
-                "<p style='margin:0 0 20px;color:#374151;font-size:15px;'>You have been added as a team member by <strong>" + createdBy + "</strong>. Below are your login credentials:</p>" +
+                "<p style='margin:0 0 20px;color:#374151;font-size:15px;'>You have been added as a team member by <strong>" + createdBy + "</strong>. Sign in with your email below and we'll email you a one-time passcode (OTP) each time you log in. No password is required.</p>" +
                 "<div style='background:#f8fafc;border:1px solid #e2e8f0;border-left:4px solid #000000;border-radius:10px;padding:20px 24px;margin-bottom:20px;'>" +
-                "<h3 style='margin:0 0 14px;color:#1e293b;font-size:14px;font-weight:700;'>Your Login Credentials</h3>" +
+                "<h3 style='margin:0 0 14px;color:#1e293b;font-size:14px;font-weight:700;'>Your Login Details</h3>" +
                 "<div style='margin-bottom:12px;'><span style='display:inline-block;color:#64748b;font-size:13px;font-weight:600;width:110px;'>Email (Login)</span><span style='background:#f1f5f9;padding:6px 12px;border-radius:6px;font-family:monospace;font-size:13px;color:#1e293b;'>" + email + "</span></div>" +
-                "<div style='margin-bottom:12px;'><span style='display:inline-block;color:#64748b;font-size:13px;font-weight:600;width:110px;'>Password</span><span style='background:#f1f5f9;padding:6px 12px;border-radius:6px;font-family:monospace;font-size:13px;color:#1e293b;'>" + password + "</span></div>" +
                 "<div style='margin-bottom:12px;'><span style='display:inline-block;color:#64748b;font-size:13px;font-weight:600;width:110px;'>Portal URL</span><span style='background:#f1f5f9;padding:6px 12px;border-radius:6px;font-family:monospace;font-size:13px;color:#1e293b;'>https://live.xamops.com/</span></div>" +
                 "</div>" +
                 "<div style='background:#fffbeb;border:1px solid #fcd34d;border-left:4px solid #f59e0b;border-radius:8px;padding:14px 18px;margin-bottom:24px;'>" +
-                "<p style='margin:0;color:#92400e;font-size:13px;'><strong>Security Reminder:</strong> Please change your password after your first login.</p>" +
+                "<p style='margin:0;color:#92400e;font-size:13px;'><strong>How to sign in:</strong> Enter your email on the login page and we'll send a one-time passcode to that address. Enter the passcode to complete sign-in.</p>" +
                 "</div>" +
                 "<div style='text-align:center;margin-bottom:8px;'>" +
                 "<a href='https://live.xamops.com/' style='display:inline-block;background:#000000;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;'>Login to XamOps</a>" +
