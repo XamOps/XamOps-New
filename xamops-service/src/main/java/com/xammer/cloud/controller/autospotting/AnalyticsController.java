@@ -12,6 +12,7 @@ import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CloudAccountAccessService;
 import com.xammer.cloud.service.autospotting.core.AutoSpottingApiException;
 import com.xammer.cloud.service.autospotting.obs.AutoSpottingMdc;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
@@ -56,6 +57,7 @@ public class AnalyticsController {
     private final SpotGroupEventRepository events;
     private final Clock clock;
 
+    @Autowired
     public AnalyticsController(CloudAccountAccessService accountAccessService, SpotGroupRepository groups,
                                SpotGroupEventRepository events) {
         this(accountAccessService, groups, events, Clock.systemUTC());

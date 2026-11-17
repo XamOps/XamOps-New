@@ -9,6 +9,7 @@ import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CloudAccountAccessService;
 import com.xammer.cloud.service.autospotting.core.AutoSpottingApiException;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
@@ -45,6 +46,7 @@ public class AuditQueryController {
     private final SpotGroupRepository groups;
     private final Clock clock;
 
+    @Autowired
     public AuditQueryController(CloudAccountAccessService accountAccessService, AutoSpottingAuditRepository audit,
                                 SpotGroupRepository groups) {
         this(accountAccessService, audit, groups, Clock.systemUTC());
