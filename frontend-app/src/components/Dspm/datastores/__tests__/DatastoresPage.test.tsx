@@ -459,4 +459,15 @@ describe('DatastoresPage', () => {
     expect(await screen.findByText('orders-archive')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
   });
+
+  it.each<DatastoreTabSlug>(['all', 'cloud', 'saas', 'endpoint', 'on-prem'])(
+    'shows the uppercase "Data Inventory" label above the Datastores title on %s',
+    async slug => {
+      renderPage(`/xamlens/datastores/${slug}`);
+      const title = await screen.findByRole('heading', { level: 1, name: 'Datastores' });
+      const label = screen.getByText('Data Inventory');
+      expect(label).toHaveClass('uppercase');
+      expect(label.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    },
+  );
 });
