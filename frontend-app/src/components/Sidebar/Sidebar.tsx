@@ -446,14 +446,25 @@ const Sidebar: React.FC = () => {
                       isActive={isActive('/xamlens')}
                     />
                     <SubNav isOpen={location.pathname.startsWith('/xamlens')} dark={theme === 'dark'}>
-                      {XAMLENS_SIDEBAR_TABS.map((t) => (
-                        <NavItem
-                          key={t.id}
-                          href={t.href}
-                          icon={t.icon}
-                          label={t.label}
-                          isActive={location.pathname.startsWith(t.activePrefix)}
-                        />
+                      {XAMLENS_SIDEBAR_TABS.map((t, i) => (
+                        <React.Fragment key={t.id}>
+                          {/* The console's section label ("DATA INVENTORY"), once, before its first entry. Muted
+                              but above 4.5:1 on the sidebar in both themes. */}
+                          {t.section && t.section !== XAMLENS_SIDEBAR_TABS[i - 1]?.section && (
+                            <p className={clsx(
+                              'px-2.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-widest',
+                              theme === 'dark' ? 'text-[rgba(255,255,255,0.5)]' : 'text-[rgba(0,0,0,0.55)]'
+                            )}>
+                              {t.section}
+                            </p>
+                          )}
+                          <NavItem
+                            href={t.href}
+                            icon={t.icon}
+                            label={t.label}
+                            isActive={location.pathname.startsWith(t.activePrefix)}
+                          />
+                        </React.Fragment>
                       ))}
                     </SubNav>
                   </>

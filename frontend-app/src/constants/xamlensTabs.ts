@@ -21,12 +21,14 @@ export interface XamLensTabDef {
   activePrefix: string;
   /** Defaults to true. False keeps the route valid while hiding it from the nav. */
   sidebar?: boolean;
+  /** The Matters console's sidebar section the entry sits under; the sidebar heads each section once. */
+  section?: string;
 }
 
 export const XAMLENS_HOME = '/xamlens/datastores/all';
 
 export const XAMLENS_TABS: XamLensTabDef[] = [
-  { id: 'datastores', label: 'Datastores', icon: 'fas fa-database', href: XAMLENS_HOME, activePrefix: '/xamlens/datastores' },
+  { id: 'datastores', label: 'Datastores', icon: 'fas fa-database', href: XAMLENS_HOME, activePrefix: '/xamlens/datastores', section: 'Data Inventory' },
   // Connection state. Deep-link only: it matters when something is wrong, not in the healthy path.
   { id: 'connection', label: 'Connection', icon: 'fas fa-circle-nodes', href: '/xamlens/connection', activePrefix: '/xamlens/connection', sidebar: false },
 ];
