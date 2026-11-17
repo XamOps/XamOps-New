@@ -50,6 +50,14 @@ public class OperationStore {
     private final FencedTx fencedTx;
     private final AuditRedactor redactor;
 
+    /** Optional: a terminal operation evicts the group list cache so the list never shows a stale row (ux §9.8). */
+    private com.xammer.cloud.service.autospotting.core.list.GroupListCache listCache;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setGroupListCache(com.xammer.cloud.service.autospotting.core.list.GroupListCache listCache) {
+        this.listCache = listCache;
+    }
+
     public OperationStore(SpotOperationRepository operations, SpotOperationStepRepository steps,
                           FencedTx fencedTx, AuditRedactor redactor) {
         this.operations = operations;
@@ -177,18 +185,21 @@ public class OperationStore {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void finishSucceeded(java.util.UUID operationId) {
         operations.finish(operationId, OperationStatus.SUCCEEDED.name(), null, null, null, Instant.now());
+        evictList(operationId);
     }
 
     /** Finish an op {@code FAILED} with its redacted error code and message. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void finishFailed(java.util.UUID operationId, String errorCode, String errorMessage) {
         operations.finish(operationId, OperationStatus.FAILED.name(), errorCode, errorMessage, null, Instant.now());
+        evictList(operationId);
     }
 
     /** Finish an op {@code CANCELLED} with its cancel reason (§4.7). */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void finishCancelled(java.util.UUID operationId, String cancelReason) {
         operations.finish(operationId, OperationStatus.CANCELLED.name(), null, null, cancelReason, Instant.now());
+        evictList(operationId);
     }
 
     /** Mark a past-deadline op {@code wait_reason=STUCK} (startup recovery, §4.6; never FAILED, GCP-20). */
@@ -217,5 +228,32 @@ public class OperationStore {
             sb.append('"').append(requestIds.get(i).replace("\\", "\\\\").replace("\"", "\\\"")).append('"');
         }
         return sb.append(']').toString();
+    }
+
+    /** Drop the account's cached group list after an op reaches a terminal status. Never throws. */
+    private void evictList(java.util.UUID operationId) {
+        if (listCache == null) {
+            return;
+        }
+        try {
+            operations.findById(operationId).ifPresent(op -> {
+                Long accountId = op.getCloudAccountId();
+                if (org.springframework.transaction.support.TransactionSynchronizationManager
+                        .isSynchronizationActive()) {
+                    // After commit, so a concurrent list can't re-cache the pre-commit state.
+                    org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                            new org.springframework.transaction.support.TransactionSynchronization() {
+                                @Override
+                                public void afterCommit() {
+                                    listCache.evict(accountId);
+                                }
+                            });
+                } else {
+                    listCache.evict(accountId);
+                }
+            });
+        } catch (RuntimeException e) {
+            log.debug("group list eviction skipped for op {}", operationId);
+        }
     }
 }

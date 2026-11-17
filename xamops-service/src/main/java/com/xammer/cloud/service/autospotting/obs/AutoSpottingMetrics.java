@@ -61,6 +61,8 @@ public class AutoSpottingMetrics {
     public static final String LEDGER_UNKNOWN = "autospotting.ledger.unknown";
     public static final String DRYRUN_OPERATIONS = "autospotting.dryrun.operations";
     public static final String OPS_PREEMPTED = "autospotting.ops.preempted";
+    /** Eligibility blockers seen by LIST-mode evaluations, by code (NO-07, PD-02). */
+    public static final String ELIGIBILITY_BLOCKED = "autospotting.eligibility.blocked";
 
     // Meters introduced by phases 04-08 that §6.1 keeps verbatim (callers moved onto the typed
     // methods below). They are not in the §6.2 table under these exact shapes, but the design says to
@@ -151,6 +153,11 @@ public class AutoSpottingMetrics {
     /** {@code autospotting.cloud.errors} — a cloud call failed after SDK retries (core §9.4 ErrorKind). */
     public void cloudError(Provider provider, String api, String kind) {
         registry.counter(CLOUD_ERRORS, "provider", tag(provider), "api", api, "kind", kind).increment();
+    }
+
+    /** {@code autospotting.eligibility.blocked} — a LIST-mode evaluation found a blocker (NO-07: count {@code EC2_HEALTH_WITH_LB} on real accounts). */
+    public void eligibilityBlocked(Provider provider, String code) {
+        registry.counter(ELIGIBILITY_BLOCKED, "provider", tag(provider), "code", code).increment();
     }
 
     /** {@code autospotting.ledger.entries} — the ledger writer inserted entries (tiers per design-ledger). */

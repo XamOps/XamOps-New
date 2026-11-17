@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "asgArn": "arn:aws:autoscaling:ap-south-1:111122223333:autoScalingGroup:uuid:autoScalingGroupName/web-asg",
+  "region": "ap-south-1",
+  "name": "web-asg",
+  "capturedFrom": "LIVE",
+  "owned": {
+    "shape": "LAUNCH_TEMPLATE",
+    "launchTemplate": { "id": "lt-0abc", "name": null, "version": "$Default" },
+    "mixedInstancesPolicy": null,
+    "capacityRebalance": false
+  },
+  "context": {
+    "min": 2,
+    "max": 8,
+    "desired": 4,
+    "desiredCapacityType": null,
+    "vpcZoneIdentifier": "subnet-a,subnet-b",
+    "healthCheckType": "ELB",
+    "healthCheckGracePeriod": 300,
+    "defaultInstanceWarmup": 300,
+    "maxHealthyPercentage": null,
+    "maxInstanceLifetime": null,
+    "terminationPolicies": [],
+    "suspendedProcesses": [],
+    "tags": [ { "key": "team", "value": "payments", "propagateAtLaunch": true } ],
+    "targetGroupArns": [],
+    "lifecycleHooks": ["drain"],
+    "warmPool": false,
+    "scalingPolicies": [],
+    "scheduledActions": [],
+    "truncated": false,
+    "resolvedLaunchTemplateVersion": 7,
+    "launchTemplateVersionSha256": "abc123",
+    "instanceMix": { "onDemand": 4, "spot": 0 }
+  },
+  "ownedFingerprint": "78425daef8867e099fb9cd5a24f9e009766bdefb30eaf499a4cf036071ddc6e6"
+}
