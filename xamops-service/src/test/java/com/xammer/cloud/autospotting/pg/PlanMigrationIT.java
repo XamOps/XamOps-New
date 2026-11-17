@@ -7,7 +7,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * {@code V20261031_1__autospotting_plan.sql} on real PostgreSQL (plan-phase-11.md task 11.1,
+ * {@code V20261107_1__autospotting_plan.sql} on real PostgreSQL (plan-phase-11.md task 11.1,
  * design-core.md §7.3, §7.5, §3.7, §11). {@code spot_plan} with {@code ux_spot_plan_open},
  * {@code ux_spot_plan_idem} and {@code batch_id} is created on both harness modes, and the
  * {@code user_cloud_account_access.autospotting_write} column is added (guarded). Running the
@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Tag("containers")
 class PlanMigrationIT {
 
-    private static final String PLAN_VERSION = "20261031.1";
+    private static final String PLAN_VERSION = "20261107.1";
 
     @Test
     void emptySchema_createsSpotPlanAndIndexes() {
