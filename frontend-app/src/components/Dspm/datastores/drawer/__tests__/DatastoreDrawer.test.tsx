@@ -412,7 +412,7 @@ describe('DatastoreDrawer', () => {
       const control = within(drawer).getByRole('button', { name });
       expect(control).toHaveAttribute('aria-disabled', 'true');
       expect(document.getElementById(control.getAttribute('aria-describedby') ?? ''))
-        .toHaveTextContent('Available in the Matters console');
+        .toHaveTextContent(/^Disabled by admin$/);
     }
   });
 

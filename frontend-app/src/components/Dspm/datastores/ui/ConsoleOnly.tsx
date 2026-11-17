@@ -6,8 +6,9 @@ import { Icon } from '@iconify/react';
  *
  * They are shown so the page reads like the console, but they do nothing and call no API. Each stays
  * focusable with `aria-disabled` rather than `disabled`, so keyboard and screen-reader users can reach it
- * and hear why it is unavailable (NFR-4). A small local tooltip says so on hover and on focus; the shared
- * react-aria tooltip needs a react-aria `Button` trigger, and a disabled one cannot take focus.
+ * and hear that it is disabled (NFR-4). A small local tooltip, "Disabled by admin", shows on hover and on
+ * focus; it does not send users to the Matters console. The shared react-aria tooltip needs a react-aria
+ * `Button` trigger, and a disabled one cannot take focus.
  *
  * Event rules, so a control inside a clickable row never opens the row:
  * - a click is cancelled and stopped;
@@ -17,7 +18,7 @@ import { Icon } from '@iconify/react';
  *   next Escape propagates as usual.
  */
 
-export const CONSOLE_ONLY_TOOLTIP = 'Available in the Matters console';
+export const CONSOLE_ONLY_TOOLTIP = 'Disabled by admin';
 
 type Placement = 'top' | 'bottom' | 'left' | 'right';
 

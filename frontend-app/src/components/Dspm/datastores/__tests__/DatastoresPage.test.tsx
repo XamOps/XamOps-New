@@ -268,7 +268,7 @@ describe('DatastoresPage', () => {
     expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull();
   });
 
-  it('greys every console-only control, each with the Matters console tooltip', async () => {
+  it('greys every console-only control, each with the "Disabled by admin" tooltip', async () => {
     listAnswer = () => page([ENDPOINT]);
     renderPage('/xamlens/datastores/endpoint');
     await screen.findByText('build-laptop-07');
@@ -287,7 +287,7 @@ describe('DatastoresPage', () => {
       expect(tooltip).not.toBeVisible();
       fireEvent.mouseEnter(control);
       expect(tooltip).toBeVisible();
-      expect(tooltip).toHaveTextContent('Available in the Matters console');
+      expect(tooltip).toHaveTextContent(/^Disabled by admin$/);
       fireEvent.mouseLeave(control);
     }
     expect(assetRequests()).toHaveLength(0);

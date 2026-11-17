@@ -47,7 +47,7 @@ describe.each(cases)('$name', ({ element, get }) => {
     renderInRow(element);
     expect(screen.queryByRole('tooltip')).toBeNull();
     await user.hover(get());
-    expect(screen.getByRole('tooltip')).toHaveTextContent('Available in the Matters console');
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/^Disabled by admin$/);
     await user.unhover(get());
     expect(screen.queryByRole('tooltip')).toBeNull();
   });
