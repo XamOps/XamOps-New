@@ -80,7 +80,6 @@ const FlexComputePage = lazy(() => import('./pages/FlexComputePage'));
 const CloudSitterPage = lazy(() => import('./pages/CloudSitterPage'));
 const GcpCloudSitterPage = lazy(() => import('./pages/GcpCloudSitterPage'));
 const AzureCloudSitterPage = lazy(() => import('./pages/AzureCloudSitterPage'));
-const SpotAutomationPage = lazy(() => import('./pages/SpotAutomationPage'));
 const ASGDetailPage = lazy(() => import('./pages/ASGDetailPage'));
 const ASGConfigPage = lazy(() => import('./pages/ASGConfigPage'));
 const CloudK8sPage = lazy(() => import('./pages/CloudK8sPage'));
@@ -119,6 +118,7 @@ const GcpPerformancePage = lazy(() => import('./pages/GcpPerformancePage'));
 const GcpAlertsPage = lazy(() => import('./pages/GcpAlertsPage'));
 const GcpBillingPage = lazy(() => import('./pages/GcpBillingPage'));
 const GcpSpotAutomationPage = lazy(() => import('./pages/GcpSpotAutomationPage'));
+const AutoSpottingRoute = lazy(() => import('./pages/autospotting/AutoSpottingRoute'));
 const GcpDataOpsPage = lazy(() => import('./pages/GcpDataOpsPage'));
 const GcpDiskRightsizingPage = lazy(() => import('./pages/GcpDiskRightsizingPage'));
 const AzureDataOpsPage = lazy(() => import('./pages/AzureDataOpsPage'));
@@ -545,8 +545,9 @@ const AppContent: React.FC = () => {
                             <Route path="/gcp-reservations" element={<GcpReservationsPage />} />
                             <Route path="/azure-reservations" element={<AzureReservationsPage />} />
                             <Route path="/cloudsitter" element={<CloudSitterPage />} />
-                            <Route path="/spot-automation" element={<SpotAutomationPage />} />
-                            <Route path="/autospotting" element={<SpotAutomationPage />} />
+                            <Route path="/spot-automation" element={<AutoSpottingRoute />} />
+                            <Route path="/autospotting" element={<AutoSpottingRoute />} />
+                            <Route path="/autospotting/groups/:groupId" element={<AutoSpottingRoute />} />
                             <Route path="/asg-detail" element={<ASGDetailPage />} />
                             <Route path="/asg-config" element={<ASGConfigPage />} />
                             <Route path="/flex-compute" element={<FlexComputePage />} />
