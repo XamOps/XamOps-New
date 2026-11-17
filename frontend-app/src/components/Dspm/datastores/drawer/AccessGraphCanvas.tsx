@@ -104,7 +104,8 @@ const AccessGraphCanvas: React.FC<Props> = ({ layout, zoom, rootName, provider, 
             <button
               type="button"
               onClick={e => onOpen(node.group, e.currentTarget)}
-              className="flex min-w-0 flex-1 items-center gap-2 px-3 text-left transition-colors hover:bg-[rgba(0,0,0,0.02)]"
+              // Tight spacing, so "Groups" with a two-digit count and "Show groups" fit the 200 px box.
+              className="flex min-w-0 flex-1 items-center gap-1.5 pl-3 pr-1 text-left transition-colors hover:bg-[rgba(0,0,0,0.02)]"
             >
               <Icon icon={kind.icon} width={16} className="flex-shrink-0 text-[rgba(0,0,0,0.5)]" />
               <span className="truncate text-xs font-semibold text-[rgba(0,0,0,0.8)]">{kind.label}</span>
@@ -117,7 +118,7 @@ const AccessGraphCanvas: React.FC<Props> = ({ layout, zoom, rootName, provider, 
               type="button"
               aria-expanded={node.expanded}
               onClick={() => onToggle(node.group.id)}
-              className="flex-shrink-0 px-3 text-[11px] font-semibold text-sky-700 hover:underline"
+              className="flex-shrink-0 pl-1 pr-2 text-[11px] font-semibold text-sky-700 hover:underline"
             >
               {node.expanded ? 'Hide' : `Show ${kind.noun}`}
             </button>

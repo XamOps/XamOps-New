@@ -66,7 +66,8 @@ const ScanHistoryTab: React.FC<{ history: DatastoreScanHistory }> = ({ history }
   const columns = COLUMNS.filter((column, index) => index === 0 || !hidden.has(column.id));
 
   return (
-    <div className="overflow-hidden rounded-xl border border-[rgba(0,0,0,0.08)]">
+    // Not overflow-hidden: the Columns menu opens below its button and must not be clipped on a short table.
+    <div className="rounded-xl border border-[rgba(0,0,0,0.08)]">
       <header className="flex items-center border-b border-[rgba(0,0,0,0.06)] px-3 py-2">
         <ColumnsMenu columns={COLUMNS} hidden={hidden} onToggle={toggleColumn} />
       </header>

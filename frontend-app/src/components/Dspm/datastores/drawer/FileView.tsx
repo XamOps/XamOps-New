@@ -103,7 +103,8 @@ const FileView: React.FC<{ api: DatastoreDrawerApi; search: string }> = ({ api, 
 
   return (
     <div className="space-y-2">
-      <div className="overflow-hidden rounded-xl border border-[rgba(0,0,0,0.08)]">
+      {/* Not overflow-hidden: the Columns menu opens below its button and must not be clipped on a short table. */}
+      <div className="rounded-xl border border-[rgba(0,0,0,0.08)]">
         <header className="flex items-center border-b border-[rgba(0,0,0,0.06)] px-3 py-2">
           <ColumnsMenu columns={FILE_COLUMNS} hidden={hidden} onToggle={toggleColumn} />
         </header>
