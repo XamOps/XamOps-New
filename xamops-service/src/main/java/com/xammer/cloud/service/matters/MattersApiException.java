@@ -90,8 +90,13 @@ public class MattersApiException extends RuntimeException {
          */
         WRONG_ENVIRONMENT(HttpStatus.CONFLICT, com.xammer.cloud.domain.MattersProjectMapping.STATUS_INVALID_KEY),
 
-        /** Key authenticates but lacks the PLATFORM scope the All-Assets endpoints require. */
-        FORBIDDEN_SCOPE(HttpStatus.CONFLICT, com.xammer.cloud.domain.MattersProjectMapping.STATUS_FORBIDDEN),
+        /**
+         * Key authenticates but lacks the PLATFORM scope the console routes require. Matters answered
+         * 403, and XamOps answers 403 too ("This Matters key needs the PLATFORM scope"), on every
+         * endpoint: the status comes from this reason, so no controller overrides it. The connection
+         * status is unchanged, so the admin Verify flow still records {@code STATUS_FORBIDDEN}.
+         */
+        FORBIDDEN_SCOPE(HttpStatus.FORBIDDEN, com.xammer.cloud.domain.MattersProjectMapping.STATUS_FORBIDDEN),
 
         /**
          * Over the 600 req/min per-key budget, after the client's own bounded retry gave up.

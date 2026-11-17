@@ -170,11 +170,13 @@ jobs:
 
       - name: Upload test reports
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: billops-test-reports
           path: billops/target/surefire-reports/
           if-no-files-found: ignore
+          retention-days: 3
 
   billops-docker-push:
     name: "[billops] Build & Push Docker Image"
@@ -435,11 +437,13 @@ jobs:
 
       - name: Upload test reports
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: xamops-test-reports
           path: xamops-service/target/surefire-reports/
           if-no-files-found: ignore
+          retention-days: 3
 
   # Tests tagged @Tag("containers") (Testcontainers PostgreSQL, the AutoSpotting migration
   # harness). The default "mvn test" above excludes them; ubuntu-latest ships Docker.
@@ -465,11 +469,13 @@ jobs:
 
       - name: Upload test reports
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: xamops-containers-test-reports
           path: xamops-service/target/surefire-reports/
           if-no-files-found: ignore
+          retention-days: 3
 
   xamops-docker-push:
     name: "[xamops-service] Build & Push Docker Image"
@@ -1234,11 +1240,13 @@ jobs:
 
       - name: Upload test reports
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: forecast-test-reports
           path: forecast-service/test-reports/
           if-no-files-found: ignore
+          retention-days: 3
 
   forecast-docker-push:
     name: "[forecast-service] Build & Push Docker Image"
