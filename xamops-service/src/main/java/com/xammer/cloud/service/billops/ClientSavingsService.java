@@ -1,15 +1,24 @@
 package com.xammer.cloud.service.billops;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.ClientSavingsDashboardDto;
+import com.xammer.cloud.dto.DashboardData;
+import com.xammer.cloud.dto.ReservationDto;
+import com.xammer.cloud.dto.azure.AzureReservationData;
+import com.xammer.cloud.dto.azure.AzureRightsizingRecommendation;
+import com.xammer.cloud.dto.azure.AzureRightsizingResponse;
+import com.xammer.cloud.dto.gcp.GcpOptimizationRecommendation;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DailySpotSavingsRepository;
 import com.xammer.cloud.repository.EbsVolumeActionRepository;
 import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.service.azure.AzureRightsizingService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,15 +27,30 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.DoubleStream;
+import java.util.stream.Stream;
 
 @Service
 public class ClientSavingsService {
 
+    private static final Logger log = LoggerFactory.getLogger(ClientSavingsService.class);
+
     private static final String CACHE_KEY_PREFIX = "CLIENT_SAVINGS::";
     private static final int CACHE_TTL_MINUTES = 60;
+
+    // Snapshots behind the potential-savings columns, keyed <prefix><providerAccountId>. Each is
+    // read with the DTO its writer saves, so a renamed field breaks the build instead of reading 0.
+    private static final String AWS_RIGHTSIZING    = "DASHBOARD_OPT::";     // DashboardData
+    private static final String AWS_RESERVATIONS   = "RESERVATION_PAGE::";  // ReservationDto
+    private static final String GCP_RIGHTSIZING    = "GCP_RIGHTSIZING::";   // List<GcpOptimizationRecommendation>
+    private static final String GCP_RESERVATIONS   = "GCP_CUD_RECS::";      // same, written by the GCP reservations page
+    private static final String AZURE_RIGHTSIZING  = "AZURE_RIGHTSIZING::"; // AzureRightsizingResponse
+    private static final String AZURE_RESERVATIONS = "RESERVATION_PAGE::";  // AzureReservationData
 
     @Autowired RedisCacheService redisCacheService;
     @Autowired CloudAccountRepository cloudAccountRepository;
@@ -62,13 +86,19 @@ public class ClientSavingsService {
         BigDecimal legacyAwsSpot = sumLegacySpotSavings(awsAccounts, startDate, endDate);
         BigDecimal legacyGcpSpot = sumLegacySpotSavings(gcpAccounts, startDate, endDate);
 
-        double awsRightsizing   = sumCachedSavings(awsAccounts,   "DASHBOARD_OPT::",      "totalMonthlySavings");
-        double gcpRightsizing   = sumCachedSavings(gcpAccounts,   "GCP_RIGHTSIZING::",    "monthlySavings");
-        double azureRightsizing = sumCachedSavings(azureAccounts, "AZURE_RIGHTSIZING::",  "estimatedMonthlySavings");
+        double awsRightsizing = sumSnapshots(awsAccounts, AWS_RIGHTSIZING,
+                new TypeReference<DashboardData>() {}, ClientSavingsService::awsRightsizingAmounts);
+        double gcpRightsizing = sumSnapshots(gcpAccounts, GCP_RIGHTSIZING,
+                new TypeReference<List<GcpOptimizationRecommendation>>() {}, ClientSavingsService::gcpAmounts);
+        double azureRightsizing = sumSnapshots(azureAccounts, AZURE_RIGHTSIZING,
+                new TypeReference<AzureRightsizingResponse>() {}, ClientSavingsService::azureRightsizingAmounts);
 
-        double awsReservations   = sumCachedSavings(awsAccounts,   "RESERVATION_ANALYSIS::", "estimatedMonthlySavings");
-        double gcpReservations   = sumCachedSavings(gcpAccounts,   "RESERVATION_PAGE::",     "totalMonthlySavings");
-        double azureReservations = sumCachedSavings(azureAccounts, "RESERVATION_PAGE::",     "totalMonthlySavings");
+        double awsReservations = sumSnapshots(awsAccounts, AWS_RESERVATIONS,
+                new TypeReference<ReservationDto>() {}, ClientSavingsService::awsReservationAmounts);
+        double gcpReservations = sumSnapshots(gcpAccounts, GCP_RESERVATIONS,
+                new TypeReference<List<GcpOptimizationRecommendation>>() {}, ClientSavingsService::gcpAmounts);
+        double azureReservations = sumSnapshots(azureAccounts, AZURE_RESERVATIONS,
+                new TypeReference<AzureReservationData>() {}, data -> DoubleStream.of(data.getTotalMonthlySavings()));
 
         double realizedTotal  = awsSpot + gcpSpot + awsEbs;
         double potentialTotal = awsRightsizing + gcpRightsizing + azureRightsizing
@@ -125,25 +155,78 @@ public class ClientSavingsService {
             .sum();
     }
 
-    private double sumCachedSavings(List<CloudAccount> accounts, String keyPrefix, String savingsField) {
-        return accounts.stream()
-            .filter(a -> a.getProviderAccountId() != null)
-            .mapToDouble(a -> cachedDataRepository.findById(keyPrefix + a.getProviderAccountId())
-                .map(cd -> extractSavingsFromJson(cd.getJsonData(), savingsField))
-                .orElse(0.0))
-            .sum();
+    /**
+     * Adds one provider's potential savings across its accounts. Only positive amounts count: a
+     * negative "saving" is a cost increase. An account with no snapshot counts 0 quietly, because
+     * its provider page was never opened. A snapshot that can't be read, or lacks the part
+     * {@code amounts} reads, also counts 0 but is logged: it means this tab and the snapshot's
+     * writer disagree, which is how these columns read 0 for every client unnoticed.
+     */
+    private <T> double sumSnapshots(List<CloudAccount> accounts, String keyPrefix, TypeReference<T> type,
+                                    Function<T, DoubleStream> amounts) {
+        double total = 0.0;
+        for (CloudAccount account : accounts) {
+            if (account.getProviderAccountId() == null) continue;
+            String key = keyPrefix + account.getProviderAccountId();
+            Optional<CachedData> row = cachedDataRepository.findById(key);
+            if (row.isEmpty() || row.get().getJsonData() == null) continue;
+            try {
+                T snapshot = objectMapper.readValue(row.get().getJsonData(), type);
+                if (snapshot == null) throw new IllegalStateException("snapshot is empty");
+                total += amounts.apply(snapshot).filter(v -> v > 0).sum();
+            } catch (Exception e) {
+                log.warn("Savings snapshot {} not usable, counted as 0: {}", key, e.getMessage());
+            }
+        }
+        return total;
     }
 
-    private double extractSavingsFromJson(String json, String field) {
+    /**
+     * The EC2, EBS and Lambda lists the AWS dashboard adds up as rightsizing. Not the dashboard's
+     * optimizationSummary total: that also adds idle-resource waste and the AutoSpotting, EBS disk
+     * and CloudSitter estimates.
+     */
+    private static DoubleStream awsRightsizingAmounts(DashboardData snapshot) {
+        DashboardData.Account account = snapshot.getSelectedAccount();
+        if (account == null) throw new IllegalStateException("no selectedAccount");
+        return Stream.of(account.getEc2Recommendations(), account.getEbsRecommendations(),
+                        account.getLambdaRecommendations())
+            .filter(Objects::nonNull)
+            .flatMap(List::stream)
+            .mapToDouble(DashboardData.OptimizationRecommendation::getEstimatedMonthlySavings);
+    }
+
+    /** Reserved-instance purchases only: Savings Plan recommendations cover the same usage. */
+    private static DoubleStream awsReservationAmounts(ReservationDto snapshot) {
+        if (snapshot.getPurchaseRecommendations() == null) throw new IllegalStateException("no purchaseRecommendations");
+        return snapshot.getPurchaseRecommendations().stream().mapToDouble(r -> parseAmount(r.getMonthlySavings()));
+    }
+
+    /** Recommender results, for rightsizing and CUD purchases alike. */
+    private static DoubleStream gcpAmounts(List<GcpOptimizationRecommendation> recommendations) {
+        return recommendations.stream().mapToDouble(GcpOptimizationRecommendation::getMonthlySavings);
+    }
+
+    /**
+     * Advisor resize and shutdown advice. Unpriced rows are placeholder zeros. Reservation and
+     * savings-plan purchases are left to the Reservations column, which gets the same opportunities
+     * from Azure's reservation recommendations.
+     */
+    private static DoubleStream azureRightsizingAmounts(AzureRightsizingResponse snapshot) {
+        if (snapshot.getRecommendations() == null) throw new IllegalStateException("no recommendations");
+        return snapshot.getRecommendations().stream()
+            .filter(r -> !r.isSavingsUnknown())
+            .filter(r -> !AzureRightsizingService.isCommitmentPurchase(r.getTargetSku()))
+            .mapToDouble(AzureRightsizingRecommendation::getMonthlySavings);
+    }
+
+    /** ReservationService stores Cost Explorer's amount as text. */
+    private static double parseAmount(String value) {
+        if (value == null || value.isBlank()) return 0.0;
         try {
-            JsonNode root = objectMapper.readTree(json);
-            if (root.isArray()) {
-                double sum = 0.0;
-                for (JsonNode item : root) sum += item.path(field).asDouble(0.0);
-                return sum;
-            }
-            return root.path(field).asDouble(0.0);
-        } catch (Exception e) {
+            return Double.parseDouble(value.trim());
+        } catch (NumberFormatException e) {
+            log.warn("Unreadable AWS reservation saving '{}', counted as 0", value);
             return 0.0;
         }
     }
@@ -181,21 +264,26 @@ public class ClientSavingsService {
             .collect(Collectors.toList());
     }
 
+    /** Date of the oldest snapshot the potential columns were computed from, or null when none exists. */
     private String findOldestCacheDate(List<CloudAccount> accounts) {
         return accounts.stream()
             .filter(a -> a.getProviderAccountId() != null)
-            .flatMap(a -> List.of(
-                "GCP_RIGHTSIZING::" + a.getProviderAccountId(),
-                "AZURE_RIGHTSIZING::" + a.getProviderAccountId(),
-                "DASHBOARD_OPT::" + a.getProviderAccountId(),
-                "RESERVATION_ANALYSIS::" + a.getProviderAccountId(),
-                "RESERVATION_PAGE::" + a.getProviderAccountId()
-            ).stream())
-            .map(key -> cachedDataRepository.findById(key))
-            .filter(Optional::isPresent)
-            .map(opt -> opt.get().getLastUpdated().toLocalDate())
+            .flatMap(a -> snapshotPrefixes(a.getProvider()).stream().map(prefix -> prefix + a.getProviderAccountId()))
+            .map(cachedDataRepository::findById)
+            .flatMap(Optional::stream)
+            .map(CachedData::getLastUpdated)
+            .filter(Objects::nonNull)
+            .map(LocalDateTime::toLocalDate)
             .min(LocalDate::compareTo)
             .map(LocalDate::toString)
             .orElse(null);
+    }
+
+    /** The snapshots getSavings reads for an account of this provider. */
+    private static List<String> snapshotPrefixes(String provider) {
+        if ("AWS".equals(provider)) return List.of(AWS_RIGHTSIZING, AWS_RESERVATIONS);
+        if ("GCP".equals(provider)) return List.of(GCP_RIGHTSIZING, GCP_RESERVATIONS);
+        if ("Azure".equals(provider)) return List.of(AZURE_RIGHTSIZING, AZURE_RESERVATIONS);
+        return List.of();
     }
 }
