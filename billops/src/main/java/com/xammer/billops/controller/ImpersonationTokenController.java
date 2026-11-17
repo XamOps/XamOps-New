@@ -7,6 +7,7 @@ import com.xammer.billops.util.SecurityUtils;
 import com.xammer.cloud.domain.AppUser;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.domain.UserActivityEvent;
+import com.xammer.cloud.security.ClientUserDetails;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
@@ -15,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -212,8 +214,19 @@ public class ImpersonationTokenController {
         // this claim the receiving service can tell that a session is impersonated but not by
         // whom — which makes activity recorded during the session unattributable, and means it
         // would otherwise be counted as the customer's own usage.
+        //
+        // The admin's username and role go with the id, so xamops-service records the admin as
+        // the actor of the XamLens reads made in the session without looking them up. Receivers
+        // must accept tokens without them: tokens minted before they existed stay valid for
+        // eight hours.
         try {
-            builder.claim("actorUserId", SecurityUtils.getPrincipal().getId());
+            ClientUserDetails admin = SecurityUtils.getPrincipal();
+            builder.claim("actorUserId", admin.getId());
+            builder.claim("actorUsername", admin.getUsername());
+            builder.claim("actorRole", admin.getAuthorities().stream()
+                    .map(GrantedAuthority::getAuthority)
+                    .findFirst()
+                    .orElse(null));
         } catch (Exception e) {
             log.debug("Could not stamp impersonating admin on token: {}", e.getMessage());
         }
