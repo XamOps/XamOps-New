@@ -175,6 +175,12 @@ export const Dashboard: React.FC = () => {
   };
 
   const accountId = selectedAccountIds.length === 1 ? selectedAccountIds[0] : null;
+  // The XamOps id of the selected AWS account, for the AutoSpotting tile's v2 potential read.
+  const spotAccountDbId = React.useMemo(() => {
+    if (multiAccountMode || selectedAccountIds.length !== 1) return null;
+    const a = accounts.find(x => x.id === selectedAccountIds[0]);
+    return (a?.provider ?? 'AWS') === 'AWS' ? a?.dbId ?? null : null;
+  }, [multiAccountMode, selectedAccountIds, accounts]);
 
   if (error) {
     return (
@@ -240,6 +246,7 @@ export const Dashboard: React.FC = () => {
                 optimization={dashboardData.optimization}
                 resourceInventory={dashboardData.resourceInventory}
                 isLoading={loadingState.kpi}
+                autoSpottingAccountId={spotAccountDbId}
                 headerAction={
                   <button onClick={() => setCustomizerOpen(true)}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.55)] hover:bg-[rgba(0,0,0,0.04)] hover:text-[rgba(0,0,0,0.8)] transition-colors">

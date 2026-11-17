@@ -24,6 +24,7 @@ import * as xamlensDrawer from './xamlensDrawerMockData';
 import type { DspmSurface } from '../hooks/useDspmData';
 import * as soc2 from './soc2MockData';
 import * as war from './warMockData';
+import * as spot from './autospottingDemoData';
 
 /** Reads a query-string value off a URL that may be relative. */
 function param(url: string, name: string): string {
@@ -72,7 +73,21 @@ const AUTOSPOTTING_ADMIN_PREFIX = '/api/xamops/autospotting-admin/';
  * AutoSpotting customer's real name and savings. Lists are empty and totals 0, which both pages
  * render as "no data"; any other path under the prefix is a 404.
  */
-function routeAutoSpottingAdmin(url: string): Response {
+function routeAutoSpottingAdmin(url: string, method = 'GET', body?: string): Response {
+  const m = method.toUpperCase();
+  const path = url.slice(url.indexOf(AUTOSPOTTING_ADMIN_PREFIX) + AUTOSPOTTING_ADMIN_PREFIX.length).split('?')[0];
+  // Operator views (Phase 14): switches, stuck operations, pause and resume. Demo fixtures only.
+  if (path === 'switches' && m === 'GET') return makeResponse(spot.demoSwitches());
+  const sw = /^switches\/([^/]+)$/.exec(path);
+  if (sw && m === 'PUT') {
+    const change = parseJson(body) as { engaged: boolean; expectedVersion: number; reason: string };
+    const next = spot.setDemoSwitch(decodeURIComponent(sw[1]), change);
+    return next ? makeResponse(next) : makeNotFound();
+  }
+  if (path === 'operations' && m === 'GET') return makeResponse(spot.demoOperatorOperations());
+  const pr = /^groups\/([^/]+)\/(pause|resume)$/.exec(path);
+  if (pr && m === 'POST')
+    return makeResponse({ groupId: decodeURIComponent(pr[1]), state: pr[2] === 'pause' ? 'PAUSED' : 'ACTIVE' });
   if (url.includes(`${AUTOSPOTTING_ADMIN_PREFIX}total-savings`))
     return makeResponse({ totalSavings: 0, legacyUnverifiedTotal: 0, activeSpotInstances: 0 });
   if (
@@ -83,6 +98,61 @@ function routeAutoSpottingAdmin(url: string): Response {
   )
     return makeResponse([]);
   return makeNotFound();
+}
+
+function parseJson(body?: string): unknown {
+  try {
+    return body ? JSON.parse(body) : {};
+  } catch {
+    return {};
+  }
+}
+
+const V2_PREFIX = '/api/autospotting/v2/';
+
+/**
+ * Every v2 path the AutoSpotting shell calls (AC-UI-06, AWS): config, groups, detail, plan for all
+ * profiles, confirm (a scripted operation that ends ACTIVE), revert, analytics, activity and commitments.
+ * An unknown v2 path is a 404 problem body, never the generic empty object.
+ */
+function routeAutoSpottingV2(url: string, method: string, body?: string): Response {
+  const m = method.toUpperCase();
+  const path = url.slice(url.indexOf(V2_PREFIX) + V2_PREFIX.length - 1).split('?')[0];
+  if (path === '/config' && m === 'GET') return makeResponse(spot.demoAutoSpottingConfig);
+  if (/^\/accounts\/[^/]+\/groups\/potential$/.test(path) && m === 'GET') return makeResponse(spot.demoPotential());
+  if (/^\/accounts\/[^/]+\/groups$/.test(path) && m === 'GET') return makeResponse(spot.demoGroupList());
+  const group = /^\/accounts\/[^/]+\/groups\/([^/]+)$/.exec(path);
+  if (group && m === 'GET') {
+    const detail = spot.demoGroupDetail(decodeURIComponent(group[1]));
+    return detail ? makeResponse(detail) : makeResponse({ code: 'NOT_FOUND', detail: 'Group not found.' }, 404);
+  }
+  if (/^\/accounts\/[^/]+\/plans$/.test(path) && m === 'POST') {
+    const req = parseJson(body) as { kind?: string; groupId?: string | null; groupRef?: string | null };
+    return makeResponse(spot.demoCreatePlan(req.groupId ?? req.groupRef ?? null, req.kind ?? 'ENABLE'), 201);
+  }
+  const plan = /^\/accounts\/[^/]+\/plans\/([^/]+)$/.exec(path);
+  if (plan && m === 'GET') {
+    const found = spot.demoGetPlan(decodeURIComponent(plan[1]));
+    return found ? makeResponse(found) : makeResponse({ code: 'NOT_FOUND', detail: 'Plan not found.' }, 404);
+  }
+  const confirm = /^\/accounts\/[^/]+\/plans\/([^/]+)\/confirm$/.exec(path);
+  if (confirm && m === 'POST') {
+    const started = spot.demoConfirm(decodeURIComponent(confirm[1]));
+    return started ? makeResponse(started, 202) : makeResponse({ code: 'NOT_FOUND', detail: 'Plan not found.' }, 404);
+  }
+  const op = /^\/accounts\/[^/]+\/operations\/([^/]+)$/.exec(path);
+  if (op && m === 'GET') {
+    const found = spot.demoOperation(decodeURIComponent(op[1]));
+    return found ? makeResponse(found) : makeResponse({ code: 'NOT_FOUND', detail: 'Operation not found.' }, 404);
+  }
+  if (/^\/accounts\/[^/]+\/analytics$/.test(path) && m === 'GET')
+    return makeResponse(spot.demoAnalytics(param(url, 'from') || '2026-10-22', param(url, 'to') || '2026-11-20'));
+  if (/^\/accounts\/[^/]+\/audit$/.test(path) && m === 'GET') return makeResponse(spot.demoAudit());
+  if (/^\/accounts\/[^/]+\/commitments\/coverage$/.test(path) && m === 'GET') return makeResponse(spot.demoCommitmentCoverage);
+  if (/^\/accounts\/[^/]+\/commitments\/settings$/.test(path) && m === 'GET') return makeResponse(spot.demoCommitmentSettings());
+  if (/^\/accounts\/[^/]+\/commitments\/settings\/risp-respect$/.test(path) && m === 'PUT')
+    return makeResponse(spot.saveDemoCommitmentSettings(parseJson(body) as Partial<{ respectRiSpCommitments: boolean; riSpUtilizationThreshold: number }>));
+  return makeResponse({ code: 'NOT_FOUND', detail: 'No demo response for this path.' }, 404);
 }
 
 function routeXamops(url: string, method = 'GET', body?: string): Response | null {
@@ -732,7 +802,7 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   // AutoSpotting admin reads: mocked, never passed through (see routeAutoSpottingAdmin). Must come
   // before the catch-all below, whose {} would break the pages' arrays.
   if (url.includes(AUTOSPOTTING_ADMIN_PREFIX))
-    return routeAutoSpottingAdmin(url);
+    return routeAutoSpottingAdmin(url, method, body);
 
   // Any other /api/xamops/* — empty fallback
   if (url.includes('/api/xamops/'))
@@ -750,6 +820,9 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   if (url.includes('/api/ebs/'))
     return makeResponse([]);
 
+  // AutoSpotting v2 (the shell): every path the shell calls has a fixture (task 14.4).
+  if (url.includes(V2_PREFIX))
+    return routeAutoSpottingV2(url, method, body);
   // AutoSpotting — uses /api/autospotting/ (not /api/xamops/)
   if (url.includes('/api/autospotting/costs/history'))
     return makeResponse(xamops.demoAutoSpottingHistory);
@@ -1335,7 +1408,7 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   return null;
 }
 
-function routeBillopsAdmin(url: string): Response | null {
+function routeBillopsAdmin(url: string, method = 'GET', body?: string): Response | null {
   // Team profile (needed by DashboardGuard routing)
   if (url.includes('/api/billops/team/profile'))
     return makeResponse(billops.demoBillopsTeamProfile);
@@ -1469,7 +1542,7 @@ function routeBillopsAdmin(url: string): Response | null {
   // AutoSpotting card and its Full Report page. This demo login is a real BillOps admin, so these
   // reads must never reach the backend (see routeAutoSpottingAdmin).
   if (url.includes(AUTOSPOTTING_ADMIN_PREFIX))
-    return routeAutoSpottingAdmin(url);
+    return routeAutoSpottingAdmin(url, method, body);
 
   // Any other /api/billops/* — empty fallback
   if (url.includes('/api/billops/'))
@@ -1492,7 +1565,7 @@ export function resolveDemoResponse(url: string, method = 'GET', body?: string):
   if (!role) return null;
 
   if (role === 'ROLE_XAMOPS')        return routeXamops(url, method, body);
-  if (role === 'ROLE_BILLOPS_ADMIN') return routeBillopsAdmin(url);
+  if (role === 'ROLE_BILLOPS_ADMIN') return routeBillopsAdmin(url, method, body);
 
   return null;
 }

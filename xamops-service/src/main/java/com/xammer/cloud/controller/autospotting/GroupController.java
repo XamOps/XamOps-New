@@ -6,6 +6,7 @@ import com.xammer.cloud.dto.autospotting.v2.GroupDetailDto;
 import com.xammer.cloud.dto.autospotting.v2.GroupListDto;
 import com.xammer.cloud.dto.autospotting.v2.GroupRowDto;
 import com.xammer.cloud.dto.autospotting.v2.OperationDto;
+import com.xammer.cloud.dto.autospotting.v2.PotentialDto;
 import com.xammer.cloud.repository.autospotting.SpotGroupRepository;
 import com.xammer.cloud.repository.autospotting.SpotGroupTransitionRepository;
 import com.xammer.cloud.repository.autospotting.SpotOperationRepository;
@@ -77,18 +78,55 @@ public class GroupController {
         try (AutoSpottingMdc.Scope ignored = AutoSpottingMdc.builder().cloudAccountId(account.getId()).open()) {
             requireAws(account);
             boolean refresh = cacheControl != null && cacheControl.toLowerCase(java.util.Locale.ROOT).contains("no-cache");
-            if (refresh) {
-                listCache.evict(account.getId());
-            } else {
-                Optional<GroupListDto> cached = listCache.get(account.getId());
-                if (cached.isPresent()) {
-                    return noStore(cached.get());
+            return noStore(loadList(account, refresh));
+        }
+    }
+
+    /**
+     * The dashboard potential (plan-phase-14.md task 14.3, AC-CMP-04): managed groups at their current
+     * profile plus UNMANAGED groups with no LIST-mode blocker at the preselected profile, priced through
+     * {@code EstimatePriceService} by the list. Unpriced groups and ineligible groups are counted and left
+     * out of the figure; with nothing priced the figure is null, never 0.
+     */
+    @GetMapping("/accounts/{accountId}/groups/potential")
+    public ResponseEntity<PotentialDto> potential(@PathVariable Long accountId,
+                                                  @AuthenticationPrincipal ClientUserDetails userDetails) {
+        CloudAccount account = accountAccessService.requireAccess(userDetails, accountId);
+        try (AutoSpottingMdc.Scope ignored = AutoSpottingMdc.builder().cloudAccountId(account.getId()).open()) {
+            requireAws(account);
+            GroupListDto list = loadList(account, false);
+            double total = 0;
+            int priced = 0;
+            int unpriced = 0;
+            int ineligible = 0;
+            for (GroupRowDto r : list.items()) {
+                boolean counts = !r.externalSpot() && (r.managed() || r.enableAllowed());
+                if (!counts) {
+                    ineligible++;
+                } else if (r.savingsUnknown() || r.monthlySavings() == null) {
+                    unpriced++;
+                } else {
+                    total += r.monthlySavings();
+                    priced++;
                 }
             }
-            GroupListDto list = awsLister.list(account);
-            listCache.put(account.getId(), list); // a partial list is never stored
-            return noStore(list);
+            return noStore(new PotentialDto(priced > 0 ? Math.round(total * 100.0) / 100.0 : null, priced, unpriced,
+                    ineligible, list.partial(), list.asOf()));
         }
+    }
+
+    private GroupListDto loadList(CloudAccount account, boolean refresh) {
+        if (refresh) {
+            listCache.evict(account.getId());
+        } else {
+            Optional<GroupListDto> cached = listCache.get(account.getId());
+            if (cached.isPresent()) {
+                return cached.get();
+            }
+        }
+        GroupListDto list = awsLister.list(account);
+        listCache.put(account.getId(), list); // a partial list is never stored
+        return list;
     }
 
     @GetMapping("/accounts/{accountId}/groups/{groupId}")

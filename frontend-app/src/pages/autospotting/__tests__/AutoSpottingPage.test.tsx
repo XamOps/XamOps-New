@@ -75,7 +75,7 @@ describe('AutoSpottingPage table and panel', () => {
     await screen.findByText('Est. monthly savings');
     expect(screen.getByText('Accruing MTD (not final)')).toBeInTheDocument();
     expect(screen.getByText('Not tracked')).toBeInTheDocument();
-    expect(screen.getByText('Groups')).toBeInTheDocument();
+    expect(screen.getByText('Groups', { selector: 'dt' })).toBeInTheDocument();
     expect(screen.getByText('1 group not priced')).toBeInTheDocument();
     expect(screen.getAllByText('Estimate').length).toBeGreaterThan(0);
   });
@@ -251,5 +251,56 @@ describe('load, empty, error and partial states', () => {
     mount(list([], { partial: true, failedLocations: [{ location: 'us-east-1', code: 'TIMEOUT' }] }));
     expect(await screen.findByText(/1 region could not be read/)).toBeInTheDocument();
     expect(screen.queryByText(/No Auto Scaling Groups in this account/)).toBeNull();
+  });
+});
+
+describe('AutoSpottingPage views (plan-phase-14)', () => {
+  const emptyAnalytics = {
+    from: '2026-10-22T00:00:00Z',
+    to: '2026-11-21T00:00:00Z',
+    notTracked: ['spotLaunches', 'launchFailures', 'interruptions', 'rebalanceRecommendations', 'successRate'],
+    totals: { spotLaunches: null, launchFailures: null, failuresByCause: {}, interruptions: null, rebalanceRecommendations: null, successRate: null },
+    groups: [],
+  };
+  const mountViews = (route: string) => {
+    installFetch([
+      { match: /\/v2\/config$/, responses: [{ body: config() }] },
+      { match: /\/accounts\/7\/groups$/, responses: [{ body: list() }] },
+      { match: /\/accounts\/7\/analytics/, responses: [{ body: emptyAnalytics }] },
+      { match: /\/accounts\/7\/audit/, responses: [{ body: [] }] },
+    ]);
+    return renderWithProviders(<AutoSpottingPage />, route);
+  };
+
+  it('lists the four views and opens on Groups', async () => {
+    mountViews('/autospotting');
+    await screen.findByText('web-asg');
+    expect(screen.getAllByRole('tab').map(t => t.textContent)).toEqual(['Groups', 'Analytics', 'Activity', 'Commitments']);
+    expect(screen.getByRole('tab', { name: 'Groups' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('keeps the view in ?view= so a reload opens the same view', async () => {
+    const first = mountViews('/autospotting?view=analytics');
+    expect(await screen.findByRole('region', { name: 'Analytics' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Analytics' })).toHaveAttribute('aria-selected', 'true');
+    first.unmount();
+    // "Reload": a fresh mount at the same URL.
+    mountViews('/autospotting?view=activity');
+    expect(await screen.findByRole('region', { name: 'Activity' })).toBeInTheDocument();
+  });
+
+  it('switches views from the tabs', async () => {
+    mountViews('/autospotting');
+    await screen.findByText('web-asg');
+    await userEvent.click(screen.getByRole('tab', { name: 'Activity' }));
+    expect(await screen.findByRole('region', { name: 'Activity' })).toBeInTheDocument();
+    expect(screen.queryByText('web-asg')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: 'Groups' }));
+    expect(await screen.findByText('web-asg')).toBeInTheDocument();
+  });
+
+  it('falls back to Groups for an unknown ?view=', async () => {
+    mountViews('/autospotting?view=nope');
+    expect(await screen.findByText('web-asg')).toBeInTheDocument();
   });
 });

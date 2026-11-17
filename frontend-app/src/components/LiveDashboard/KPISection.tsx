@@ -4,6 +4,7 @@ import { Icon } from '@iconify/react';
 import type { KPIData, CostHistory, OptimizationData, ResourceInventory } from '../../types/liveDashboard';
 import { fmtMoney } from '../../utils/currency';
 import { resolveProviderLink } from '../../utils/providerRoutes';
+import { getConfig, getPotential } from '../../api/autospottingApi';
 import KPIManageModal, { ALL_KPI_CARDS, DEFAULT_SELECTED, LEGACY_DEFAULT_SELECTED, MIN_SELECTED, type KPICardDef } from './KPIManageModal';
 
 const LS_KEY = (provider: string) =>
@@ -103,6 +104,8 @@ interface KPISectionProps {
   isLoading: boolean;
   provider?: 'AWS' | 'GCP' | 'Azure';
   accountId?: string | null;
+  /** The XamOps id of the selected AWS account. With the AutoSpotting shell on, the AutoSpotting tiles read the v2 potential through it. */
+  autoSpottingAccountId?: number | null;
   headerAction?: React.ReactNode;
 }
 
@@ -308,12 +311,14 @@ const KPICard: React.FC<KPICardProps> = ({ def, rawValue, change, changeLabel, t
 };
 
 // ── KPI Section ───────────────────────────────────────────────────────────────
-const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimization, resourceInventory, totalResourcesOverride, isLoading, provider = 'AWS', accountId, headerAction }) => {
+const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimization, resourceInventory, totalResourcesOverride, isLoading, provider = 'AWS', accountId, autoSpottingAccountId, headerAction }) => {
   const [selectedIds, setSelectedIds] = useState<string[]>(() => loadKpiCards(provider));
   const [manageOpen, setManageOpen]   = useState(() => {
     try { return sessionStorage.getItem(MODAL_OPEN_KEY(provider)) === '1'; } catch { return false; }
   });
   const [extValues, setExtValues]     = useState<Record<string, number>>({});
+  // True when the AutoSpotting tiles show the v2 potential (shell on) rather than the legacy figures.
+  const [spotPotential, setSpotPotential] = useState(false);
 
   const openManage = (open: boolean) => {
     setManageOpen(open);
@@ -383,8 +388,33 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimizat
       );
     }
 
-    // AutoSpotting (AWS only, account-specific)
-    if (accountId && provider === 'AWS' && has('autoSpottingSavings', 'autoSpottingInstances')) {
+    // AutoSpotting (AWS only, account-specific). With the shell on, the tiles read the v2 potential:
+    // priced groups only, unpriced and ineligible ones counted and left out (plan-phase-14 task 14.3).
+    if (provider === 'AWS' && autoSpottingAccountId != null && has('autoSpottingSavings', 'autoSpottingInstances')) {
+      fetches.push(
+        getConfig()
+          .then(async cfg => {
+            if (!cfg.shellEnabled) return false;
+            const p = await getPotential(autoSpottingAccountId);
+            upd.autoSpottingSavings   = p.potentialMonthlySavings ?? 0;
+            upd.autoSpottingInstances = p.pricedGroups + p.unpricedGroups;
+            return true;
+          })
+          .catch(() => false)
+          .then(async usedPotential => {
+            setSpotPotential(usedPotential);
+            if (usedPotential || !accountId) return;
+            await fetch(`/api/autospotting/costs/${accountId}`, { credentials: 'include' })
+              .then(r => r.ok ? r.json() : null)
+              .then((d: any) => {
+                if (!d) return;
+                upd.autoSpottingSavings    = (d.summary?.total_actual_savings || 0) * 730;
+                upd.autoSpottingInstances  = (d.asgs || []).length;
+              })
+              .catch(() => {});
+          })
+      );
+    } else if (accountId && provider === 'AWS' && has('autoSpottingSavings', 'autoSpottingInstances')) {
       fetches.push(
         fetch(`/api/autospotting/costs/${accountId}`, { credentials: 'include' })
           .then(r => r.ok ? r.json() : null)
@@ -396,7 +426,6 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimizat
           .catch(() => {})
       );
     }
-
     // FlexCompute (global)
     if (has('flexComputeInstances', 'flexComputeSavings')) {
       const p = new URLSearchParams({ page: '1', pageSize: '500', sort: 'desc' });
@@ -431,7 +460,7 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimizat
     }
 
     Promise.all(fetches).then(() => setExtValues(prev => ({ ...prev, ...upd })));
-  }, [accountId, provider, selectedIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [accountId, autoSpottingAccountId, provider, selectedIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const costs = costHistory?.costs || [];
   const mtdSpend        = kpiData.mtdSpend        || 0;
@@ -509,9 +538,9 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimizat
       case 'flexComputeSavings':
         return { value: extValues.flexComputeSavings ?? 0, change: 0, changeLabel: 'flex compute savings', trendData: [] };
       case 'autoSpottingSavings':
-        return { value: extValues.autoSpottingSavings ?? 0, change: 0, changeLabel: 'monthly spot savings', trendData: [] };
+        return { value: extValues.autoSpottingSavings ?? 0, change: 0, changeLabel: spotPotential ? 'est. potential per month' : 'monthly spot savings', trendData: [] };
       case 'autoSpottingInstances':
-        return { value: extValues.autoSpottingInstances ?? 0, change: 0, changeLabel: 'instances managed', trendData: [] };
+        return { value: extValues.autoSpottingInstances ?? 0, change: 0, changeLabel: spotPotential ? 'groups counted' : 'instances managed', trendData: [] };
       case 'diskRightsizing':
         return { value: extValues.diskRightsizing ?? 0, change: 0, changeLabel: 'volumes to rightsize', trendData: [] };
       case 'diskRightsizingSavings':

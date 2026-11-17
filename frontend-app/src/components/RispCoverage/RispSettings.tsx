@@ -2,10 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { Icon } from '@iconify/react';
 import { gooeyToast } from 'goey-toast';
 import apiClient from '../../utils/apiClient';
+import {
+  getCommitmentSettings,
+  legacyRispRespectPath,
+  legacySettingsPath,
+  saveCommitmentSettings,
+} from '../../api/autospottingApi';
 import { AriaSwitch, AriaSlider } from '../ui';
 
 interface RispSettingsProps {
   accountId: string | null;
+  /** The XamOps account id: the shell's Commitments view reads and saves through the v2 API. */
+  v2AccountId?: number | null;
 }
 
 interface Settings {
@@ -13,7 +21,7 @@ interface Settings {
   riSpUtilizationThreshold: number;
 }
 
-const RispSettings: React.FC<RispSettingsProps> = ({ accountId }) => {
+const RispSettings: React.FC<RispSettingsProps> = ({ accountId, v2AccountId }) => {
   const [settings, setSettings] = useState<Settings>({
     respectRiSpCommitments: false,
     riSpUtilizationThreshold: 90,
@@ -23,15 +31,18 @@ const RispSettings: React.FC<RispSettingsProps> = ({ accountId }) => {
 
   // Fetch current settings
   useEffect(() => {
-    if (!accountId) return;
+    if (!accountId && v2AccountId == null) return;
 
     const fetchSettings = async () => {
       setLoading(true);
       try {
-        const response = await apiClient.get(`/api/autospotting/settings/${accountId}`);
+        // The v2 body is the settings themselves; the legacy response wraps them in `data`.
+        const stored = v2AccountId != null
+          ? await getCommitmentSettings(v2AccountId)
+          : (await apiClient.get(legacySettingsPath(accountId as string))).data;
         setSettings({
-          respectRiSpCommitments: response.data.respectRiSpCommitments || false,
-          riSpUtilizationThreshold: response.data.riSpUtilizationThreshold || 90,
+          respectRiSpCommitments: stored.respectRiSpCommitments || false,
+          riSpUtilizationThreshold: stored.riSpUtilizationThreshold ?? 90,
         });
       } catch (error) {
         console.error('Failed to fetch settings:', error);
@@ -41,37 +52,39 @@ const RispSettings: React.FC<RispSettingsProps> = ({ accountId }) => {
     };
 
     fetchSettings();
-  }, [accountId]);
+  }, [accountId, v2AccountId]);
 
   // Save settings
   const handleSave = async () => {
-    if (!accountId) return;
+    if (!accountId && v2AccountId == null) return;
 
     setSaving(true);
 
     try {
-      await apiClient.put(`/api/autospotting/settings/${accountId}/risp-respect`, {
+      const payload = {
         respectRiSpCommitments: settings.respectRiSpCommitments,
         riSpUtilizationThreshold: settings.riSpUtilizationThreshold,
-      });
+      };
+      if (v2AccountId != null) await saveCommitmentSettings(v2AccountId, payload);
+      else await apiClient.put(legacyRispRespectPath(accountId as string), payload);
       gooeyToast.success('Settings saved successfully!');
     } catch (error: any) {
       gooeyToast.error('Failed to save settings', {
-        description: error.response?.data?.error || 'Unknown error',
+        description: error.detail || error.response?.data?.error || 'Unknown error',
       });
     } finally {
       setSaving(false);
     }
   };
 
-  if (!accountId) return null;
+  if (!accountId && v2AccountId == null) return null;
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-[rgba(0,0,0,0.12)] p-8 mt-6">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h3 className="text-xl font-bold text-[rgba(0,0,0,0.88)] flex items-center gap-3">
-            <Icon icon="mdi:cog-outline" className="text-blue-600" width={22} />
+            <Icon icon="mdi:cog-outline" className="text-gray-700" width={22} />
             RI/SP Respect Settings
           </h3>
           <p className="text-sm text-[rgba(0,0,0,0.5)] mt-1">
@@ -82,7 +95,7 @@ const RispSettings: React.FC<RispSettingsProps> = ({ accountId }) => {
 
       {loading ? (
         <div className="text-center py-8">
-          <Icon icon="mdi:loading" className="animate-spin text-3xl text-blue-600" width={32} />
+          <Icon icon="mdi:loading" className="animate-spin text-3xl text-gray-700" width={32} />
           <p className="text-[rgba(0,0,0,0.6)] mt-2">Loading settings...</p>
         </div>
       ) : (
@@ -108,8 +121,8 @@ const RispSettings: React.FC<RispSettingsProps> = ({ accountId }) => {
               formatValue={(v) => `${v}%`}
               description="Only convert to Spot when (RI + SP) / 2 utilization ≥ this threshold"
             />
-            <div className="mt-3 text-xs text-[rgba(0,0,0,0.6)] bg-blue-50 border border-blue-200 rounded p-3">
-              <Icon icon="mdi:information-outline" className="text-blue-600 inline mr-2" width={14} />
+            <div className="mt-3 text-xs text-[rgba(0,0,0,0.6)] bg-gray-100 border border-gray-300 rounded p-3">
+              <Icon icon="mdi:information-outline" className="text-gray-700 inline mr-2" width={14} />
               <strong>Example:</strong> If set to 90%, AutoSpotting will only enable Spot when your RI/SP average utilization is ≥ 90%. This prevents wasting unused commitments.
             </div>
           </div>
@@ -119,12 +132,12 @@ const RispSettings: React.FC<RispSettingsProps> = ({ accountId }) => {
             <div className="text-xs text-[rgba(0,0,0,0.5)]">
               {settings.respectRiSpCommitments ? (
                 <>
-                  <Icon icon="mdi:shield-outline" className="text-green-600 inline mr-1" width={14} />
+                  <Icon icon="mdi:shield-outline" className="text-gray-700 inline mr-1" width={14} />
                   <strong>Protected:</strong> Instances will stay On-Demand when RI/SP are underutilized
                 </>
               ) : (
                 <>
-                  <Icon icon="mdi:rocket-launch-outline" className="text-orange-600 inline mr-1" width={14} />
+                  <Icon icon="mdi:rocket-launch-outline" className="text-gray-700 inline mr-1" width={14} />
                   <strong>Standard:</strong> AutoSpotting will convert to Spot immediately (ignores RI/SP)
                 </>
               )}

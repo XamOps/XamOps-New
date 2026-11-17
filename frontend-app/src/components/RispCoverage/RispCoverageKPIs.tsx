@@ -46,7 +46,7 @@ const RispCoverageKPIs: React.FC<RispCoverageKPIsProps> = ({ data, accountId }) 
       <div className="bg-white rounded-2xl shadow-sm p-6 border border-[rgba(0,0,0,0.06)] hover:shadow-md transition-shadow relative overflow-hidden">
         <div className="text-center">
           <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.5)] mb-2">RI Coverage</p>
-          <span style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', fontVariantNumeric: 'tabular-nums' }} className={data.totalRiUtilizationPercent >= 70 ? 'text-emerald-600' : 'text-red-500'}>
+          <span style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', fontVariantNumeric: 'tabular-nums' }} className={data.totalRiUtilizationPercent >= 70 ? 'text-gray-700' : 'text-gray-700'}>
             {data.totalRiUtilizationPercent.toFixed(1)}%
           </span>
           <p className="text-xs text-[rgba(0,0,0,0.4)] mt-1">Utilization: 0.0%</p>
@@ -60,7 +60,7 @@ const RispCoverageKPIs: React.FC<RispCoverageKPIsProps> = ({ data, accountId }) 
       <div className="bg-white rounded-2xl shadow-sm p-6 border border-[rgba(0,0,0,0.06)] hover:shadow-md transition-shadow relative overflow-hidden">
         <div className="text-center">
           <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.5)] mb-2">SP Coverage</p>
-          <span style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', fontVariantNumeric: 'tabular-nums' }} className={data.totalSpUtilizationPercent >= 70 ? 'text-emerald-600' : 'text-red-500'}>
+          <span style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', fontVariantNumeric: 'tabular-nums' }} className={data.totalSpUtilizationPercent >= 70 ? 'text-gray-700' : 'text-gray-700'}>
             {data.totalSpUtilizationPercent.toFixed(1)}%
           </span>
           <p className="text-xs text-[rgba(0,0,0,0.4)] mt-1">Utilization: 0.0%</p>
@@ -77,14 +77,14 @@ const RispCoverageKPIs: React.FC<RispCoverageKPIsProps> = ({ data, accountId }) 
         </div>
         <div className="text-center relative z-10">
           <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.5)] mb-2">Commitment Waste</p>
-          <span style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', fontVariantNumeric: 'tabular-nums' }} className={commitmentWaste > 10 ? 'text-red-500' : 'text-[rgba(0,0,0,0.7)]'}>
+          <span style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', fontVariantNumeric: 'tabular-nums' }} className={commitmentWaste > 10 ? 'text-gray-700' : 'text-[rgba(0,0,0,0.7)]'}>
             {commitmentWaste.toFixed(1)}%
           </span>
           <p className="text-xs text-[rgba(0,0,0,0.4)] mt-1">Unused RIs</p>
 
           <div className="w-full bg-[rgba(0,0,0,0.06)] rounded-full h-1.5 mt-3">
             <div
-              className={`h-1.5 rounded-full transition-all duration-500 ${commitmentWaste > 10 ? 'bg-red-500' : 'bg-emerald-500'}`}
+              className={`h-1.5 rounded-full transition-all duration-500 ${commitmentWaste > 10 ? 'bg-gray-700' : 'bg-gray-700'}`}
               style={{ width: `${Math.min(commitmentWaste, 100)}%` }}
             ></div>
           </div>
@@ -98,7 +98,7 @@ const RispCoverageKPIs: React.FC<RispCoverageKPIsProps> = ({ data, accountId }) 
       <div className="bg-white rounded-2xl shadow-sm p-6 border border-[rgba(0,0,0,0.06)] hover:shadow-md transition-shadow relative overflow-hidden">
         <div className="text-center">
           <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.5)] mb-2">AutoSpotting Strategy</p>
-          <h3 className={`text-2xl font-bold ${shouldUseSpot ? 'text-emerald-500' : 'text-orange-500'}`}>
+          <h3 className={`text-2xl font-bold ${shouldUseSpot ? 'text-gray-700' : 'text-gray-700'}`}>
             {shouldUseSpot ? 'Use Spot' : 'Use On-Demand'}
           </h3>
           <p className="text-[10px] text-[rgba(0,0,0,0.4)] mt-2 leading-tight">

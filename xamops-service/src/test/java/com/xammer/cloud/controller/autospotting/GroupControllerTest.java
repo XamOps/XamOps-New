@@ -213,4 +213,41 @@ class GroupControllerTest {
                     assertThat(e.getMessage()).doesNotContain("AKIA");
                 });
     }
+
+    private static GroupRowDto potentialRow(String name, String state, boolean managed, boolean external,
+                                            EligibilityResult eligibility, Double savings) {
+        return GroupRowDto.of(null, "AWS", "ap-south-1/" + name, "ap-south-1", name, state, managed, external,
+                4, 2, 8, "m5.large", eligibility, savings, true);
+    }
+    @Test
+    void potentialSumsPricedGroupsAndCountsUnpricedAndIneligibleWithoutAddingThem() {
+        CloudAccount a = account("AWS");
+        EligibilityResult ok = new EligibilityResult(List.of(), List.of(), List.of());
+        EligibilityResult blocked = new EligibilityResult(
+                List.of(EligibilityResult.Check.of("c1", "EC2_HEALTH_WITH_LB", "blocked")), List.of(), List.of());
+        List<GroupRowDto> rows = List.of(
+                potentialRow("managed", "ACTIVE", true, false, ok, 200.0),
+                potentialRow("unmanaged-ok", "UNMANAGED", false, false, ok, 100.5),
+                potentialRow("unmanaged-unpriced", "UNMANAGED", false, false, ok, null),
+                potentialRow("unmanaged-blocked", "UNMANAGED", false, false, blocked, 999.0),
+                potentialRow("external", "UNMANAGED", false, true, ok, 888.0));
+        when(lister.list(a)).thenReturn(new GroupListDto(rows, false, List.of(), Instant.now(), Map.of(),
+                new GroupListDto.Kpis(5, 3, 2, null, 1)));
+        var dto = controller.potential(ACCOUNT_ID, user).getBody();
+        assertThat(dto.potentialMonthlySavings()).isEqualTo(300.5);
+        assertThat(dto.pricedGroups()).isEqualTo(2);
+        assertThat(dto.unpricedGroups()).isEqualTo(1);
+        assertThat(dto.ineligibleGroups()).isEqualTo(2);
+        assertThat(dto.partial()).isFalse();
+    }
+    @Test
+    void potentialIsNullNotZeroWhenNothingIsPriced() {
+        CloudAccount a = account("AWS");
+        EligibilityResult ok = new EligibilityResult(List.of(), List.of(), List.of());
+        when(lister.list(a)).thenReturn(new GroupListDto(List.of(potentialRow("g", "UNMANAGED", false, false, ok, null)),
+                false, List.of(), Instant.now(), Map.of(), new GroupListDto.Kpis(1, 1, 0, null, 1)));
+        var dto = controller.potential(ACCOUNT_ID, user).getBody();
+        assertThat(dto.potentialMonthlySavings()).isNull();
+        assertThat(dto.unpricedGroups()).isEqualTo(1);
+    }
 }

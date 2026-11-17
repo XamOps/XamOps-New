@@ -119,6 +119,7 @@ const GcpAlertsPage = lazy(() => import('./pages/GcpAlertsPage'));
 const GcpBillingPage = lazy(() => import('./pages/GcpBillingPage'));
 const GcpSpotAutomationPage = lazy(() => import('./pages/GcpSpotAutomationPage'));
 const AutoSpottingRoute = lazy(() => import('./pages/autospotting/AutoSpottingRoute'));
+const LegacyAsgRoute = lazy(() => import('./pages/autospotting/LegacyAsgRoute'));
 const GcpDataOpsPage = lazy(() => import('./pages/GcpDataOpsPage'));
 const GcpDiskRightsizingPage = lazy(() => import('./pages/GcpDiskRightsizingPage'));
 const AzureDataOpsPage = lazy(() => import('./pages/AzureDataOpsPage'));
@@ -545,11 +546,11 @@ const AppContent: React.FC = () => {
                             <Route path="/gcp-reservations" element={<GcpReservationsPage />} />
                             <Route path="/azure-reservations" element={<AzureReservationsPage />} />
                             <Route path="/cloudsitter" element={<CloudSitterPage />} />
-                            <Route path="/spot-automation" element={<AutoSpottingRoute />} />
+                            <Route path="/spot-automation" element={<AutoSpottingRoute canonical />} />
                             <Route path="/autospotting" element={<AutoSpottingRoute />} />
                             <Route path="/autospotting/groups/:groupId" element={<AutoSpottingRoute />} />
-                            <Route path="/asg-detail" element={<ASGDetailPage />} />
-                            <Route path="/asg-config" element={<ASGConfigPage />} />
+                            <Route path="/asg-detail" element={<LegacyAsgRoute legacy={<ASGDetailPage />} />} />
+                            <Route path="/asg-config" element={<LegacyAsgRoute legacy={<ASGConfigPage />} />} />
                             <Route path="/flex-compute" element={<FlexComputePage />} />
                             <Route path="/ebs-rightsizing" element={<EbsRightsizingPage />} />
                             <Route path="/gcp-disk-rightsizing" element={<GcpDiskRightsizingPage />} />

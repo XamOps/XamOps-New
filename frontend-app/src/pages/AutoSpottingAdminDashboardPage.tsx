@@ -9,6 +9,7 @@ import {
   HistoricalSavings,
   AccountSavings,
 } from '../types/autospotting';
+import OperatorPanel from '../components/AutoSpottingAdmin/OperatorPanel';
 import LegacyUnverifiedTag, { LEGACY_UNVERIFIED_LABEL } from '../components/SpotAutomation/LegacyUnverifiedTag';
 
 // xamops-service serves these under /api/xamops/, which the gateway and the Vite proxy route to it.
@@ -333,6 +334,8 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
           </table>
         </div>
       </div>
+      {/* Operator views (Phase 14): switches, stuck operations, pause and resume */}
+      <OperatorPanel />
     </main>
   );
 };

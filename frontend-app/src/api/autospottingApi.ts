@@ -386,6 +386,146 @@ export const disableLegacyGroup = (
   );
 
 // ---------------------------------------------------------------------------
+// Phase 14: Commitments, Analytics, Activity, potential
+// ---------------------------------------------------------------------------
+/** The legacy RI/SP coverage body, as the backend returns it (snake_case). */
+export interface RispCoverageBody {
+  collected_at?: string | null;
+  total_ri_utilization_percent?: number;
+  total_sp_utilization_percent?: number;
+  ri_coverages?: Array<{ instance_type?: string; region?: string; availability_zone?: string; coverage_percent?: number }>;
+  sp_coverages?: Array<{ plan_type?: string; coverage_percent?: number }>;
+}
+export interface CommitmentSettings {
+  respectRiSpCommitments: boolean;
+  riSpUtilizationThreshold: number;
+}
+export interface AnalyticsFigures {
+  spotLaunches: number | null;
+  launchFailures: number | null;
+  failuresByCause: Record<string, number>;
+  interruptions: number | null;
+  rebalanceRecommendations: number | null;
+  successRate: number | null;
+}
+export interface GroupAnalytics {
+  groupId: string;
+  groupKey: string;
+  name: string;
+  location: string | null;
+  figures: AnalyticsFigures;
+  byType: Array<{ instanceType: string; figures: AnalyticsFigures }>;
+}
+export interface Analytics {
+  from: string;
+  to: string;
+  /** Metric names with no source for the account. A listed metric is "Not tracked", never 0. */
+  notTracked: string[];
+  totals: AnalyticsFigures;
+  groups: GroupAnalytics[];
+}
+export interface AuditEntry {
+  id: number;
+  occurredAt: string;
+  eventType: string;
+  actorType: string;
+  actorRole: string | null;
+  operationId: string | null;
+  planId: string | null;
+  groupId: string | null;
+  groupKey: string | null;
+  action: string;
+  outcome: string;
+  errorCode: string | null;
+}
+export interface Potential {
+  potentialMonthlySavings: number | null;
+  pricedGroups: number;
+  unpricedGroups: number;
+  ineligibleGroups: number;
+  partial: boolean;
+  asOf: string | null;
+}
+export const getCommitmentCoverage = (accountId: number): Promise<RispCoverageBody> =>
+  request('GET', `${V2}/accounts/${accountId}/commitments/coverage`);
+export const getCommitmentSettings = (accountId: number): Promise<CommitmentSettings> =>
+  request('GET', `${V2}/accounts/${accountId}/commitments/settings`);
+export const saveCommitmentSettings = (
+  accountId: number,
+  settings: CommitmentSettings,
+  idempotencyKey: string = newIdempotencyKey(),
+): Promise<CommitmentSettings> =>
+  request('PUT', `${V2}/accounts/${accountId}/commitments/settings/risp-respect`, {
+    body: settings,
+    idempotencyKey,
+  });
+/** `from` and `to` are `YYYY-MM-DD` (UTC days); the default is the last 30 days, the maximum 92. */
+export const getAnalytics = (accountId: number, range: { from?: string; to?: string } = {}): Promise<Analytics> =>
+  request('GET', `${V2}/accounts/${accountId}/analytics${query(range)}`);
+export const getAudit = (
+  accountId: number,
+  opts: { groupId?: string; from?: string; to?: string; limit?: number } = {},
+): Promise<AuditEntry[]> => request('GET', `${V2}/accounts/${accountId}/audit${query(opts)}`);
+export const getPotential = (accountId: number): Promise<Potential> =>
+  request('GET', `${V2}/accounts/${accountId}/groups/potential`);
+/** The legacy URLs the old AWS page still uses until Phase 36 (the shell calls only v2). */
+export const legacyRispCoveragePath = (awsAccountId: string): string =>
+  `/api/autospotting/analytics/risp-coverage/${awsAccountId}`;
+export const legacySettingsPath = (awsAccountId: string): string => `/api/autospotting/settings/${awsAccountId}`;
+export const legacyRispRespectPath = (awsAccountId: string): string =>
+  `/api/autospotting/settings/${awsAccountId}/risp-respect`;
+function query(params: Record<string, string | number | undefined>): string {
+  const p = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== '') p.set(k, String(v));
+  });
+  const q = p.toString();
+  return q ? `?${q}` : '';
+}
+// ---------------------------------------------------------------------------
+// Operator API (/api/xamops/autospotting-admin, Phase 09). Super admins and XamOps admins only.
+// ---------------------------------------------------------------------------
+const ADMIN = '/api/xamops/autospotting-admin';
+export interface OperatorSwitch {
+  scopeKey: string;
+  propertyValue: boolean | null;
+  engaged: boolean;
+  effectiveValue: boolean | null;
+  reason: string | null;
+  changedBy: string | null;
+  changedAt: string | null;
+  version: number;
+}
+export interface OperatorOperations {
+  operations: Operation[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+}
+export const listSwitches = (): Promise<OperatorSwitch[]> => request('GET', `${ADMIN}/switches`);
+export const setSwitch = (
+  scopeKey: string,
+  change: { engaged: boolean; expectedVersion: number; reason: string },
+  idempotencyKey: string = newIdempotencyKey(),
+): Promise<OperatorSwitch> =>
+  request('PUT', `${ADMIN}/switches/${encodeURIComponent(scopeKey)}`, { body: change, idempotencyKey });
+export const listOperatorOperations = (
+  opts: { waitReason?: string; provider?: string; page?: number; size?: number } = {},
+): Promise<OperatorOperations> => request('GET', `${ADMIN}/operations${query(opts)}`);
+export const pauseGroup = (
+  groupId: string,
+  reason: string,
+  idempotencyKey: string = newIdempotencyKey(),
+): Promise<{ groupId: string; state: string }> =>
+  request('POST', `${ADMIN}/groups/${encodeURIComponent(groupId)}/pause`, { body: { reason }, idempotencyKey });
+export const resumeGroup = (
+  groupId: string,
+  reason: string,
+  idempotencyKey: string = newIdempotencyKey(),
+): Promise<{ groupId: string; state: string }> =>
+  request('POST', `${ADMIN}/groups/${encodeURIComponent(groupId)}/resume`, { body: { reason }, idempotencyKey });
+// ---------------------------------------------------------------------------
 // Parsing helpers
 // ---------------------------------------------------------------------------
 

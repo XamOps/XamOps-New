@@ -19,6 +19,10 @@ import KpiStrip from './components/KpiStrip';
 import Filters, { EMPTY_FILTERS, type FilterValues } from './components/Filters';
 import GroupTable, { rowKey } from './components/GroupTable';
 import DetailPanel, { type PanelAction, type TabId } from './components/DetailPanel';
+import ViewSwitch, { VIEWS, type ViewId } from './components/ViewSwitch';
+import AnalyticsView from './views/AnalyticsView';
+import ActivityView from './views/ActivityView';
+import CommitmentsView from './views/CommitmentsView';
 import PlanDialog from './components/PlanDialog';
 import RevertDialog from './components/RevertDialog';
 import {
@@ -62,6 +66,14 @@ const AutoSpottingPage: React.FC = () => {
     setParams(p, { replace: true });
   };
 
+  const requestedView = params.get('view');
+  const view: ViewId = VIEWS.some(v => v.id === requestedView) ? (requestedView as ViewId) : 'groups';
+  const setView = (next: ViewId) => {
+    const p = new URLSearchParams(params);
+    if (next === 'groups') p.delete('view');
+    else p.set('view', next);
+    setParams(p, { replace: true });
+  };
   const [tab, setTab] = useState<TabId>('config');
   const [dialog, setDialog] = useState<DialogState>(null);
   const [activeOp, setActiveOp] = useState<{ key: string; operationId: string } | null>(null);
@@ -87,7 +99,7 @@ const AutoSpottingPage: React.FC = () => {
 
   const selectedParam = params.get('group');
   const selectedRow =
-    items.find(r => (routeGroupId && r.id === routeGroupId) || (selectedParam && rowKey(r) === selectedParam)) ?? null;
+    items.find(r => (routeGroupId && r.id === routeGroupId) || (selectedParam && (rowKey(r) === selectedParam || r.groupKey === selectedParam))) ?? null;
   const detailQuery = useSpotGroup(accountId, selectedRow?.id ?? null);
 
   const select = useCallback(
@@ -218,22 +230,30 @@ const AutoSpottingPage: React.FC = () => {
         <p className="rounded border border-gray-400 bg-gray-100 px-3 py-1 text-sm text-gray-600">Dry run</p>
       )}
 
-      {accountId !== null && !permissionError && (!error || groups.data) && !groups.isLoading && (
-        <KpiStrip rows={items} partial={partial} />
-      )}
-      {items.length > 0 && (
-        <Filters values={filters} locations={locations} locationLabel={adapter.locationLabel} onChange={setFilters} />
-      )}
-      {actionError && (
-        <p role="alert" className="text-sm font-medium text-black">
-          {actionError}
-        </p>
-      )}
-      {body}
-      {partial && (
-        <PartialBanner failed={failed} locationLabel={adapter.locationLabel} onRetry={() => void groups.refresh()} />
-      )}
+      <ViewSwitch view={view} onChange={setView} />
+      {view === 'analytics' && <AnalyticsView accountId={accountId} />}
+      {view === 'activity' && <ActivityView accountId={accountId} />}
+      {view === 'commitments' && <CommitmentsView accountId={accountId} />}
+      {view === 'groups' && (
+        <>
+        {accountId !== null && !permissionError && (!error || groups.data) && !groups.isLoading && (
+          <KpiStrip rows={items} partial={partial} />
+        )}
+        {items.length > 0 && (
+          <Filters values={filters} locations={locations} locationLabel={adapter.locationLabel} onChange={setFilters} />
+        )}
+        {actionError && (
+          <p role="alert" className="text-sm font-medium text-black">
+            {actionError}
+          </p>
+        )}
+        {body}
+        {partial && (
+          <PartialBanner failed={failed} locationLabel={adapter.locationLabel} onRetry={() => void groups.refresh()} />
+        )}
 
+        </>
+      )}
       {dialog?.type === 'plan' && (
         <PlanDialog
           accountId={accountId}

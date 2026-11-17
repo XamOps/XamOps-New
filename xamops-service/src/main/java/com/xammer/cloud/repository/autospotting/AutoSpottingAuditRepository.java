@@ -6,6 +6,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -19,4 +20,12 @@ public interface AutoSpottingAuditRepository extends JpaRepository<AutoSpottingA
     Page<AutoSpottingAudit> findByGroupIdOrderByOccurredAtDesc(UUID groupId, Pageable pageable);
 
     Page<AutoSpottingAudit> findByCloudAccountIdOrderByOccurredAtDesc(Long cloudAccountId, Pageable pageable);
+
+    /** The account's audit rows in {@code [from, to)}, newest first (plan-phase-14.md task 14.2). */
+    Page<AutoSpottingAudit> findByCloudAccountIdAndOccurredAtGreaterThanEqualAndOccurredAtLessThanOrderByOccurredAtDescIdDesc(
+            Long cloudAccountId, Instant from, Instant to, Pageable pageable);
+
+    /** The same, for one group of the account. */
+    Page<AutoSpottingAudit> findByCloudAccountIdAndGroupIdAndOccurredAtGreaterThanEqualAndOccurredAtLessThanOrderByOccurredAtDescIdDesc(
+            Long cloudAccountId, UUID groupId, Instant from, Instant to, Pageable pageable);
 }

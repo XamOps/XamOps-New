@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resolveDemoResponse } from './demoRouter';
 import { DEMO_MODE_KEY, DEMO_ROLE_KEY } from './demoConfig';
 import { demoCapabilities } from './k8sAutomationMockData';
+import { resetAutoSpottingDemo } from './autospottingDemoData';
 import { demoAccounts, demoChargeTypes, demoK8sClusters,
   demoDbHealthView, demoDbLockWaits, demoDbReplication, demoAccessGraph, demoFkGraph } from './xamopsMockData';
 import { READINESS_KEYS } from '../types/k8sAutomation';
@@ -1263,5 +1264,119 @@ describe('demo router — XamLens Datastores page and drawer (ROLE_XAMOPS)', () 
     // The tab strip's count, the asset card and the list agree.
     expect(kpis.tabCounts[tab]).toBe(kpis.assetCount.value);
     expect(((await readDemoBody(`${DS}?tab=${tab}`)) as DspmPage<DatastoreRow>).total).toBe(kpis.assetCount.value);
+  });
+});
+/**
+ * AC-UI-06 (AWS): every v2 path the AutoSpotting shell calls has a demo response, so a demo session
+ * never reaches the backend and never gets the generic `{}` where a list or document is expected.
+ */
+describe('demo router — AutoSpotting shell (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+    resetAutoSpottingDemo();
+  });
+
+  const call = async (url: string, method = 'GET', body?: unknown) => {
+    const response = resolveDemoResponse(url, method, body === undefined ? undefined : JSON.stringify(body));
+    expect(response, `expected a demo response for ${method} ${url}`).not.toBeNull();
+    return { status: response!.status, body: JSON.parse(await response!.text()) };
+  };
+  const V2 = '/api/autospotting/v2';
+  const A = `${V2}/accounts/9001`;
+
+  it('gives the demo AWS accounts a XamOps account id, which the shell needs', () => {
+    expect(demoAccounts.filter(a => a.provider === 'AWS').every(a => typeof a.dbId === 'number')).toBe(true);
+  });
+
+  it('answers config with the shell on and conversions paused', async () => {
+    const { body } = await call(`${V2}/config`);
+    expect(body.shellEnabled).toBe(true);
+    expect(body.providers.AWS.conversionsEnabled).toBe(false);
+    expect(body.providers.AWS.v2MutationsEnabled).toBe(false);
+  });
+
+  it('answers the group list, its potential and one detail', async () => {
+    const list = (await call(`${A}/groups`)).body;
+    expect(list.items.length).toBeGreaterThan(0);
+    expect(list.items.some((r: { savingsUnknown: boolean }) => r.savingsUnknown)).toBe(true);
+    const potential = (await call(`${A}/groups/potential`)).body;
+    expect(potential.pricedGroups).toBeGreaterThan(0);
+    expect(potential.unpricedGroups).toBe(1);
+    expect(potential.ineligibleGroups).toBe(1);
+    const detail = await call(`${A}/groups/demo-grp-api`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.group.state).toBe('ACTIVE');
+    expect((await call(`${A}/groups/nope`)).status).toBe(404);
+  });
+
+  it('plans with all three profiles priced, then a confirm runs a scripted operation to ACTIVE', async () => {
+    const created = await call(`${A}/plans`, 'POST', { kind: 'ENABLE', groupRef: 'us-east-1/web-asg' });
+    expect(created.status).toBe(201);
+    const estimates = JSON.parse(created.body.body).estimates.map((e: { profile: string }) => e.profile);
+    expect(estimates).toEqual(['conservative', 'balanced', 'aggressive']);
+    expect((await call(`${A}/plans/${created.body.planId}`)).body.planId).toBe(created.body.planId);
+
+    const confirmed = await call(`${A}/plans/${created.body.planId}/confirm`, 'POST', { planVersion: 1, acknowledgedWarningIds: [], fullSpotOptIn: false });
+    expect(confirmed.status).toBe(202);
+    const statuses: string[] = [];
+    for (let i = 0; i < 6; i++) statuses.push((await call(`${A}/operations/${confirmed.body.operationId}`)).body.status);
+    expect(statuses[0]).toBe('QUEUED');
+    expect(statuses).toContain('RUNNING');
+    expect(statuses[statuses.length - 1]).toBe('SUCCEEDED');
+    const web = (await call(`${A}/groups`)).body.items.find((r: { name: string }) => r.name === 'web-asg');
+    expect(web.state).toBe('ACTIVE');
+  });
+
+  it('reverts a managed group', async () => {
+    const created = await call(`${A}/plans`, 'POST', { kind: 'REVERT', groupId: 'demo-grp-api' });
+    const confirmed = await call(`${A}/plans/${created.body.planId}/confirm`, 'POST', { planVersion: 1, acknowledgedWarningIds: [], fullSpotOptIn: false });
+    for (let i = 0; i < 6; i++) await call(`${A}/operations/${confirmed.body.operationId}`);
+    const api = (await call(`${A}/groups`)).body.items.find((r: { name: string }) => r.name === 'api-asg');
+    expect(api.state).toBe('REVERTED');
+  });
+
+  it('answers analytics and activity, with a WOULD_DO dry run in the activity', async () => {
+    const analytics = (await call(`${A}/analytics?from=2026-10-22&to=2026-11-20`)).body;
+    expect(analytics.notTracked).toEqual([]);
+    expect(analytics.groups.length).toBeGreaterThan(0);
+    const audit = (await call(`${A}/audit?from=2026-10-22&to=2026-11-20&limit=100`)).body;
+    expect(audit.some((e: { outcome: string }) => e.outcome === 'WOULD_DO')).toBe(true);
+  });
+
+  it('answers commitments, and a saved setting reads back', async () => {
+    expect((await call(`${A}/commitments/coverage`)).body.ri_coverages.length).toBeGreaterThan(0);
+    expect((await call(`${A}/commitments/settings`)).body).toEqual({ respectRiSpCommitments: true, riSpUtilizationThreshold: 75 });
+    await call(`${A}/commitments/settings/risp-respect`, 'PUT', { respectRiSpCommitments: false, riSpUtilizationThreshold: 60 });
+    expect((await call(`${A}/commitments/settings`)).body).toEqual({ respectRiSpCommitments: false, riSpUtilizationThreshold: 60 });
+  });
+
+  it('refuses an unknown v2 path with a 404 problem, not the generic empty object', async () => {
+    const r = await call(`${V2}/accounts/9001/not-a-path`);
+    expect(r.status).toBe(404);
+    expect(r.body.code).toBe('NOT_FOUND');
+  });
+});
+
+describe.each(['ROLE_XAMOPS', 'ROLE_BILLOPS_ADMIN'])('demo router — AutoSpotting operator views (%s)', role => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, role);
+    resetAutoSpottingDemo();
+  });
+  const PREFIX = '/api/xamops/autospotting-admin';
+
+  it('answers switches, stuck operations, a switch change, and pause or resume', async () => {
+    const switches = await readDemoBody(`${PREFIX}/switches`);
+    expect(Array.isArray(switches)).toBe(true);
+    const ops = await readDemoBody(`${PREFIX}/operations`);
+    expect(ops.operations[0].deadlineAt).toBeTruthy();
+    const changed = JSON.parse(
+      await resolveDemoResponse(`${PREFIX}/switches/GLOBAL`, 'PUT', JSON.stringify({ engaged: true, expectedVersion: 0, reason: 'x' }))!.text(),
+    );
+    expect(changed.engaged).toBe(true);
+    expect(changed.version).toBe(1);
+    const paused = JSON.parse(await resolveDemoResponse(`${PREFIX}/groups/g-1/pause`, 'POST', JSON.stringify({ reason: 'x' }))!.text());
+    expect(paused.state).toBe('PAUSED');
   });
 });

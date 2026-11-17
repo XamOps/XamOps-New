@@ -7,6 +7,11 @@ export const autoSpottingKeys = {
   groups: (accountId: number | null) => ['autospotting', 'groups', accountId] as const,
   group: (accountId: number | null, groupId: string | null) =>
     ['autospotting', 'group', accountId, groupId] as const,
+  analytics: (accountId: number | null, from: string, to: string) =>
+    ['autospotting', 'analytics', accountId, from, to] as const,
+  audit: (accountId: number | null, groupId: string, from: string, to: string, limit: number) =>
+    ['autospotting', 'audit', accountId, groupId, from, to, limit] as const,
+  potential: (accountId: number | null) => ['autospotting', 'potential', accountId] as const,
   plan: (accountId: number | null, planId: string | null) =>
     ['autospotting', 'plan', accountId, planId] as const,
   operation: (accountId: number | null, operationId: string | null) =>
