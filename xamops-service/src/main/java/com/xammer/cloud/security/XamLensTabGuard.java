@@ -7,17 +7,38 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Server-side enforcement of the {@code secops-xamlens} sidebar tab on every customer DSPM endpoint
  * (design 4.4 and 5.10, with BUILD-BRIEF section 13 resolution 1).
  *
- * <p>The guard mirrors the frontend's {@code makeXamTabGate} for {@code ROLE_XAMOPS} principals, the
- * only ones the frontend gates: {@code XamTabAccessContext} and {@code XamTabRouteGuard} apply the tab
- * rules only when the user has {@code ROLE_XAMOPS}, and {@code Sidebar.tsx} shows the XamOps nav,
- * XamLens included, to {@code ROLE_SUPER_ADMIN} without any tab rule. Every other principal therefore
- * passes with no repository read, so nobody sees XamLens in the sidebar and then gets a 403 from its
- * API. That includes a {@code ROLE_SUPER_ADMIN} team member whose own tab list leaves XamLens out.
+ * <p>The guard is an allow-list of the two roles that {@code Sidebar.tsx} shows the XamOps nav, XamLens
+ * included, to. Roles are compared after {@code K8sAutomationAccessService.normalizeRole}, so a stored
+ * {@code XAMOPS} counts as {@code ROLE_XAMOPS}.
+ * <ul>
+ *   <li>{@code ROLE_XAMOPS} gets the tab rules below, the only role {@code XamTabAccessContext} and
+ *       {@code XamTabRouteGuard} gate. It is checked first, as {@code isXamops} is in the frontend.</li>
+ *   <li>{@code ROLE_SUPER_ADMIN} passes with no repository read, even a team member whose own tab list
+ *       leaves XamLens out, because the sidebar applies no tab rule to it.</li>
+ *   <li>Every other role, {@code ROLE_BILLOPS} and {@code ROLE_BILLOPS_ADMIN} included, never sees
+ *       XamLens and is refused with no repository read.</li>
+ * </ul>
+ * Outside header impersonation, the roles that see XamLens are exactly the ones admitted, so nobody
+ * sees XamLens in the sidebar and then gets a 403 from its API.
+ *
+ * <p>Under impersonation the principal is the target user, so the target's role and tab rules apply
+ * (design 5.10):
+ * <ul>
+ *   <li>BillOps Login-As ({@code ImpersonationJwtFilter}): the JWT carries the target's role into the
+ *       browser too, so the sidebar and this guard both gate on the target.</li>
+ *   <li>Header impersonation ({@code X-Impersonate-User}, {@code ImpersonationFilter}): the principal
+ *       carries only the target's role, but the "view as user" switch keeps the admin's own roles in the
+ *       browser, so the sidebar stays unrestricted. A super admin viewing as a non-XamOps user, or as a
+ *       {@code ROLE_XAMOPS} user whose tab rules leave XamLens out, sees XamLens in the sidebar and then
+ *       the no-access page. That mismatch is accepted: it fails closed and shows what the target gets.</li>
+ * </ul>
  *
  * <p>For a gated principal the decision follows {@code makeXamTabGate.isTabAllowed}:
  * <ol>
@@ -44,6 +65,9 @@ public class XamLensTabGuard {
     /** The only role {@code XamTabAccessContext} gates: {@code isXamops = hasAnyRole('ROLE_XAMOPS')}. */
     static final String GATED_ROLE = "ROLE_XAMOPS";
 
+    /** The other role that sees XamLens; {@code Sidebar.tsx} applies no tab rule to it. */
+    static final String UNGATED_ROLE = "ROLE_SUPER_ADMIN";
+
     private final GlobalTabRuleReader globalTabRuleReader;
     private final UserTabAccessRepository userTabAccessRepository;
 
@@ -62,11 +86,15 @@ public class XamLensTabGuard {
             log.debug("[XamLens] tab access denied: no principal id");
             throw new XamLensAccessDeniedException();
         }
-        boolean gated = user.getAuthorities().stream()
+        Set<String> roles = user.getAuthorities().stream()
                 .map(authority -> K8sAutomationAccessService.normalizeRole(authority.getAuthority()))
-                .anyMatch(GATED_ROLE::equals);
-        if (!gated) {
-            return;
+                .collect(Collectors.toSet());
+        if (!roles.contains(GATED_ROLE)) {
+            if (roles.contains(UNGATED_ROLE)) {
+                return;
+            }
+            log.debug("[XamLens] tab access denied for user {}: no role that sees XamLens", user.getId());
+            throw new XamLensAccessDeniedException();
         }
 
         Long userId = user.getId();
