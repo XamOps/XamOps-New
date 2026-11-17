@@ -37,10 +37,12 @@ import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -51,7 +53,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Who reaches XamLens over HTTP, through the real impersonation filters, {@link XamLensTabGuard} and the
  * exception handlers: a super admin's "view as user" gets 200 whatever the target's role or tab rules, and
- * reads the target's client; BillOps Login-As and direct calls keep their gates.
+ * reads the target's client; a BillOps admin's "view as user", BillOps Login-As (whichever actor claims its
+ * token carries) and direct calls keep their gates.
  */
 class DspmImpersonationAccessTest {
 
@@ -61,6 +64,9 @@ class DspmImpersonationAccessTest {
     private static final long ADMIN_CLIENT_ID = 1L;
     private static final long TARGET_ID = 500L;
     private static final long TARGET_CLIENT_ID = 10L;
+    /** The actor claims billops mints now, here for a BillOps admin. */
+    private static final Map<String, Object> NAMED_ADMIN = Map.of(
+            "actorUserId", ADMIN_ID, "actorUsername", "user" + ADMIN_ID + "@example.com", "actorRole", "ROLE_BILLOPS_ADMIN");
 
     private GlobalTabRuleReader rules;
     private UserTabAccessRepository tabs;
@@ -147,10 +153,16 @@ class DspmImpersonationAccessTest {
 
     /** A BillOps Login-As request as the browser sends it: the bearer token and X-Impersonate-User. */
     private MockHttpServletRequestBuilder loginAsTarget(String role) {
+        return loginAsTarget(role, Map.of());
+    }
+
+    /** The same, with a token that also carries {@code actorClaims}, which name the admin. */
+    private MockHttpServletRequestBuilder loginAsTarget(String role, Map<String, Object> actorClaims) {
         String token = Jwts.builder()
                 .setSubject(String.valueOf(TARGET_ID))
                 .setIssuer("billops")
                 .claim("role", role)
+                .addClaims(actorClaims)
                 .setExpiration(new Date(System.currentTimeMillis() + 60_000))
                 .signWith(Keys.hmacShaKeyFor(jwtKey), SignatureAlgorithm.HS256)
                 .compact();
@@ -206,6 +218,36 @@ class DspmImpersonationAccessTest {
         mvc.perform(loginAsTarget("XAMOPS").session(sessionOf(principal(ADMIN_ID, ADMIN_CLIENT_ID, "ROLE_SUPER_ADMIN"))))
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("TAB_ACCESS_DENIED"));
         verifyNoInteractions(dspmService);
+    }
+
+    @Test
+    @DisplayName("a BillOps admin viewing as an entitled ROLE_XAMOPS user gets 200 with the target's client data")
+    void billopsAdminViewingAsEntitledXamopsUser() throws Exception {
+        target("ROLE_XAMOPS");
+        when(tabs.findTabNamesByUserId(TARGET_ID)).thenReturn(List.of(TAB));
+        mvc.perform(viewAsTarget(principal(ADMIN_ID, ADMIN_CLIENT_ID, "ROLE_BILLOPS_ADMIN"))).andExpect(status().isOk());
+        verify(dspmService).getStatus(TARGET_CLIENT_ID);
+    }
+
+    @Test
+    @DisplayName("BillOps Login-As with a token that names the admin for a restricted ROLE_XAMOPS user still gets 403")
+    void loginAsNamingTheAdminOfRestrictedXamopsUser() throws Exception {
+        target("ROLE_XAMOPS");
+        restrictTarget();
+        mvc.perform(loginAsTarget("XAMOPS", NAMED_ADMIN))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("TAB_ACCESS_DENIED"));
+        verifyNoInteractions(dspmService);
+    }
+
+    @Test
+    @DisplayName("BillOps Login-As for an entitled ROLE_XAMOPS user gets 200 with the target's client data, with old tokens and new")
+    void loginAsOfEntitledXamopsUser() throws Exception {
+        target("ROLE_XAMOPS");
+        when(tabs.findTabNamesByUserId(TARGET_ID)).thenReturn(List.of(TAB));
+        mvc.perform(loginAsTarget("XAMOPS")).andExpect(status().isOk());
+        mvc.perform(loginAsTarget("XAMOPS", Map.of("actorUserId", ADMIN_ID))).andExpect(status().isOk());
+        mvc.perform(loginAsTarget("XAMOPS", NAMED_ADMIN)).andExpect(status().isOk());
+        verify(dspmService, times(3)).getStatus(TARGET_CLIENT_ID);
     }
 
     @Test

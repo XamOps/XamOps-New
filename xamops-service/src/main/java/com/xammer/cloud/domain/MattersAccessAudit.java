@@ -100,7 +100,11 @@ public class MattersAccessAudit {
     @Column(name = "actor_type", length = 32)
     private String actorType;
 
-    /** True when the call was made through super-admin impersonation. */
+    /**
+     * True when the call was made through impersonation: a super admin's or a BillOps admin's "view as
+     * user", or BillOps Login-As, with the operator as the actor; or a principal reading another
+     * client's data.
+     */
     @Column(name = "impersonated", nullable = false)
     private boolean impersonated = false;
 
