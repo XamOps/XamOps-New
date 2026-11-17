@@ -71,6 +71,12 @@ public class ImpersonationFilter implements Filter {
                         SecurityContext impersonatedContext = SecurityContextHolder.createEmptyContext();
                         impersonatedContext.setAuthentication(impersonatedAuth);
                         SecurityContextHolder.setContext(impersonatedContext);
+
+                        // XamLensTabGuard lets a super admin's "view as user" through whatever the
+                        // target's role or tab rules. Decided on the identity that authenticated this
+                        // request, not on the session marker, so a BillOps admin or a Login-As JWT
+                        // (billops never mints one for ROLE_SUPER_ADMIN) cannot set it. Cleared below.
+                        ImpersonationContext.setStartedBySuperAdmin(isSuperAdmin(originalContext.getAuthentication()));
                     });
                 } catch (NumberFormatException e) {
                     // Ignore invalid headers
@@ -87,6 +93,12 @@ public class ImpersonationFilter implements Filter {
             // HTTP session — not the impersonated user's auth.
             SecurityContextHolder.setContext(originalContext);
         }
+    }
+
+    /** Whether {@code auth}, the request's own authentication before the swap, holds ROLE_SUPER_ADMIN. */
+    private static boolean isSuperAdmin(Authentication auth) {
+        return auth != null && auth.isAuthenticated() && auth.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_SUPER_ADMIN".equals(a.getAuthority()));
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.xammer.cloud.security;
 
+import com.xammer.cloud.config.multitenancy.ImpersonationContext;
 import com.xammer.cloud.repository.GlobalTabRuleReader;
 import com.xammer.cloud.repository.UserTabAccessRepository;
 import org.slf4j.Logger;
@@ -28,16 +29,20 @@ import java.util.stream.Collectors;
  * Outside header impersonation, the roles that see XamLens are exactly the ones admitted, so nobody
  * sees XamLens in the sidebar and then gets a 403 from its API.
  *
- * <p>Under impersonation the principal is the target user, so the target's role and tab rules apply
- * (design 5.10):
+ * <p>Under impersonation the principal is the target user (design 5.10):
  * <ul>
+ *   <li>Header impersonation ({@code X-Impersonate-User}, {@code ImpersonationFilter}) started by a
+ *       {@code ROLE_SUPER_ADMIN} passes first, with no repository read, whatever the target's role or tab
+ *       rules (user decision: super admins see all of XamLens when viewing as any user). The "view as
+ *       user" switch keeps the admin's own roles in the browser, so the sidebar shows XamLens, and the API
+ *       now agrees. Tenancy is unchanged: the data is the target's client, raw sample values included.
+ *       {@code ImpersonationFilter} marks such a request in {@link ImpersonationContext}, judged on the
+ *       request's own authentication, and the mark counts only for the principal it installed.</li>
+ *   <li>Header impersonation started by anyone else ({@code ROLE_BILLOPS_ADMIN}) gets the target's role
+ *       and tab rules.</li>
  *   <li>BillOps Login-As ({@code ImpersonationJwtFilter}): the JWT carries the target's role into the
- *       browser too, so the sidebar and this guard both gate on the target.</li>
- *   <li>Header impersonation ({@code X-Impersonate-User}, {@code ImpersonationFilter}): the principal
- *       carries only the target's role, but the "view as user" switch keeps the admin's own roles in the
- *       browser, so the sidebar stays unrestricted. A super admin viewing as a non-XamOps user, or as a
- *       {@code ROLE_XAMOPS} user whose tab rules leave XamLens out, sees XamLens in the sidebar and then
- *       the no-access page. That mismatch is accepted: it fails closed and shows what the target gets.</li>
+ *       browser too, so the sidebar and this guard both gate on the target. That filter never sets the
+ *       mark.</li>
  * </ul>
  *
  * <p>For a gated principal the decision follows {@code makeXamTabGate.isTabAllowed}:
@@ -85,6 +90,11 @@ public class XamLensTabGuard {
         if (user == null || user.getId() == null) {
             log.debug("[XamLens] tab access denied: no principal id");
             throw new XamLensAccessDeniedException();
+        }
+        if (ImpersonationContext.isStartedBySuperAdmin()
+                && user.getId().equals(ImpersonationContext.getImpersonatedUserId())) {
+            log.debug("[XamLens] tab access allowed for user {}: super-admin view as user", user.getId());
+            return;
         }
         Set<String> roles = user.getAuthorities().stream()
                 .map(authority -> K8sAutomationAccessService.normalizeRole(authority.getAuthority()))

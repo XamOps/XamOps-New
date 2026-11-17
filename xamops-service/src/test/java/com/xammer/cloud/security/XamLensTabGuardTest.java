@@ -46,11 +46,13 @@ import static org.mockito.Mockito.when;
 /**
  * Design 5.10 step 2 with BUILD-BRIEF 13 resolution 1: the real guard over mocked rule sources. The guard
  * is an allow-list: the tab rules apply to {@code ROLE_XAMOPS}, {@code ROLE_SUPER_ADMIN} passes, and every
- * other role is refused. Under impersonation the real filters hand the guard the target user.
+ * other role is refused. Under impersonation the real filters hand the guard the target user; a super
+ * admin's header impersonation passes whatever the target's role or tab rules.
  */
 class XamLensTabGuardTest {
 
     private static final long USER_ID = 500L;
+    private static final long OTHER_ID = 600L;
     private static final long ADMIN_ID = 1L;
     private static final String TAB = "secops-xamlens";
     private static final String MODULE = "secops";
@@ -225,15 +227,16 @@ class XamLensTabGuardTest {
                 .isInstanceOf(DataAccessResourceFailureException.class);
     }
 
-    // ── Impersonation: the principal is the target, so the target's role and tab rules apply ──────
+    // ── Impersonation: the principal is the target; a super admin's "view as user" is not gated ───
 
     @Test
-    @DisplayName("super-admin header impersonation of a restricted ROLE_XAMOPS user is refused on the target's tab list")
+    @DisplayName("super-admin header impersonation of a restricted ROLE_XAMOPS user is allowed with no repository read")
     void headerImpersonationOfRestrictedXamopsUser() throws Exception {
         targetRow("ROLE_XAMOPS");
+        globalRules(List.of(TAB), List.of());
         tabList("cloudops-cloudk8s");
-        assertThat(requireUnderHeaderImpersonation()).isInstanceOf(XamLensAccessDeniedException.class);
-        verify(tabs).findTabNamesByUserId(USER_ID);
+        assertThat(requireUnderHeaderImpersonation("ROLE_SUPER_ADMIN")).as("allowed").isNull();
+        verifyNoInteractions(rules, tabs);
     }
 
     @Test
@@ -241,15 +244,34 @@ class XamLensTabGuardTest {
     void headerImpersonationOfEntitledXamopsUser() throws Exception {
         targetRow("ROLE_XAMOPS");
         tabList("cloudops-cloudk8s", TAB);
-        assertThat(requireUnderHeaderImpersonation()).as("allowed").isNull();
+        assertThat(requireUnderHeaderImpersonation("ROLE_SUPER_ADMIN")).as("allowed").isNull();
     }
 
     @Test
-    @DisplayName("super-admin header impersonation of a ROLE_BILLOPS user is refused on the target's role")
+    @DisplayName("super-admin header impersonation of a ROLE_BILLOPS user is allowed")
     void headerImpersonationOfBillopsUser() throws Exception {
         targetRow("ROLE_BILLOPS");
-        assertThat(requireUnderHeaderImpersonation()).isInstanceOf(XamLensAccessDeniedException.class);
+        assertThat(requireUnderHeaderImpersonation("ROLE_SUPER_ADMIN")).as("allowed").isNull();
         verifyNoInteractions(rules, tabs);
+    }
+
+    @Test
+    @DisplayName("a BillOps admin's header impersonation of a restricted ROLE_XAMOPS user is refused on the target's tab list")
+    void headerImpersonationByBillopsAdmin() throws Exception {
+        targetRow("ROLE_XAMOPS");
+        tabList("cloudops-cloudk8s");
+        assertThat(requireUnderHeaderImpersonation("ROLE_BILLOPS_ADMIN")).isInstanceOf(XamLensAccessDeniedException.class);
+        verify(tabs).findTabNamesByUserId(USER_ID);
+    }
+
+    @Test
+    @DisplayName("the super-admin mark counts only for the target the filter installed")
+    void superAdminMarkIsBoundToTheTarget() throws Exception {
+        targetRow("ROLE_BILLOPS");
+        AtomicReference<Throwable> other = new AtomicReference<>();
+        headerFilter().doFilter(headerRequest("ROLE_SUPER_ADMIN"), new MockHttpServletResponse(), (req, res) ->
+                other.set(catchThrowable(() -> guard.require(user(OTHER_ID, "ROLE_BILLOPS")))));
+        assertThat(other.get()).isInstanceOf(XamLensAccessDeniedException.class);
     }
 
     @Test
@@ -270,14 +292,22 @@ class XamLensTabGuardTest {
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(target));
     }
 
-    /**
-     * A super admin's request after a "view as user" switch: the session holds the admin's context, which
-     * Spring Security has already loaded, and the request carries {@code X-Impersonate-User}.
-     */
-    private Throwable requireUnderHeaderImpersonation() throws Exception {
+    private Throwable requireUnderHeaderImpersonation(String adminRole) throws Exception {
+        return requireInChain(headerFilter(), headerRequest(adminRole));
+    }
+
+    private ImpersonationFilter headerFilter() {
         ImpersonationFilter filter = new ImpersonationFilter();
         ReflectionTestUtils.setField(filter, "userRepository", userRepository);
-        ClientUserDetails admin = user(ADMIN_ID, "ROLE_SUPER_ADMIN");
+        return filter;
+    }
+
+    /**
+     * An admin's request after a "view as user" switch: the session holds the admin's context, which
+     * Spring Security has already loaded onto the thread, and the request carries {@code X-Impersonate-User}.
+     */
+    private MockHttpServletRequest headerRequest(String adminRole) {
+        ClientUserDetails admin = user(ADMIN_ID, adminRole);
         SecurityContext adminContext = SecurityContextHolder.createEmptyContext();
         adminContext.setAuthentication(new UsernamePasswordAuthenticationToken(admin, null, admin.getAuthorities()));
         MockHttpSession session = new MockHttpSession();
@@ -286,7 +316,7 @@ class XamLensTabGuardTest {
         request.setSession(session);
         request.addHeader(ImpersonationFilter.IMPERSONATION_HEADER, String.valueOf(USER_ID));
         SecurityContextHolder.setContext(adminContext);
-        return requireInChain(filter, request);
+        return request;
     }
 
     /** A BillOps Login-As request: a bearer JWT whose subject is the target, signed with a per-test key. */
@@ -321,6 +351,7 @@ class XamLensTabGuardTest {
         });
         assertThat(seen.get()).as("the filter reached the chain").isNotNull();
         assertThat(seen.get().getId()).as("the guard saw the target, not the admin").isEqualTo(USER_ID);
+        assertThat(ImpersonationContext.isStartedBySuperAdmin()).as("the super-admin mark ends with the request").isFalse();
         return outcome.get();
     }
 }
