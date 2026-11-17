@@ -1,5 +1,6 @@
 package com.xammer.cloud.service.matters;
 
+import com.xammer.cloud.config.multitenancy.ImpersonationFilter;
 import com.xammer.cloud.domain.MattersAccessAudit;
 import com.xammer.cloud.security.ClientUserDetails;
 import jakarta.servlet.http.HttpServletRequest;
@@ -87,6 +88,13 @@ public class MattersAuditService {
      * from the caller's role rather than from which endpoint was hit, so an operator who reaches
      * customer data through an impersonated session is still recorded as an operator.
      *
+     * A super admin's "view as user" ({@code X-Impersonate-User}) is the one impersonation that names
+     * its operator here: the principal is the viewed user, and {@code ImpersonationFilter} sets the
+     * super admin as the Authentication's details. The row records the super admin as an OPERATOR
+     * with {@code impersonated} set, and keeps the viewed user's client, which is the credential's.
+     * A BillOps admin's view-as and BillOps Login-As carry no such identity, so they record the
+     * viewed user, flagged only by the cross-client check below.
+     *
      * No authentication at all means a scheduled or internal caller, recorded as SYSTEM rather than
      * left blank, so an unattributed row is never ambiguous between "system" and "we failed to look".
      */
@@ -94,6 +102,15 @@ public class MattersAuditService {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {
             row.setActorType(ACTOR_SYSTEM);
+            return;
+        }
+
+        if (auth.getDetails() instanceof ImpersonationFilter.ImpersonatingSuperAdmin admin) {
+            row.setActorUserId(admin.userId());
+            row.setActorUsername(admin.username());
+            row.setActorRole(admin.role());
+            row.setActorType(ACTOR_OPERATOR);
+            row.setImpersonated(true);
             return;
         }
 

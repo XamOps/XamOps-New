@@ -15,6 +15,7 @@ import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.Collections;
 import java.util.stream.Collectors;
 
@@ -23,6 +24,8 @@ import java.util.stream.Collectors;
 public class ImpersonationFilter implements Filter {
 
     public static final String IMPERSONATION_HEADER = "X-Impersonate-User";
+
+    private static final String SUPER_ADMIN = "ROLE_SUPER_ADMIN";
 
     @Autowired
     private UserRepository userRepository;
@@ -66,6 +69,18 @@ public class ImpersonationFilter implements Filter {
                         UsernamePasswordAuthenticationToken impersonatedAuth = new UsernamePasswordAuthenticationToken(
                                 targetDetails, null, targetDetails.getAuthorities());
 
+                        // Decided on the identity that authenticated this request, not on the session
+                        // marker, so a BillOps admin or a Login-As JWT (billops never mints one for
+                        // ROLE_SUPER_ADMIN) is never taken for a super admin.
+                        Authentication admin = originalContext.getAuthentication();
+                        boolean superAdmin = isSuperAdmin(admin);
+                        if (superAdmin) {
+                            // Who is driving, for MattersAuditService. On the Authentication rather than
+                            // in a ThreadLocal, so a copied security context (MattersDspmService's
+                            // profile pool) carries it too.
+                            impersonatedAuth.setDetails(ImpersonatingSuperAdmin.of(admin));
+                        }
+
                         // Use a FRESH SecurityContext so the original session-backed context
                         // object is never mutated. The original is restored in the finally block.
                         SecurityContext impersonatedContext = SecurityContextHolder.createEmptyContext();
@@ -73,10 +88,8 @@ public class ImpersonationFilter implements Filter {
                         SecurityContextHolder.setContext(impersonatedContext);
 
                         // XamLensTabGuard lets a super admin's "view as user" through whatever the
-                        // target's role or tab rules. Decided on the identity that authenticated this
-                        // request, not on the session marker, so a BillOps admin or a Login-As JWT
-                        // (billops never mints one for ROLE_SUPER_ADMIN) cannot set it. Cleared below.
-                        ImpersonationContext.setStartedBySuperAdmin(isSuperAdmin(originalContext.getAuthentication()));
+                        // target's role or tab rules. Cleared below.
+                        ImpersonationContext.setStartedBySuperAdmin(superAdmin);
                     });
                 } catch (NumberFormatException e) {
                     // Ignore invalid headers
@@ -98,7 +111,22 @@ public class ImpersonationFilter implements Filter {
     /** Whether {@code auth}, the request's own authentication before the swap, holds ROLE_SUPER_ADMIN. */
     private static boolean isSuperAdmin(Authentication auth) {
         return auth != null && auth.isAuthenticated() && auth.getAuthorities().stream()
-                .anyMatch(a -> "ROLE_SUPER_ADMIN".equals(a.getAuthority()));
+                .anyMatch(a -> SUPER_ADMIN.equals(a.getAuthority()));
+    }
+
+    /**
+     * The super admin behind a header impersonation ("view as user"), set as the impersonated
+     * Authentication's details. Only a request authenticated as ROLE_SUPER_ADMIN gets one;
+     * {@code MattersAuditService} records it as the actor of the XamLens reads made on the request.
+     *
+     * @param userId null when the admin's principal is not a {@link ClientUserDetails}
+     */
+    public record ImpersonatingSuperAdmin(Long userId, String username, String role) implements Serializable {
+
+        static ImpersonatingSuperAdmin of(Authentication admin) {
+            Long id = admin.getPrincipal() instanceof ClientUserDetails details ? details.getId() : null;
+            return new ImpersonatingSuperAdmin(id, admin.getName(), SUPER_ADMIN);
+        }
     }
 
     /**
