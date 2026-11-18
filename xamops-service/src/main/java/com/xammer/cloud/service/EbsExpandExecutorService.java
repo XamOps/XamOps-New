@@ -66,7 +66,7 @@ public class EbsExpandExecutorService {
             if (isAsg) {
                 updateActionStatus(action,
                         "Step 1/" + totalSteps + ": Updating launch template default version");
-                ebsAsgHelper.updateLaunchTemplateVolumeSize(ec2,
+                ebsAsgHelper.updateLaunchTemplateVolumeSize(accountId, region, ec2,
                         awsClientProvider.getAutoScalingClient(account, region),
                         asgName, device, targetSizeGb);
             }
@@ -90,8 +90,8 @@ public class EbsExpandExecutorService {
             runSsmResize(ssm, instanceId, device);
 
             if (isAsg) {
-                updateActionStatus(action, "Step 4/4: Starting ASG instance refresh (minHealthy=90%)");
-                ebsAsgHelper.startInstanceRefresh(
+                updateActionStatus(action, "Step 4/4: Starting ASG instance refresh");
+                ebsAsgHelper.startInstanceRefresh(accountId, region,
                         awsClientProvider.getAutoScalingClient(account, region), asgName);
             }
 

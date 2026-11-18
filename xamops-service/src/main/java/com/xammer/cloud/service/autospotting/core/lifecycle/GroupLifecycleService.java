@@ -125,6 +125,22 @@ public class GroupLifecycleService {
     }
 
     /**
+     * A transition that also writes {@code fallback_fingerprint} ({@code null} clears it) in the same fenced
+     * transaction (design-aws.md §6.4 step 3: FALLBACK, {@code config_mode=FALLBACK} and the fingerprint land
+     * together or not at all). A stale guard writes nothing.
+     */
+    public Result transitionWithFallbackFingerprint(LeaseHandle handle, SpotGroup group, TransitionRequest request,
+                                                    String fallbackFingerprint) {
+        return fencedTx.call(handle, () -> {
+            Result result = apply(group, request);
+            if (result != Result.STALE) {
+                lifecycle.setFallbackFingerprint(group.getId(), fallbackFingerprint);
+            }
+            return result;
+        });
+    }
+
+    /**
      * The plan-driven exceptions of §2.3 (PLANNED on plan creation and on plan expiry): a group with
      * no op has no lease holder, so lock the row with {@code SELECT ... FOR UPDATE} under the same
      * guard, then apply. Runs in a new transaction so the row lock is scoped to this unit of work.

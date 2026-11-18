@@ -62,7 +62,9 @@ public final class WaitRolloutStep extends AwsStep {
 
         AwsRolloutEvaluator.Verdict verdict = program.compensation()
                 ? services.rollout().evaluateCompensation(o, prior)
-                : services.rollout().evaluate(o, target, prior, AwsRolloutEvaluator.Mode.PROGRESS);
+                : services.rollout().evaluate(o, target, prior, program.kind() == com.xammer.cloud.domain.autospotting
+                        .OperationKind.FALLBACK_EXIT ? AwsRolloutEvaluator.Mode.FALLBACK_EXIT
+                        : AwsRolloutEvaluator.Mode.PROGRESS);
         return switch (verdict) {
             case AwsRolloutEvaluator.Done d -> done(AwsRolloutEvaluator.progressJson(o, target, d.state(), "Done"));
             case AwsRolloutEvaluator.Waiting w -> new StepOutcome.InProgress(AwsRolloutProperties.POLL,

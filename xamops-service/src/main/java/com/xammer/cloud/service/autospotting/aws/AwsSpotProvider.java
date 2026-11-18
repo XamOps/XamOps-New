@@ -79,6 +79,9 @@ public class AwsSpotProvider implements SpotProvider {
     private final AwsStepLibrary library;
     private final AwsRevertProgramFactory revertPrograms;
     private final AwsRolloutEvaluator rollout;
+    private final AwsFallbackRules fallbackRules;
+    private final AwsFallbackPrograms fallbackPrograms;
+    private final AwsLaunchEventRecorder events;
     private final Clock clock;
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -86,16 +89,22 @@ public class AwsSpotProvider implements SpotProvider {
                            AwsGroupStatusReader statusReader, AwsEstimatePriceService prices,
                            AutoSpottingSwitchProperties switchProperties, AwsProviderGate gate,
                            AwsStepLibrary library, AwsRevertProgramFactory revertPrograms,
-                           AwsRolloutEvaluator rollout) {
+                           AwsRolloutEvaluator rollout, AwsFallbackRules fallbackRules,
+                           AwsFallbackPrograms fallbackPrograms, AwsLaunchEventRecorder events) {
         this(accounts, views, evaluator, statusReader, prices, switchProperties, gate, library, revertPrograms,
-                rollout, Clock.systemUTC());
+                rollout, fallbackRules, fallbackPrograms, events, Clock.systemUTC());
     }
 
     AwsSpotProvider(CloudAccountRepository accounts, AwsViewSource views, AwsEligibilityEvaluator evaluator,
                     AwsGroupStatusReader statusReader, AwsEstimatePriceService prices,
                     AutoSpottingSwitchProperties switchProperties, AwsProviderGate gate, AwsStepLibrary library,
-                    AwsRevertProgramFactory revertPrograms, AwsRolloutEvaluator rollout, Clock clock) {
+                    AwsRevertProgramFactory revertPrograms, AwsRolloutEvaluator rollout,
+                    AwsFallbackRules fallbackRules, AwsFallbackPrograms fallbackPrograms,
+                    AwsLaunchEventRecorder events, Clock clock) {
         this.clock = clock;
+        this.fallbackRules = fallbackRules;
+        this.fallbackPrograms = fallbackPrograms;
+        this.events = events;
         this.accounts = accounts;
         this.views = views;
         this.evaluator = evaluator;
@@ -373,7 +382,60 @@ public class AwsSpotProvider implements SpotProvider {
         CloudAccount account = account(group.getCloudAccountId()).orElseThrow(() ->
                 new AwsReadException("account", ErrorKind.NOT_FOUND));
         String[] parts = AwsEligibilityEvaluator.split(group.getGroupKey());
-        return statusReader.read(viewFor(account, parts[0], view), parts[1]);
+        AwsReadOnlyView v = viewFor(account, parts[0], view);
+        return withFallbackSignals(group, statusReader.read(v, parts[1]), v, parts[1]);
+    }
+
+    /**
+     * The signals only the sweep can add to the status (design-aws.md §6.1, §6.3): when the shortfall began (carried
+     * from the previous observation, so two sweeps are needed), the interruption warnings of the last 30 minutes
+     * from {@code spot_group_event}, and, for a FALLBACK group past its dwell, the Spot placement score. A score
+     * that cannot be read leaves it out and the exit is time-based (§6.5). Read only.
+     */
+    private GroupStatus withFallbackSignals(SpotGroup group, GroupStatus status, AwsReadOnlyView view, String name) {
+        if (status == null || !status.found() || status.healthJson() == null) {
+            return status;
+        }
+        try {
+            Instant now = clock.instant();
+            ObjectNode health = (ObjectNode) JSON.readTree(status.healthJson());
+            JsonNode capacity = status.capacityJson() == null ? JSON.createObjectNode() : JSON.readTree(status.capacityJson());
+            int desired = capacity.path("desired").asInt(0);
+            int healthy = health.hasNonNull("healthyInService") ? health.path("healthyInService").asInt(0)
+                    : health.path("inService").asInt(0);
+            boolean shortNow = healthy < desired;
+            Instant since = null;
+            if (shortNow) {
+                JsonNode prior = group.getHealthState() == null ? null : JSON.readTree(group.getHealthState());
+                since = prior == null ? null : instant(prior, "shortfallSince");
+                since = since == null ? now : since;
+            }
+            health.put("observedAt", now.toString());
+            health.put("shortfallSince", since == null ? null : since.toString());
+            health.put("interruptions30m", interruptions(group, now));
+            if (group.getState() == GroupState.FALLBACK && group.getStateChangedAt() != null
+                    && !group.getStateChangedAt().plus(fallbackRules.properties().dwell()).isAfter(now)) {
+                Integer score = statusReader.placementScore(view, name, desired);
+                if (score != null) {
+                    health.put("placementScore", score);
+                }
+            }
+            return new GroupStatus(true, status.liveFingerprint(), JSON.writeValueAsString(health),
+                    status.capacityJson(), status.foreignActivity());
+        } catch (JsonProcessingException | RuntimeException e) {
+            return status; // the signals are an addition: the base status stands
+        }
+    }
+
+    private int interruptions(SpotGroup group, Instant now) {
+        if (events == null || group.getId() == null) {
+            return 0;
+        }
+        try {
+            return events.interruptionsSince(group.getId(), now.minus(fallbackRules.properties().stormWindow()));
+        } catch (RuntimeException e) {
+            return 0;
+        }
     }
 
     // ---- reconcile: a pure decision ----
@@ -388,27 +450,26 @@ public class AwsSpotProvider implements SpotProvider {
             JsonNode health = JSON.readTree(status.healthJson());
             JsonNode capacity = status.capacityJson() == null ? null : JSON.readTree(status.capacityJson());
             int desired = capacity == null ? 0 : capacity.path("desired").asInt(0);
-            int inService = health.path("inService").asInt(0);
-            long failed = health.path("recentFailedActivities").asLong(0);
+            List<ReconcileAction> actions = new ArrayList<>();
             // The in-flight shortage rule (design-aws.md §2.5, core §4.7): a switch-paused op makes no polls,
             // so the same rule WAIT_ROLLOUT uses is evaluated here from the status the sweep just read.
             if (state == GroupState.APPLYING && health.hasNonNull("healthyInService")
                     && rollout.shortage(clock.instant(), desired, health.path("healthyInService").asInt(0),
                             instant(health, "spotFailureStreakSince"), instant(health, "lastSpotFailureAt"))) {
-                return List.of(ReconcileAction.REQUEST_COMPENSATION, ReconcileAction.ALERT);
+                actions.add(ReconcileAction.REQUEST_COMPENSATION);
+                actions.add(ReconcileAction.ALERT);
             }
-            boolean unhealthy = failed > 0 && inService < desired;
-            // Health decisions only; no fallback action until Phase 20.
-            if (unhealthy && (state == GroupState.ACTIVE || state == GroupState.FALLBACK)) {
-                return List.of(ReconcileAction.MARK_DEGRADED);
-            }
-            if (!unhealthy && state == GroupState.DEGRADED && inService >= desired && failed == 0) {
-                return List.of(ReconcileAction.MARK_RECOVERED);
-            }
+            // Fallback and health decisions (design-aws.md §6.3, §6.5). The core refuses a fallback that the
+            // preemption rules do not allow (ENABLE and ADOPT are never preempted), so a shortage during an
+            // ENABLE still compensates through the rule above.
+            AwsFallbackRules.Decision d = fallbackRules.evaluate(state, group.getPauseReason(),
+                    group.getPausedFromState(), group.getConfigMode(), group.getStateChangedAt(),
+                    AwsFallbackRules.signals(clock.instant(), status.healthJson(), status.capacityJson()));
+            actions.addAll(d.actions());
+            return actions;
         } catch (JsonProcessingException e) {
             return List.of();
         }
-        return List.of();
     }
 
     // ---- mutating programs: gated ----
@@ -416,6 +477,9 @@ public class AwsSpotProvider implements SpotProvider {
     @Override
     public StepProgram executeConversion(OperationContext op) {
         gate.requireOpen();
+        if (AwsFallbackPrograms.supports(op.kind())) {
+            return fallbackPrograms.program(op);
+        }
         return library.program(op);
     }
 

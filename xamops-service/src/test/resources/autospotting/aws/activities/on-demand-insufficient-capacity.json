@@ -1,0 +1,6 @@
+{
+  "matcherId": "ON_DEMAND_INSUFFICIENT_CAPACITY",
+  "failureClass": "ON_DEMAND",
+  "statusMessage": "Could not launch On-Demand Instances. InsufficientInstanceCapacity - We currently do not have sufficient m5.large capacity in the Availability Zone you requested (us-east-1a). Launching EC2 instance failed.",
+  "note": "recorded-style fixture; V-AWS-16 replaces it with a real sample in Phase 23"
+}

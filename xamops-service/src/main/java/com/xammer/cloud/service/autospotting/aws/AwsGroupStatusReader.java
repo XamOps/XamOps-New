@@ -91,6 +91,39 @@ public class AwsGroupStatusReader {
                 }
             }
         }
+        // Fallback signals (design-aws.md §6.1): the launch failures by class and the unhealthy instances by type.
+        // Times only; the rules compare them to their windows with the sweep's clock.
+        StringBuilder spotTimes = new StringBuilder();
+        java.time.Instant quotaAt = null;
+        java.time.Instant odFailureAt = null;
+        int listed = 0;
+        for (Activity a : activities) {
+            if (!"Failed".equals(a.statusCodeAsString()) || !AwsRolloutObserver.isLaunch(a) || a.startTime() == null) {
+                continue;
+            }
+            AwsLaunchFailureClassifier.Result r = AwsLaunchFailureClassifier.classify(a.statusMessage());
+            if (r.spot() && listed < MAX_ACTIVITIES) {
+                spotTimes.append(listed++ == 0 ? "" : ",").append('"').append(a.startTime()).append('"');
+            }
+            if (r.quota() && (quotaAt == null || a.startTime().isAfter(quotaAt))) {
+                quotaAt = a.startTime();
+            }
+            if (r.failureClass() == AwsSpotFailureMatcher.FailureClass.ON_DEMAND
+                    && (odFailureAt == null || a.startTime().isAfter(odFailureAt))) {
+                odFailureAt = a.startTime();
+            }
+        }
+        java.util.Map<String, Integer> unhealthyByType = new java.util.TreeMap<>();
+        for (software.amazon.awssdk.services.autoscaling.model.Instance i : group.instances()) {
+            if ("InService".equals(i.lifecycleStateAsString()) && i.healthStatus() != null
+                    && !"Healthy".equals(i.healthStatus()) && i.instanceType() != null) {
+                unhealthyByType.merge(i.instanceType(), 1, Integer::sum);
+            }
+        }
+        StringBuilder unhealthyJson = new StringBuilder("{");
+        unhealthyByType.forEach((t, n) -> unhealthyJson.append(unhealthyJson.length() > 1 ? "," : "")
+                .append('"').append(t.replace("\"", "")).append("\":").append(n));
+        unhealthyJson.append('}');
         String health = "{\"inService\":" + inService
                 + ",\"instances\":" + facts.instances().size()
                 + ",\"recentFailedActivities\":" + failed
@@ -98,10 +131,16 @@ public class AwsGroupStatusReader {
                 + ",\"healthyInService\":" + healthy
                 + ",\"lastSpotFailureAt\":" + (lastSpotFailure == null ? "null" : "\"" + lastSpotFailure + "\"")
                 + ",\"spotFailureStreakSince\":" + (streakSince == null ? "null" : "\"" + streakSince + "\"")
+                + ",\"spotFailureTimes\":[" + spotTimes + "]"
+                + ",\"quotaFailureAt\":" + (quotaAt == null ? "null" : "\"" + quotaAt + "\"")
+                + ",\"onDemandFailureAt\":" + (odFailureAt == null ? "null" : "\"" + odFailureAt + "\"")
+                + ",\"unhealthyByType\":" + unhealthyJson
                 + "}";
         String capacity = "{\"min\":" + facts.min() + ",\"max\":" + facts.max()
                 + ",\"desired\":" + facts.desired()
-                + ",\"spot\":" + split[1] + ",\"onDemand\":" + split[0] + "}";
+                + ",\"spot\":" + split[1] + ",\"onDemand\":" + split[0]
+                + ",\"mixed\":" + facts.mixedInstancesPolicy()
+                + ",\"odPercentAboveBase\":" + facts.onDemandPercentageAboveBase() + "}";
         return new GroupStatus(true, AwsFingerprint.of(facts), health, capacity, refreshActive);
     }
 
@@ -154,5 +193,31 @@ public class AwsGroupStatusReader {
     /** Whether {@code kind} marks the group as missing rather than unreadable. */
     public static boolean isNotFound(ErrorKind kind) {
         return kind == ErrorKind.NOT_FOUND;
+    }
+    /**
+     * The Spot placement score (1 to 10) of the group's instance types in its region for {@code desired}
+     * instances (design-aws.md §6.5), or null when it cannot be read (unavailable, rate-limited or not
+     * permitted), in which case the exit is time-based. One read-only EC2 call; never throws.
+     */
+    public Integer placementScore(AwsReadOnlyView view, String name, int desired) {
+        try {
+            Optional<AutoScalingGroup> g = describeGroup(view, name);
+            if (g.isEmpty() || desired < 1) {
+                return null;
+            }
+            AwsGroupFacts facts = AwsGroupFacts.from(view.region(), g.get());
+            List<String> types = facts.overrideTypes().isEmpty() && !facts.instances().isEmpty()
+                    ? List.of(facts.instances().get(0).type()) : facts.overrideTypes();
+            if (types.isEmpty()) {
+                return null;
+            }
+            software.amazon.awssdk.services.ec2.model.GetSpotPlacementScoresResponse r = view.ec2()
+                    .getSpotPlacementScores(x -> x.instanceTypes(types).targetCapacity(desired)
+                            .regionNames(view.region()).singleAvailabilityZone(false).maxResults(10));
+            return r.spotPlacementScores().stream().map(sc -> sc.score()).filter(java.util.Objects::nonNull)
+                    .max(Integer::compareTo).orElse(null);
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 }

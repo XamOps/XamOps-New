@@ -118,6 +118,12 @@ public class OperationStore {
         });
     }
 
+    /** When step {@code seq} of the op recorded its intent: the instant the mutation was decided (billing end of a fallback). */
+    public java.util.Optional<Instant> stepIntentAt(java.util.UUID operationId, int seq) {
+        return steps.findByOperationIdAndSeq(operationId, seq)
+                .map(com.xammer.cloud.domain.autospotting.SpotOperationStep::getIntentAt);
+    }
+
     /**
      * Step protocol (3): complete the step to {@code status} with the cloud {@code requestIds} and
      * redacted {@code outputJson}, fenced on {@code handle}. {@code status} must be a terminal step

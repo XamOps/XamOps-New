@@ -226,7 +226,7 @@ public class EbsDiskRightsizingService {
             // Update launch template so new ASG instances get the new volume type
             String device = vol.attachments().isEmpty() ? "/dev/xvda"
                     : vol.attachments().get(0).device();
-            ebsAsgHelper.updateLaunchTemplateVolumeType(
+            ebsAsgHelper.updateLaunchTemplateVolumeType(account.getId(), region,
                     ec2, awsClientProvider.getAutoScalingClient(account, region), asgName, device, targetType);
         }
 
@@ -250,7 +250,7 @@ public class EbsDiskRightsizingService {
         ec2.modifyVolume(modify.build());
 
         if (isAsg) {
-            ebsAsgHelper.startInstanceRefresh(
+            ebsAsgHelper.startInstanceRefresh(account.getId(), region,
                     awsClientProvider.getAutoScalingClient(account, region), asgName);
         }
 

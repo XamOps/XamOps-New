@@ -69,7 +69,9 @@ class AwsGroupListerTest {
                 new AwsProviderGate(mock(AutoSpottingSwitchProperties.class),
                         new com.xammer.cloud.service.autospotting.AutoSpottingFeatureFlags(false, false, false, false)),
                 mock(AwsStepLibrary.class), mock(AwsRevertProgramFactory.class),
-                new AwsRolloutEvaluator(AwsRolloutProperties.defaults()));
+                new AwsRolloutEvaluator(AwsRolloutProperties.defaults()),
+                new AwsFallbackRules(com.xammer.cloud.service.autospotting.core.FallbackProperties.defaults()),
+                mock(AwsFallbackPrograms.class), mock(AwsLaunchEventRecorder.class));
         return new AwsGroupLister(views, evaluator, provider, status, lookup, budget, Clock.systemUTC());
     }
 

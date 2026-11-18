@@ -1,0 +1,6 @@
+{
+  "matcherId": "SPOT_MAX_PRICE",
+  "failureClass": "SPOT_CAPACITY",
+  "statusMessage": "Could not launch Spot Instances. SpotMaxPriceTooLow - Your Spot request price of 0.0100 is lower than the minimum required Spot request fulfillment price of 0.0310.",
+  "note": "recorded-style fixture; V-AWS-16 replaces it with a real sample in Phase 23"
+}

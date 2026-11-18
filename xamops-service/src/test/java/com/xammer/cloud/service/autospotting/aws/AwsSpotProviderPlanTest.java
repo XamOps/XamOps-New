@@ -94,6 +94,8 @@ class AwsSpotProviderPlanTest {
                         false, false, false, false)),
                 mock(AwsStepLibrary.class), mock(AwsRevertProgramFactory.class),
                 new AwsRolloutEvaluator(AwsRolloutProperties.defaults()),
+                new AwsFallbackRules(com.xammer.cloud.service.autospotting.core.FallbackProperties.defaults()),
+                mock(AwsFallbackPrograms.class), mock(AwsLaunchEventRecorder.class),
                 Clock.fixed(Instant.parse("2026-11-17T10:00:00Z"), ZoneOffset.UTC));
     }
 
@@ -268,13 +270,15 @@ class AwsSpotProviderPlanTest {
     }
 
     @Test
-    void reconcileMakesHealthDecisionsAndNeverAFallbackUntilPhase20() {
+    void reconcileMakesHealthDecisionsAndNeverAFallbackForAHealthFailureWithoutASpotCause() {
         setUp(FakeAws.asg("web-asg").build());
         SpotGroup active = new SpotGroup();
         active.setState(GroupState.ACTIVE);
         GroupStatus unhealthy = new GroupStatus(true, "fp", "{\"inService\":2,\"recentFailedActivities\":3}",
                 "{\"desired\":4}", false);
-        assertThat(provider.reconcile(active, unhealthy)).containsExactly(ReconcileAction.MARK_DEGRADED);
+        // No Spot cause: DEGRADED with an alert (FR-HLT-04, AC-HLT-03), never a fallback.
+        assertThat(provider.reconcile(active, unhealthy))
+                .containsExactly(ReconcileAction.MARK_DEGRADED, ReconcileAction.ALERT);
         SpotGroup degraded = new SpotGroup();
         degraded.setState(GroupState.DEGRADED);
         GroupStatus healthy = new GroupStatus(true, "fp", "{\"inService\":4,\"recentFailedActivities\":0}",

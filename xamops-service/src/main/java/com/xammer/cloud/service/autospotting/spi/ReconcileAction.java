@@ -26,5 +26,7 @@ public enum ReconcileAction {
     MARK_RECOVERED,
     UPDATE_PAUSED_FROM,
     PAUSE,
-    UNPAUSE
+    UNPAUSE,
+    /** A FALLBACK group looks ready to leave FALLBACK (capacity back); the core applies dwell, backoff and the daily cap. */
+    ENQUEUE_FALLBACK_EXIT
 }

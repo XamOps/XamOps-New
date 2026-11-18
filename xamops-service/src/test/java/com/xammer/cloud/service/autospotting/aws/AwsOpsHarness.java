@@ -165,6 +165,46 @@ final class AwsOpsHarness implements AutoCloseable {
         lease = ctx.getBean(LeaseService.class).acquireGroup(f.groupId, LeaseService.Component.DISPATCHER).orElseThrow();
     }
 
+    /**
+     * A group that has fallback in play (plan-phase-20.md): the row in {@code state} with {@code config_mode},
+     * {@code desired_config}, and for a PAUSED row the pause reason and {@code paused_from_state}. {@code kind} is a
+     * FALLBACK_ENTER or FALLBACK_EXIT op ready to run (claimed), or null to leave the queue empty for the
+     * reconciler's enqueue path. No plan and no snapshot: a system op has none (core §4.5).
+     */
+    AwsOpsHarness(AutoScalingGroup live, GroupState state, String configMode, String desiredConfig,
+                  OperationKind kind, String pauseReason, GroupState pausedFrom) {
+        db = PgHarness.emptySchema();
+        ctx = OpsContexts.contextFor(db);
+        jdbc = (JdbcTemplate) ctx.getBean("beanJdbc");
+        f = new AwsConversionFixture(live, true);
+        plan = null;
+        store = ctx.getBean(OperationStore.class);
+        insertGroup(state);
+        jdbc.update("UPDATE spot_group SET config_mode = ?, desired_config = ?::jsonb, pause_reason = ?,"
+                        + " paused_from_state = ?, fallback_fingerprint = CASE WHEN ? = 'FALLBACK' THEN 'fp-old' END"
+                        + " WHERE id = ?", configMode, desiredConfig, pauseReason,
+                pausedFrom == null ? null : pausedFrom.name(), configMode, f.groupId);
+        provider = f.providerWith(new com.xammer.cloud.service.autospotting.core.ops.OperationFacts(
+                        ctx.getBean(SpotPlanRepository.class), ctx.getBean(SpotOperationRepository.class),
+                        ctx.getBean(SpotOperationStepRepository.class)),
+                new AwsSnapshotStore(jdbc, ctx.getBean(FencedTx.class)), new AwsLaunchEventRecorder(jdbc), services -> {
+                    revert.delegate = new AwsRestoreProgram(services, new com.xammer.cloud.service.autospotting.core
+                            .GroupLookup(ctx.getBean(SpotGroupRepository.class)));
+                    return revert;
+                });
+        if (kind != null) {
+            store.insertQueued(OperationRecord.builder(f.opId, f.groupId, 7L, kind)
+                    .priorState(state)
+                    .priorPauseReason(pauseReason == null ? null
+                            : com.xammer.cloud.domain.autospotting.PauseReason.valueOf(pauseReason))
+                    .compensationTarget(CompensationTargets.forKind(kind))
+                    .targetConfigJson(kind == OperationKind.FALLBACK_EXIT ? desiredConfig : null)
+                    .requestedBy("system:fallback").build());
+            store.claimForRun(f.opId);
+        }
+        runner = newRunner();
+        lease = ctx.getBean(LeaseService.class).acquireGroup(f.groupId, LeaseService.Component.DISPATCHER).orElseThrow();
+    }
     final UUID enableOpId = UUID.randomUUID();
 
     /** An ENABLE that already changed the group and waits for its rollout (WAITING, first mutation at step 3). */

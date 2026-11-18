@@ -1,0 +1,6 @@
+{
+  "matcherId": "SPOT_INSUFFICIENT_CAPACITY",
+  "failureClass": "SPOT_CAPACITY",
+  "statusMessage": "Could not launch Spot Instances. InsufficientInstanceCapacity - We currently do not have sufficient m5.large capacity in the Availability Zone you requested (us-east-1a).",
+  "note": "recorded-style fixture; V-AWS-16 replaces it with a real sample in Phase 23"
+}

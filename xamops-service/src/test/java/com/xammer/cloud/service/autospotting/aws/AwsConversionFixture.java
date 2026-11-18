@@ -188,7 +188,9 @@ final class AwsConversionFixture {
                 rolloutParts.evaluator, events, clock);
         library = new AwsStepLibrary(services);
         provider = new AwsSpotProvider(accounts, views, evaluator, new AwsGroupStatusReader(), prices, switches, gate,
-                library, new AwsRestoreProgram(services, groupLookup), rolloutParts.evaluator, clock);
+                library, new AwsRestoreProgram(services, groupLookup), rolloutParts.evaluator, fallbackRules(),
+                new AwsFallbackPrograms(services, fallbackRules(),
+                        com.xammer.cloud.service.autospotting.core.FallbackProperties.defaults()), events, clock);
         wireWrites();
     }
 
@@ -204,9 +206,14 @@ final class AwsConversionFixture {
                 new AwsGroupStatusReader(), realSnapshots, realFacts, redactor, parts.observer,
                 parts.evaluator, realEvents, clock);
         return new AwsSpotProvider(accounts, views, evaluator, new AwsGroupStatusReader(), prices, switches, gate,
-                new AwsStepLibrary(real), revert.apply(real), parts.evaluator, clock);
+                new AwsStepLibrary(real), revert.apply(real), parts.evaluator, fallbackRules(),
+                new AwsFallbackPrograms(real, fallbackRules(),
+                        com.xammer.cloud.service.autospotting.core.FallbackProperties.defaults()), realEvents, clock);
     }
 
+    static AwsFallbackRules fallbackRules() {
+        return new AwsFallbackRules(com.xammer.cloud.service.autospotting.core.FallbackProperties.defaults());
+    }
     /** The observer and evaluator the services and the provider share. */
     private static final class AwsStatusAndRollout {
         final AwsRolloutObserver observer = new AwsRolloutObserver();

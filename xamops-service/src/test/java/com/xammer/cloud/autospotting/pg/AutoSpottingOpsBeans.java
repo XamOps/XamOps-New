@@ -202,6 +202,18 @@ class AutoSpottingOpsBeans {
     }
 
     @Bean
+    com.xammer.cloud.service.autospotting.core.FallbackProperties fallbackProperties() {
+        return com.xammer.cloud.service.autospotting.core.FallbackProperties.defaults();
+    }
+    @Bean
+    com.xammer.cloud.service.autospotting.core.reconcile.FallbackEnqueuer fallbackEnqueuer(
+            SpotOperationRepository ops, PreemptionService preemption, OperationStore store,
+            com.xammer.cloud.service.autospotting.core.FallbackProperties props, AutoSpottingAuditWriter audit,
+            com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics, SwitchService switches) {
+        return new com.xammer.cloud.service.autospotting.core.reconcile.FallbackEnqueuer(ops, preemption, store, props,
+                audit, metrics, switches);
+    }
+    @Bean
     PreemptionService preemptionService(SpotOperationRepository ops, SpotGroupLifecycleRepository lifecycle) {
         return new PreemptionService(ops, lifecycle);
     }

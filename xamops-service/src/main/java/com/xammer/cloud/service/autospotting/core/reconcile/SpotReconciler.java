@@ -351,9 +351,18 @@ public class SpotReconciler {
                 case MARK_DEGRADED -> transitionIfAllowed(handle, group, GroupState.DEGRADED, "HEALTH_DEGRADED");
                 case MARK_RECOVERED -> transitionIfAllowed(handle, group, recoveredTarget(group), "HEALTH_RECOVERED");
                 case ALERT -> metrics.reconcileAlert(group.getState().name());
-                // ENQUEUE_FALLBACK / REQUEST_COMPENSATION / UPDATE_PAUSED_FROM / PAUSE / UNPAUSE are the
-                // health-pass / switch-pause responsibilities; left to those paths (dark here).
-                default -> { /* no-op in the dark phase */ }
+                case ENQUEUE_FALLBACK -> {
+                    FallbackEnqueuer.Result r = healthPass.enqueueFallbackEnter(group, "RECONCILE");
+                    if (r == FallbackEnqueuer.Result.FROZEN && group.getState() == GroupState.ACTIVE) {
+                        // No fallback path under the freeze (design-aws.md §6.5): DEGRADED with an alert.
+                        transitionIfAllowed(handle, group, GroupState.DEGRADED, "FALLBACK_FROZEN");
+                        metrics.reconcileAlert(group.getState().name());
+                    }
+                }
+                case ENQUEUE_FALLBACK_EXIT -> healthPass.enqueueFallbackExit(group);
+                // REQUEST_COMPENSATION / UPDATE_PAUSED_FROM / PAUSE / UNPAUSE are the health-pass /
+                // switch-pause responsibilities; left to those paths.
+                default -> { /* handled elsewhere */ }
             }
         }
     }

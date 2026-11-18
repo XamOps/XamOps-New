@@ -102,4 +102,11 @@ public class AwsLaunchEventRecorder {
         int end = details.indexOf('"', start);
         return end < 0 ? null : details.substring(start, end);
     }
+    /** Interruption warnings of a group since {@code since}, from the events the pipeline recorded (FB-4, §11.1). */
+    public int interruptionsSince(UUID groupId, Instant since) {
+        Integer n = jdbc.queryForObject("SELECT count(*) FROM spot_group_event WHERE group_id = ?"
+                + " AND event_type = 'INTERRUPTION_WARNING' AND occurred_at >= ?", Integer.class, groupId,
+                Timestamp.from(since));
+        return n == null ? 0 : n;
+    }
 }

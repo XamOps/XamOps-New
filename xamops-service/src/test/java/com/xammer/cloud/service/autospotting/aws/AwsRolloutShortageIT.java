@@ -139,7 +139,8 @@ class AwsRolloutShortageIT {
 
     private HealthPass healthPass(AwsOpsHarness h) {
         return new HealthPass(h.ctx.getBean(SpotOperationRepository.class), h.ctx.getBean(PreemptionService.class),
-                new ReconcilerStore(h.ctx.getBean(DataSource.class)), h.ctx.getBean(AutoSpottingMetrics.class));
+                new ReconcilerStore(h.ctx.getBean(DataSource.class)), h.ctx.getBean(AutoSpottingMetrics.class),
+                h.ctx.getBean(com.xammer.cloud.service.autospotting.core.reconcile.FallbackEnqueuer.class));
     }
 
     /** The reconciler's sweep for the group: getStatus, reconcile, then the read-only health pass. */

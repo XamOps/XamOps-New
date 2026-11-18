@@ -97,6 +97,7 @@ public class OperationRunner {
     private final SpotOpsLifecycle opsLifecycle;
     private final ProviderRegistry providers;
     private final AutoSpottingMetrics metrics;
+    private final FallbackEffects fallbackEffects;
 
     public OperationRunner(SpotOperationRepository operations, SpotGroupRepository groups, OperationStore store,
                            StepExecutor stepExecutor, GroupLifecycleService lifecycle, FencedTx fencedTx,
@@ -114,6 +115,7 @@ public class OperationRunner {
         this.opsLifecycle = opsLifecycle;
         this.providers = providers;
         this.metrics = metrics;
+        this.fallbackEffects = new FallbackEffects(operations, groups, store, lifecycle, fencedTx, auditWriter, metrics);
     }
 
     /**
@@ -218,9 +220,11 @@ public class OperationRunner {
             }
 
             if (outcome instanceof StepOutcome.Done) {
+                fallbackEffects.afterStep(handle, op, group, step, outcome);
                 seq++;
                 store.advanceStep(op.getId(), seq);
             } else if (outcome instanceof StepOutcome.InProgress inProgress) {
+                fallbackEffects.afterStep(handle, op, group, step, outcome);
                 // Long cloud wait: park WAITING and release the thread, keeping the lease (§4.1).
                 Instant nextAttempt = Instant.now().plus(inProgress.pollAfter());
                 store.park(op.getId(), WaitReason.CLOUD_PROGRESS, nextAttempt, seq, inProgress.progressJson());
@@ -244,6 +248,16 @@ public class OperationRunner {
      * false when the group is still not REVERTING afterwards, so the caller does not mutate.
      */
     private boolean enterRevertingWithFirstMutation(LeaseHandle handle, SpotOperation op, SpotGroup group) {
+        if (op.getKind() == com.xammer.cloud.domain.autospotting.OperationKind.FALLBACK_EXIT
+                && op.getPhase() == OperationPhase.FORWARD) {
+            // A FALLBACK_EXIT is surge-first like a conversion: FALLBACK -> APPLYING with its first mutation (§6.5).
+            SpotGroup current = groups.findById(group.getId()).orElse(group);
+            if (current.getState() == GroupState.APPLYING) {
+                return true;
+            }
+            transitionTo(handle, group, GroupState.APPLYING, "FALLBACK_EXIT_STARTED", op.getId());
+            return groups.findById(group.getId()).map(g -> g.getState() == GroupState.APPLYING).orElse(false);
+        }
         if (op.getKind() != com.xammer.cloud.domain.autospotting.OperationKind.REVERT
                 || op.getPhase() != OperationPhase.FORWARD) {
             return true;
@@ -501,6 +515,15 @@ public class OperationRunner {
                 ? OperationOutcomes.compensationSuccess(op)
                 : OperationOutcomes.forwardSuccess(op.getKind(), op.getPriorState());
 
+        boolean forward = op.getPhase() == OperationPhase.FORWARD;
+        if (forward && op.getKind() == com.xammer.cloud.domain.autospotting.OperationKind.FALLBACK_ENTER) {
+            // The state change of a fallback enter happened at VERIFY_FALLBACK_APPLIED (and WAIT_CAPACITY may
+            // have moved it to DEGRADED): finishing the op must not move it again.
+            target = null;
+        } else if (forward && op.getKind() == com.xammer.cloud.domain.autospotting.OperationKind.FALLBACK_EXIT) {
+            fallbackEffects.exitSucceeded(handle, op, group, desiredConfigWrite(op, group));
+            target = null;
+        }
         if (target != null) {
             transitionTo(handle, group, target, successReason(op), op.getId(), desiredConfigWrite(op, group));
         }
@@ -526,6 +549,7 @@ public class OperationRunner {
             case ENABLE, ADOPT -> true;
             case CONFIG_APPLY, PROFILE_CHANGE -> group.getConfigMode()
                     != com.xammer.cloud.domain.autospotting.ConfigMode.FALLBACK;
+            case FALLBACK_EXIT -> true; // the exit applies desired_config (and any change a fallback deferred)
             default -> false;
         };
         if (!writes) {
