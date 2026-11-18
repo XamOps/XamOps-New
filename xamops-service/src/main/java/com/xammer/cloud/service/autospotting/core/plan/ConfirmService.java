@@ -108,6 +108,9 @@ public class ConfirmService {
     }
 
     /** The confirm command (controller-resolved; the account is already tenancy-authorized). */
+    /** The marker stored in {@code confirm_acks} when the customer confirmed a 100% Spot plan (FR-PLN-04). */
+    public static final String FULL_SPOT_OPTIN = "FULL_SPOT_OPTIN";
+
     public record ConfirmCommand(int planVersion, List<String> acknowledgedWarningIds, boolean fullSpotOptIn,
                                  String reason, boolean dryRunRequested, String idempotencyKey,
                                  String requestSha256) {
@@ -186,6 +189,15 @@ public class ConfirmService {
                 throw new AutoSpottingApiException(HttpStatus.UNPROCESSABLE_ENTITY, "CHECK_FAILED",
                         "This plan is 100% Spot; confirm the full-Spot opt-in to proceed.");
             }
+            JsonNode blocker = firstBlocker(plan);
+            if (blocker != null) {
+                // A blocked plan is never confirmed: a Launch Configuration group, desired <= 1, a
+                // terminate-first maintenance policy and the other hard blockers end here with 422 and
+                // the plan's own guidance text, before an operation exists (AC-AWS-01).
+                throw new AutoSpottingApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+                        blocker.path("code").asText("CHECK_FAILED"), blocker.path("text").asText(
+                                "This group can't be converted yet."));
+            }
             if (desiredAtMostOne(plan)) {
                 throw new AutoSpottingApiException(HttpStatus.UNPROCESSABLE_ENTITY, "CHECK_FAILED",
                         "This group's desired capacity is 1 or less; it is too small to convert.");
@@ -217,7 +229,7 @@ public class ConfirmService {
         // asks for it (§7.2, plan-phase-11.md 11.3).
         boolean dryRun = plan.isDryRun() || cmd.dryRunRequested() || switchProperties.mutationsDryRun();
         int flipped = plans.confirmIfOpen(plan.getId(), plan.getVersion(), actorName(user), Instant.now(),
-                acksJson(cmd.acknowledgedWarningIds()), cmd.reason());
+                acksJson(acksWithOptIn(cmd)), cmd.reason());
         if (flipped != 1) {
             // Another confirm won the race between our read and the UPDATE: return its op id.
             SpotOperation winner = operations.findByPlanId(plan.getId()).orElse(null);
@@ -250,6 +262,7 @@ public class ConfirmService {
                     .priorState(priorState)
                     .compensationTarget(CompensationTargets.forKind(plan.getKind()))
                     .targetConfigJson(targetConfigJson(plan))
+                    .compensationConfigJson(compensationConfigJson(plan))
                     .idempotencyKey(cmd.idempotencyKey())
                     .requestSha256(cmd.requestSha256())
                     .requestedBy(plan.getCreatedBy())
@@ -303,6 +316,17 @@ public class ConfirmService {
         return ids;
     }
 
+    /** The first definitive blocker the plan recorded, or null when it has none. */
+    private JsonNode firstBlocker(SpotPlan plan) {
+        try {
+            JsonNode body = objectMapper.readTree(plan.getBody() == null ? "{}" : plan.getBody());
+            JsonNode blockers = body.path("eligibility").path("blockers");
+            return blockers.isArray() && !blockers.isEmpty() ? blockers.get(0) : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private boolean desiredAtMostOne(SpotPlan plan) {
         // The plan body carries the rollout; a group with desired <= 1 is too small for a PROGRESS
         // conversion (§7.4 step 6, AC-PLN-08). The fake/provider encodes desired in the rollout's
@@ -317,6 +341,25 @@ public class ConfirmService {
             // fall through
         }
         return false;
+    }
+
+    /**
+     * The configuration a PRIOR_CONFIG compensation restores (design-core.md §2.2.1): the plan body's
+     * {@code current}, the owned fields as read when the plan was made. Null for the other targets, and
+     * when the body carries no JSON object there.
+     */
+    private String compensationConfigJson(SpotPlan plan) {
+        if (CompensationTargets.forKind(plan.getKind())
+                != com.xammer.cloud.domain.autospotting.CompensationTarget.PRIOR_CONFIG) {
+            return null;
+        }
+        try {
+            JsonNode body = objectMapper.readTree(plan.getBody() == null ? "{}" : plan.getBody());
+            JsonNode current = body.get("current");
+            return current != null && current.isObject() ? current.toString() : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private String targetConfigJson(SpotPlan plan) {
@@ -343,6 +386,16 @@ public class ConfirmService {
 
     private Provider providerOf(CloudAccount account) {
         return "GCP".equalsIgnoreCase(account.getProvider()) ? Provider.GCP : Provider.AWS;
+    }
+
+    /** The acknowledged warning ids, plus {@link #FULL_SPOT_OPTIN} when the customer ticked the opt-in. */
+    private static List<String> acksWithOptIn(ConfirmCommand cmd) {
+        List<String> acks = new java.util.ArrayList<>(cmd.acknowledgedWarningIds() == null
+                ? List.of() : cmd.acknowledgedWarningIds());
+        if (cmd.fullSpotOptIn()) {
+            acks.add(FULL_SPOT_OPTIN);
+        }
+        return acks;
     }
 
     private static String acksJson(List<String> acks) {

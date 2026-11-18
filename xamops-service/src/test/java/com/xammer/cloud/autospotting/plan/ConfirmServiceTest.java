@@ -219,6 +219,62 @@ class ConfirmServiceTest {
     }
 
     @Test
+    void aPlanWithAHardBlockerIs422WithTheBlockersOwnCodeAndNoOp() {
+        // A Launch Configuration group (or desired <= 1, a terminate-first policy, ...) is never confirmed.
+        SpotGroup g = group(GroupState.UNMANAGED);
+        SpotPlan enable = plan(OperationKind.ENABLE, g.getId(), "[]", false);
+        enable.setBody("{\"target\":{},\"eligibility\":{\"blockers\":[{\"code\":\"LAUNCH_CONFIGURATION\","
+                + "\"text\":\"This group uses a launch configuration. Migrate it to a launch template, then plan again.\"}]}}");
+        when(plans.findById(enable.getId())).thenReturn(Optional.of(enable));
+        when(operations.findByPlanId(enable.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+
+        assertThatThrownBy(() -> confirm.confirm(account(), user(), enable.getId(), cmd(1, List.of(), false)))
+                .isInstanceOfSatisfying(AutoSpottingApiException.class, ex -> {
+                    assertThat(ex.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+                    assertThat(ex.getCode()).isEqualTo("LAUNCH_CONFIGURATION");
+                    assertThat(ex.getMessage()).contains("Migrate it to a launch template");
+                });
+        verify(operationStore, never()).insertQueued(any());
+    }
+
+    @Test
+    void aPlanWithNoBlockersStoresThePlanTimeConfigurationForPriorConfigCompensation() {
+        SpotGroup g = group(GroupState.ACTIVE);
+        SpotPlan apply = plan(OperationKind.CONFIG_APPLY, g.getId(), "[]", false);
+        apply.setBody("{\"current\":{\"shape\":\"MIXED_INSTANCES_POLICY\"},\"target\":{\"shape\":\"MIXED_INSTANCES_POLICY\"},"
+                + "\"eligibility\":{\"blockers\":[]}}");
+        when(plans.findById(apply.getId())).thenReturn(Optional.of(apply));
+        when(operations.findByPlanId(apply.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+        when(plans.confirmIfOpen(eq(apply.getId()), eq(1), anyString(), any(), anyString(), any())).thenReturn(1);
+
+        confirm.confirm(account(), user(), apply.getId(), cmd(1, List.of(), false));
+
+        org.mockito.ArgumentCaptor<com.xammer.cloud.service.autospotting.core.ops.OperationRecord> captor =
+                org.mockito.ArgumentCaptor.forClass(com.xammer.cloud.service.autospotting.core.ops.OperationRecord.class);
+        verify(operationStore).insertQueued(captor.capture());
+        assertThat(captor.getValue().compensationConfigJson()).isEqualTo("{\"shape\":\"MIXED_INSTANCES_POLICY\"}");
+        assertThat(captor.getValue().targetConfigJson()).isEqualTo("{\"shape\":\"MIXED_INSTANCES_POLICY\"}");
+    }
+
+    @Test
+    void theFullSpotOptInIsRecordedWithTheAcknowledgements() {
+        SpotGroup g = group(GroupState.UNMANAGED);
+        SpotPlan enable = plan(OperationKind.ENABLE, g.getId(), "[]", true);
+        when(plans.findById(enable.getId())).thenReturn(Optional.of(enable));
+        when(operations.findByPlanId(enable.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+        when(plans.confirmIfOpen(eq(enable.getId()), eq(1), anyString(), any(), anyString(), any())).thenReturn(1);
+
+        confirm.confirm(account(), user(), enable.getId(), cmd(1, List.of(), true));
+
+        org.mockito.ArgumentCaptor<String> acks = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(plans).confirmIfOpen(eq(enable.getId()), eq(1), anyString(), any(), acks.capture(), any());
+        assertThat(acks.getValue()).contains(ConfirmService.FULL_SPOT_OPTIN);
+    }
+
+    @Test
     void unreadableSwitchStoreHoldsRevert() {
         when(switchService.readUncached()).thenReturn(new SwitchState(Set.of(), Set.of(), true, false));
         SpotGroup g = group(GroupState.ACTIVE);

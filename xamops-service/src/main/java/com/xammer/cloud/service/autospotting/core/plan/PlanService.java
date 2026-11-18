@@ -284,7 +284,10 @@ public class PlanService {
     private boolean requiresFullSpotOptin(EligibilityResult eligibility, PlanBody body) {
         // The provider's plan body knows whether the target is 100% Spot; the fake carries it in the
         // rollout. This phase only needs the flag persisted for confirm step 6 (PROGRESS kinds).
-        return body != null && body.rollout() != null && "100".equals(body.rollout().headroom());
+        // A provider says so either through the rollout (the fake) or in its On-Demand floor
+        // ({@code "fullSpot":true}: base 0 and no On-Demand share, AWS design-aws.md §3.1, FR-PLN-04).
+        return body != null && ((body.rollout() != null && "100".equals(body.rollout().headroom()))
+                || (body.onDemandFloorJson() != null && body.onDemandFloorJson().contains("\"fullSpot\":true")));
     }
 
     private static boolean sameHash(SpotPlan prior, String requestSha256) {
@@ -337,6 +340,7 @@ public class PlanService {
         sb.append(",\"feeBasis\":").append(orNull(body.feeBasisJson()));
         sb.append(",\"revertPath\":").append(orNull(body.revertPathJson()));
         sb.append(",\"rollout\":").append(rolloutJson(body.rollout()));
+        sb.append(",\"eligibility\":").append(eligibilityJson(body));
         sb.append(",\"estimates\":").append(estimatesJson(body));
         sb.append("}");
         return sb.toString();
@@ -346,6 +350,30 @@ public class PlanService {
         return new PlanBody(body.currentJson(), body.targetJson(), body.diffJson(), body.snapshotToStore(),
                 body.eligibility(), body.rollout(), body.estimates(), body.onDemandFloorJson(),
                 feeBasis, body.revertPathJson());
+    }
+
+    /**
+     * The definitive blockers recorded with the plan ({@code {"blockers":[{code,text}]}}), so confirm
+     * can refuse a blocked PROGRESS plan with 422 before any operation exists. A failed read
+     * ({@code errorKind} set) is not a blocker here: op step 0 re-evaluates eligibility in CONFIRM mode.
+     */
+    private static String eligibilityJson(PlanBody body) {
+        StringBuilder sb = new StringBuilder("{\"blockers\":[");
+        boolean first = true;
+        if (body.eligibility() != null) {
+            for (var b : body.eligibility().blockers()) {
+                if (b.errorKind() != null) {
+                    continue;
+                }
+                if (!first) {
+                    sb.append(',');
+                }
+                first = false;
+                sb.append("{\"code\":\"").append(escape(b.code())).append("\",\"text\":\"")
+                        .append(escape(b.text())).append("\"}");
+            }
+        }
+        return sb.append("]}").toString();
     }
 
     private static String rolloutJson(PlanBody.Rollout r) {

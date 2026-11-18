@@ -1,0 +1,12 @@
+{
+  "AutoScalingGroupName" : "web-asg",
+  "MixedInstancesPolicy" : {
+    "InstancesDistribution" : {
+      "OnDemandAllocationStrategy" : "prioritized",
+      "OnDemandBaseCapacity" : 1,
+      "OnDemandPercentageAboveBaseCapacity" : 50,
+      "SpotAllocationStrategy" : "price-capacity-optimized"
+    }
+  },
+  "CapacityRebalance" : true
+}

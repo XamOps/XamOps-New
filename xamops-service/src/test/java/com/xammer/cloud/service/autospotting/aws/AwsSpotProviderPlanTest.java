@@ -90,6 +90,10 @@ class AwsSpotProviderPlanTest {
         CloudAccountRepository accounts = mock(CloudAccountRepository.class);
         when(accounts.findById(7L)).thenReturn(Optional.of(account));
         provider = new AwsSpotProvider(accounts, views, evaluator, new AwsGroupStatusReader(), prices, switches,
+                new AwsProviderGate(switches, new com.xammer.cloud.service.autospotting.AutoSpottingFeatureFlags(
+                        false, false, false, false)),
+                mock(AwsStepLibrary.class), new StubAwsRevertProgramFactory(),
+                new AwsRolloutEvaluator(AwsRolloutProperties.defaults()),
                 Clock.fixed(Instant.parse("2026-11-17T10:00:00Z"), ZoneOffset.UTC));
     }
 

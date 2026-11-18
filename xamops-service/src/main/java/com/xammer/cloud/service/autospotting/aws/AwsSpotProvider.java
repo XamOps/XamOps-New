@@ -53,9 +53,11 @@ import java.util.Optional;
  *       client is reachable from them (AC-PLN-01).</li>
  *   <li>{@code reconcile} is a pure decision. Health decisions return no fallback action until
  *       Phase 20.</li>
- *   <li>{@code executeConversion} and {@code restore} return {@code AS_PROVIDER_NOT_READY}: the
- *       mutating programs ship in Phase 18 and {@code autospotting.aws.v2-mutations-enabled} stays
- *       false until then.</li>
+ *   <li>{@code executeConversion} returns the {@link AwsStepLibrary} program and {@code restore} the
+ *       Phase 19 REVERT program, but only while {@link AwsProviderGate} is open: both
+ *       {@code autospotting.aws.v2-mutations-enabled} and {@code autospotting.aws.conversions-enabled}
+ *       stay false until Phase 23, so each refuses with {@code AS_PROVIDER_NOT_READY} (the second lock
+ *       behind switch (p) on the confirm path).</li>
  * </ul>
  */
 @Component
@@ -72,18 +74,26 @@ public class AwsSpotProvider implements SpotProvider {
     private final AwsGroupStatusReader statusReader;
     private final AwsEstimatePriceService prices;
     private final AutoSpottingSwitchProperties switchProperties;
+    private final AwsProviderGate gate;
+    private final AwsStepLibrary library;
+    private final AwsRevertProgramFactory revertPrograms;
+    private final AwsRolloutEvaluator rollout;
     private final Clock clock;
 
     @org.springframework.beans.factory.annotation.Autowired
     public AwsSpotProvider(CloudAccountRepository accounts, AwsViewSource views, AwsEligibilityEvaluator evaluator,
                            AwsGroupStatusReader statusReader, AwsEstimatePriceService prices,
-                           AutoSpottingSwitchProperties switchProperties) {
-        this(accounts, views, evaluator, statusReader, prices, switchProperties, Clock.systemUTC());
+                           AutoSpottingSwitchProperties switchProperties, AwsProviderGate gate,
+                           AwsStepLibrary library, AwsRevertProgramFactory revertPrograms,
+                           AwsRolloutEvaluator rollout) {
+        this(accounts, views, evaluator, statusReader, prices, switchProperties, gate, library, revertPrograms,
+                rollout, Clock.systemUTC());
     }
 
     AwsSpotProvider(CloudAccountRepository accounts, AwsViewSource views, AwsEligibilityEvaluator evaluator,
                     AwsGroupStatusReader statusReader, AwsEstimatePriceService prices,
-                    AutoSpottingSwitchProperties switchProperties, Clock clock) {
+                    AutoSpottingSwitchProperties switchProperties, AwsProviderGate gate, AwsStepLibrary library,
+                    AwsRevertProgramFactory revertPrograms, AwsRolloutEvaluator rollout, Clock clock) {
         this.clock = clock;
         this.accounts = accounts;
         this.views = views;
@@ -91,6 +101,10 @@ public class AwsSpotProvider implements SpotProvider {
         this.statusReader = statusReader;
         this.prices = prices;
         this.switchProperties = switchProperties;
+        this.gate = gate;
+        this.library = library;
+        this.revertPrograms = revertPrograms;
+        this.rollout = rollout;
     }
 
     @Override
@@ -140,6 +154,7 @@ public class AwsSpotProvider implements SpotProvider {
                 .put("baseCapacity", params.base())
                 .put("instanceType", ev.launch() == null ? null : ev.launch().instanceType())
                 .put("onDemandCount", Math.max(0, g.desired() - spotTarget))
+                .put("fullSpot", params.base() == 0 && params.percentAboveBase() == 0)
                 .put("allocationStrategy", "prioritized"));
         String revert = write(JSON.createObjectNode()
                 .put("program", "REVERT")
@@ -370,6 +385,13 @@ public class AwsSpotProvider implements SpotProvider {
             int desired = capacity == null ? 0 : capacity.path("desired").asInt(0);
             int inService = health.path("inService").asInt(0);
             long failed = health.path("recentFailedActivities").asLong(0);
+            // The in-flight shortage rule (design-aws.md §2.5, core §4.7): a switch-paused op makes no polls,
+            // so the same rule WAIT_ROLLOUT uses is evaluated here from the status the sweep just read.
+            if (state == GroupState.APPLYING && health.hasNonNull("healthyInService")
+                    && rollout.shortage(clock.instant(), desired, health.path("healthyInService").asInt(0),
+                            instant(health, "spotFailureStreakSince"), instant(health, "lastSpotFailureAt"))) {
+                return List.of(ReconcileAction.REQUEST_COMPENSATION, ReconcileAction.ALERT);
+            }
             boolean unhealthy = failed > 0 && inService < desired;
             // Health decisions only; no fallback action until Phase 20.
             if (unhealthy && (state == GroupState.ACTIVE || state == GroupState.FALLBACK)) {
@@ -384,27 +406,33 @@ public class AwsSpotProvider implements SpotProvider {
         return List.of();
     }
 
-    // ---- mutating programs: not ready ----
+    // ---- mutating programs: gated ----
 
     @Override
     public StepProgram executeConversion(OperationContext op) {
-        throw notReady();
+        gate.requireOpen();
+        return library.program(op);
     }
 
     @Override
     public StepProgram restore(OperationContext op, SnapshotPayload snapshot) {
-        throw notReady();
-    }
-
-    private AutoSpottingApiException notReady() {
-        // Both before and after the flag: the mutating step library ships in Phase 18.
-        return new AutoSpottingApiException(HttpStatus.CONFLICT, "AS_PROVIDER_NOT_READY",
-                switchProperties.v2MutationsEnabled(true)
-                        ? "The AWS conversion program is not available yet."
-                        : "AutoSpotting is not ready to change AWS groups yet.");
+        gate.requireOpen();
+        return revertPrograms.program(op, snapshot);
     }
 
     // ---- helpers ----
+
+    private static Instant instant(JsonNode n, String field) {
+        String v = n.path(field).asText(null);
+        if (v == null) {
+            return null;
+        }
+        try {
+            return Instant.parse(v);
+        } catch (java.time.format.DateTimeParseException e) {
+            return null;
+        }
+    }
 
     private Optional<CloudAccount> account(Long id) {
         return id == null ? Optional.empty() : accounts.findById(id);

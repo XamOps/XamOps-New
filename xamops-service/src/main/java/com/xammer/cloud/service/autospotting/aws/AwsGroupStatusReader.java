@@ -71,10 +71,34 @@ public class AwsGroupStatusReader {
         long failed = activities.stream().filter(a -> "Failed".equals(a.statusCodeAsString())).count();
         int[] split = split(view, facts);
         long inService = facts.instances().stream().filter(i -> "InService".equals(i.lifecycleState())).count();
+        long healthy = group.instances().stream()
+                .filter(i -> "InService".equals(i.lifecycleStateAsString()) && "Healthy".equals(i.healthStatus()))
+                .count();
+        // The Spot-failure streak the reconciler's shortage rule reads (design-aws.md §2.5): the run of
+        // Spot-capacity launch failures since the last successful launch (activities are newest first).
+        java.time.Instant lastSpotFailure = null;
+        java.time.Instant streakSince = null;
+        for (Activity a : activities) {
+            if ("Successful".equals(a.statusCodeAsString()) && AwsRolloutObserver.isLaunch(a)) {
+                break;
+            }
+            if (AwsRolloutObserver.isSpotFailure(a) && a.startTime() != null) {
+                if (lastSpotFailure == null || a.startTime().isAfter(lastSpotFailure)) {
+                    lastSpotFailure = a.startTime();
+                }
+                if (streakSince == null || a.startTime().isBefore(streakSince)) {
+                    streakSince = a.startTime();
+                }
+            }
+        }
         String health = "{\"inService\":" + inService
                 + ",\"instances\":" + facts.instances().size()
                 + ",\"recentFailedActivities\":" + failed
-                + ",\"refreshInProgress\":" + refreshActive + "}";
+                + ",\"refreshInProgress\":" + refreshActive
+                + ",\"healthyInService\":" + healthy
+                + ",\"lastSpotFailureAt\":" + (lastSpotFailure == null ? "null" : "\"" + lastSpotFailure + "\"")
+                + ",\"spotFailureStreakSince\":" + (streakSince == null ? "null" : "\"" + streakSince + "\"")
+                + "}";
         String capacity = "{\"min\":" + facts.min() + ",\"max\":" + facts.max()
                 + ",\"desired\":" + facts.desired()
                 + ",\"spot\":" + split[1] + ",\"onDemand\":" + split[0] + "}";
