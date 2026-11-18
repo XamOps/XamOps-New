@@ -163,7 +163,7 @@ export interface PlanBodyDoc {
   target: Record<string, unknown> | null;
   diff: Array<{ field: string; from: string | null; to: string | null }>;
   onDemandFloor: Record<string, unknown> | null;
-  feeBasis: { contractId?: string | null; reason?: string; sharePct?: number; monthlyCap?: number } | null;
+  feeBasis: { contractId?: string | null; reason?: string; sharePct?: number; monthlyCap?: number | null } | null;
   revertPath: { program?: string; method?: string; exact?: boolean } | null;
   rollout: {
     method?: string;
@@ -256,6 +256,8 @@ export function newIdempotencyKey(): string {
 
 interface RequestOptions {
   body?: unknown;
+  /** A pre-serialized JSON body, for payloads whose decimals must not pass through a JS number. */
+  rawBody?: string;
   idempotencyKey?: string;
   noCache?: boolean;
   timeoutMs?: number;
@@ -272,7 +274,7 @@ async function request<T>(method: string, path: string, opts: RequestOptions = {
   const res = await apiFetch(path, {
     method,
     headers,
-    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+    body: opts.rawBody !== undefined ? opts.rawBody : opts.body === undefined ? undefined : JSON.stringify(opts.body),
     timeoutMs: opts.timeoutMs,
   });
   if (!res.ok) {
@@ -525,6 +527,119 @@ export const resumeGroup = (
   idempotencyKey: string = newIdempotencyKey(),
 ): Promise<{ groupId: string; state: string }> =>
   request('POST', `${ADMIN}/groups/${encodeURIComponent(groupId)}/resume`, { body: { reason }, idempotencyKey });
+// ---------------------------------------------------------------------------
+// Allowlist with billing basis (Phase 15, design-core.md section 6.1). Super admins and XamOps admins only.
+// ---------------------------------------------------------------------------
+export type BillingBasis = 'CONTRACT' | 'NO_FEE';
+export interface AllowlistRow {
+  cloudAccountId: number;
+  provider: string;
+  accountName: string | null;
+  clientId: number | null;
+  billingBasis: BillingBasis;
+  contractId: string | null;
+  contractInForce: boolean;
+  reason: string;
+  addedBy: string;
+  addedAt: string;
+}
+export interface AllowlistOptions {
+  cloudAccountId: number;
+  provider: string;
+  accountName: string | null;
+  clientId: number | null;
+  contractInForce: boolean;
+  contractId: string | null;
+}
+export const listAllowlist = (): Promise<AllowlistRow[]> => request('GET', `${ADMIN}/allowlist`);
+export const getAllowlistOptions = (cloudAccountId: number): Promise<AllowlistOptions> =>
+  request('GET', `${ADMIN}/allowlist/options/${encodeURIComponent(String(cloudAccountId))}`);
+export const addToAllowlist = (
+  body: { cloudAccountId: number; billingBasis: BillingBasis; reason: string },
+  idempotencyKey: string = newIdempotencyKey(),
+): Promise<AllowlistRow> => request('POST', `${ADMIN}/allowlist`, { body, idempotencyKey });
+export const removeFromAllowlist = (
+  cloudAccountId: number,
+  reason: string,
+  idempotencyKey: string = newIdempotencyKey(),
+): Promise<void> =>
+  request('DELETE', `${ADMIN}/allowlist/${encodeURIComponent(String(cloudAccountId))}`, {
+    body: { reason },
+    idempotencyKey,
+  });
+// ---------------------------------------------------------------------------
+// BillOps admin: contracts and go-live (Phase 15, ledger design section 11.4). BillOps and super admins only.
+// Percentages and amounts travel as decimal strings; the form never turns them into numbers.
+// ---------------------------------------------------------------------------
+const BILLOPS_ADMIN = '/api/xamops/billops-admin/autospotting';
+export interface ContractRow {
+  id: string;
+  clientId: number;
+  sharePct: string;
+  monthlyCap: { amount: string; currency: string } | null;
+  declaredDiscountPct: string | null;
+  discountDeclaration: 'DECLARED' | 'NOT_DECLARED';
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  createdBy: string;
+  createdAt: string;
+  inForce: boolean;
+}
+export interface NewContract {
+  sharePct: string;
+  monthlyCap: string | null;
+  discountDeclaration: 'DECLARED' | 'NOT_DECLARED';
+  declaredDiscountPct: string | null;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+  reason: string;
+}
+export interface GoLiveRow {
+  provider: string;
+  goLiveAt: string;
+  setBy: string;
+  setAt: string;
+}
+export const listContracts = (clientId: number): Promise<ContractRow[]> =>
+  request('GET', `${BILLOPS_ADMIN}/clients/${encodeURIComponent(String(clientId))}/contracts`);
+/**
+ * The body is serialized by hand so a decimal string becomes a JSON number with its digits intact.
+ * JSON.stringify of a JS number would round-trip through a double.
+ */
+const DECIMAL = /^(0|[1-9]\d{0,11})(\.\d{1,6})?$/;
+export const isDecimalText = (v: string): boolean => DECIMAL.test(v);
+export const createContract = (
+  clientId: number,
+  c: NewContract,
+  idempotencyKey: string = newIdempotencyKey(),
+): Promise<ContractRow> => {
+  // The decimals are spliced into the JSON text, so each one must be plain digits first.
+  for (const v of [c.sharePct, c.monthlyCap, c.declaredDiscountPct]) {
+    if (v !== null && !DECIMAL.test(v)) {
+      return Promise.reject(new AutoSpottingApiError({ status: 422, code: 'CHECK_FAILED', detail: 'A number is not valid.' }));
+    }
+  }
+  return request('POST', `${BILLOPS_ADMIN}/clients/${encodeURIComponent(String(clientId))}/contracts`, {
+    rawBody: `{"sharePct":${c.sharePct},"monthlyCap":${c.monthlyCap ?? 'null'},"capCurrency":"USD",`
+      + `"discountDeclaration":"${c.discountDeclaration}","declaredDiscountPct":${c.declaredDiscountPct ?? 'null'},`
+      + `"effectiveFrom":${JSON.stringify(c.effectiveFrom)},"effectiveTo":${JSON.stringify(c.effectiveTo)},`
+      + `"reason":${JSON.stringify(c.reason)}}`,
+    idempotencyKey,
+  });
+};
+export const endContract = (
+  id: string,
+  body: { effectiveTo: string | null; reason: string },
+  idempotencyKey: string = newIdempotencyKey(),
+): Promise<ContractRow> =>
+  request('POST', `${BILLOPS_ADMIN}/contracts/${encodeURIComponent(id)}/end`, { body, idempotencyKey });
+export const listGoLives = (): Promise<GoLiveRow[]> => request('GET', `${BILLOPS_ADMIN}/golive`);
+export const setGoLive = (
+  provider: string,
+  body: { goLiveAt: string | null; reason: string },
+  idempotencyKey: string = newIdempotencyKey(),
+): Promise<GoLiveRow> =>
+  request('POST', `${BILLOPS_ADMIN}/golive/${encodeURIComponent(provider.toLowerCase())}`, { body, idempotencyKey });
 // ---------------------------------------------------------------------------
 // Parsing helpers
 // ---------------------------------------------------------------------------

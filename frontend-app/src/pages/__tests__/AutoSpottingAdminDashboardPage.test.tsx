@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 const chartConfigs = vi.hoisted(() => [] as Array<{ type: string; data: { datasets: Array<{ label: string; data: unknown[] }> } }>);
 
@@ -122,5 +123,16 @@ describe('AutoSpottingAdminDashboardPage', () => {
     expect(within(configSave).getAllByRole('cell')[column]).toHaveTextContent(/^—$/);
     expect(within(conversion).getAllByRole('cell')[column]).toHaveTextContent('$0.0123/hr');
     expect(within(conversion).getByText('i-0abc')).toBeInTheDocument();
+  });
+  it('has an Allowlist tab that opens the allowlist and leaves Overview as the default', async () => {
+    overrides['/api/xamops/autospotting-admin/allowlist'] = [];
+    render(<AutoSpottingAdminDashboardPage />);
+    await screen.findByTestId('legacy-total-card');
+    expect(screen.getByRole('button', { name: 'Overview' })).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(screen.getByRole('button', { name: 'Allowlist' }));
+    expect(await screen.findByText('No accounts on the allowlist.')).toBeInTheDocument();
+    expect(screen.queryByTestId('legacy-total-card')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Overview' }));
+    expect(await screen.findByTestId('legacy-total-card')).toBeInTheDocument();
   });
 });

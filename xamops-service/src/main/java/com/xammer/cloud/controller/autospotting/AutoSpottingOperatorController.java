@@ -2,6 +2,10 @@ package com.xammer.cloud.controller.autospotting;
 
 import com.xammer.cloud.config.multitenancy.ImpersonationContext;
 import com.xammer.cloud.domain.autospotting.GroupState;
+import com.xammer.cloud.dto.autospotting.v2.AllowlistAddRequest;
+import com.xammer.cloud.dto.autospotting.v2.AllowlistDto;
+import com.xammer.cloud.dto.autospotting.v2.AllowlistOptionsDto;
+import com.xammer.cloud.dto.autospotting.v2.AllowlistRemoveRequest;
 import com.xammer.cloud.dto.autospotting.v2.OperationDto;
 import com.xammer.cloud.dto.autospotting.v2.ReasonRequest;
 import com.xammer.cloud.dto.autospotting.v2.SwitchChangeRequest;
@@ -9,6 +13,7 @@ import com.xammer.cloud.dto.autospotting.v2.SwitchDto;
 import com.xammer.cloud.repository.autospotting.SpotOperationRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.autospotting.core.AutoSpottingApiException;
+import com.xammer.cloud.service.autospotting.core.allowlist.AllowlistOperatorService;
 import com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter.Actor;
 import com.xammer.cloud.service.autospotting.core.lifecycle.OperatorGroupService;
 import com.xammer.cloud.service.autospotting.core.switches.SwitchOperatorService;
@@ -21,6 +26,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -40,7 +46,7 @@ import java.util.UUID;
  * {@code /api/xamops/autospotting-admin}. Super admins and XamOps admins engage switches and pause
  * or resume groups at runtime, without a deploy. The dashboard reads moved in Phase 02 stay on
  * {@code AutoSpottingAdminController} in the same namespace (and keep allowing BillOps admin);
- * allowlist endpoints follow in Phase 15, DLQ endpoints in Phase 22.
+ * the allowlist endpoints (Phase 15, billing basis per DC-11) sit here too, DLQ endpoints in Phase 22.
  *
  * <p><strong>Role gate (G1 decision D3 pattern).</strong> The class {@code @PreAuthorize} requires
  * {@code ROLE_SUPER_ADMIN} or {@code ROLE_XAMOPS_ADMIN} <em>and</em>
@@ -70,15 +76,18 @@ public class AutoSpottingOperatorController {
     private final OperatorGroupService operatorGroupService;
     private final SpotOperationRepository operations;
     private final com.xammer.cloud.service.autospotting.core.IdempotencyService idempotencyService;
+    private final AllowlistOperatorService allowlistService;
 
     public AutoSpottingOperatorController(SwitchOperatorService switchOperatorService,
                                           OperatorGroupService operatorGroupService,
                                           SpotOperationRepository operations,
-                                          com.xammer.cloud.service.autospotting.core.IdempotencyService idempotencyService) {
+                                          com.xammer.cloud.service.autospotting.core.IdempotencyService idempotencyService,
+                                          AllowlistOperatorService allowlistService) {
         this.switchOperatorService = switchOperatorService;
         this.operatorGroupService = operatorGroupService;
         this.operations = operations;
         this.idempotencyService = idempotencyService;
+        this.allowlistService = allowlistService;
     }
 
     @GetMapping("/switches")
@@ -148,6 +157,41 @@ public class AutoSpottingOperatorController {
         }
     }
 
+    // ── allowlist (design-core.md §6.1, §6.6, DC-11) ───────────────────────────
+    @GetMapping("/allowlist")
+    public ResponseEntity<List<AllowlistDto>> allowlist() {
+        return ResponseEntity.ok(allowlistService.list().stream().map(AllowlistDto::from).toList());
+    }
+    @GetMapping("/allowlist/options/{cloudAccountId}")
+    public ResponseEntity<AllowlistOptionsDto> allowlistOptions(@PathVariable long cloudAccountId) {
+        return ResponseEntity.ok(AllowlistOptionsDto.from(allowlistService.options(cloudAccountId)));
+    }
+    @PostMapping("/allowlist")
+    public ResponseEntity<AllowlistDto> addToAllowlist(@RequestHeader(value = "Idempotency-Key", required = false)
+                                                       String idempotencyKey,
+                                                       @RequestBody AllowlistAddRequest body,
+                                                       @AuthenticationPrincipal ClientUserDetails userDetails) {
+        requireNotImpersonated();
+        requireIdempotencyKey(idempotencyKey);
+        if (body.cloudAccountId() == null) {
+            throw new AutoSpottingApiException(org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY,
+                    "CHECK_FAILED", "cloudAccountId is required.");
+        }
+        AllowlistOperatorService.AllowlistView view = allowlistService.add(body.cloudAccountId(),
+                body.billingBasis(), body.reason(), operatorActor(userDetails), actorLabel(userDetails));
+        return ResponseEntity.ok(AllowlistDto.from(view));
+    }
+    @DeleteMapping("/allowlist/{cloudAccountId}")
+    public ResponseEntity<Void> removeFromAllowlist(@PathVariable long cloudAccountId,
+                                                    @RequestHeader(value = "Idempotency-Key", required = false)
+                                                    String idempotencyKey,
+                                                    @RequestBody AllowlistRemoveRequest body,
+                                                    @AuthenticationPrincipal ClientUserDetails userDetails) {
+        requireNotImpersonated();
+        requireIdempotencyKey(idempotencyKey);
+        allowlistService.remove(cloudAccountId, body.reason(), operatorActor(userDetails));
+        return ResponseEntity.noContent().build();
+    }
     // ── gates shared by every non-GET ───────────────────────────────────────
 
     /** Every non-GET refuses an impersonated (Login-As) session (design-core.md §6.6). */
@@ -173,6 +217,9 @@ public class AutoSpottingOperatorController {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
+    private static String actorLabel(ClientUserDetails userDetails) {
+        return userDetails == null || userDetails.getId() == null ? "operator" : String.valueOf(userDetails.getId());
+    }
     /** The {@code OPERATOR} audit actor built from the authenticated principal. */
     private static Actor operatorActor(ClientUserDetails userDetails) {
         if (userDetails == null) {

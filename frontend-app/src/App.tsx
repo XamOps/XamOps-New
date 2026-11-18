@@ -182,6 +182,7 @@ const BillOpsAdminInvoicesPage = lazy(() => import('./pages/BillOpsAdminInvoices
 const BillOpsAdminInvoiceDetailPage = lazy(() => import('./pages/BillOpsAdminInvoiceDetailPage'));
 const BillOpsAdminCreditsPage = lazy(() => import('./pages/BillOpsAdminCreditsPage'));
 const BillOpsAdminTicketsPage = lazy(() => import('./pages/BillOpsAdminTicketsPage'));
+const AutoSpottingBillingAdminPage = lazy(() => import('./pages/billops/AutoSpottingBillingAdminPage'));
 const BillOpsAdminAgreementsPage = lazy(() => import('./pages/BillOpsAdminAgreementsPage'));
 const BillOpsAdminMarketplaceBillingPage = lazy(() => import('./pages/BillOpsAdminMarketplaceBillingPage'));
 const BillOpsAdminUserManagerPage = lazy(() => import('./pages/BillOpsAdminUserManagerPage'));
@@ -624,6 +625,7 @@ const AppContent: React.FC = () => {
                             <Route path="/billops-support-dashboard" element={<BillOpsSupportDashboardPage />} />
                             <Route path="/billops-admin-dashboard" element={<BillOpsAdminDashboardPage />} />
                             <Route path="/autospotting-admin" element={<AutoSpottingAdminDashboardPage />} />
+                            <Route path="/billops-admin-autospotting" element={<AutoSpottingBillingAdminPage />} />
                             <Route path="/billops-admin-invoices" element={<BillOpsAdminInvoicesPage />} />
                             <Route path="/billops-admin-invoice-detail" element={<BillOpsAdminInvoiceDetailPage />} />
                             <Route path="/billops-admin-credits" element={<BillOpsAdminCreditsPage />} />

@@ -56,6 +56,7 @@ export const BILLOPS_ADMIN_MODULES: BillOpsAdminModule[] = [
       { key: 'all-invoices', label: 'Billing', icon: 'mdi:file-document-outline', route: '/billops-admin-invoices' },
       { key: 'credit-requests', label: 'Credit Requests', icon: 'mdi:cash-multiple', route: '/billops-admin-credits' },
       { key: 'historical-billing', label: 'Historical Billing', icon: 'mdi:history', route: '/billops-admin-historical-billing' },
+      { key: 'autospotting-billing', label: 'AutoSpotting Billing', icon: 'mdi:auto-fix', route: '/billops-admin-autospotting' },
     ],
   },
   {

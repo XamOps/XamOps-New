@@ -21,12 +21,12 @@ export const FEE_FOLLOWS = 'The fee follows your AutoSpotting contract in force 
 
 /** The fee-basis line (PO-01, PO-16). Null when the plan carries no fee basis at all. */
 export function feeBasisText(
-  fee: { contractId?: string | null; reason?: string; sharePct?: number; monthlyCap?: number } | null,
+  fee: { contractId?: string | null; reason?: string; sharePct?: number; monthlyCap?: number | null } | null,
 ): string | null {
   if (!fee) return null;
   if (!fee.contractId || fee.reason === 'NO_CONTRACT' || fee.reason === 'NO_FEE_ACCOUNT') return FEE_NONE;
   const share = fee.sharePct !== undefined ? `${fee.sharePct}% share` : 'Contract share';
-  const cap = fee.monthlyCap !== undefined ? `, monthly cap USD ${fee.monthlyCap}` : '';
+  const cap = fee.monthlyCap != null ? `, monthly cap USD ${fee.monthlyCap}` : '';
   return `${share}${cap}. ${FEE_FOLLOWS}.`;
 }
 

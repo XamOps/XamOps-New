@@ -309,6 +309,7 @@ const Sidebar: React.FC = () => {
                   {isTabAllowed('agreement-admin') && <NavItem href="/billops-admin-agreements" icon="fas fa-file-signature" label="Agreement" isActive={isActive('/billops-admin-agreements')} />}
                   {isTabAllowed('autospotting-admin') && <NavItem href="/autospotting-admin" icon="" iconSrc={AWS_SERVICE_ICONS['Auto Scaling Group']} label="AutoSpotting" isActive={isActive('/autospotting-admin')} />}
                   {isTabAllowed('historical-billing') && <NavItem href="/billops-admin-historical-billing" icon="fas fa-history" label="Historical Billing" isActive={isActive('/billops-admin-historical-billing')} />}
+                  {isTabAllowed('autospotting-billing') && <NavItem href="/billops-admin-autospotting" icon="fas fa-file-contract" label="AutoSpotting Billing" isActive={isActive('/billops-admin-autospotting')} />}
                   {isTabAllowed('client-intake') && <NavItem href="/billops-client-intake" icon="fas fa-clipboard-list" label="Client Intake" isActive={isActive('/billops-client-intake')} />}
                   {/* DSPM add-on administration: org -> Matters project mappings, the per-customer API
                       keys and the access audit trail. Sits next to Accounts because it is the other

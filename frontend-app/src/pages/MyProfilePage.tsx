@@ -78,6 +78,7 @@ const MyProfilePage: React.FC = () => {
     'client-intake':      'bg-violet-50 text-violet-700 border-violet-100',
     'demo-users':         'bg-amber-50 text-amber-700 border-amber-100',
     'autospotting-admin': 'bg-orange-50 text-orange-700 border-orange-100',
+    'autospotting-billing': 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)] border-[rgba(0,0,0,0.08)]',
     'dspm-admin':         'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-100',
     'user-manager':       'bg-rose-50 text-rose-700 border-rose-100',
   };

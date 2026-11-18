@@ -72,10 +72,25 @@ class AutoSpottingArchitectureTest {
         // and the operator API read the spine op store directly (design-core.md §11, §6.6).
         ArchRule rule = noClasses()
                 .that().resideOutsideOfPackages("..repository.autospotting..", "..service.autospotting.core..",
-                        "..controller.autospotting..")
+                        "..controller.autospotting..", "..service.autospotting.ledger..")
                 .should().dependOnClassesThat().resideInAPackage("..repository.autospotting..")
                 .because("the spine repositories are driven only by the core services and the "
                         + "AutoSpotting controllers (design-ux-ops.md §9.1, design-core.md §11)");
+        rule.check(classes);
+    }
+    @Test
+    void ledgerServicesDependOnlyOnTheLedgerRepositories() {
+        // Phase 15 adds ..service.autospotting.ledger.. as a depender of the ledger repositories (the
+        // contract and go-live services). It still may not reach the spine repositories.
+        ArchRule rule = noClasses()
+                .that().resideInAPackage("..service.autospotting.ledger..")
+                .should().dependOnClassesThat(
+                        com.tngtech.archunit.base.DescribedPredicate.and(
+                                com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage("..repository.autospotting.."),
+                                com.tngtech.archunit.core.domain.JavaClass.Predicates.resideOutsideOfPackage(
+                                        "..repository.autospotting.ledger..")))
+                .because("the ledger services own the ledger tables only; the spine is read through the core "
+                        + "services (design-ledger.md §13)");
         rule.check(classes);
     }
 
