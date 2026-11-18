@@ -377,6 +377,10 @@ export interface DataFlowColumn {
   nativeType: string | null;
   sensitiveCount: number | null;
   dataElements: string[];
+  /** The diagram's orange "PK" badge. */
+  primaryKey: boolean;
+  /** The diagram's blue "FK" badge: the column is part of a foreign key. */
+  foreignKey: boolean;
 }
 
 export interface DataFlowColumnPage {

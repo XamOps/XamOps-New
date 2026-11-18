@@ -599,6 +599,9 @@ const CRM_FLOW = CRM_TABLES.map((seed, index): { schema: string; table: DataFlow
     nativeType,
     sensitiveCount: finding?.[1] ?? 0,
     dataElements: finding ? [finding[0]] : [],
+    primaryKey: name === 'id',
+    // No demo foreign keys exist yet: FEAT-007 derives this flag from CRM_FOREIGN_KEYS.
+    foreignKey: false,
   })),
 }));
 

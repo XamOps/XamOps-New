@@ -6,6 +6,7 @@ import type {
   DatastoreOccurrencePage, DatastoreOverview, DatastoreRisks, DatastoreScanHistory, DatastoreScanProgress,
   DatastoreSensitives,
 } from '../types/dspmDatastores';
+import type { DataFlowErd, DataFlowRelations } from '../types/dspmDrawers';
 import { toDspmError } from './useDspmDatastores';
 
 /** One drawer resource as its tab reads it. */
@@ -98,6 +99,12 @@ export interface DatastoreDrawerApi {
   schemaTables: (schemaId: string, page: number, pageSize: number, q: string | null) => Promise<DataFlowTablePage>;
   databaseTables: (databaseId: string, page: number, pageSize: number, q: string | null) => Promise<DataFlowTablePage>;
   columns: (tableId: string, page: number, pageSize: number) => Promise<DataFlowColumnPage>;
+  /** Graph View: the diagram of a schema. */
+  schemaErd: (schemaId: string) => Promise<DataFlowErd>;
+  /** Graph View: the diagram of a database without schemas. */
+  databaseErd: (databaseId: string) => Promise<DataFlowErd>;
+  /** The table panel's Relationships tab. */
+  tableRelations: (tableId: string) => Promise<DataFlowRelations>;
 }
 
 /** The fetchers for the datastore with this 24-hex source id. */
@@ -125,5 +132,8 @@ export function datastoreDrawerApi(sourceId: string): DatastoreDrawerApi {
       apiClient.get<DataFlowTablePage>(withQuery(`${DATA_FLOW}/databases/${seg(databaseId)}/tables`, { page, pageSize, q })),
     columns: (tableId, page, pageSize) =>
       apiClient.get<DataFlowColumnPage>(withQuery(`${DATA_FLOW}/tables/${seg(tableId)}/columns`, { page, pageSize })),
+    schemaErd: schemaId => apiClient.get<DataFlowErd>(`${DATA_FLOW}/schemas/${seg(schemaId)}/erd`),
+    databaseErd: databaseId => apiClient.get<DataFlowErd>(`${DATA_FLOW}/databases/${seg(databaseId)}/erd`),
+    tableRelations: tableId => apiClient.get<DataFlowRelations>(`${DATA_FLOW}/tables/${seg(tableId)}/relations`),
   };
 }

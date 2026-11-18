@@ -1,13 +1,17 @@
 import React, { useCallback, useRef, useState } from 'react';
 import type { DspmError } from '../../../../types/dspm';
 import type { DataFlowDatabases, DataFlowTablePage, DatastoreRow } from '../../../../types/dspmDatastores';
+import type { DataFlowErd } from '../../../../types/dspmDrawers';
 import type { DatastoreDrawerApi, LazyResource } from '../../../../hooks/useDspmDatastoreDrawer';
 import { toDspmError } from '../../../../hooks/useDspmDatastores';
 import { EmptyState } from '../ui/EmptyState';
 import AssetHierarchy, { type TableParent } from './AssetHierarchy';
 import DataFlowColumns from './DataFlowColumns';
-import DataFlowTables, { type OpenTable, type TablesOutcome, type TablesView } from './DataFlowTables';
-import { ErrorNote, LoadingNote, NOT_SCANNED_TEXT } from './TabParts';
+import DataFlowGraph from './DataFlowGraph';
+import DataFlowTables, {
+  type OpenTable, type TableColumnId, type TablesMode, type TablesOutcome, type TablesView,
+} from './DataFlowTables';
+import { ErrorNote, LoadingNote, NOT_SCANNED_TEXT, useHiddenColumns } from './TabParts';
 import { sameRequest, useSearchGate, type TableRequest } from './useSearchGate';
 
 /** The tables of a schema (`s:<id>`) or of a database without schemas (`d:<id>`). */
@@ -27,11 +31,16 @@ interface Props {
 }
 
 /**
- * The Data Flow tab, Table View (design 6.11): the Asset Hierarchy on the left, and on the right the
- * selected schema's tables or one table's columns. Every Data Flow failure, a 404 included, shows in the
- * right pane only, so the tree stays usable.
+ * The Data Flow tab (design 6.11, 6.8): the Asset Hierarchy on the left, and on the right the selected
+ * schema's tables (Table View) or diagram (Graph View), or one table's columns. Every Data Flow failure,
+ * a 404 included, shows in the right pane only, so the tree stays usable.
  *
- * This tab owns the one-search-at-a-time gate and hands it to each tables view it shows: a table search
+ * This tab owns the toolbar's state, so the view, the search text and the hidden columns read the same
+ * after a toggle and after a schema switch (FR-ERD-4), and the diagrams already loaded (`erdCache`), so
+ * neither a toggle nor a schema revisited fetches one again. In Graph View no table request runs. The
+ * diagram's table panel belongs to `DataFlowGraph` (review fix R1).
+ *
+ * It also owns the one-search-at-a-time gate and hands it to each tables view it shows: a table search
  * waits for the pending one, also across a schema switch, so two full-schema reads never overlap.
  * `send` and `isWanted` read the view on screen through a ref, so the gate keeps one identity, and
  * `send` never rejects: a failure becomes the view's error state.
@@ -40,6 +49,10 @@ const DataFlowTab: React.FC<Props> = ({ api, row, databases }) => {
   const [parent, setParent] = useState<TableParent | null>(null);
   const [openTable, setOpenTable] = useState<OpenTable | null>(null);
   const [treeError, setTreeError] = useState<{ error: DspmError; retry: () => void } | null>(null);
+  const [mode, setMode] = useState<TablesMode>('table');
+  const [search, setSearch] = useState('');
+  const [hiddenColumns, toggleColumn] = useHiddenColumns<TableColumnId>();
+  const erdCache = useRef(new Map<string, DataFlowErd>());
 
   const view = useRef<TablesView | null>(null);
   const send = useCallback(async (r: TableRequest) => {
@@ -94,6 +107,21 @@ const DataFlowTab: React.FC<Props> = ({ api, row, databases }) => {
         onBack={() => setOpenTable(null)}
       />
     );
+  } else if (mode === 'graph') {
+    pane = (
+      <DataFlowGraph
+        key={parent.key}
+        api={api}
+        rootName={rootName}
+        parent={parent}
+        search={search}
+        onSearchChange={setSearch}
+        hidden={hiddenColumns}
+        onToggleColumn={toggleColumn}
+        onModeChange={setMode}
+        erdCache={erdCache}
+      />
+    );
   } else {
     pane = (
       <DataFlowTables
@@ -103,6 +131,12 @@ const DataFlowTab: React.FC<Props> = ({ api, row, databases }) => {
         request={requestTables}
         viewRef={view}
         onOpenTable={setOpenTable}
+        search={search}
+        onSearchChange={setSearch}
+        hidden={hiddenColumns}
+        onToggleColumn={toggleColumn}
+        mode={mode}
+        onModeChange={setMode}
       />
     );
   }
