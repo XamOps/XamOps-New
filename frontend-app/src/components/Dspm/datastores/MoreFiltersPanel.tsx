@@ -1,36 +1,46 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '@iconify/react';
 import type { DatastoreFilterOptions } from '../../../types/dspmDatastores';
 import type { DatastoreFilterState } from './datastoreFilters';
-import { dimensionLabel, moreFiltersDimensions, type DatastoreTabConfig } from './datastoreTabConfig';
 import FilterOptionList from './FilterOptionList';
+import { usePopoverEscape } from './ui/usePopoverEscape';
 
 interface Props {
-  config: DatastoreTabConfig;
+  /** The dimensions to list, in order: the list page's `moreFiltersDimensions`, or a drawer's own set. */
+  dimensions: string[];
+  /** A dimension's name in the left list. */
+  labelFor: (dimension: string) => string;
   options: DatastoreFilterOptions | null;
   optionsLoading: boolean;
   optionsError: boolean;
   filters: DatastoreFilterState;
   labelMemory: ReadonlyMap<string, ReadonlyMap<string, string>>;
   onChange: (next: DatastoreFilterState) => void;
+  /** Passed to every dimension's `FilterOptionList`: Include only, values checked by `canSelectValue`. */
+  local?: boolean;
+  /** Local mode: which values of a dimension can be chosen, forwarded to that dimension's option list. */
+  canSelectValue?: (dimension: string) => (value: string) => boolean;
 }
 
 const NO_LABELS: ReadonlyMap<string, string> = new Map();
 
 /**
- * "+ More filters": a two-pane popover. The left list holds the tab's More-filters dimensions (with a
- * badge of selected values), the first one selected on open; the right pane is that dimension's options.
- * Closes on an outside click and on Escape, read by a React `onKeyDown` and stopped there.
+ * "+ More filters": a two-pane popover. The left list holds the given dimensions (with a badge of
+ * selected values), the first one selected on open; the right pane is that dimension's options.
+ *
+ * Closes on an outside click and on Escape, read by a React `onKeyDown` and stopped there. Inside a
+ * drawer the open panel is also on the drawer's Escape stack, as the other popovers are.
  */
 const MoreFiltersPanel: React.FC<Props> = ({
-  config, options, optionsLoading, optionsError, filters, labelMemory, onChange,
+  dimensions, labelFor, options, optionsLoading, optionsError, filters, labelMemory, onChange, local, canSelectValue,
 }) => {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState<string | null>(null);
   const wrapper = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  usePopoverEscape(open, close, trigger);
 
-  const dimensions = useMemo(() => moreFiltersDimensions(config, options, filters), [config, options, filters]);
   const current = active !== null && dimensions.includes(active) ? active : (dimensions[0] ?? null);
   const dimension = current === null ? undefined : options?.dimensions.find(d => d.key === current);
 
@@ -88,7 +98,7 @@ const MoreFiltersPanel: React.FC<Props> = ({
                       selected ? 'bg-[rgba(0,0,0,0.06)] font-semibold text-[rgba(0,0,0,0.88)]' : 'text-[rgba(0,0,0,0.65)] hover:bg-[rgba(0,0,0,0.03)]'
                     }`}
                   >
-                    <span className="flex-1 truncate">{dimensionLabel(key)}</span>
+                    <span className="flex-1 truncate">{labelFor(key)}</span>
                     {' '}
                     {count > 0 && (
                       <span className="rounded-full bg-[rgba(0,0,0,0.88)] px-1.5 text-[10px] tabular-nums text-white">{count}</span>
@@ -115,6 +125,8 @@ const MoreFiltersPanel: React.FC<Props> = ({
                 loading={optionsLoading}
                 error={optionsError}
                 onChange={onChange}
+                local={local}
+                canSelectValue={canSelectValue?.(current)}
               />
             )}
           </div>

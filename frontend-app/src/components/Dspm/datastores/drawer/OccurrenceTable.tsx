@@ -31,7 +31,7 @@ const TD = 'px-3 py-2 align-middle text-xs text-[rgba(0,0,0,0.75)]';
 const Value: React.FC<{ value: string | null }> = ({ value }) => <>{value ?? '-'}</>;
 
 /** "Mark" as false positive is a console action; a marked row also carries a grey tag. */
-const FalsePositiveCell: React.FC<{ marked: boolean }> = ({ marked }) => (
+export const FalsePositiveCell: React.FC<{ marked: boolean }> = ({ marked }) => (
   <span className="inline-flex items-center gap-1.5">
     {/* TODO(G6): rendering of marked rows unseen */}
     {marked && (

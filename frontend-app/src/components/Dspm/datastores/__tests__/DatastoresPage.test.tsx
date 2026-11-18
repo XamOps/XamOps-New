@@ -53,7 +53,7 @@ const SAAS = row({
   source: { provider: 'GOOGLE_WORKSPACE', providerLabel: 'Google Workspace', accountLabel: 'example-workspace', region: null },
 });
 const ENDPOINT = row({
-  id: 'endpoint-asset-1', sourceId: null, name: 'build-laptop-07', category: 'endpoint',
+  id: 'endpoint-asset-1', sourceId: '0a1b2c3d4e5f0a1b2c3d4e5f', name: 'build-laptop-07', category: 'endpoint',
   subtype: 'MAC', subtypeLabel: 'macOS',
   risk: { score: null, level: 'MEDIUM', levelLabel: 'Medium' },
   sensitives: { recordCount: 6, typeLabels: ['Personal'] },
@@ -386,14 +386,34 @@ describe('DatastoresPage', () => {
     expect(assetRequests()).toHaveLength(0);
   });
 
-  it('opens DspmAssetDrawer for an endpoint row', async () => {
+  it('opens the Endpoint drawer for an endpoint row', async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText('build-laptop-07');
+    expect(rowOf('build-laptop-07')).toHaveAttribute('tabindex', '0');
     await user.click(rowOf('build-laptop-07'));
-    expect(await screen.findByText('Loading asset…')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument();
-    expect(assetRequests()).toEqual(['/api/dspm/assets/endpoint-asset-1']);
+    const drawer = await screen.findByRole('dialog', { name: 'build-laptop-07' });
+    expect(within(drawer).getByRole('tab', { name: 'Sensitives' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(drawer).getByText('SN-TEST-0007')).toBeInTheDocument();
+    expect(drawerRequests()).toEqual(expect.arrayContaining([
+      '/api/dspm/datastores/0a1b2c3d4e5f0a1b2c3d4e5f/endpoint/overview',
+      '/api/dspm/datastores/0a1b2c3d4e5f0a1b2c3d4e5f/endpoint/filter-options',
+    ]));
+    expect(drawerRequests().every(path => path.startsWith('/api/dspm/datastores/0a1b2c3d4e5f0a1b2c3d4e5f/endpoint/')))
+      .toBe(true);
+    expect(assetRequests()).toHaveLength(0);
+  });
+
+  it('does not open an endpoint row whose source id is not 24 hex', async () => {
+    const user = userEvent.setup();
+    listAnswer = () => page([{ ...ENDPOINT, sourceId: null }]);
+    renderPage('/xamlens/datastores/endpoint');
+    const tr = await screen.findByText('build-laptop-07').then(el => el.closest('tr') as HTMLTableRowElement);
+    expect(tr).not.toHaveAttribute('tabindex');
+    await user.click(tr);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(drawerRequests()).toHaveLength(0);
+    expect(assetRequests()).toHaveLength(0);
   });
 
   it('opens a focused row on Enter, but not on Enter pressed on its ⋮', async () => {
@@ -433,6 +453,35 @@ describe('DatastoresPage', () => {
     // The vendor no longer returns S3, but the excluded value stays listed and checked.
     await waitFor(() => expect(within(dropdown).getByRole('checkbox', { name: /^S3/ })).toBeChecked());
     expect(within(dropdown).getByRole('checkbox', { name: /^EBS/ })).not.toBeChecked();
+  });
+
+  it('lists the Cloud tab\'s dimensions under "+ More filters", each with its options', async () => {
+    const user = userEvent.setup();
+    renderPage('/xamlens/datastores/cloud');
+    await screen.findByText('orders-archive');
+    await waitFor(() => expect(optionRequests().length).toBeGreaterThan(0));
+
+    await user.click(screen.getByRole('button', { name: 'More filters' }));
+    const panel = screen.getByRole('dialog', { name: 'More filters' });
+    const list = within(panel).getByRole('list', { name: 'Filters' });
+    expect(within(list).getAllByRole('button').map(button => button.textContent?.trim()))
+      .toEqual(['Source / Account', 'Provider', 'Scan Status']);
+    expect(within(list).getByRole('button', { name: 'Source / Account' })).toHaveAttribute('aria-pressed', 'true');
+    expect(await within(panel).findByRole('checkbox', { name: /^example-prod/ })).toBeInTheDocument();
+
+    await user.click(within(list).getByRole('button', { name: 'Provider' }));
+    expect(within(panel).getByRole('checkbox', { name: /^S3/ })).toBeInTheDocument();
+    expect(within(panel).getByRole('checkbox', { name: /^EBS/ })).toBeInTheDocument();
+    expect(within(panel).getByRole('combobox', { name: 'Include or exclude' })).toBeInTheDocument();
+
+    await user.click(within(list).getByRole('button', { name: 'Scan Status' }));
+    expect(within(panel).getByRole('checkbox', { name: /^Classified/ })).toBeInTheDocument();
+
+    await user.click(within(panel).getByRole('checkbox', { name: /^Classified/ }));
+    await waitFor(() => expect(last(listRequests()).searchParams.get('scan_status')).toBe('CLASSIFIED'));
+    expect(within(list).getByRole('button', { name: /^Scan Status/ })).toHaveTextContent(/^Scan Status\s*1$/);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'More filters' })).toBeNull();
   });
 
   it('debounces the search and normalises it', async () => {

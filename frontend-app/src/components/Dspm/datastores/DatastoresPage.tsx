@@ -1,14 +1,12 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from '@iconify/react';
-import apiClient from '../../../utils/apiClient';
-import type { DspmAssetDetail, DspmStatus } from '../../../types/dspm';
+import type { DspmStatus } from '../../../types/dspm';
 import type { DatastoreRow } from '../../../types/dspmDatastores';
 import { DATASTORE_TABS, type DatastoreApiTab, type DatastoreTabSlug } from '../../../constants/xamlensTabs';
 import { useDatastoreKpis, useDatastoreList } from '../../../hooks/useDspmDatastores';
 import { useDatastoreExport, type DatastoreExportRequest } from '../../../hooks/useDatastoreExport';
 import DspmNotReady from '../DspmNotReady';
-import DspmAssetDrawer from '../DspmAssetDrawer';
 import { DATASTORE_TAB_CONFIG, type ColumnDef, type DatastoreTabConfig } from './datastoreTabConfig';
 import { buildFilterParams } from './datastoreFilters';
 import { datastoreErrorCopy } from './datastoreErrors';
@@ -18,6 +16,7 @@ import DatastoreKpiStrip from './DatastoreKpiStrip';
 import DatastoreFilterBar from './DatastoreFilterBar';
 import DatastoreTable from './DatastoreTable';
 import DatastoreDrawer, { type DrawerRow } from './drawer/DatastoreDrawer';
+import EndpointDrawer from './endpoint/EndpointDrawer';
 import SaasDrawer from './saas/SaasDrawer';
 import { TableFooter, listPageLimit } from './ui/TableFooter';
 
@@ -33,20 +32,19 @@ const SOURCE_ID = /^[0-9a-fA-F]{24}$/;
 
 const hasSourceId = (row: DatastoreRow): row is DrawerRow => row.sourceId !== null && SOURCE_ID.test(row.sourceId);
 
-/** Cloud and on-prem rows open the datastore drawer, which loads everything by the row's 24-hex source id. */
-const opensDatastoreDrawer = (row: DatastoreRow): row is DrawerRow =>
-  (row.category === 'cloud' || row.category === 'on_prem') && hasSourceId(row);
+/**
+ * The drawer a row opens (design 6.3), each loading everything by the row's 24-hex source id: cloud and
+ * on-prem rows the datastore drawer, SaaS rows the SaaS drawer, endpoint rows the Endpoint drawer. Any
+ * other row (an unknown category, a missing or malformed source id) opens nothing and is not focusable.
+ */
+const drawerKind = (row: DatastoreRow): 'datastore' | 'saas' | 'endpoint' | null =>
+  !hasSourceId(row) ? null
+    : row.category === 'cloud' || row.category === 'on_prem' ? 'datastore'
+    : row.category === 'saas' ? 'saas'
+    : row.category === 'endpoint' ? 'endpoint'
+    : null;
 
-/** SaaS rows open the SaaS drawer, by the same 24-hex source id (design 6.3). */
-const opensSaasDrawer = (row: DatastoreRow): row is DrawerRow => row.category === 'saas' && hasSourceId(row);
-
-/** Endpoint rows open the existing asset drawer, which loads `/api/dspm/assets/{id}`. */
-const opensAssetDrawer = (row: DatastoreRow) => row.category === 'endpoint' && !!row.id;
-
-/** Any other row (an unknown category, a missing id) opens nothing and is not focusable. */
-const canOpen = (row: DatastoreRow) => opensDatastoreDrawer(row) || opensSaasDrawer(row) || opensAssetDrawer(row);
-
-const DETAIL_ERROR = 'Could not load this asset. It may have been removed since the list was loaded.';
+const canOpen = (row: DatastoreRow) => drawerKind(row) !== null;
 
 /** The Dismiss button of the export's banner and note (review fix R12). */
 const DismissButton: React.FC<{ onDismiss: () => void }> = ({ onDismiss }) => (
@@ -80,39 +78,14 @@ const DatastoreTabBody: React.FC<{ apiTab: DatastoreApiTab; config: DatastoreTab
     if (exportRequest.current) void exporter.start(exportRequest.current);
   };
 
-  const [openRow, setOpenRow] = useState<DatastoreRow | null>(null);
-  const [detail, setDetail] = useState<DspmAssetDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
-  const detailSeq = useRef(0);
-
-  const open = useCallback(async (row: DatastoreRow) => {
-    const seq = ++detailSeq.current;
-    setOpenRow(row);
-    setDetail(null);
-    setDetailError(null);
-    setDetailLoading(false);
-    // The datastore and SaaS drawers load their own data; only the endpoint drawer needs the asset detail.
-    if (!opensAssetDrawer(row) || !row.id) return;
-    setDetailLoading(true);
-    try {
-      const loaded = await apiClient.get<DspmAssetDetail>(`/api/dspm/assets/${encodeURIComponent(row.id)}`);
-      if (seq === detailSeq.current) setDetail(loaded);
-    } catch {
-      if (seq === detailSeq.current) setDetailError(DETAIL_ERROR);
-    } finally {
-      if (seq === detailSeq.current) setDetailLoading(false);
-    }
+  // The drawers load their own data; the page keeps only the row that is open.
+  const [openRow, setOpenRow] = useState<DrawerRow | null>(null);
+  const open = useCallback((row: DatastoreRow) => {
+    if (hasSourceId(row)) setOpenRow(row);
   }, []);
-
   // Stable, because the drawers put it in a keydown effect's dependencies.
-  const close = useCallback(() => {
-    detailSeq.current += 1;
-    setOpenRow(null);
-    setDetail(null);
-    setDetailError(null);
-    setDetailLoading(false);
-  }, []);
+  const close = useCallback(() => setOpenRow(null), []);
+  const openKind = openRow ? drawerKind(openRow) : null;
 
   const errorCopy = listError ? datastoreErrorCopy(listError) : null;
   const exportErrorCopy = exporter.error ? datastoreErrorCopy(exporter.error) : null;
@@ -139,7 +112,7 @@ const DatastoreTabBody: React.FC<{ apiTab: DatastoreApiTab; config: DatastoreTab
           sort={sort}
           onSort={toggleSort}
           canOpen={canOpen}
-          onOpen={row => { void open(row); }}
+          onOpen={open}
           onExport={startExport}
           exporting={exporter.exporting}
           notice={(
@@ -189,20 +162,14 @@ const DatastoreTabBody: React.FC<{ apiTab: DatastoreApiTab; config: DatastoreTab
         )}
       </section>
 
-      {openRow && opensSaasDrawer(openRow) && (
+      {openRow && openKind === 'datastore' && (
+        <DatastoreDrawer key={openRow.sourceId} row={openRow} onClose={close} />
+      )}
+      {openRow && openKind === 'saas' && (
         <SaasDrawer key={openRow.sourceId} row={openRow} onClose={close} />
       )}
-      {openRow?.category === 'endpoint' && openRow.id && (
-        <DspmAssetDrawer
-          assetId={openRow.id}
-          detail={detail}
-          loading={detailLoading}
-          error={detailError}
-          onClose={close}
-        />
-      )}
-      {openRow && opensDatastoreDrawer(openRow) && (
-        <DatastoreDrawer key={openRow.sourceId} row={openRow} onClose={close} />
+      {openRow && openKind === 'endpoint' && (
+        <EndpointDrawer key={openRow.sourceId} row={openRow} onClose={close} />
       )}
     </div>
   );

@@ -19,11 +19,16 @@ export interface FilterOptionListProps {
   error: boolean;
   onChange: (next: DatastoreFilterState) => void;
   /**
-   * Local mode, for a filter over rows already loaded (the drawer's Risk severities): Include only, so
-   * there is no Include / Exclude choice, and every listed value can be chosen, because none is sent to
-   * the backend and its value rules do not apply.
+   * Local mode, for a filter whose values are not checked against the list's dimension rules (the
+   * drawer's Risk severities, the Endpoint drawer's filters): Include only, so there is no Include /
+   * Exclude choice, and every listed value can be chosen unless `canSelectValue` says otherwise.
    */
   local?: boolean;
+  /**
+   * Local mode only: whether a value can be chosen. A value it refuses renders disabled, as the list's
+   * unsendable values do. Without it every value can be chosen.
+   */
+  canSelectValue?: (value: string) => boolean;
 }
 
 const EMPTY_OPTIONS: DatastoreFilterOption[] = [];
@@ -37,7 +42,7 @@ const EMPTY_OPTIONS: DatastoreFilterOption[] = [];
  * values are selected the remaining boxes are disabled too.
  */
 const FilterOptionList: React.FC<FilterOptionListProps> = ({
-  dimension, options, hasMore, filters, labelMemory, loading, error, onChange, local = false,
+  dimension, options, hasMore, filters, labelMemory, loading, error, onChange, local = false, canSelectValue,
 }) => {
   const [query, setQuery] = useState('');
   const [stoppedShort, setStoppedShort] = useState(false);
@@ -54,7 +59,8 @@ const FilterOptionList: React.FC<FilterOptionListProps> = ({
   );
   const needle = query.trim().toLowerCase();
   const visible = needle ? listed.filter(option => option.label.toLowerCase().includes(needle)) : listed;
-  const canSelect = (option: { value: string }) => local || isSelectable(dimension, option);
+  const canSelect = (option: { value: string }) =>
+    local ? (canSelectValue?.(option.value) ?? true) : isSelectable(dimension, option);
   const selectable = visible.filter(canSelect);
   const allVisibleChecked = selectable.length > 0 && selectable.every(option => option.checked);
 
