@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import apiClient from '../../../utils/apiClient';
@@ -8,18 +8,17 @@ import { DATASTORE_TABS, type DatastoreApiTab, type DatastoreTabSlug } from '../
 import { useDatastoreKpis, useDatastoreList } from '../../../hooks/useDspmDatastores';
 import { useDatastoreExport, type DatastoreExportRequest } from '../../../hooks/useDatastoreExport';
 import DspmNotReady from '../DspmNotReady';
-import DspmSaasDrawer from '../DspmSaasDrawer';
 import DspmAssetDrawer from '../DspmAssetDrawer';
 import { DATASTORE_TAB_CONFIG, type ColumnDef, type DatastoreTabConfig } from './datastoreTabConfig';
 import { buildFilterParams } from './datastoreFilters';
 import { datastoreErrorCopy } from './datastoreErrors';
-import { toLegacySaasRow } from './legacyRow';
 import DatastoreHeader from './DatastoreHeader';
 import DatastoreTabStrip from './DatastoreTabStrip';
 import DatastoreKpiStrip from './DatastoreKpiStrip';
 import DatastoreFilterBar from './DatastoreFilterBar';
 import DatastoreTable from './DatastoreTable';
 import DatastoreDrawer, { type DrawerRow } from './drawer/DatastoreDrawer';
+import SaasDrawer from './saas/SaasDrawer';
 import { TableFooter, listPageLimit } from './ui/TableFooter';
 
 /**
@@ -32,15 +31,20 @@ import { TableFooter, listPageLimit } from './ui/TableFooter';
 
 const SOURCE_ID = /^[0-9a-fA-F]{24}$/;
 
+const hasSourceId = (row: DatastoreRow): row is DrawerRow => row.sourceId !== null && SOURCE_ID.test(row.sourceId);
+
 /** Cloud and on-prem rows open the datastore drawer, which loads everything by the row's 24-hex source id. */
 const opensDatastoreDrawer = (row: DatastoreRow): row is DrawerRow =>
-  (row.category === 'cloud' || row.category === 'on_prem') && row.sourceId !== null && SOURCE_ID.test(row.sourceId);
+  (row.category === 'cloud' || row.category === 'on_prem') && hasSourceId(row);
 
-/** SaaS and endpoint rows open the existing drawers, which load `/api/dspm/assets/{id}`. */
-const opensAssetDrawer = (row: DatastoreRow) => (row.category === 'saas' || row.category === 'endpoint') && !!row.id;
+/** SaaS rows open the SaaS drawer, by the same 24-hex source id (design 6.3). */
+const opensSaasDrawer = (row: DatastoreRow): row is DrawerRow => row.category === 'saas' && hasSourceId(row);
+
+/** Endpoint rows open the existing asset drawer, which loads `/api/dspm/assets/{id}`. */
+const opensAssetDrawer = (row: DatastoreRow) => row.category === 'endpoint' && !!row.id;
 
 /** Any other row (an unknown category, a missing id) opens nothing and is not focusable. */
-const canOpen = (row: DatastoreRow) => opensDatastoreDrawer(row) || opensAssetDrawer(row);
+const canOpen = (row: DatastoreRow) => opensDatastoreDrawer(row) || opensSaasDrawer(row) || opensAssetDrawer(row);
 
 const DETAIL_ERROR = 'Could not load this asset. It may have been removed since the list was loaded.';
 
@@ -88,7 +92,7 @@ const DatastoreTabBody: React.FC<{ apiTab: DatastoreApiTab; config: DatastoreTab
     setDetail(null);
     setDetailError(null);
     setDetailLoading(false);
-    // The datastore drawer loads its own data; only the SaaS and endpoint drawers need the asset detail.
+    // The datastore and SaaS drawers load their own data; only the endpoint drawer needs the asset detail.
     if (!opensAssetDrawer(row) || !row.id) return;
     setDetailLoading(true);
     try {
@@ -110,7 +114,6 @@ const DatastoreTabBody: React.FC<{ apiTab: DatastoreApiTab; config: DatastoreTab
     setDetailLoading(false);
   }, []);
 
-  const legacyRow = useMemo(() => (openRow?.category === 'saas' ? toLegacySaasRow(openRow) : null), [openRow]);
   const errorCopy = listError ? datastoreErrorCopy(listError) : null;
   const exportErrorCopy = exporter.error ? datastoreErrorCopy(exporter.error) : null;
 
@@ -186,15 +189,8 @@ const DatastoreTabBody: React.FC<{ apiTab: DatastoreApiTab; config: DatastoreTab
         )}
       </section>
 
-      {openRow && legacyRow && (
-        <DspmSaasDrawer
-          detail={detail}
-          loading={detailLoading}
-          error={detailError}
-          row={legacyRow}
-          accountLabel={openRow.source.accountLabel ?? undefined}
-          onClose={close}
-        />
+      {openRow && opensSaasDrawer(openRow) && (
+        <SaasDrawer key={openRow.sourceId} row={openRow} onClose={close} />
       )}
       {openRow?.category === 'endpoint' && openRow.id && (
         <DspmAssetDrawer

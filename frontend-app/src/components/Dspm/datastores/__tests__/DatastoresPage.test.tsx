@@ -358,15 +358,32 @@ describe('DatastoresPage', () => {
     expect(assetRequests()).toHaveLength(0);
   });
 
-  it('opens DspmSaasDrawer for a SaaS row, with the account label', async () => {
+  it('opens the SaaS drawer for a SaaS row', async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText('Pat Example');
     expect(rowOf('Pat Example')).toHaveAttribute('tabindex', '0');
     await user.click(rowOf('Pat Example'));
     const drawer = await screen.findByRole('dialog', { name: 'Pat Example' });
+    expect(within(drawer).getByRole('tab', { name: 'Sensitives' })).toHaveAttribute('aria-selected', 'true');
     expect(within(drawer).getByText('example-workspace')).toBeInTheDocument();
-    expect(assetRequests()).toEqual(['/api/dspm/assets/saas-asset-1']);
+    expect(drawerRequests()).toEqual([
+      '/api/dspm/datastores/abcdefabcdefabcdefabcdef/saas/detail',
+      '/api/dspm/datastores/abcdefabcdefabcdefabcdef/saas/records',
+    ]);
+    expect(assetRequests()).toHaveLength(0);
+  });
+
+  it('does not open a SaaS row whose source id is not 24 hex', async () => {
+    const user = userEvent.setup();
+    listAnswer = () => page([{ ...SAAS, sourceId: null }]);
+    renderPage();
+    const tr = await screen.findByText('Pat Example').then(el => el.closest('tr') as HTMLTableRowElement);
+    expect(tr).not.toHaveAttribute('tabindex');
+    await user.click(tr);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(drawerRequests()).toHaveLength(0);
+    expect(assetRequests()).toHaveLength(0);
   });
 
   it('opens DspmAssetDrawer for an endpoint row', async () => {
@@ -392,8 +409,10 @@ describe('DatastoresPage', () => {
 
     act(() => saas.focus());
     await user.keyboard('{Enter}');
-    expect(await screen.findByRole('dialog', { name: 'Pat Example' })).toBeInTheDocument();
-    expect(assetRequests()).toEqual(['/api/dspm/assets/saas-asset-1']);
+    const drawer = await screen.findByRole('dialog', { name: 'Pat Example' });
+    expect(within(drawer).getByRole('tab', { name: 'Information' })).toBeInTheDocument();
+    expect(drawerRequests()).toContain('/api/dspm/datastores/abcdefabcdefabcdefabcdef/saas/detail');
+    expect(assetRequests()).toHaveLength(0);
   });
 
   it('sends identical filter terms to the list and the filter options, Exclude included', async () => {
