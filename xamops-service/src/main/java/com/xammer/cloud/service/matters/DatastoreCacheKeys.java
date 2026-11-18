@@ -18,8 +18,11 @@ import java.util.HexFormat;
  * {@code RedisCacheService} logs every key at INFO, on a hit and on a write. The list and facets keys
  * therefore keep a readable prefix and end in the lower-case hex SHA-256 of the query's canonical
  * fragment ({@link DatastoreListQuery#canonicalListFragment()}), never the fragment itself, so no search
- * term or filter value reaches the log. Every other key holds only the client id, a validated 24-hex
- * source id or UUID, a vendor page number or a fixed word.
+ * term or filter value reaches the log. The SaaS files, endpoint metrics and endpoint files keys do the
+ * same with {@link SaasFileQuery#canonicalFragment()}, {@link EndpointFilters#canonicalFragment()} and
+ * {@link EndpointFileQuery#canonicalFragment()} (build 2, design 5.8). Every other key holds only the
+ * client id, a validated 24-hex source or file id or UUID, a vendor page number, a validated skip and
+ * limit, or a fixed word.
  */
 public final class DatastoreCacheKeys {
 
@@ -105,6 +108,95 @@ public final class DatastoreCacheKeys {
     /** {@code dspm:dsdfcols:<c>:<tableId>:<vendorPage>}: one 100-row vendor page of a table's columns. */
     public static String dataFlowColumns(Long clientId, String tableId, int vendorPage) {
         return key("dsdfcols", clientId, tableId + ":" + vendorPage);
+    }
+
+    /** {@code dspm:dsdferd:<c>:s:<schemaId>}: a schema's diagram (Graph View). */
+    public static String dataFlowSchemaErd(Long clientId, String schemaId) {
+        return key("dsdferd", clientId, "s:" + schemaId);
+    }
+
+    /** {@code dspm:dsdferd:<c>:d:<databaseId>}: the same for a schema-less database. */
+    public static String dataFlowDatabaseErd(Long clientId, String databaseId) {
+        return key("dsdferd", clientId, "d:" + databaseId);
+    }
+
+    /** {@code dspm:dsdfrel:<c>:<tableId>}: a table's outgoing and incoming keys. */
+    public static String dataFlowTableRelations(Long clientId, String tableId) {
+        return key("dsdfrel", clientId, tableId);
+    }
+
+    // ── SaaS drawer ──────────────────────────────────────────────────────────────────────────────
+
+    public static String saasHeader(Long clientId, String sourceId) {
+        return key("dssaashead", clientId, sourceId);
+    }
+
+    /** {@code dspm:dssaasrec:<c>:<sourceId>:<view>}: one records view, also the files membership snapshot. */
+    public static String saasRecords(Long clientId, String sourceId, String view) {
+        return key("dssaasrec", clientId, sourceId + ":" + view);
+    }
+
+    /** {@code dspm:dssaasfiles:<c>:<sourceId>:<sha256 hex>}: one page of a data element's or class's files. */
+    public static String saasFiles(Long clientId, String sourceId, SaasFileQuery query) {
+        return key("dssaasfiles", clientId, sourceId + ":" + sha256Hex(query.canonicalFragment()));
+    }
+
+    public static String saasScanSummary(Long clientId, String sourceId) {
+        return key("dssaassum", clientId, sourceId);
+    }
+
+    // ── SaaS file drawer ─────────────────────────────────────────────────────────────────────────
+
+    public static String saasFileOverview(Long clientId, String fileId) {
+        return key("dssfile", clientId, fileId);
+    }
+
+    public static String saasFileActivity(Long clientId, String fileId) {
+        return key("dssfileact", clientId, fileId);
+    }
+
+    public static String saasFileLineage(Long clientId, String fileId) {
+        return key("dssfilelin", clientId, fileId);
+    }
+
+    public static String saasFileCopies(Long clientId, String fileId) {
+        return key("dssfilecopies", clientId, fileId);
+    }
+
+    // ── Endpoint drawer ──────────────────────────────────────────────────────────────────────────
+
+    public static String endpointOverview(Long clientId, String agentId) {
+        return key("dsep", clientId, agentId);
+    }
+
+    public static String endpointFilterOptions(Long clientId, String agentId) {
+        return key("dsepopts", clientId, agentId);
+    }
+
+    /** {@code dspm:dsepsum:<c>:<agentId>}: the summary snapshot, which also validates {@code entityName}. */
+    public static String endpointSummary(Long clientId, String agentId) {
+        return key("dsepsum", clientId, agentId);
+    }
+
+    /** {@code dspm:dsepmet:<c>:<agentId>:<sha256 hex>}: the Entity View's metrics for one filter set. */
+    public static String endpointMetrics(Long clientId, String agentId, EndpointFilters filters,
+                                         boolean showFalsePositives) {
+        return key("dsepmet", clientId,
+                agentId + ":" + sha256Hex(filters.canonicalFragment() + "&fp=" + showFalsePositives));
+    }
+
+    /** {@code dspm:dsepfiles:<c>:<agentId>:<sha256 hex>}: one File View page. */
+    public static String endpointFiles(Long clientId, String agentId, EndpointFileQuery query) {
+        return key("dsepfiles", clientId, agentId + ":" + sha256Hex(query.canonicalFragment()));
+    }
+
+    /**
+     * {@code dspm:dsepscans:<c>:<agentId>:<skip>-<limit>}: one Scan History page. The two numbers are
+     * joined by {@code -}, not {@code :}, so a skip equal to another client's id never matches that
+     * client's eviction glob.
+     */
+    public static String endpointScans(Long clientId, String agentId, int skip, int limit) {
+        return key("dsepscans", clientId, agentId + ":" + skip + "-" + limit);
     }
 
     // ── eviction ─────────────────────────────────────────────────────────────────────────────────

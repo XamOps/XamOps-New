@@ -4,11 +4,14 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.xammer.cloud.dto.matters.datastores.DataFlowColumnPage;
 import com.xammer.cloud.dto.matters.datastores.DataFlowDatabases;
+import com.xammer.cloud.dto.matters.datastores.DataFlowErd;
+import com.xammer.cloud.dto.matters.datastores.DataFlowRelations;
 import com.xammer.cloud.dto.matters.datastores.DataFlowSchemas;
 import com.xammer.cloud.dto.matters.datastores.DataFlowTablePage;
 import com.xammer.cloud.dto.matters.datastores.DataFlowVendorPage;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -36,8 +39,13 @@ import static com.xammer.cloud.service.matters.DatastoreRowMapper.totalPages;
  * The tables route ignores every search parameter (verified), so a search of 3+ characters loads up to
  * 100 vendor pages, reusing cached ones, and filters by name here. Every call runs on the request
  * thread; the frontend keeps at most one such search in flight per drawer.
+ *
+ * <h2>Graph View</h2>
+ * A schema's (or a schema-less database's) diagram and a table's relations are one vendor call each,
+ * cached whole under {@code dsdferd} and {@code dsdfrel} (build 2, design 5.8).
  */
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class DatastoreDataFlowService {
 
@@ -58,6 +66,10 @@ public class DatastoreDataFlowService {
     private static final TypeReference<DataFlowVendorPage<DataFlowColumnPage.Column>> COLUMNS =
             new TypeReference<DataFlowVendorPage<DataFlowColumnPage.Column>>() {
             };
+    private static final TypeReference<DataFlowErd> ERD = new TypeReference<DataFlowErd>() {
+    };
+    private static final TypeReference<DataFlowRelations> RELATIONS = new TypeReference<DataFlowRelations>() {
+    };
 
     private final MattersCredentialResolver credentialResolver;
     private final MattersApiClient apiClient;
@@ -151,6 +163,39 @@ public class DatastoreDataFlowService {
         return new DataFlowColumnPage(slice.rows(), page, pageSize, slice.total(), totalPages(slice.total(), pageSize));
     }
 
+    // ── Graph View ───────────────────────────────────────────────────────────────────────────────
+
+    /** A schema's diagram: tables, key columns and edges, capped (design 5.6.4). */
+    public DataFlowErd schemaErd(Long clientId, String schemaId) {
+        MattersCredential credential = credentialResolver.resolve(clientId);
+        return cached(DatastoreCacheKeys.dataFlowSchemaErd(clientId, schemaId), ERD,
+                () -> toErd(clientId, apiClient.schemaErd(credential, schemaId)));
+    }
+
+    /** A schema-less database's diagram (MySQL, MariaDB). */
+    public DataFlowErd databaseErd(Long clientId, String databaseId) {
+        MattersCredential credential = credentialResolver.resolve(clientId);
+        return cached(DatastoreCacheKeys.dataFlowDatabaseErd(clientId, databaseId), ERD,
+                () -> toErd(clientId, apiClient.databaseErd(credential, databaseId)));
+    }
+
+    /** A table's outgoing and incoming keys, for the table panel's Relationships tab. */
+    public DataFlowRelations tableRelations(Long clientId, String tableId) {
+        MattersCredential credential = credentialResolver.resolve(clientId);
+        return cached(DatastoreCacheKeys.dataFlowTableRelations(clientId, tableId), RELATIONS,
+                () -> mapper.toRelations(apiClient.tableRelations(credential, tableId)));
+    }
+
+    /** The mapped diagram; a truncated one is logged with counts only. */
+    private DataFlowErd toErd(Long clientId, JsonNode body) {
+        DataFlowErd erd = mapper.toErd(body);
+        if (erd.nodesTruncated() || erd.edgesTruncated()) {
+            log.info("[DSPM] diagram for client {} truncated: {} of {} tables and {} of {} keys kept", clientId,
+                    erd.nodes().size(), body.path("nodes").size(), erd.edges().size(), body.path("edges").size());
+        }
+        return erd;
+    }
+
     private DataFlowTablePage tables(IntFunction<DataFlowVendorPage<DataFlowTablePage.Table>> vendorPages,
                                      int page, int pageSize, String q) {
         if (q == null) {
@@ -201,6 +246,17 @@ public class DatastoreDataFlowService {
             return List.of();
         }
         return rows.subList(from, Math.min(from + count, rows.size()));
+    }
+
+    /** One cached diagram or relations answer, else the vendor call. */
+    private <T> T cached(String key, TypeReference<T> type, Supplier<T> load) {
+        Optional<T> hit = cache.get(key, type);
+        if (hit.isPresent()) {
+            return hit.get();
+        }
+        T value = load.get();
+        cache.put(key, value, CACHE_MINUTES);
+        return value;
     }
 
     /** One cached vendor page, else the vendor call. */

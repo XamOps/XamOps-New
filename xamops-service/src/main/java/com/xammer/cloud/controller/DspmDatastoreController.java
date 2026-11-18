@@ -3,6 +3,8 @@ package com.xammer.cloud.controller;
 import com.xammer.cloud.dto.matters.DspmPage;
 import com.xammer.cloud.dto.matters.datastores.DataFlowColumnPage;
 import com.xammer.cloud.dto.matters.datastores.DataFlowDatabases;
+import com.xammer.cloud.dto.matters.datastores.DataFlowErd;
+import com.xammer.cloud.dto.matters.datastores.DataFlowRelations;
 import com.xammer.cloud.dto.matters.datastores.DataFlowSchemas;
 import com.xammer.cloud.dto.matters.datastores.DataFlowTablePage;
 import com.xammer.cloud.dto.matters.datastores.DatastoreAccessGraph;
@@ -38,8 +40,8 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Set;
 
 /**
- * The XamLens Datastores page and the cloud / on-prem datastore drawer: 16 read-only GETs over the
- * Matters console routes (design 5.2).
+ * The XamLens Datastores page and the cloud / on-prem datastore drawer: 19 read-only GETs over the
+ * Matters console routes (design 5.2; build 2 adds the two Graph View diagrams and table relations).
  *
  * <h2>Order of checks</h2>
  * Every method calls {@link XamLensTabGuard#require} first, then validates its input with
@@ -263,5 +265,38 @@ public class DspmDatastoreController {
         DatastoreParams.Paging paging = DatastoreParams.dataFlowPaging(
                 DatastoreParams.single(params, "page"), DatastoreParams.single(params, "pageSize"));
         return ResponseEntity.ok(dataFlowService.columns(user.getClientId(), id, paging.page(), paging.pageSize()));
+    }
+
+    /** The Graph View of a schema: its tables, key columns and keys. */
+    @GetMapping("/data-flow/schemas/{schemaId}/erd")
+    public ResponseEntity<DataFlowErd> dataFlowSchemaErd(@AuthenticationPrincipal ClientUserDetails user,
+                                                         @PathVariable String schemaId,
+                                                         @RequestParam MultiValueMap<String, String> params) {
+        guard.require(user);
+        DatastoreParams.requireAllowed(params, NO_PARAMS);
+        return ResponseEntity.ok(dataFlowService.schemaErd(user.getClientId(),
+                DatastoreParams.uuid("schemaId", schemaId)));
+    }
+
+    /** The schema-less variant (MySQL, MariaDB). */
+    @GetMapping("/data-flow/databases/{databaseId}/erd")
+    public ResponseEntity<DataFlowErd> dataFlowDatabaseErd(@AuthenticationPrincipal ClientUserDetails user,
+                                                           @PathVariable String databaseId,
+                                                           @RequestParam MultiValueMap<String, String> params) {
+        guard.require(user);
+        DatastoreParams.requireAllowed(params, NO_PARAMS);
+        return ResponseEntity.ok(dataFlowService.databaseErd(user.getClientId(),
+                DatastoreParams.uuid("databaseId", databaseId)));
+    }
+
+    /** A table's outgoing and incoming keys, for the table panel's Relationships tab. */
+    @GetMapping("/data-flow/tables/{tableId}/relations")
+    public ResponseEntity<DataFlowRelations> dataFlowTableRelations(@AuthenticationPrincipal ClientUserDetails user,
+                                                                    @PathVariable String tableId,
+                                                                    @RequestParam MultiValueMap<String, String> params) {
+        guard.require(user);
+        DatastoreParams.requireAllowed(params, NO_PARAMS);
+        return ResponseEntity.ok(dataFlowService.tableRelations(user.getClientId(),
+                DatastoreParams.uuid("tableId", tableId)));
     }
 }

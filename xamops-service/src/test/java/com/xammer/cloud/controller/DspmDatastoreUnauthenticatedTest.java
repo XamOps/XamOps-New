@@ -12,6 +12,9 @@ import com.xammer.cloud.service.auth.TrialService;
 import com.xammer.cloud.service.matters.DatastoreDataFlowService;
 import com.xammer.cloud.service.matters.DatastoreDrawerService;
 import com.xammer.cloud.service.matters.DatastoreListService;
+import com.xammer.cloud.service.matters.EndpointDrawerService;
+import com.xammer.cloud.service.matters.SaasDrawerService;
+import com.xammer.cloud.service.matters.SaasFileService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -51,7 +54,7 @@ class DspmDatastoreUnauthenticatedTest {
     @Configuration
     @EnableWebMvc
     @Import({SecurityConfig.class, ImpersonationJwtFilter.class, TrialEnforcementFilter.class,
-            DspmDatastoreController.class})
+            DspmDatastoreController.class, DspmSaasController.class, DspmEndpointController.class})
     static class TestConfig {
     }
 
@@ -63,6 +66,12 @@ class DspmDatastoreUnauthenticatedTest {
     private DatastoreDrawerService drawerService;
     @MockitoBean
     private DatastoreDataFlowService dataFlowService;
+    @MockitoBean
+    private SaasDrawerService saasDrawerService;
+    @MockitoBean
+    private SaasFileService saasFileService;
+    @MockitoBean
+    private EndpointDrawerService endpointDrawerService;
 
     @MockitoBean
     private UserRepository userRepository;
@@ -101,7 +110,30 @@ class DspmDatastoreUnauthenticatedTest {
     void drawerIsAuthenticated() throws Exception {
         mvc.perform(get("/api/dspm/datastores/0123456789abcdef01234567/overview"))
                 .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/dspm/data-flow/tables/0000000a-0000-4000-8000-00000000000b/relations"))
+                .andExpect(status().isUnauthorized());
 
         verifyNoInteractions(guard, listService, drawerService, dataFlowService);
+    }
+
+    @Test
+    @DisplayName("a SaaS drawer and a SaaS file endpoint return 401 and the controller is never reached")
+    void saasIsAuthenticated() throws Exception {
+        mvc.perform(get("/api/dspm/datastores/0123456789abcdef01234567/saas/detail"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/dspm/saas-files/abcdef0123456789abcdef01/lineage"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(guard, saasDrawerService, saasFileService);
+    }
+
+    @Test
+    @DisplayName("an Endpoint drawer endpoint returns 401 and the controller is never reached")
+    void endpointIsAuthenticated() throws Exception {
+        mvc.perform(get("/api/dspm/datastores/0123456789abcdef01234567/endpoint/occurrences")
+                        .param("entityName", "EMAIL ADDRESS"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(guard, endpointDrawerService);
     }
 }
