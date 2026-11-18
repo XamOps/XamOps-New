@@ -3,6 +3,7 @@ package com.xammer.cloud.service.matters;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.UnaryOperator;
 
 /**
  * Console wording for the XamLens Datastores page and drawer (design 5.7).
@@ -111,6 +112,43 @@ public final class DatastoreLabels {
             "ssl_enforced", "SSL Enforced");
 
     private static final String FILES_SUFFIX = "_files";
+
+    private static final Map<String, String> SAAS_SCAN_STATES = Map.of(
+            "COMPLETED", "Completed",
+            "DISABLED", "Disabled",
+            "ENABLED", "Enabled",
+            "IN_PROGRESS", "In Progress",
+            "FAILED", "Failed");
+
+    /** Seen in the console's Scan Summary; keys are lower-case extensions. */
+    private static final Map<String, String> SAAS_FILE_TYPES = Map.of(
+            "msg", "Email",
+            "png", "Images",
+            "pdf", "PDF");
+
+    private static final Map<String, String> FILE_EXTENSION_DESCRIPTIONS = Map.of("msg", "Outlook Message");
+
+    /** Words of a document category written in upper case. */
+    private static final Set<String> UPPER_CATEGORY_WORDS = Set.of("it", "hr", "kyc");
+
+    private static final Set<String> ONLINE_AGENT_STATUSES = Set.of("ACTIVE", "ONLINE");
+    private static final Set<String> OFFLINE_AGENT_STATUSES = Set.of("INACTIVE", "OFFLINE");
+
+    private static final Map<String, String> ENDPOINT_SCAN_STATUSES = Map.of(
+            "COMPLETED", "Completed",
+            "IN_PROGRESS", "In Progress",
+            "TIMED_OUT", "Timed Out",
+            "FAILED", "Failed");
+
+    /** A15: extensions the console's Information chips write in upper case. */
+    static final Set<String> KNOWN_UPPER_EXTENSIONS = Set.of("java", "tsx", "ts", "sql", "css", "yaml", "sh", "go",
+            "md", "yml", "py", "json", "html", "js", "xml", "txt", "conf", "mjs", "csv", "docx", "mp3", "pdf");
+
+    /**
+     * Copy sources read as "Endpoint". The hash-lineage routes send {@code ENDPOINT_AGENT} for an
+     * endpoint copy; {@code ENDPOINT} is the design's spelling.
+     */
+    private static final Set<String> ENDPOINT_SOURCES = Set.of("ENDPOINT", "ENDPOINT_AGENT");
 
     // ── list ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -265,6 +303,138 @@ public final class DatastoreLabels {
         return DspmLabels.sensitiveCategoryLabel(code);
     }
 
+    // ── SaaS drawer and SaaS file drawer ─────────────────────────────────────────────────────────
+
+    /** Backfill and incremental scan states: IN_PROGRESS → In Progress. */
+    public static String saasScanStateLabel(String code) {
+        return lookup(SAAS_SCAN_STATES, code);
+    }
+
+    /** Scan Summary file types: msg → Email, png → Images, pdf → PDF; any other extension upper-cased (GAP-56). */
+    public static String saasFileTypeLabel(String extension) {
+        String key = extensionKey(extension);
+        if (key == null) {
+            return null;
+        }
+        String label = SAAS_FILE_TYPES.get(key);
+        return label != null ? label : key.toUpperCase(Locale.ROOT);
+    }
+
+    /** The file drawer's File Type: msg → Outlook Message; any other extension upper-cased. */
+    public static String fileExtensionDescription(String extension) {
+        String key = extensionKey(extension);
+        if (key == null) {
+            return null;
+        }
+        String label = FILE_EXTENSION_DESCRIPTIONS.get(key);
+        return label != null ? label : key.toUpperCase(Locale.ROOT);
+    }
+
+    /**
+     * A document category: "it &amp; technical" → "IT &amp; Technical", "identity &amp; personal" →
+     * "Identity &amp; Personal". Words in {it, hr, kyc} are upper-cased, every other word capitalised.
+     */
+    public static String documentCategoryLabel(String code) {
+        return words(code, word -> UPPER_CATEGORY_WORDS.contains(word.toLowerCase(Locale.ROOT))
+                ? word.toUpperCase(Locale.ROOT)
+                : capitalise(word));
+    }
+
+    /** Metadata keys: the first character upper-cased, the rest lower-cased ({@code threadId} → "Threadid"). */
+    public static String metadataLabel(String key) {
+        if (key == null || key.isBlank()) {
+            return null;
+        }
+        return capitalise(key.trim());
+    }
+
+    /**
+     * Each word's first letter upper-cased and the rest lower-cased: "it &amp; technical" → "It &amp;
+     * Technical" (the Endpoint File View's spelling, GAP-51).
+     */
+    public static String titleCase(String value) {
+        return words(value, DatastoreLabels::capitalise);
+    }
+
+    /**
+     * A copy's channel or source: the drive type's label when set (GMAIL → Gmail, GOOGLE_WORKSPACE →
+     * Google Drive), else "Endpoint" for an endpoint source or a copy with an OS, else the source
+     * prettified.
+     */
+    public static String copySourceLabel(String source, String driveType, String os) {
+        if (code(driveType) != null) {
+            return subtypeLabel(driveType);
+        }
+        String sourceKey = code(source);
+        if ((sourceKey != null && ENDPOINT_SOURCES.contains(sourceKey)) || code(os) != null) {
+            return "Endpoint";
+        }
+        return prettifyOrNull(sourceKey);
+    }
+
+    /**
+     * A copy's location, "&lt;source&gt; · &lt;detail&gt;": "SaaS · Gmail", "SaaS · Google Drive",
+     * "Endpoint · macOS". The detail is the drive type's label, else the OS; without one, the source alone.
+     */
+    public static String copyLocationLabel(String source, String driveType, String os) {
+        String sourceKey = code(source);
+        String sourceLabel;
+        if (sourceKey == null) {
+            sourceLabel = null;
+        } else if ("SAAS".equals(sourceKey)) {
+            sourceLabel = "SaaS";
+        } else if (ENDPOINT_SOURCES.contains(sourceKey)) {
+            sourceLabel = "Endpoint";
+        } else {
+            sourceLabel = DspmLabels.prettify(sourceKey);
+        }
+        String detail = code(driveType) != null ? subtypeLabel(driveType) : osLabel(os);
+        if (sourceLabel == null) {
+            return detail;
+        }
+        return detail == null ? sourceLabel : sourceLabel + " \u00B7 " + detail;
+    }
+
+    // ── Endpoint drawer ──────────────────────────────────────────────────────────────────────────
+
+    /** ACTIVE and ONLINE → Online, INACTIVE and OFFLINE → Offline; other values prettified (GAP-49). */
+    public static String endpointAgentStatusLabel(String code) {
+        String key = code(code);
+        if (key == null) {
+            return null;
+        }
+        if (ONLINE_AGENT_STATUSES.contains(key)) {
+            return "Online";
+        }
+        if (OFFLINE_AGENT_STATUSES.contains(key)) {
+            return "Offline";
+        }
+        return DspmLabels.prettify(key);
+    }
+
+    /** True for ACTIVE and ONLINE only. */
+    public static boolean endpointAgentOnline(String code) {
+        String key = code(code);
+        return key != null && ONLINE_AGENT_STATUSES.contains(key);
+    }
+
+    /** Endpoint Scan History: TIMED_OUT → Timed Out. */
+    public static String endpointScanStatusLabel(String code) {
+        return lookup(ENDPOINT_SCAN_STATUSES, code);
+    }
+
+    /**
+     * An extension chip: upper case for the extensions the console writes so (A15), any other with its
+     * first letter upper-cased and the rest lower-cased ("Properties", "Bak3", "Ps1").
+     */
+    public static String extensionLabel(String extension) {
+        String key = extensionKey(extension);
+        if (key == null) {
+            return null;
+        }
+        return KNOWN_UPPER_EXTENSIONS.contains(key) ? key.toUpperCase(Locale.ROOT) : capitalise(key);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────────────────────────
 
     private static String code(String raw) {
@@ -282,5 +452,30 @@ public final class DatastoreLabels {
 
     private static String prettifyOrNull(String key) {
         return key == null ? null : DspmLabels.prettify(key);
+    }
+
+    /** An extension as a lookup key: trimmed and lower-cased; null when blank. */
+    private static String extensionKey(String extension) {
+        return extension == null || extension.isBlank() ? null : extension.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /** The first character upper-cased, the rest lower-cased: "bak3" → "Bak3", "&amp;" stays "&amp;". */
+    private static String capitalise(String word) {
+        return Character.toUpperCase(word.charAt(0)) + word.substring(1).toLowerCase(Locale.ROOT);
+    }
+
+    /** Splits on spaces, applies {@code rule} to each word and joins with single spaces; null when blank. */
+    private static String words(String value, UnaryOperator<String> rule) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        StringBuilder out = new StringBuilder();
+        for (String word : value.trim().split("\\s+")) {
+            if (!out.isEmpty()) {
+                out.append(' ');
+            }
+            out.append(rule.apply(word));
+        }
+        return out.toString();
     }
 }
