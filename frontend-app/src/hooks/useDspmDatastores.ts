@@ -28,6 +28,30 @@ export function toDspmError(err: unknown): DspmError {
   };
 }
 
+/** What one list request asks for. */
+export interface ListParamsInput {
+  apiTab: DatastoreApiTab;
+  page: number;
+  pageSize: number;
+  sort: string;
+  /** The normalised search, or null for none. */
+  search: string | null;
+  /** `buildFilterParams` pairs. */
+  filterParams: ReadonlyArray<readonly [string, string]>;
+}
+
+/**
+ * The query of `GET /api/dspm/datastores`: `tab`, `page`, `pageSize` and `sort`, then `q` when there is a
+ * search, then the filter pairs. The list and the export both build it here, so an export asks for
+ * exactly the rows the table shows.
+ */
+export function buildListParams({ apiTab, page, pageSize, sort, search, filterParams }: ListParamsInput): URLSearchParams {
+  const params = new URLSearchParams({ tab: apiTab, page: String(page), pageSize: String(pageSize), sort });
+  if (search) params.set('q', search);
+  for (const [key, value] of filterParams) params.set(key, value);
+  return params;
+}
+
 /** Value → label of every option each dimension has returned, so a value the response drops keeps its label. */
 function rememberLabels(memory: Map<string, Map<string, string>>, options: DatastoreFilterOptions) {
   for (const dimension of options.dimensions) {
@@ -88,9 +112,7 @@ export function useDatastoreList(apiTab: DatastoreApiTab, enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     const seq = ++listSeq.current;
-    const params = new URLSearchParams({ tab: apiTab, page: String(page), pageSize: String(pageSize), sort });
-    if (search) params.set('q', search);
-    for (const [key, value] of filterParams) params.set(key, value);
+    const params = buildListParams({ apiTab, page, pageSize, sort, search, filterParams });
     setListLoading(true);
     setListError(null);
     apiClient.get<DspmPage<DatastoreRow>>(`${BASE}?${params.toString()}`)

@@ -23,6 +23,11 @@ const cases = [
     get: () => screen.getByRole('button', { name: 'Export' }),
   },
   {
+    name: 'ConsoleOnlyButton (link)',
+    element: <ConsoleOnlyButton variant="link">View full details →</ConsoleOnlyButton>,
+    get: () => screen.getByRole('button', { name: 'View full details →' }),
+  },
+  {
     name: 'ConsoleOnlyCheckbox',
     element: <ConsoleOnlyCheckbox label="Select row" />,
     get: () => screen.getByRole('checkbox', { name: 'Select row' }),
@@ -100,5 +105,14 @@ describe.each(cases)('$name', ({ element, get }) => {
     await user.keyboard('{Escape}');
     expect(onKeyDown).toHaveBeenCalledTimes(1);
     expect(onKeyDown.mock.calls[0][0].key).toBe('Escape');
+  });
+});
+
+describe('ConsoleOnlyButton link variant', () => {
+  it('looks like a link: sky text, no border, no padding', () => {
+    render(<ConsoleOnlyButton variant="link">View full details →</ConsoleOnlyButton>);
+    const link = screen.getByRole('button', { name: 'View full details →' });
+    expect(link).toHaveClass('gap-1', 'text-xs', 'font-semibold', 'text-sky-700', 'opacity-50', 'cursor-not-allowed');
+    expect(link.className).not.toMatch(/\bborder\b|\bp[xy]?-\d/);
   });
 });

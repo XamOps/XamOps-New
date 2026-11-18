@@ -30,6 +30,17 @@ export const EntityChip: React.FC<{ name: string; categoryLabel?: string | null 
   );
 };
 
+/**
+ * The neutral `CategoryChip` with a round dot of the given colour class (`dot`, e.g. `bg-sky-400`), for
+ * File View's Category and Document Class.
+ */
+export const DotChip: React.FC<{ label: string; dot: string }> = ({ label, dot }) => (
+  <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded border px-1.5 py-0.5 text-[10px] font-semibold ${categoryAccent(null).chip}`}>
+    <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+    {label}
+  </span>
+);
+
 /** The first category chip, then "+N" for the rest (named in the badge's title). */
 export const LabelChips: React.FC<{ labels: string[] }> = ({ labels }) => {
   if (labels.length === 0) return null;

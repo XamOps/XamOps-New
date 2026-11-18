@@ -2,7 +2,7 @@ import React, { useId, useState } from 'react';
 import { Icon } from '@iconify/react';
 
 /**
- * Greyed controls for actions only the Matters console can perform (scan, mark, export, bulk actions).
+ * Greyed controls for actions only the Matters console can perform (scan, mark, bulk actions).
  *
  * They are shown so the page reads like the console, but they do nothing and call no API. Each stays
  * focusable with `aria-disabled` rather than `disabled`, so keyboard and screen-reader users can reach it
@@ -78,12 +78,13 @@ const Tooltip: React.FC<{ id: string; visible: boolean; placement: Placement }> 
   </span>
 );
 
-type Variant = 'primary' | 'secondary' | 'icon';
+type Variant = 'primary' | 'secondary' | 'icon' | 'link';
 
 const VARIANT: Record<Variant, string> = {
   primary: 'gap-1.5 rounded-lg bg-[rgba(0,0,0,0.88)] px-3 py-1.5 text-xs font-semibold text-white',
   secondary: 'gap-1.5 rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-3 py-1.5 text-xs font-semibold text-[rgba(0,0,0,0.7)]',
   icon: 'rounded-md p-1 text-[rgba(0,0,0,0.55)]',
+  link: 'gap-1 text-xs font-semibold text-sky-700',
 };
 
 interface ConsoleOnlyButtonProps {

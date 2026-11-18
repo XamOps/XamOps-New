@@ -7,11 +7,18 @@ import type { DatastoreFilterOptions, DatastoreKpis, DatastoreRow } from '../../
 import type { DatastoreTabSlug } from '../../../../constants/xamlensTabs';
 
 vi.mock('../../../../utils/apiClient', () => ({ default: { get: vi.fn() } }));
+// The export's save is stubbed; the CSV text itself is built with the real toCsv.
+vi.mock('../../../../utils/csvExport', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../../../utils/csvExport')>()),
+  downloadCsv: vi.fn(),
+}));
 
 import apiClient from '../../../../utils/apiClient';
+import { downloadCsv } from '../../../../utils/csvExport';
 import DatastoresPage from '../DatastoresPage';
 
 const get = apiClient.get as unknown as ReturnType<typeof vi.fn>;
+const download = downloadCsv as unknown as ReturnType<typeof vi.fn>;
 
 const READY: DspmStatus = {
   ready: true, entitled: true, configured: true, reason: null, message: null,
@@ -87,12 +94,15 @@ function defaultOptions(url: URL): DatastoreFilterOptions {
 }
 
 let listAnswer: (url: URL) => DspmPage<DatastoreRow>;
+/** The list requests the export makes (pageSize 100); by default answered like the table's. */
+let exportAnswer: (url: URL) => DspmPage<DatastoreRow> | Promise<DspmPage<DatastoreRow>>;
 let optionsAnswer: (url: URL) => DatastoreFilterOptions;
 let kpiAnswer: (tab: string) => DatastoreKpis | Promise<DatastoreKpis>;
 
 const requests = (path: string) =>
   get.mock.calls.map(([url]) => new URL(String(url), 'http://localhost')).filter(u => u.pathname === path);
 const listRequests = () => requests('/api/dspm/datastores');
+const exportRequests = () => listRequests().filter(u => u.searchParams.get('pageSize') === '100');
 const optionRequests = () => requests('/api/dspm/datastores/filter-options');
 const kpiRequests = () => requests('/api/dspm/datastores/kpis');
 const assetRequests = () =>
@@ -104,12 +114,14 @@ const last = (urls: URL[]) => urls[urls.length - 1];
 
 beforeEach(() => {
   listAnswer = () => page(ROWS);
+  exportAnswer = url => listAnswer(url);
   optionsAnswer = defaultOptions;
   kpiAnswer = kpis;
   get.mockImplementation(async (raw: string) => {
     const url = new URL(raw, 'http://localhost');
     if (url.pathname === '/api/dspm/datastores/kpis') return kpiAnswer(url.searchParams.get('tab') ?? '');
     if (url.pathname === '/api/dspm/datastores/filter-options') return optionsAnswer(url);
+    if (url.pathname === '/api/dspm/datastores' && url.searchParams.get('pageSize') === '100') return exportAnswer(url);
     if (url.pathname === '/api/dspm/datastores') return listAnswer(url);
     // The drawers stay in their loading state: their content is not under test here
     // (DatastoreDrawer.test.tsx covers the cloud / on-prem drawer).
@@ -276,11 +288,10 @@ describe('DatastoresPage', () => {
       screen.getByRole('button', { name: 'Run Scan Now' }),
       screen.getByRole('button', { name: 'Manage Scans' }),
       screen.getByRole('button', { name: 'More actions' }),
-      screen.getByRole('button', { name: 'Export' }),
       ...screen.getAllByRole('button', { name: 'Row actions' }),
       ...screen.getAllByRole('checkbox', { name: /^Select / }),
     ];
-    expect(controls).toHaveLength(7);
+    expect(controls).toHaveLength(6);
     for (const control of controls) {
       expect(control).toHaveAttribute('aria-disabled', 'true');
       const tooltip = document.getElementById(control.getAttribute('aria-describedby') ?? '') as HTMLElement;
@@ -458,5 +469,146 @@ describe('DatastoresPage', () => {
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('orders-archive')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('DatastoresPage export', () => {
+  const UPSTREAM_DOWN = 'HTTP 502: {"code":"UPSTREAM_UNAVAILABLE","message":"down"}';
+  const exportButton = () => screen.getByRole('button', { name: 'Export' });
+
+  /** An export answer the test releases by hand. */
+  function pendingExport() {
+    let release: (value: DspmPage<DatastoreRow>) => void = () => {};
+    exportAnswer = () => new Promise(resolve => { release = resolve; });
+    return { release: (value: DspmPage<DatastoreRow>) => release(value) };
+  }
+
+  it('is an enabled button, not a console-only control', async () => {
+    renderPage();
+    await screen.findByText('orders-archive');
+    expect(exportButton()).toBeEnabled();
+    expect(exportButton()).not.toHaveAttribute('aria-disabled');
+    expect(exportButton()).not.toHaveAttribute('aria-describedby');
+    fireEvent.mouseEnter(exportButton());
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it("exports the table's search, filters and sort over the visible columns", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('orders-archive');
+
+    fireEvent.change(searchBox(), { target: { value: 'orders' } });
+    await waitFor(() => expect(last(listRequests()).searchParams.get('q')).toBe('orders'));
+    const dropdown = await openProviderDropdown(user);
+    await user.click(await within(dropdown).findByRole('checkbox', { name: /^S3/ }));
+    await user.selectOptions(within(dropdown).getByRole('combobox', { name: 'Include or exclude' }), 'exclude');
+    await waitFor(() => expect(last(listRequests()).searchParams.get('provider_exclude')).toBe('S3'));
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('button', { name: 'Datastore' }));
+    await waitFor(() => expect(last(listRequests()).searchParams.get('sort')).toBe('name'));
+    const columns = screen.getByRole('button', { name: /^Columns/ });
+    await user.click(columns);
+    await user.click(within(columns.parentElement as HTMLElement).getByRole('checkbox', { name: /Source \/ Account/ }));
+    await user.keyboard('{Escape}');
+
+    await user.click(exportButton());
+    await waitFor(() => expect(download).toHaveBeenCalledTimes(1));
+    expect(exportRequests().map(u => [...u.searchParams.entries()])).toEqual([[
+      ['tab', 'all'], ['page', '1'], ['pageSize', '100'], ['sort', 'name'], ['q', 'orders'], ['provider_exclude', 'S3'],
+    ]]);
+    expect(download.mock.calls[0][0]).toMatch(/^datastores-all-\d{4}-\d{2}-\d{2}\.csv$/);
+    const csv = String(download.mock.calls[0][1]).split('\r\n');
+    expect(csv[0]).toBe('Datastore,Type,Risk Score,Risk Level,Sensitive Records,Sensitive Types,Scan Status,Scan Time');
+    expect(csv).toHaveLength(ROWS.length + 1);
+    expect(csv[1]).toBe('orders-archive,S3,8.4,Critical,1559,Personal,Classified,');
+  });
+
+  it('reads "Exporting…" and is disabled while a page is pending', async () => {
+    const user = userEvent.setup();
+    const pending = pendingExport();
+    renderPage();
+    await screen.findByText('orders-archive');
+
+    await user.click(exportButton());
+    const busy = screen.getByRole('button', { name: 'Exporting…' });
+    expect(busy).toBeDisabled();
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+    expect(download).not.toHaveBeenCalled();
+
+    await act(async () => { pending.release(page(ROWS)); });
+    await waitFor(() => expect(download).toHaveBeenCalledTimes(1));
+    expect(exportButton()).toBeEnabled();
+    expect(exportButton()).toHaveAttribute('aria-busy', 'false');
+  });
+
+  it('shows a failed export with Retry, which runs the same request again', async () => {
+    const user = userEvent.setup();
+    exportAnswer = () => { throw new Error(UPSTREAM_DOWN); };
+    renderPage();
+    await screen.findByText('orders-archive');
+
+    await user.click(exportButton());
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(
+      'The export could not be completed. Matters is not responding right now. Try again shortly.',
+    );
+    expect(within(alert).getByRole('button', { name: 'Dismiss' })).toBeInTheDocument();
+    expect(download).not.toHaveBeenCalled();
+
+    // The table moves on; Retry still exports what was asked for.
+    fireEvent.change(searchBox(), { target: { value: 'ledger' } });
+    await waitFor(() => expect(last(listRequests()).searchParams.get('q')).toBe('ledger'));
+    exportAnswer = url => listAnswer(url);
+    await user.click(within(alert).getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(download).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('alert')).toBeNull();
+    const [failed, retried] = exportRequests();
+    expect(retried.search).toBe(failed.search);
+    expect(retried.searchParams.has('q')).toBe(false);
+  });
+
+  it('dismisses the error banner, and the next export starts clean (review fix R12)', async () => {
+    const user = userEvent.setup();
+    exportAnswer = () => { throw new Error(UPSTREAM_DOWN); };
+    renderPage();
+    await screen.findByText('orders-archive');
+
+    await user.click(exportButton());
+    await user.click(within(await screen.findByRole('alert')).getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+
+    await user.click(exportButton());
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    const pending = pendingExport();
+    await user.click(exportButton());
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Exporting…' })).toBeDisabled();
+
+    await act(async () => { pending.release(page(ROWS)); });
+    await waitFor(() => expect(download).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('notes a capped export with Dismiss (review fix R12)', async () => {
+    const user = userEvent.setup();
+    exportAnswer = url => {
+      const n = Number(url.searchParams.get('page'));
+      const rows = Array.from({ length: 100 }, (_, i) => ({ ...CLOUD, id: `cloud-${n}-${i}`, name: `export-row-${n}-${i}` }));
+      return page(rows, { page: n, pageSize: 100, total: 12_345, totalPages: 124 });
+    };
+    renderPage();
+    await screen.findByText('orders-archive');
+
+    await user.click(exportButton());
+    const text = await screen.findByText('Exported the first 10,000 of 12,345 datastores.');
+    const note = text.closest('[role="status"]') as HTMLElement;
+    expect(note).not.toBeNull();
+    expect(exportRequests()).toHaveLength(100);
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(String(download.mock.calls[0][1]).split('\r\n')).toHaveLength(10_001);
+
+    await user.click(within(note).getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('status')).toBeNull();
   });
 });

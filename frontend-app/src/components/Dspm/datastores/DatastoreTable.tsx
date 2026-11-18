@@ -44,20 +44,26 @@ interface Props {
   /** Whether a row opens a drawer. Rows that do not get no click handler and are not focusable. */
   canOpen: (row: DatastoreRow) => boolean;
   onOpen: (row: DatastoreRow) => void;
+  /** Export clicked: receives the visible columns, in table order. */
+  onExport: (visibleColumns: ColumnDef[]) => void;
+  /** While true, Export reads "Exporting…" and is disabled. */
+  exporting: boolean;
   /** Shown between the header bar and the table, e.g. the error banner. */
   notice?: React.ReactNode;
 }
 
 /**
- * The Datastores list with its header bar: the "Columns N" chooser on the left, the console-only Export
- * on the right. Hidden columns are this component's own state, so they reset with the tab.
+ * The Datastores list with its header bar: the "Columns N" chooser on the left, the Export button on the
+ * right. Hidden columns are this component's own state, so they reset with the tab.
  *
  * Only Datastore / Device, Risk and Sensitive Data sort; the API has no sort field for the others. Every
  * row ends with the console-only ⋮ menu. An openable row is focusable and opens on click, or on Enter
  * pressed on the row itself: Enter on a control inside the row (the ⋮, the Endpoint checkbox) never
  * opens it.
  */
-const DatastoreTable: React.FC<Props> = ({ config, page, loading, sort, onSort, canOpen, onOpen, notice }) => {
+const DatastoreTable: React.FC<Props> = ({
+  config, page, loading, sort, onSort, canOpen, onOpen, onExport, exporting, notice,
+}) => {
   const [hidden, setHidden] = useState<ReadonlySet<ColumnId>>(new Set());
   const toggleColumn = useCallback((id: ColumnId) => {
     setHidden(prev => {
@@ -77,7 +83,16 @@ const DatastoreTable: React.FC<Props> = ({ config, page, loading, sort, onSort, 
       <header className="flex flex-wrap items-center gap-3 border-b border-[rgba(0,0,0,0.06)] px-4 py-2.5">
         <ColumnsMenu columns={config.columns} hidden={hidden} onToggle={toggleColumn} />
         <div className="ml-auto">
-          <ConsoleOnlyButton variant="secondary" icon="mdi:tray-arrow-down" placement="left">Export</ConsoleOnlyButton>
+          <button
+            type="button"
+            onClick={() => onExport(columns)}
+            disabled={exporting}
+            aria-busy={exporting}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-3 py-1.5 text-xs font-semibold text-[rgba(0,0,0,0.7)] transition-colors hover:bg-[rgba(0,0,0,0.03)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.25)] disabled:cursor-progress disabled:hover:bg-white"
+          >
+            <Icon icon="mdi:tray-arrow-down" width={14} />
+            {exporting ? 'Exporting…' : 'Export'}
+          </button>
         </div>
       </header>
       {notice}
