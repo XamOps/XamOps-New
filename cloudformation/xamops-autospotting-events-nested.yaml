@@ -1,0 +1,598 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  XamOps AutoSpotting Events (nested stack). Included by the XamOps read-write onboarding
+  templates. Forwards EC2 Spot interruption warnings, rebalance recommendations and Auto
+  Scaling launch and terminate events from every enabled region to the XamOps AutoSpotting
+  queue. Events are hints: XamOps polls for the truth, so a lost event delays a check and
+  never changes a decision.
+
+# =============================================================================
+# Shape
+#
+# A copy of xamops-inventory-events-nested.yaml with its own physical names:
+#
+#   regional default bus --rule--> hub bus (this stack's region) --rule--> forwarder Lambda --> SQS
+#
+# The RegionFanOut custom resource calls DescribeRegions and creates the regional rules
+# (and a small dead-letter queue per region) itself, on create, update and delete, because
+# CloudFormation has no "all enabled regions" primitive. Its code is a copy of the inventory
+# stack's fan-out with the rule set passed in as the RulePatterns property, so the two
+# stacks do not share state and either can be fixed without touching the other.
+#
+# Rule patterns match what EC2 and Auto Scaling actually emit. The legacy forwarder filtered
+# on detail.instance-lifecycle, a field EC2 state-change events do not carry, so its rules
+# matched nothing, and its MessageDeduplicationId contained spaces, so SQS rejected every
+# message it did forward. scripts/autospotting/check_event_patterns.py replays recorded
+# sample events against the patterns below and runs the forwarder code against a stub
+# queue, so both defects fail CI.
+# =============================================================================
+
+Parameters:
+  XamOpsAutoSpottingQueueUrl:
+    Type: String
+    Description: >
+      URL of the XamOps AutoSpotting FIFO queue for this environment. The queue name,
+      region and account are all derived from this URL.
+    AllowedPattern: '^https://sqs\.[a-z0-9-]+\.amazonaws\.com/[0-9]{12}/[A-Za-z0-9_-]{1,75}\.fifo$'
+
+  XamOpsFailureBusArn:
+    Type: String
+    Default: ''
+    Description: >
+      Optional XamOps event bus that receives a record when the forwarder Lambda fails after
+      its retries. Blank turns the failure destination off. Non-production environments
+      leave it blank rather than point at a production bus.
+    AllowedPattern: '^$|^arn:aws:events:[a-z0-9-]+:[0-9]{12}:event-bus/[A-Za-z0-9._-]{1,256}$'
+
+  ResourceSuffix:
+    Type: String
+    Default: ''
+    Description: >
+      Suffix for every physically-named resource below, so one AWS account can be connected
+      to more than one XamOps environment. Empty for production; non-production passes its
+      own ('-uat').
+    AllowedPattern: '^$|^-[a-z0-9-]{1,20}$'
+
+Conditions:
+  HasFailureBus: !Not [!Equals [!Ref XamOpsFailureBusArn, '']]
+
+Resources:
+
+  # ===========================================================================
+  # Hub bus: every region forwards here, so the cross-account hop happens once
+  # ===========================================================================
+  AutoSpottingHubBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Sub 'xamops-autospotting-hub${ResourceSuffix}'
+
+  AutoSpottingHubBusPolicy:
+    Type: AWS::Events::EventBusPolicy
+    Properties:
+      EventBusName: !Ref AutoSpottingHubBus
+      StatementId: AllowSameAccountRegionalForward
+      Statement:
+        Effect: Allow
+        Principal:
+          AWS: !Ref 'AWS::AccountId'
+        Action: 'events:PutEvents'
+        Resource: !GetAtt AutoSpottingHubBus.Arn
+
+  # Role EventBridge assumes to forward from a regional default bus to the hub.
+  RegionalForwardRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'XamOpsAutoSpottingForwardRole-${AWS::AccountId}${ResourceSuffix}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: events.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: XamOpsAutoSpottingPutEventsToHub
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'events:PutEvents'
+                Resource: !GetAtt AutoSpottingHubBus.Arn
+
+  # ===========================================================================
+  # Forwarder Lambda: hub bus to the XamOps queue
+  # ===========================================================================
+  # Named differently from the legacy AutoSpottingEventForwarderRole on purpose. CloudFormation
+  # creates new resources before it deletes removed ones in one update, so reusing the legacy
+  # name would fail the update with EntityAlreadyExists.
+  ForwarderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'xamops-as-events-fwd-role${ResourceSuffix}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: XamOpsAutoSpottingForwardToSqs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Scoped to the one queue named by XamOpsAutoSpottingQueueUrl: its region
+              # (host), account and name (path segments 3 and 4).
+              - Effect: Allow
+                Action: ['sqs:SendMessage', 'sqs:GetQueueUrl']
+                Resource: !Sub
+                  - 'arn:${AWS::Partition}:sqs:${QueueRegion}:${QueueAccount}:${QueueName}'
+                  - QueueRegion: !Select [1, !Split ['.', !Select [2, !Split ['/', !Ref XamOpsAutoSpottingQueueUrl]]]]
+                    QueueAccount: !Select [3, !Split ['/', !Ref XamOpsAutoSpottingQueueUrl]]
+                    QueueName: !Select [4, !Split ['/', !Ref XamOpsAutoSpottingQueueUrl]]
+              # Needed by the Lambda OnFailure destination, only when one is configured.
+              - !If
+                - HasFailureBus
+                - Effect: Allow
+                  Action: 'events:PutEvents'
+                  Resource: !Ref XamOpsFailureBusArn
+                - !Ref 'AWS::NoValue'
+      Tags:
+        - Key: Service
+          Value: XamOps-AutoSpotting
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  ForwarderFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'xamops-as-events-forwarder${ResourceSuffix}'
+      Description: Forwards EC2 Spot and Auto Scaling events to the XamOps AutoSpotting queue
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt ForwarderRole.Arn
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          XAMOPS_SQS_QUEUE_URL: !Ref XamOpsAutoSpottingQueueUrl
+          XAMOPS_REGION: !Select [1, !Split ['.', !Select [2, !Split ['/', !Ref XamOpsAutoSpottingQueueUrl]]]]
+          CUSTOMER_ACCOUNT_ID: !Ref 'AWS::AccountId'
+      Code:
+        ZipFile: |
+          """
+          Wraps an EventBridge event for the XamOps AutoSpotting queue.
+
+          Events are hints. XamOps polls for the truth, so this function only passes the
+          event on, unchanged, with the customer account id added.
+
+          SQS FIFO rejects a MessageDeduplicationId or MessageGroupId that contains a
+          character outside its allowed set (whitespace is not allowed) or is longer than
+          128 characters. The previous forwarder built the id from the detail type, which
+          contains spaces, so SQS refused every message. Every id is sanitised here.
+          """
+          import json
+          import os
+          import re
+
+          import boto3
+
+          sqs = boto3.client('sqs', region_name=os.environ['XAMOPS_REGION'])
+          QUEUE_URL = os.environ['XAMOPS_SQS_QUEUE_URL']
+          ACCOUNT_ID = os.environ['CUSTOMER_ACCOUNT_ID']
+
+          # Same list as the rule patterns, with the source each detail-type comes from. A
+          # second check here keeps a stray PutEvents on the hub bus from reaching the queue.
+          SOURCES = {
+              'EC2 Spot Instance Interruption Warning': 'aws.ec2',
+              'EC2 Instance Rebalance Recommendation': 'aws.ec2',
+              'EC2 Instance Launch Successful': 'aws.autoscaling',
+              'EC2 Instance Launch Unsuccessful': 'aws.autoscaling',
+              'EC2 Instance Terminate Successful': 'aws.autoscaling',
+          }
+
+          # SQS allows alphanumerics and these punctuation marks, up to 128 characters.
+          _NOT_ALLOWED = re.compile(r"[^A-Za-z0-9!\"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~]")
+
+
+          def sqs_id(value):
+              return _NOT_ALLOWED.sub('_', str(value))[:128]
+
+
+          def lambda_handler(event, context):
+              detail_type = event.get('detail-type', '')
+              if SOURCES.get(detail_type) != event.get('source'):
+                  print(f'Skipping event: detail-type={detail_type} source={event.get("source")}')
+                  return {'statusCode': 200, 'body': 'Event not relevant'}
+
+              detail = event.get('detail') or {}
+              region = event.get('region') or ''
+              # The EventBridge event id is the same on every retry of one event, so it is
+              # the natural deduplication key. The fallback is only for a malformed event.
+              dedup = event.get('id') or '-'.join(
+                  [detail_type, str(detail.get('instance-id') or detail.get('InstanceId') or ''),
+                   str(event.get('time') or '')])
+
+              envelope = {
+                  'version': event.get('version'),
+                  'id': event.get('id'),
+                  'detail-type': detail_type,
+                  'source': event.get('source'),
+                  'account': ACCOUNT_ID,
+                  'time': event.get('time'),
+                  'region': region,
+                  'resources': event.get('resources', []),
+                  'detail': detail,
+              }
+              # Raises on failure, so Lambda retries and then sends the OnFailure record.
+              response = sqs.send_message(
+                  QueueUrl=QUEUE_URL,
+                  MessageBody=json.dumps(envelope),
+                  MessageGroupId=sqs_id(f'acct-{ACCOUNT_ID}-{region}'),
+                  MessageDeduplicationId=sqs_id(dedup),
+              )
+              print(f'Forwarded {detail_type}: {response["MessageId"]}')
+              return {'statusCode': 200}
+      Tags:
+        - Key: Service
+          Value: XamOps-AutoSpotting
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # Two retries, then the failure record goes to the XamOps bus when one is configured.
+  ForwarderInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref ForwarderFunction
+      Qualifier: '$LATEST'
+      MaximumRetryAttempts: 2
+      MaximumEventAgeInSeconds: 3600
+      DestinationConfig: !If
+        - HasFailureBus
+        - OnFailure:
+            Destination: !Ref XamOpsFailureBusArn
+        - !Ref 'AWS::NoValue'
+
+  # NOTE: the two Lambda log groups are deliberately NOT declared as AWS::Logs::LogGroup
+  # resources, for the reason given in the inventory events stack: the Lambdas log during
+  # stack deletion, which re-creates an orphan group that blocks the next create. Retention
+  # is set by ensure_log_retention in RegionFanOutFunction instead.
+
+  HubForwardRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'xamops-as-hub-forward${ResourceSuffix}'
+      Description: Forward hub-bus AutoSpotting events to the XamOps queue
+      EventBusName: !Ref AutoSpottingHubBus
+      State: ENABLED
+      EventPattern:
+        account: [!Ref 'AWS::AccountId']
+      Targets:
+        - Arn: !GetAtt ForwarderFunction.Arn
+          Id: AutoSpottingForwarderTarget
+
+  ForwarderPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ForwarderFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt HubForwardRule.Arn
+
+  # ===========================================================================
+  # Multi-region rule fan-out
+  # ===========================================================================
+  RegionFanOutRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: XamOpsAutoSpottingRegionFanOut
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'ec2:DescribeRegions'
+                Resource: '*'
+              # Rule management, restricted by name so this cannot touch a rule the customer
+              # created for their own purposes.
+              - Effect: Allow
+                Action:
+                  - 'events:PutRule'
+                  - 'events:DeleteRule'
+                  - 'events:PutTargets'
+                  - 'events:RemoveTargets'
+                  - 'events:DescribeRule'
+                  - 'events:ListTargetsByRule'
+                Resource: !Sub 'arn:${AWS::Partition}:events:*:${AWS::AccountId}:rule/xamops-as-*'
+              # EventBridge assumes RegionalForwardRole to reach the hub bus.
+              - Effect: Allow
+                Action: 'iam:PassRole'
+                Resource: !GetAtt RegionalForwardRole.Arn
+                Condition:
+                  StringEquals:
+                    'iam:PassedToService': events.amazonaws.com
+              # The per-region dead-letter queue for the rule targets, by exact name.
+              - Effect: Allow
+                Action:
+                  - 'sqs:CreateQueue'
+                  - 'sqs:GetQueueUrl'
+                  - 'sqs:GetQueueAttributes'
+                  - 'sqs:SetQueueAttributes'
+                  - 'sqs:DeleteQueue'
+                Resource: !Sub 'arn:${AWS::Partition}:sqs:*:${AWS::AccountId}:xamops-as-events-dlq${ResourceSuffix}'
+              # Retention on this stack's two Lambda log groups, by exact name.
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:PutRetentionPolicy'
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/xamops-as-events-forwarder${ResourceSuffix}:*'
+                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/xamops-as-region-fanout${ResourceSuffix}:*'
+
+  RegionFanOutFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'xamops-as-region-fanout${ResourceSuffix}'
+      Description: Creates AutoSpotting event rules in every enabled region
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt RegionFanOutRole.Arn
+      Timeout: 600
+      MemorySize: 256
+      Environment:
+        Variables:
+          MANAGED_LOG_GROUPS: !Sub '/aws/lambda/xamops-as-events-forwarder${ResourceSuffix},/aws/lambda/xamops-as-region-fanout${ResourceSuffix}'
+          LOG_RETENTION_DAYS: '7'
+          RESOURCE_SUFFIX: !Ref ResourceSuffix
+      Code:
+        ZipFile: |
+          """
+          Creates (and on stack delete, removes) the AutoSpotting event rules in every
+          enabled region, each with a retry policy and a dead-letter queue.
+
+          Failure policy: a per-region failure is recorded and skipped, never fatal. One
+          opted-in region with an unusual restriction must not fail onboarding for the whole
+          account; the regions that did succeed still deliver events, and polling covers the
+          rest. Delete is best-effort so a leftover rule can never wedge a stack deletion.
+          """
+          import json
+          import os
+          import urllib.request
+
+          import boto3
+
+          SUFFIX = os.environ.get('RESOURCE_SUFFIX', '')
+          DLQ_NAME = f'xamops-as-events-dlq{SUFFIX}'
+          TARGET_ID = 'HubTarget'
+          # Rules older than this age are dropped by EventBridge rather than retried.
+          MAX_EVENT_AGE_SECONDS = 3600
+
+
+          def rule_name(key):
+              return f'xamops-as-{key}{SUFFIX}'
+
+
+          def enabled_regions(ec2):
+              # AllRegions=False returns only regions this account can use.
+              resp = ec2.describe_regions(AllRegions=False)
+              return sorted(r['RegionName'] for r in resp['Regions'])
+
+
+          def ensure_dlq(region, account):
+              sqs = boto3.client('sqs', region_name=region)
+              url = sqs.create_queue(
+                  QueueName=DLQ_NAME,
+                  Attributes={'MessageRetentionPeriod': '1209600'})['QueueUrl']
+              arn = f'arn:aws:sqs:{region}:{account}:{DLQ_NAME}'
+              policy = {
+                  'Version': '2012-10-17',
+                  'Statement': [{
+                      'Effect': 'Allow',
+                      'Principal': {'Service': 'events.amazonaws.com'},
+                      'Action': 'sqs:SendMessage',
+                      'Resource': arn,
+                      'Condition': {'ArnLike': {
+                          'aws:SourceArn': f'arn:aws:events:{region}:{account}:rule/xamops-as-*{SUFFIX}'}},
+                  }],
+              }
+              sqs.set_queue_attributes(QueueUrl=url, Attributes={'Policy': json.dumps(policy)})
+              return arn
+
+
+          def delete_dlq(region):
+              sqs = boto3.client('sqs', region_name=region)
+              try:
+                  sqs.delete_queue(QueueUrl=sqs.get_queue_url(QueueName=DLQ_NAME)['QueueUrl'])
+              except Exception:
+                  pass
+
+
+          def apply_region(region, account, hub_arn, role_arn, patterns):
+              dlq_arn = ensure_dlq(region, account)
+              events = boto3.client('events', region_name=region)
+              for key, pattern in patterns.items():
+                  name = rule_name(key)
+                  events.put_rule(
+                      Name=name,
+                      Description='XamOps AutoSpotting events - forwards to the hub bus',
+                      EventPattern=json.dumps(pattern),
+                      State='ENABLED',
+                  )
+                  events.put_targets(
+                      Rule=name,
+                      Targets=[{
+                          'Id': TARGET_ID,
+                          'Arn': hub_arn,
+                          'RoleArn': role_arn,
+                          'RetryPolicy': {'MaximumEventAgeInSeconds': MAX_EVENT_AGE_SECONDS,
+                                          'MaximumRetryAttempts': 185},
+                          'DeadLetterConfig': {'Arn': dlq_arn},
+                      }],
+                  )
+
+
+          def remove_rules(region, keys):
+              events = boto3.client('events', region_name=region)
+              for key in keys:
+                  name = rule_name(key)
+                  try:
+                      # Targets must go before the rule, or DeleteRule refuses.
+                      events.remove_targets(Rule=name, Ids=[TARGET_ID])
+                  except Exception:
+                      pass
+                  try:
+                      events.delete_rule(Name=name)
+                  except Exception:
+                      pass
+
+
+          def ensure_log_retention():
+              """Caps retention on this stack's two Lambda log groups (best effort)."""
+              names = [n for n in (os.environ.get('MANAGED_LOG_GROUPS') or '').split(',') if n]
+              days = int(os.environ.get('LOG_RETENTION_DAYS') or 7)
+              logs = boto3.client('logs')
+              for name in names:
+                  try:
+                      logs.create_log_group(logGroupName=name)
+                  except logs.exceptions.ResourceAlreadyExistsException:
+                      pass
+                  except Exception as e:
+                      print(f'Could not create log group {name}: {e}')
+                      continue
+                  try:
+                      logs.put_retention_policy(logGroupName=name, retentionInDays=days)
+                  except Exception as e:
+                      print(f'Could not set retention on {name}: {e}')
+
+
+          def respond(event, context, status, data=None, reason=None):
+              body = json.dumps({
+                  'Status': status,
+                  'Reason': reason or f'See CloudWatch log stream {context.log_stream_name}',
+                  'PhysicalResourceId': f'xamops-as-region-fanout{SUFFIX}',
+                  'StackId': event['StackId'],
+                  'RequestId': event['RequestId'],
+                  'LogicalResourceId': event['LogicalResourceId'],
+                  'Data': data or {},
+              }).encode('utf-8')
+              req = urllib.request.Request(event['ResponseURL'], data=body, method='PUT',
+                                           headers={'Content-Type': ''})
+              urllib.request.urlopen(req)
+
+
+          def handler(event, context):
+              print(f'Request: {event["RequestType"]}')
+              props = event.get('ResourceProperties') or {}
+              patterns = props.get('RulePatterns') or {}
+              hub_arn = props.get('HubBusArn')
+              role_arn = props.get('ForwardRoleArn')
+              account = context.invoked_function_arn.split(':')[4]
+
+              try:
+                  ec2 = boto3.client('ec2')
+                  try:
+                      regions = enabled_regions(ec2)
+                  except Exception as e:
+                      print(f'DescribeRegions failed ({e}); falling back to current region only')
+                      regions = [context.invoked_function_arn.split(':')[3]]
+
+                  print(f'{len(regions)} enabled region(s): {regions}')
+
+                  if event['RequestType'] == 'Delete':
+                      for r in regions:
+                          remove_rules(r, patterns.keys())
+                          delete_dlq(r)
+                      respond(event, context, 'SUCCESS', {'RegionsCleaned': str(len(regions))})
+                      return
+
+                  ensure_log_retention()
+
+                  # A rule dropped from the set by an update must not be left behind.
+                  old_keys = set((event.get('OldResourceProperties') or {}).get('RulePatterns') or {})
+                  dropped = old_keys - set(patterns)
+
+                  ok, failed = [], {}
+                  for r in regions:
+                      try:
+                          if dropped:
+                              remove_rules(r, dropped)
+                          apply_region(r, account, hub_arn, role_arn, patterns)
+                          ok.append(r)
+                      except Exception as e:
+                          failed[r] = str(e)[:200]
+                          print(f'Region {r} skipped: {e}')
+
+                  print(f'Configured {len(ok)} region(s); {len(failed)} skipped')
+                  respond(event, context, 'SUCCESS', {
+                      'RegionsConfigured': ','.join(ok)[:1000] or 'none',
+                      'RegionCount': str(len(ok)),
+                      'RegionsSkipped': ','.join(failed.keys())[:500] or 'none',
+                  })
+
+              except Exception as e:
+                  print(f'Fan-out error: {e}')
+                  if event['RequestType'] == 'Delete':
+                      respond(event, context, 'SUCCESS', reason=f'Delete tolerated error: {e}')
+                  else:
+                      respond(event, context, 'FAILED', reason=str(e)[:900])
+      Tags:
+        - Key: Service
+          Value: XamOps-AutoSpotting
+
+  # Runs after the hub bus policy and the hub forward rule exist, otherwise the regional
+  # rules it creates would point at a bus that rejects them. The forward role and the hub
+  # bus are already ordered by the GetAtt references below.
+  #
+  # RulePatterns is the single source of the event patterns. It must contain no field EC2
+  # does not emit (no instance-lifecycle), and it is what check_event_patterns.py tests.
+  RegionFanOut:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn:
+      - AutoSpottingHubBusPolicy
+      - HubForwardRule
+    Properties:
+      ServiceToken: !GetAtt RegionFanOutFunction.Arn
+      HubBusArn: !GetAtt AutoSpottingHubBus.Arn
+      ForwardRoleArn: !GetAtt RegionalForwardRole.Arn
+      RulePatterns:
+        spot-interruption:
+          source: [aws.ec2]
+          detail-type: ['EC2 Spot Instance Interruption Warning']
+        rebalance-recommendation:
+          source: [aws.ec2]
+          detail-type: ['EC2 Instance Rebalance Recommendation']
+        asg-lifecycle:
+          source: [aws.autoscaling]
+          detail-type:
+            - 'EC2 Instance Launch Successful'
+            - 'EC2 Instance Launch Unsuccessful'
+            - 'EC2 Instance Terminate Successful'
+
+Outputs:
+  ForwarderRoleId:
+    Description: RoleId of the forwarder Lambda role. XamOps matches it against the sender of queued events.
+    Value: !GetAtt ForwarderRole.RoleId
+
+  HubBusArn:
+    Description: ARN of the AutoSpotting hub event bus
+    Value: !GetAtt AutoSpottingHubBus.Arn
+
+  RegionsConfigured:
+    Description: Regions where AutoSpotting event rules were created
+    Value: !GetAtt RegionFanOut.RegionsConfigured
+
+  RegionCount:
+    Description: Number of regions now forwarding AutoSpotting events
+    Value: !GetAtt RegionFanOut.RegionCount
+
+  RegionsSkipped:
+    Description: Regions skipped due to an error (polling still covers them)
+    Value: !GetAtt RegionFanOut.RegionsSkipped

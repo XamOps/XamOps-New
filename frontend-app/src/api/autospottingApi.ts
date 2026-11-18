@@ -448,6 +448,20 @@ export interface Potential {
   partial: boolean;
   asOf: string | null;
 }
+export interface StackCapability {
+  code: string;
+  label: string;
+}
+/** What the account's stack lacks for AutoSpotting (design-aws.md §10.1). */
+export interface StackCapabilities {
+  applicable: boolean;
+  templateVersion: string | null;
+  latestVersion: string;
+  updateRequired: boolean;
+  missing: StackCapability[];
+}
+export const getStackCapabilities = (accountId: number): Promise<StackCapabilities> =>
+  request('GET', `${V2}/accounts/${accountId}/stack-capabilities`);
 export const getCommitmentCoverage = (accountId: number): Promise<RispCoverageBody> =>
   request('GET', `${V2}/accounts/${accountId}/commitments/coverage`);
 export const getCommitmentSettings = (accountId: number): Promise<CommitmentSettings> =>

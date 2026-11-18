@@ -1,0 +1,18 @@
+{
+  "description": "A CloudTrail API call is not an AutoSpotting event",
+  "expect": [],
+  "event": {
+    "version": "0",
+    "id": "3e4f5061-7283-494a-ab1c-2d3e4f506172",
+    "detail-type": "AWS API Call via CloudTrail",
+    "source": "aws.ec2",
+    "account": "111122223333",
+    "time": "2026-10-12T10:01:00Z",
+    "region": "us-east-1",
+    "resources": [],
+    "detail": {
+      "eventSource": "ec2.amazonaws.com",
+      "eventName": "RunInstances"
+    }
+  }
+}

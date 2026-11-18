@@ -1,0 +1,20 @@
+{
+  "description": "Instance state-change events are deliberately not forwarded (design-aws.md 9.3)",
+  "expect": [],
+  "event": {
+    "version": "0",
+    "id": "7bf73129-1428-4cd3-a780-95db273d1602",
+    "detail-type": "EC2 Instance State-change Notification",
+    "source": "aws.ec2",
+    "account": "111122223333",
+    "time": "2026-10-12T09:50:40Z",
+    "region": "us-east-1",
+    "resources": [
+      "arn:aws:ec2:us-east-1:111122223333:instance/i-0aaa1111bbbb2222c"
+    ],
+    "detail": {
+      "instance-id": "i-0aaa1111bbbb2222c",
+      "state": "running"
+    }
+  }
+}

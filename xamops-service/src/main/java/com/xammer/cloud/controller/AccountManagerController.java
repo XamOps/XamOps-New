@@ -168,7 +168,8 @@ public class AccountManagerController {
         // exactly as before and has its id discovered later from the role it created.
         String stackId = payload.get("stackId");
         try {
-            awsAccountService.connectViaCallback(externalId, awsAccountId, roleArn, stackId);
+            awsAccountService.connectViaCallback(externalId, awsAccountId, roleArn, stackId,
+                    payload.get("templateVersion"));
             logger.info("EventBridge callback succeeded for externalId={}", externalId);
             return ResponseEntity.ok(Map.of("message", "Account connected successfully"));
         } catch (Exception e) {
