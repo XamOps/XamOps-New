@@ -899,8 +899,9 @@
                     <!-- The whole H2 unit suite runs in one reused fork; AutoSpottingArchitectureTest
                          loads every compiled class and OOMs at the CI runner's default heap. Raise the
                          fork heap. @{argLine} keeps JaCoCo's agent, which default-prepare-agent injects
-                         via the argLine property (a bare -Xmx would drop coverage). -->
-                    <argLine>@{argLine} -Xms256m -Xmx3g</argLine>
+                         via the argLine property (a bare -Xmx would drop coverage). 4g from AutoSpotting phase 17: the
+                         reused fork OOMed at 3g in the two whole-codebase ArchUnit imports. -->
+                    <argLine>@{argLine} -Xms256m -Xmx4g</argLine>
                     <excludedGroups>${surefire.excludedGroups}</excludedGroups>
                     <!-- Surefire's defaults plus *IT, so containers ITs such as
                          LegacySavingsFlagMigrationIT run when the tag is included. -->

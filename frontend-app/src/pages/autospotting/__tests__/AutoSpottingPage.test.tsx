@@ -44,9 +44,11 @@ const detailOf = (r = row(), over: Record<string, unknown> = {}) => ({
 
 const mount = (
   groups: unknown,
-  opts: { status?: number; cfg?: unknown; detail?: unknown; route?: string } = {},
+  opts: { status?: number; cfg?: unknown; detail?: unknown; route?: string; summary?: unknown; groupSavings?: unknown } = {},
 ) => {
   const fx = installFetch([
+    ...(opts.summary ? [{ match: /\/accounts\/7\/savings\/summary$/, responses: [{ body: opts.summary }] }] : []),
+    ...(opts.groupSavings ? [{ match: /\/accounts\/7\/groups\/g-\d+\/savings$/, responses: [{ body: opts.groupSavings }] }] : []),
     { match: /\/v2\/config$/, responses: [{ body: opts.cfg ?? config() }] },
     { match: /\/accounts\/7\/groups$/, responses: [{ status: opts.status ?? 200, body: groups }] },
     { match: /\/accounts\/7\/groups\/g-\d+$/, responses: [{ body: opts.detail ?? detailOf() }] },
@@ -80,6 +82,17 @@ describe('AutoSpottingPage table and panel', () => {
     expect(screen.getAllByText('Estimate').length).toBeGreaterThan(0);
   });
 
+  it('reads the accruing KPI from the ledger summary, labelled "Accruing (not final)", never Billable or Realized', async () => {
+    const { container } = mount(list([row({ monthlySavings: 820 })]), {
+      summary: { month: '2026-11', accruingNotFinal: { amount: '9.72', currency: 'USD' }, label: 'Accruing (not final)' },
+    });
+    await screen.findByText('Est. monthly savings');
+    const kpi = (await screen.findByText('Accruing MTD (not final)')).parentElement as HTMLElement;
+    await waitFor(() => expect(within(kpi).getByText('Accruing (not final)')).toBeInTheDocument());
+    expect(within(kpi).getByText(/9\.72/)).toBeInTheDocument();
+    expect(screen.queryByText('Not tracked')).not.toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/Billable|Realized/);
+  });
   it('renders no "Billable" or "Realized" next to an open-month figure', async () => {
     const { container } = mount(list());
     await screen.findByText('web-asg');
@@ -93,6 +106,23 @@ describe('AutoSpottingPage table and panel', () => {
     expect(await screen.findByRole('complementary', { name: 'web-asg details' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Config' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Audit' })).toBeInTheDocument();
+  });
+
+  it('shows estimate vs measured per month in the Savings tab, labelled Accruing or Not invoiced', async () => {
+    mount(list([row({ monthlySavings: 820 })]), {
+      groupSavings: [
+        { month: '2026-10', status: 'CLOSED', amount: { amount: '291.60', currency: 'USD' }, label: 'Not invoiced' },
+        { month: '2026-11', status: 'OPEN', amount: { amount: '9.72', currency: 'USD' }, label: 'Accruing (not final)' },
+      ],
+    });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'web-asg' }));
+    await user.click(await screen.findByRole('tab', { name: 'Savings' }));
+    const table = await screen.findByTestId('ledger-months');
+    expect(within(table).getByText('2026-10')).toBeInTheDocument();
+    expect(within(table).getByText('Not invoiced')).toBeInTheDocument();
+    expect(within(table).getByText('Accruing (not final)')).toBeInTheDocument();
+    expect(table.textContent).not.toMatch(/Billable|Realized/);
   });
 
   it('offers no action buttons inside table rows', async () => {

@@ -130,4 +130,27 @@ class AwsHistoryNoFabricationTest {
         assertThat(todayPoint.getActualHourlySavings()).isCloseTo(LIVE_HOURLY_SAVINGS * 24, within(1e-9));
         assertThat(todayPoint.getPotentialHourlySavings()).isCloseTo(LIVE_HOURLY_POTENTIAL * 24, within(1e-9));
     }
+
+    @Test
+    void ledgerDays_areNonLegacyPointsFromTheReadService_andALegacyDayKeepsItsOwnPoint() {
+        LocalDate start = LocalDate.now().minusDays(10);
+        LocalDate end = LocalDate.now().minusDays(3);
+        when(savingsRepository.findByAccountIdAndDateBetweenOrderByDateAsc(7L, start, end))
+                .thenReturn(List.of(row(start.plusDays(1), 4.0)));
+        var ledger = mock(com.xammer.cloud.service.autospotting.ledger.read.SavingsLedgerReadService.class);
+        when(ledger.getDailyAccrual(account, start, end)).thenReturn(List.of(
+                new com.xammer.cloud.service.autospotting.ledger.read.SavingsLedgerReadService.DailyAccrual(
+                        start.plusDays(1), "AWS", com.xammer.cloud.service.autospotting.ledger.money.Money.of("1.00", "USD")),
+                new com.xammer.cloud.service.autospotting.ledger.read.SavingsLedgerReadService.DailyAccrual(
+                        start.plusDays(2), "AWS", com.xammer.cloud.service.autospotting.ledger.money.Money.of("9.725", "USD"))));
+        service.setLedgerReadService(ledger);
+        HistoryResponse history = service.getCostHistory(account, start.toString(), end.toString(), "daily");
+        assertThat(history.getDataPoints()).extracting(HistoryResponse.DataPoint::getTimestamp)
+                .containsExactly(start.plusDays(1).toString(), start.plusDays(2).toString());
+        assertThat(history.getDataPoints().get(0).getLegacy()).isTrue();
+        assertThat(history.getDataPoints().get(0).getActualHourlySavings()).isEqualTo(4.0);
+        assertThat(history.getDataPoints().get(1).getLegacy()).isFalse();
+        assertThat(history.getDataPoints().get(1).getActualHourlySavings()).isEqualTo(9.73);
+        assertThat(history.getSummary().getLegacyTotalSavings()).isCloseTo(4.0, within(1e-9));
+    }
 }

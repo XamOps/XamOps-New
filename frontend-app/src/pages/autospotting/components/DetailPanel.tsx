@@ -214,7 +214,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
           />
         )}
         {tab === 'history' && <HistoryTab detail={effective} />}
-        {tab === 'savings' && <SavingsTab row={row} />}
+        {tab === 'savings' && <SavingsTab row={row} accountId={accountId} />}
         {tab === 'audit' && <AuditTab operationId={operationId} />}
       </div>
     </aside>

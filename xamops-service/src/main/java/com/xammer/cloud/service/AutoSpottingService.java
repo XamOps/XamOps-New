@@ -108,6 +108,34 @@ public class AutoSpottingService {
     @Value("${autospotting.metric.namespace:AutoSpotting}")
     private String metricNamespace;
 
+    /**
+     * The one reader of ledger savings (design-ledger.md §10, FR-LED-27). Field-injected so the long
+     * constructor stays as it is; a null (a test that does not set it) reads as 0, never as a figure.
+     */
+    @Autowired(required = false)
+    private com.xammer.cloud.service.autospotting.ledger.read.SavingsLedgerReadService ledgerReadService;
+
+    public void setLedgerReadService(
+            com.xammer.cloud.service.autospotting.ledger.read.SavingsLedgerReadService ledgerReadService) {
+        this.ledgerReadService = ledgerReadService;
+    }
+
+    /**
+     * An account's realized Spot savings: billable statements only (closed and invoiceable), at the minor
+     * unit. Shadow months are "Not invoiced" and the open month is "Accruing", so neither is included. 0
+     * until a month is invoiceable (Phase 35).
+     */
+    private double ledgerRealized(CloudAccount account) {
+        if (ledgerReadService == null || account == null || account.getId() == null) {
+            return 0.0;
+        }
+        Instant from = LocalDate.of(2000, 1, 1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant to = LocalDate.now(ZoneOffset.UTC).withDayOfMonth(1).plusMonths(1).atStartOfDay(ZoneOffset.UTC)
+                .toInstant();
+        return ledgerReadService.getSavingsSummary(account, from, to).billableSavings().toMinorUnit().amount()
+                .doubleValue();
+    }
+
     @Autowired
     public AutoSpottingService(
             AwsClientProvider awsClientProvider,
@@ -380,10 +408,34 @@ public class AutoSpottingService {
                     })
                     .collect(Collectors.toList()));
 
+            // Measured days come from the savings ledger (FR-LED-27, plan-phase-17.md 17.4): the daily accrual
+            // of the current entries, before statement rounding, not legacy and not billable. A day that
+            // already has a legacy point keeps it as its own point; the ledger point is added only where
+            // no point exists, so the two figures are never summed.
+            if (ledgerReadService != null) {
+                java.util.Set<String> taken = dataPoints.stream().map(dp -> dp.getTimestamp().substring(0, 10))
+                        .collect(Collectors.toSet());
+                for (var day : ledgerReadService.getDailyAccrual(account, startDate, endDate)) {
+                    if (taken.contains(day.date().toString())) {
+                        continue;
+                    }
+                    HistoryResponse.DataPoint dp = new HistoryResponse.DataPoint();
+                    dp.setTimestamp(day.date().toString());
+                    dp.setActualHourlySavings(day.net().toMinorUnit().amount().doubleValue());
+                    dp.setPotentialHourlySavings(null);
+                    dp.setCurrentHourlyCost(0.0);
+                    dp.setOndemandHourlyCost(0.0);
+                    dp.setSpotInstanceCount(0);
+                    dp.setOndemandInstanceCount(0);
+                    dp.setLegacy(Boolean.FALSE);
+                    dataPoints.add(dp);
+                }
+                dataPoints.sort(java.util.Comparator.comparing(dp -> LocalDate.parse(dp.getTimestamp().substring(0, 10))));
+            }
             // If DailySpotSavings is empty, fall back to SpotOptimizationEvent grouped by date.
             // This avoids any AWS API calls (especially Cost Explorer) and still gives a
             // meaningful chart from day one.
-            if (dataPoints.isEmpty()) {
+            if (savingsHistory.isEmpty()) {
                 try {
                     Instant iStart = startDate.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
                     Instant iEnd = endDate.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
@@ -398,8 +450,11 @@ public class AutoSpottingService {
                                     Collectors.summingDouble(SpotOptimizationEvent::getHourlySavings)
                             ));
 
+                    java.util.Set<String> ledgerDays = dataPoints.stream()
+                            .map(dp -> dp.getTimestamp().substring(0, 10)).collect(Collectors.toSet());
                     savingsByDate.entrySet().stream()
                             .sorted(java.util.Map.Entry.comparingByKey())
+                            .filter(entry -> !ledgerDays.contains(entry.getKey().toString()))
                             .forEach(entry -> {
                                 HistoryResponse.DataPoint dp = new HistoryResponse.DataPoint();
                                 dp.setTimestamp(entry.getKey().toString());
@@ -2936,7 +2991,12 @@ public class AutoSpottingService {
      */
     @Transactional(readOnly = true)
     public Map<String, Object> getAdminDashboardMetrics() {
-        Double realized = savingsRepository.getTotalSavings();
+        double realized = 0.0;
+        for (CloudAccount acc : cloudAccountRepository.findAll()) {
+            if ("AWS".equals(acc.getProvider()) || "GCP".equals(acc.getProvider())) {
+                realized += ledgerRealized(acc);
+            }
+        }
         Double legacyRows = savingsRepository.getLegacyTotalSavings();
 
         LocalDate today = LocalDate.now();
@@ -2949,7 +3009,7 @@ public class AutoSpottingService {
                 .sum();
 
         Map<String, Object> metrics = new HashMap<>();
-        metrics.put("totalSavings", realized != null ? realized : 0.0);
+        metrics.put("totalSavings", realized);
         metrics.put("legacyUnverifiedTotal", (legacyRows != null ? legacyRows : 0.0) + todayLegacy);
         metrics.put("activeSpotInstances", todayEvents.size()); // As approximate proxy
 
@@ -2979,11 +3039,7 @@ public class AutoSpottingService {
             entry.put("accountId", accId);
             entry.put("accountName", acc.getAccountName());
 
-            double realized = savingsRepository
-                    .findByAccountIdAndDateBetweenAndLegacyFalseOrderByDateAsc(acc.getId(), ALL_TIME_START, today)
-                    .stream()
-                    .mapToDouble(d -> d.getAmountSaved() != null ? d.getAmountSaved() : 0.0)
-                    .sum();
+            double realized = ledgerRealized(acc);
 
             List<SpotOptimizationEvent> events = eventRepository.findByAccountIdOrderByEventTimeDesc(acc.getId());
             double legacy = events.stream()
@@ -3041,11 +3097,7 @@ public class AutoSpottingService {
             if (!"AWS".equals(provider) && !"GCP".equals(provider)) continue;
 
             // All-time realized savings for this account: non-legacy rows only.
-            double savings = savingsRepository
-                    .findByAccountIdAndDateBetweenAndLegacyFalseOrderByDateAsc(account.getId(), ALL_TIME_START, today)
-                    .stream()
-                    .mapToDouble(d -> d.getAmountSaved() != null ? d.getAmountSaved() : 0.0)
-                    .sum();
+            double savings = ledgerRealized(account);
             Double legacySum = savingsRepository.sumLegacyAmount(List.of(account.getId()), ALL_TIME_START, today);
             double legacy = legacySum != null ? legacySum : 0.0;
 

@@ -5,7 +5,7 @@ import {
   Legend, ResponsiveContainer
 } from 'recharts'
 import { useClientSavings } from '../../hooks/useClientSavings'
-import { SavingsPreset } from '../../types/clientSavings'
+import { Decimal, SavingsPreset } from '../../types/clientSavings'
 import LegacyUnverifiedTag from '../SpotAutomation/LegacyUnverifiedTag'
 
 interface Props {
@@ -14,6 +14,10 @@ interface Props {
 
 const fmt = (n: number) =>
   n === 0 ? '—' : `$${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+// Ledger amounts arrive as decimal strings; this is display only, no money is computed from it.
+const num = (v: Decimal | null | undefined): number => (v === null || v === undefined || v === '' ? 0 : Number(v))
+const fmtCents = (n: number) =>
+  `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 export default function ClientSavingsTab({ clientId }: Props) {
   const {
@@ -30,7 +34,7 @@ export default function ClientSavingsTab({ clientId }: Props) {
 
   let cumulative = 0
   const cumulativeData = data.timeSeries.map(p => {
-    cumulative += p.awsSpot + p.gcpSpot + p.awsEbs
+    cumulative += num(p.awsSpot) + num(p.gcpSpot) + p.awsEbs
     return { date: p.date, cumulative }
   })
 
@@ -43,6 +47,17 @@ export default function ClientSavingsTab({ clientId }: Props) {
   const legacySpotAws = data.legacySpotUnverifiedAws ?? 0
   const legacySpotGcp = data.legacySpotUnverifiedGcp ?? 0
   const hasLegacySpot = legacySpotAws > 0 || legacySpotGcp > 0
+  const realizedSpotAws = num(data.realizedSpotAws)
+  const realizedSpotGcp = num(data.realizedSpotGcp)
+  // Shadow and open-month Spot figures: their own rows, never a total and never "Realized".
+  const notInvoicedAws = num(data.shadowNotInvoicedAws)
+  const notInvoicedGcp = num(data.shadowNotInvoicedGcp)
+  const accruingAws = num(data.accruingSpotAws)
+  const accruingGcp = num(data.accruingSpotGcp)
+  const hasNotInvoiced = notInvoicedAws !== 0 || notInvoicedGcp !== 0
+  const hasAccruing = accruingAws !== 0 || accruingGcp !== 0
+  const realizedMonths = data.realizedSpotMonths ?? []
+  const seriesLabel = data.spotSeriesLabel ?? 'Daily accrual, before statement rounding'
 
   return (
     <div className="p-4 space-y-6">
@@ -107,13 +122,13 @@ export default function ClientSavingsTab({ clientId }: Props) {
               </tr>
             </thead>
             <tbody>
-              <GridRow label="AWS"   spot={data.realizedSpotAws + data.realizedEbsAws} rightsizing={data.potentialRightsizingAws}   reservations={data.potentialReservationsAws} />
-              <GridRow label="GCP"   spot={data.realizedSpotGcp}                        rightsizing={data.potentialRightsizingGcp}   reservations={data.potentialReservationsGcp} />
+              <GridRow label="AWS"   spot={realizedSpotAws + data.realizedEbsAws} rightsizing={data.potentialRightsizingAws}   reservations={data.potentialReservationsAws} />
+              <GridRow label="GCP"   spot={realizedSpotGcp}                        rightsizing={data.potentialRightsizingGcp}   reservations={data.potentialReservationsGcp} />
               <GridRow label="Azure" spot={0}                                           rightsizing={data.potentialRightsizingAzure} reservations={data.potentialReservationsAzure} />
               <tr className="bg-gray-50 font-semibold text-xs">
                 <td className="p-2 border border-gray-200 text-gray-700">Total</td>
                 <td className="p-2 border border-gray-200 text-right text-gray-900">
-                  {fmt(data.realizedSpotAws + data.realizedSpotGcp + data.realizedEbsAws)}
+                  {fmt(realizedSpotAws + realizedSpotGcp + data.realizedEbsAws)}
                 </td>
                 <td className="p-2 border border-gray-200 text-right text-gray-900">{fmt(totalRightsizing)}</td>
                 <td className="p-2 border border-gray-200 text-right text-gray-900">{fmt(totalReservations)}</td>
@@ -121,6 +136,35 @@ export default function ClientSavingsTab({ clientId }: Props) {
             </tbody>
           </table>
         </div>
+        {realizedMonths.length > 0 && (
+          <p data-testid="realized-months" className="mt-2 text-xs text-gray-500">
+            Spot realized = closed statements for {realizedMonths.join(', ')}
+          </p>
+        )}
+        {hasNotInvoiced && (
+          <div
+            data-testid="not-invoiced-row"
+            className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 rounded border border-gray-200 px-2 py-1.5 text-xs text-gray-600"
+          >
+            <span className="font-medium text-gray-700">Spot</span>
+            <span>AWS <span className="text-gray-900">{fmtCents(notInvoicedAws)}</span></span>
+            <span>GCP <span className="text-gray-900">{fmtCents(notInvoicedGcp)}</span></span>
+            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-700">Not invoiced</span>
+            <span className="text-gray-400">Not in totals</span>
+          </div>
+        )}
+        {hasAccruing && (
+          <div
+            data-testid="accruing-row"
+            className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 rounded border border-gray-200 px-2 py-1.5 text-xs text-gray-600"
+          >
+            <span className="font-medium text-gray-700">Spot</span>
+            <span>AWS <span className="text-gray-900">{fmtCents(accruingAws)}</span></span>
+            <span>GCP <span className="text-gray-900">{fmtCents(accruingGcp)}</span></span>
+            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-700">Accruing (not final)</span>
+            <span className="text-gray-400">Not in totals</span>
+          </div>
+        )}
         {hasLegacySpot && (
           <div
             data-testid="legacy-spot-row"
@@ -138,7 +182,7 @@ export default function ClientSavingsTab({ clientId }: Props) {
       {/* Charts */}
       <div className="space-y-6">
         <div>
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Daily Realized Savings</h4>
+          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">{seriesLabel}</h4>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={data.timeSeries} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -154,7 +198,7 @@ export default function ClientSavingsTab({ clientId }: Props) {
         </div>
 
         <div>
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Cumulative Savings</h4>
+          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Cumulative accrual (not final)</h4>
           <ResponsiveContainer width="100%" height={160}>
             <LineChart data={cumulativeData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />

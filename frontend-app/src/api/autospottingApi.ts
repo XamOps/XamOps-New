@@ -468,6 +468,28 @@ export const getAudit = (
   accountId: number,
   opts: { groupId?: string; from?: string; to?: string; limit?: number } = {},
 ): Promise<AuditEntry[]> => request('GET', `${V2}/accounts/${accountId}/audit${query(opts)}`);
+/** A ledger amount: a decimal string with its currency (never a JSON number). */
+export interface LedgerMoney {
+  amount: string;
+  currency: string;
+}
+/** The open month's accrual for the "Accruing MTD (not final)" KPI (plan-phase-17.md 17.4). */
+export interface LedgerSummary {
+  month: string;
+  accruingNotFinal: LedgerMoney;
+  label: 'Accruing (not final)';
+}
+/** A group's measured net for one month; the label says what kind of figure it is. */
+export interface LedgerGroupMonth {
+  month: string;
+  status: 'OPEN' | 'CLOSED' | 'INVOICED';
+  amount: LedgerMoney;
+  label: 'Accruing (not final)' | 'Not invoiced';
+}
+export const getLedgerSummary = (accountId: number): Promise<LedgerSummary> =>
+  request('GET', `${V2}/accounts/${accountId}/savings/summary`);
+export const getGroupSavings = (accountId: number, groupId: string): Promise<LedgerGroupMonth[]> =>
+  request('GET', `${V2}/accounts/${accountId}/groups/${encodeURIComponent(groupId)}/savings`);
 export const getPotential = (accountId: number): Promise<Potential> =>
   request('GET', `${V2}/accounts/${accountId}/groups/potential`);
 /** The legacy URLs the old AWS page still uses until Phase 36 (the shell calls only v2). */

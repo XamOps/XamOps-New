@@ -12,6 +12,7 @@ import { useAccounts } from '../../contexts/AccountContext';
 import { useAutoSpottingConfig } from '../../hooks/autospotting/useAutoSpottingConfig';
 import { useSpotGroups } from '../../hooks/autospotting/useSpotGroups';
 import { useSpotGroup } from '../../hooks/autospotting/useSpotGroup';
+import { useLedgerSummary } from '../../hooks/autospotting/useLedgerSavings';
 import { AutoSpottingApiError, disableLegacyGroup, type GroupRow } from '../../api/autospottingApi';
 import { awsAdapter } from './adapters/awsAdapter';
 import type { ProviderAdapter } from './adapters/types';
@@ -50,6 +51,9 @@ const AutoSpottingPage: React.FC = () => {
 
   const { data: config } = useAutoSpottingConfig();
   const groups = useSpotGroups(adapter ? accountId : null);
+  // The open month's ledger accrual; "Not tracked" while it can't be read (shadow figure, not final).
+  const ledgerSummary = useLedgerSummary(adapter ? accountId : null);
+  const accruingNotFinal = ledgerSummary.data ? Number(ledgerSummary.data.accruingNotFinal.amount) : null;
 
   const filters: FilterValues = {
     region: params.get('region') ?? '',
@@ -237,7 +241,7 @@ const AutoSpottingPage: React.FC = () => {
       {view === 'groups' && (
         <>
         {accountId !== null && !permissionError && (!error || groups.data) && !groups.isLoading && (
-          <KpiStrip rows={items} partial={partial} />
+          <KpiStrip rows={items} partial={partial} accruingNotFinal={accruingNotFinal} />
         )}
         {items.length > 0 && (
           <Filters values={filters} locations={locations} locationLabel={adapter.locationLabel} onChange={setFilters} />

@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
  * Runs an AutoSpotting scheduled job body on {@code spotJobsExecutor} under its job lease
@@ -81,6 +82,22 @@ public class JobRunner {
      */
     public void runLeased(String jobName, String runKey, Duration ttl, Duration heartbeat, Duration minHold,
                           Runnable body) {
+        runLeased(jobName, runKey, ttl, heartbeat, minHold, (LeaseHandle ignored) -> body.run());
+    }
+
+    /**
+     * As {@link #runLeased(String, String, Runnable)} but the body receives the held job lease, so a
+     * writer can fence its transaction on the handle's token and generation (design-ledger.md §13.2,
+     * design-core.md §3.4). Same guards, same executor, same skip counters.
+     */
+    public void runLeased(String jobName, String runKey, Consumer<LeaseHandle> body) {
+        runLeased(jobName, runKey, leaseProperties.dailyTtl(), leaseProperties.dailyHeartbeat(),
+                leaseProperties.dailyMinHold(), body);
+    }
+
+    /** As {@link #runLeased(String, String, Consumer)} with explicit lease timings. */
+    public void runLeased(String jobName, String runKey, Duration ttl, Duration heartbeat, Duration minHold,
+                          Consumer<LeaseHandle> body) {
         if (!schedulingEnabled) {
             return;
         }
@@ -93,7 +110,7 @@ public class JobRunner {
     }
 
     private void execute(String jobName, String runKey, Duration ttl, Duration heartbeat, Duration minHold,
-                         Runnable body) {
+                         Consumer<LeaseHandle> body) {
         Optional<LeaseHandle> acquired = leaseService.acquireJob(jobName, ttl, heartbeat);
         if (acquired.isEmpty()) {
             metrics.jobSkipped(jobName, REASON_LEASE_HELD);
@@ -110,7 +127,7 @@ public class JobRunner {
                 resolvedRunKey = null; // don't rewrite last_run_key for a skipped run
                 return;
             }
-            body.run();
+            body.accept(handle);
         } finally {
             leaseService.releaseJob(handle, minHold, resolvedRunKey);
         }

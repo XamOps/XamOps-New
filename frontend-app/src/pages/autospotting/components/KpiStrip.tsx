@@ -20,7 +20,7 @@ export function summarizeSavings(rows: GroupRow[]): { total: number | null; unpr
 interface KpiStripProps {
   rows: GroupRow[];
   partial: boolean;
-  /** `accruingNotFinal` of the open month; "Not tracked" until Phase 17 supplies it. */
+  /** `accruingNotFinal` of the open month from the ledger read service; "Not tracked" while it cannot be read. */
   accruingNotFinal?: number | null;
 }
 

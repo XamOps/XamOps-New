@@ -90,3 +90,47 @@ describe('ClientSavingsTab legacy spot savings', () => {
     expect(screen.queryByTestId('legacy-spot-row')).not.toBeInTheDocument();
   });
 });
+
+describe('ClientSavingsTab shadow and open-month spot figures (phase 17)', () => {
+  beforeEach(() => {
+    hookState.data = null;
+  });
+
+  it('shows a shadow month only under "Not invoiced" and never beside Billable or Realized', () => {
+    hookState.data = { ...base, shadowNotInvoicedAws: '123.46', shadowNotInvoicedGcp: '0.00' };
+    render(<ClientSavingsTab clientId={7} />);
+    const row = screen.getByTestId('not-invoiced-row');
+    expect(within(row).getByText('Not invoiced')).toBeInTheDocument();
+    expect(within(row).getByText('$123.46')).toBeInTheDocument();
+    expect(within(row).queryByText(/billable/i)).not.toBeInTheDocument();
+    expect(within(row).queryByText(/realized/i)).not.toBeInTheDocument();
+    // The shadow amount is in no total and no KPI.
+    expect(screen.getAllByText('$123.46')).toHaveLength(1);
+    expect(screen.getAllByText('$50')).toHaveLength(4);
+  });
+
+  it('shows the open month only under "Accruing (not final)"', () => {
+    hookState.data = { ...base, accruingSpotAws: '9.72' };
+    render(<ClientSavingsTab clientId={7} />);
+    const row = screen.getByTestId('accruing-row');
+    expect(within(row).getByText('Accruing (not final)')).toBeInTheDocument();
+    expect(within(row).getByText('$9.72')).toBeInTheDocument();
+    expect(within(row).queryByText(/billable|realized/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText('$9.72')).toHaveLength(1);
+    expect(screen.queryByTestId('not-invoiced-row')).not.toBeInTheDocument();
+  });
+
+  it('adds a realized (invoiceable) figure to the totals and names its months', () => {
+    hookState.data = { ...base, realizedSpotAws: '244.48', realizedTotal: 294.48, grandTotal: 294.48, realizedSpotMonths: ['2026-08'] };
+    render(<ClientSavingsTab clientId={7} />);
+    expect(screen.getByTestId('realized-months')).toHaveTextContent('2026-08');
+    expect(screen.queryByTestId('not-invoiced-row')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('accruing-row')).not.toBeInTheDocument();
+  });
+
+  it('labels the daily series as an accrual before statement rounding', () => {
+    hookState.data = { ...base, spotSeriesLabel: 'Daily accrual, before statement rounding' };
+    render(<ClientSavingsTab clientId={7} />);
+    expect(screen.getByText('Daily accrual, before statement rounding')).toBeInTheDocument();
+  });
+});

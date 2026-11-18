@@ -59,6 +59,9 @@ public class AutoSpottingMetrics {
     public static final String CLOUD_ERRORS = "autospotting.cloud.errors";
     public static final String LEDGER_ENTRIES = "autospotting.ledger.entries";
     public static final String LEDGER_UNKNOWN = "autospotting.ledger.unknown";
+    /** Every entry written, untagged by tier, so the UNKNOWN ratio alarm has a plain denominator (§6.4). */
+    public static final String LEDGER_ENTRIES_ALL = "autospotting.ledger.entries.all";
+    public static final String LEDGER_LAST_SUCCESS_AGE = "autospotting.ledger.last_success_age";
     public static final String DRYRUN_OPERATIONS = "autospotting.dryrun.operations";
     public static final String OPS_PREEMPTED = "autospotting.ops.preempted";
     /** Eligibility blockers seen by LIST-mode evaluations, by code (NO-07, PD-02). */
@@ -163,6 +166,7 @@ public class AutoSpottingMetrics {
     /** {@code autospotting.ledger.entries} — the ledger writer inserted entries (tiers per design-ledger). */
     public void ledgerEntries(Provider provider, String tier, long count) {
         registry.counter(LEDGER_ENTRIES, "provider", tag(provider), "tier", tier).increment(count);
+        registry.counter(LEDGER_ENTRIES_ALL, "provider", tag(provider)).increment(count);
     }
 
     /** {@code autospotting.ledger.unknown} — an entry was written with an UNKNOWN price. */
@@ -234,6 +238,15 @@ public class AutoSpottingMetrics {
      */
     public void bindReconcilerGauge(String name, Provider provider, Supplier<Number> source) {
         registry.gauge(name, Tags.of("provider", tag(provider)), source, s -> s.get().doubleValue());
+    }
+
+    /**
+     * Bind {@code autospotting.ledger.last_success_age} ({@code job}) to the seconds since that ledger job's
+     * last successful pass (design-ux-ops.md §6.4 "Ledger writer missed run": over 26 h pages). The source
+     * must read 0 while the job is switched off, so an intentionally dark writer never pages.
+     */
+    public void bindLedgerLastSuccessAge(String job, Supplier<Number> source) {
+        registry.gauge(LEDGER_LAST_SUCCESS_AGE, Tags.of("job", job), source, s -> s.get().doubleValue());
     }
 
     /**

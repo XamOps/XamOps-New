@@ -16,6 +16,11 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DailySpotSavingsRepository;
 import com.xammer.cloud.repository.EbsVolumeActionRepository;
 import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.service.autospotting.ledger.money.Money;
+import com.xammer.cloud.service.autospotting.ledger.read.SavingsLedgerReadService;
+import com.xammer.cloud.service.autospotting.ledger.read.SavingsLedgerReadService.ClientSpotSavings;
+import com.xammer.cloud.service.autospotting.ledger.read.SavingsLedgerReadService.DailyAccrual;
+import com.xammer.cloud.service.autospotting.ledger.read.SavingsLedgerReadService.ProviderSavings;
 import com.xammer.cloud.service.azure.AzureRightsizingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,6 +33,7 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.*;
 import java.util.function.Function;
@@ -55,13 +61,16 @@ public class ClientSavingsService {
     @Autowired RedisCacheService redisCacheService;
     @Autowired CloudAccountRepository cloudAccountRepository;
     @Autowired DailySpotSavingsRepository dailySpotSavingsRepository;
+    @Autowired SavingsLedgerReadService ledgerReadService;
     @Autowired EbsVolumeActionRepository ebsVolumeActionRepository;
     @Autowired CachedDataRepository cachedDataRepository;
     @Autowired ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
     public ClientSavingsDashboardDto getSavings(Long clientId, LocalDate startDate, LocalDate endDate) {
-        String cacheKey = CACHE_KEY_PREFIX + clientId + "::" + startDate + "::" + endDate;
+        // The key carries the client's latest statement close, so a period close is visible at once (design-ledger.md §10.3).
+        String closedAt = ledgerReadService.latestClosedAt(clientId).map(Instant::toString).orElse("none");
+        String cacheKey = CACHE_KEY_PREFIX + clientId + "::" + startDate + "::" + endDate + "::" + closedAt;
         Optional<ClientSavingsDashboardDto> cached = redisCacheService.get(
                 cacheKey, new TypeReference<ClientSavingsDashboardDto>() {});
         if (cached.isPresent()) return cached.get();
@@ -78,8 +87,13 @@ public class ClientSavingsService {
         Instant startInstant = startDate.atStartOfDay().toInstant(ZoneOffset.UTC);
         Instant endInstant   = endDate.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
 
-        double awsSpot   = sumSpotSavings(awsAccounts,   startDate, endDate);
-        double gcpSpot   = sumSpotSavings(gcpAccounts,   startDate, endDate);
+        // Every Spot figure reads the savings ledger through its one read service (FR-LED-27, AC-LED-11).
+        ClientSpotSavings spot = ledgerReadService.getClientSpotSavings(clientId,
+                YearMonth.from(startDate), YearMonth.from(endDate));
+        ProviderSavings awsLedger = spot.provider("AWS");
+        ProviderSavings gcpLedger = spot.provider("GCP");
+        BigDecimal awsSpot = display(awsLedger.realized());
+        BigDecimal gcpSpot = display(gcpLedger.realized());
         double awsEbs    = sumEbsSavings(awsAccounts, startInstant, endInstant);
 
         // Legacy rows: reported apart, never added into a total (D-12, AC-LED-11).
@@ -100,13 +114,19 @@ public class ClientSavingsService {
         double azureReservations = sumSnapshots(azureAccounts, AZURE_RESERVATIONS,
                 new TypeReference<AzureReservationData>() {}, data -> DoubleStream.of(data.getTotalMonthlySavings()));
 
-        double realizedTotal  = awsSpot + gcpSpot + awsEbs;
+        double realizedTotal  = awsSpot.add(gcpSpot).doubleValue() + awsEbs;
         double potentialTotal = awsRightsizing + gcpRightsizing + azureRightsizing
                               + awsReservations + gcpReservations + azureReservations;
 
         ClientSavingsDashboardDto result = ClientSavingsDashboardDto.builder()
             .realizedSpotAws(awsSpot)
             .realizedSpotGcp(gcpSpot)
+            .realizedSpotMonths(spot.realizedMonths().stream().map(YearMonth::toString).collect(Collectors.toList()))
+            .shadowNotInvoicedAws(display(awsLedger.shadowNotInvoiced()))
+            .shadowNotInvoicedGcp(display(gcpLedger.shadowNotInvoiced()))
+            .accruingSpotAws(display(awsLedger.accruing()))
+            .accruingSpotGcp(display(gcpLedger.accruing()))
+            .spotSeriesLabel(ClientSavingsDashboardDto.SPOT_SERIES_LABEL)
             .realizedEbsAws(awsEbs)
             .legacySpotUnverifiedAws(legacyAwsSpot)
             .legacySpotUnverifiedGcp(legacyGcpSpot)
@@ -119,7 +139,7 @@ public class ClientSavingsService {
             .realizedTotal(realizedTotal)
             .potentialTotal(potentialTotal)
             .grandTotal(realizedTotal + potentialTotal)
-            .timeSeries(buildTimeSeries(awsAccounts, gcpAccounts, startDate, endDate, startInstant, endInstant))
+            .timeSeries(buildTimeSeries(awsAccounts, spot.daily(), startDate, endDate, startInstant, endInstant))
             .startDate(startDate.toString())
             .endDate(endDate.toString())
             .clientName(clientName)
@@ -130,13 +150,9 @@ public class ClientSavingsService {
         return result;
     }
 
-    /** Realized spot savings: non-legacy rows only, so 0 until the savings ledger exists. */
-    private double sumSpotSavings(List<CloudAccount> accounts, LocalDate start, LocalDate end) {
-        return accounts.stream()
-            .mapToDouble(a -> dailySpotSavingsRepository
-                .findByAccountIdAndDateBetweenAndLegacyFalseOrderByDateAsc(a.getId(), start, end)
-                .stream().mapToDouble(r -> r.getAmountSaved() != null ? r.getAmountSaved() : 0.0).sum())
-            .sum();
+    /** A ledger amount at the currency's minor unit, rounded once and half-up, for display. */
+    private static BigDecimal display(Money money) {
+        return money.toMinorUnit().amount();
     }
 
     /** Legacy spot savings in the range, rounded to cents for display; zero when there are none. */
@@ -232,35 +248,36 @@ public class ClientSavingsService {
     }
 
     private List<ClientSavingsDashboardDto.DailyPoint> buildTimeSeries(
-            List<CloudAccount> aws, List<CloudAccount> gcp,
+            List<CloudAccount> aws, List<DailyAccrual> accrual,
             LocalDate start, LocalDate end, Instant startInstant, Instant endInstant) {
-
-        Map<LocalDate, double[]> byDate = new TreeMap<>();
+        Map<LocalDate, BigDecimal[]> spotByDate = new TreeMap<>();
+        Map<LocalDate, double[]> ebsByDate = new TreeMap<>();
         for (LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) {
-            byDate.put(d, new double[]{0, 0, 0});
+            spotByDate.put(d, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
+            ebsByDate.put(d, new double[]{0});
         }
-
-        // Spot points come from non-legacy rows only; legacy amounts never enter the series.
-        for (CloudAccount a : aws) {
-            dailySpotSavingsRepository.findByAccountIdAndDateBetweenAndLegacyFalseOrderByDateAsc(a.getId(), start, end)
-                .forEach(r -> byDate.get(r.getDate())[0] += r.getAmountSaved() != null ? r.getAmountSaved() : 0.0);
-        }
-        for (CloudAccount a : gcp) {
-            dailySpotSavingsRepository.findByAccountIdAndDateBetweenAndLegacyFalseOrderByDateAsc(a.getId(), start, end)
-                .forEach(r -> byDate.get(r.getDate())[1] += r.getAmountSaved() != null ? r.getAmountSaved() : 0.0);
+        // Spot points are the daily accrual of the current ledger entries, before statement rounding. Legacy
+        // amounts never enter the series, and the day's figure is rounded once for display.
+        for (DailyAccrual a : accrual) {
+            BigDecimal[] point = spotByDate.get(a.date());
+            if (point == null) continue;
+            int slot = "GCP".equals(a.provider()) ? 1 : "AWS".equals(a.provider()) ? 0 : -1;
+            if (slot >= 0) point[slot] = point[slot].add(a.net().amount());
         }
         for (CloudAccount a : aws) {
             ebsVolumeActionRepository.findByAccountIdAndStatusAndInitiatedAtBetween(a.getId(), "SUCCESS", startInstant, endInstant)
                 .forEach(r -> {
                     LocalDate d = r.getInitiatedAt().atZone(ZoneOffset.UTC).toLocalDate();
-                    double[] arr = byDate.getOrDefault(d, new double[]{0, 0, 0});
-                    arr[2] += r.getEstimatedSavings() != null ? r.getEstimatedSavings() : 0.0;
+                    double[] arr = ebsByDate.getOrDefault(d, new double[]{0});
+                    arr[0] += r.getEstimatedSavings() != null ? r.getEstimatedSavings() : 0.0;
                 });
         }
-
-        return byDate.entrySet().stream()
+        return spotByDate.entrySet().stream()
             .map(e -> new ClientSavingsDashboardDto.DailyPoint(
-                e.getKey().toString(), e.getValue()[0], e.getValue()[1], e.getValue()[2]))
+                e.getKey().toString(),
+                display(new Money(e.getValue()[0], java.util.Currency.getInstance("USD"))),
+                display(new Money(e.getValue()[1], java.util.Currency.getInstance("USD"))),
+                ebsByDate.get(e.getKey())[0]))
             .collect(Collectors.toList());
     }
 

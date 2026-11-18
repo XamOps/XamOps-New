@@ -109,7 +109,7 @@ public class AwsEstimatePriceService implements EstimatePriceService {
     }
 
     /** {@code [operatingSystem, preInstalledSw, licenseModel]} for a platform, or null when unmapped. */
-    static String[] priceListAttributes(Platform p) {
+    public static String[] priceListAttributes(Platform p) {
         return switch (p) {
             case LINUX -> new String[] {"Linux", "NA", "No License required"};
             case RHEL -> new String[] {"RHEL", "NA", "No License required"};
@@ -123,7 +123,7 @@ public class AwsEstimatePriceService implements EstimatePriceService {
     }
 
     /** The {@code ProductDescription} Spot history uses; SQL editions have none (Not priced). */
-    static String spotProductDescription(Platform p) {
+    public static String spotProductDescription(Platform p) {
         return switch (p) {
             case LINUX -> "Linux/UNIX";
             case RHEL -> "Red Hat Enterprise Linux";

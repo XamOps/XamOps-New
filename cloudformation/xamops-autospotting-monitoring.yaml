@@ -3,8 +3,8 @@ Description: >
   XamOps AutoSpotting monitoring (design-ux-ops.md §6.4, plan-phase-10.md task 10.3). Deployed in the
   XamOps account (NOT the customer template). Owns the on-call SNS topic and the engine alarms that
   fire on the Micrometer custom metrics exported to CloudWatch under namespace XamOps/AutoSpotting/{env}
-  (AutoSpottingMetricsExportConfig). Ledger alarms (ledger.variance_ratio, ledger.last_success_age,
-  ledger.close_status, ledger.unknown) are intentionally absent here; they are added in Phases 17/25/32
+  (AutoSpottingMetricsExportConfig). Ledger writer alarms (ledger.last_success_age, ledger.unknown ratio) arrive in
+  Phase 17; ledger.variance_ratio and ledger.close_status are intentionally absent until Phases 25/32
   when their meters exist. The engine-stack SQS alarms (DLQ depth, queue age) live in
   autospotting-engine.yaml and take this topic's ARN through its OncallTopicArn parameter.
 
@@ -29,6 +29,10 @@ Parameters:
     Default: 300
     Description: autospotting.reconciler.interval in seconds; alarm thresholds are multiples of it (§6.4)
 
+  LedgerUnknownRatioThreshold:
+    Type: Number
+    Default: 0.05
+    Description: Ledger UNKNOWN-price entries over all entries in 24 h that raises the ticket alarm (design-ledger.md)
 Conditions:
   HasOncallEmail: !Not [!Equals [!Ref OncallEmail, '']]
 
@@ -324,6 +328,70 @@ Resources:
       OKActions:
         - !Ref OncallTopic
 
+  # Ledger writer missed run: ledger.last_success_age{job=ledger-writer:aws} Max > 26 h, 1 h, Page, breaching.
+  # The meter reads 0 while the writer is switched off, so a dark writer never pages (design-ux-ops.md §6.4).
+  LedgerWriterMissedRunAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'autospotting-ledger-writer-missed-run-${Environment}'
+      AlarmDescription: The AWS ledger writer has not completed a daily pass in over 26 h (design-ux-ops.md §6.4, Page)
+      Namespace: !Sub 'XamOps/AutoSpotting/${Environment}'
+      MetricName: autospotting.ledger.last_success_age
+      Dimensions:
+        - Name: job
+          Value: 'ledger-writer:aws'
+      Statistic: Maximum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 93600  # 26 h
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: breaching
+      AlarmActions:
+        - !Ref OncallTopic
+      OKActions:
+        - !Ref OncallTopic
+  # UNKNOWN price ratio: ledger.unknown / ledger.entries.all > threshold, 24 h, Ticket, not breaching.
+  LedgerUnknownPriceRatioAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'autospotting-ledger-unknown-price-ratio-${Environment}'
+      AlarmDescription: Entries written with an UNKNOWN price are over the threshold share of all entries (design-ux-ops.md §6.4, Ticket)
+      ComparisonOperator: GreaterThanThreshold
+      EvaluationPeriods: 1
+      Threshold: !Ref LedgerUnknownRatioThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref OncallTopic
+      OKActions:
+        - !Ref OncallTopic
+      Metrics:
+        - Id: unknown
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: !Sub 'XamOps/AutoSpotting/${Environment}'
+              MetricName: autospotting.ledger.unknown
+              Dimensions:
+                - Name: provider
+                  Value: aws
+            Period: 86400
+            Stat: Sum
+        - Id: entries
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: !Sub 'XamOps/AutoSpotting/${Environment}'
+              MetricName: autospotting.ledger.entries.all
+              Dimensions:
+                - Name: provider
+                  Value: aws
+            Period: 86400
+            Stat: Sum
+        # Guard: no entries, no ratio (an install with no managed group stays OK).
+        - Id: ratio
+          ReturnData: true
+          Expression: 'IF(entries > 0, unknown / entries, 0)'
+          Label: ledger-unknown-price-ratio
 Outputs:
   XamOpsAutoSpottingOncallTopicArn:
     Description: ARN of the on-call SNS topic; pass to autospotting-engine.yaml OncallTopicArn
