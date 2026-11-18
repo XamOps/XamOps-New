@@ -135,6 +135,13 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
             UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                     userDetails, null, userDetails.getAuthorities());
 
+            // The admin who started this Login-As session, as the verified token names them. The
+            // principal above is the account being worn, so when this session mints another
+            // Login-As token, ImpersonationTokenController forwards these instead. Older tokens
+            // lack some or all of the claims; those stay null and the token is accepted as before.
+            auth.setDetails(new ImpersonatingOperator(longClaim(claims, "actorUserId"),
+                    stringClaim(claims, "actorUsername"), stringClaim(claims, "actorRole")));
+
             SecurityContext ctx = SecurityContextHolder.createEmptyContext();
             ctx.setAuthentication(auth);
             SecurityContextHolder.setContext(ctx);
@@ -159,5 +166,15 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
         } finally {
             ImpersonationContext.clear();
         }
+    }
+
+    /** A numeric claim as a long, or null when the token does not carry one. */
+    private static Long longClaim(Claims claims, String name) {
+        return claims.get(name) instanceof Number value ? value.longValue() : null;
+    }
+
+    /** A string claim, or null when the token does not carry one. */
+    private static String stringClaim(Claims claims, String name) {
+        return claims.get(name) instanceof String value ? value : null;
     }
 }
