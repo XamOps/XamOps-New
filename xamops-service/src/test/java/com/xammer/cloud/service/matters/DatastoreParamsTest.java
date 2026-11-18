@@ -67,6 +67,56 @@ class DatastoreParamsTest {
     }
 
     @Test
+    @DisplayName("limit with a default: 5 for the SaaS file list, 10 elsewhere, with the same 1 to 100 bounds")
+    void limitWithDefault() {
+        assertThat(DatastoreParams.limit(null, 5)).isEqualTo(5);
+        assertThat(DatastoreParams.limit(null, 10)).isEqualTo(10);
+        assertThat(DatastoreParams.limit(null)).isEqualTo(10);
+        assertThat(DatastoreParams.limit("7", 5)).isEqualTo(7);
+        assertThat(DatastoreParams.limit("100", 5)).isEqualTo(100);
+        assertRejected(() -> DatastoreParams.limit("0", 5), "limit");
+        assertRejected(() -> DatastoreParams.limit("101", 5), "limit");
+        assertRejected(() -> DatastoreParams.limit("", 5), "limit");
+        assertRejected(() -> DatastoreParams.limit("5x", 5), "limit");
+    }
+
+    @Test
+    @DisplayName("fileId is 24 hex characters, lower-cased, and the error names fileId")
+    void fileId() {
+        assertThat(DatastoreParams.fileId("FEDCBA9876543210FEDCBA98")).isEqualTo("fedcba9876543210fedcba98");
+        assertRejected(() -> DatastoreParams.fileId("fedcba9876543210fedcba9"), "fileId");
+        assertRejected(() -> DatastoreParams.fileId("fedcba9876543210fedcba987"), "fileId");
+        assertRejected(() -> DatastoreParams.fileId("fedcba9876543210fedcba9z"), "fileId");
+        assertRejected(() -> DatastoreParams.fileId(null), "fileId");
+        assertRejected(() -> DatastoreParams.fileId("../fedcba9876543210fedcb"), "fileId");
+    }
+
+    @Test
+    @DisplayName("view is exactly data_elements or document_classes, default data_elements")
+    void saasView() {
+        assertThat(DatastoreParams.saasView(null)).isEqualTo("data_elements");
+        assertThat(DatastoreParams.saasView("data_elements")).isEqualTo("data_elements");
+        assertThat(DatastoreParams.saasView("document_classes")).isEqualTo("document_classes");
+        assertRejected(() -> DatastoreParams.saasView("DATA_ELEMENTS"), "view");
+        assertRejected(() -> DatastoreParams.saasView(" data_elements"), "view");
+        assertRejected(() -> DatastoreParams.saasView(""), "view");
+        assertRejected(() -> DatastoreParams.saasView("records"), "view");
+    }
+
+    @Test
+    @DisplayName("requiredText is trimmed, 1 to 128 characters, no control characters, and never echoes the value")
+    void requiredText() {
+        assertThat(DatastoreParams.requiredText("documentClass", "  Incident Reports ")).isEqualTo("Incident Reports");
+        assertThat(DatastoreParams.requiredText("dataElement", "x".repeat(128))).hasSize(128);
+        assertRejected(() -> DatastoreParams.requiredText("dataElement", null), "dataElement");
+        assertRejected(() -> DatastoreParams.requiredText("dataElement", "   "), "dataElement");
+        assertRejected(() -> DatastoreParams.requiredText("documentClass", "x".repeat(129)), "documentClass");
+        assertRejected(() -> DatastoreParams.requiredText("documentClass", "needle\u0007value"), "documentClass");
+        assertThatThrownBy(() -> DatastoreParams.requiredText("documentClass", "needle\u0007value"))
+                .hasMessageNotContaining("needle");
+    }
+
+    @Test
     @DisplayName("showFalsePositives accepts only true and false")
     void showFalsePositives() {
         assertThat(DatastoreParams.showFalsePositives(null)).isFalse();

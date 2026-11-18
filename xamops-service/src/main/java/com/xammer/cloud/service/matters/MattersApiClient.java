@@ -1,5 +1,6 @@
 package com.xammer.cloud.service.matters;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -48,7 +49,9 @@ import java.util.stream.Collectors;
  *       header intact.</li>
  *   <li><b>5xx and connection failures</b> — retried once after a short fixed delay. Transient vendor
  *       blips are the common case; a sustained outage should surface quickly rather than double every
- *       page load's latency.</li>
+ *       page load's latency. The endpoint-agent routes are the exception for 5xx: some answer 500 for
+ *       an unknown agent, so their 5xx is reported at once as a bad upstream response (design 4.8);
+ *       their connection failures and short 429s keep the single retry.</li>
  *   <li><b>400, 401, 403, 404</b> — never retried. None of them become true by trying again.</li>
  * </ul>
  *
@@ -60,8 +63,11 @@ import java.util.stream.Collectors;
 @Slf4j
 public class MattersApiClient {
 
-    /** API version prefix. Every path below is relative to this. */
+    /** API version prefix. Every path below is relative to this, except the hash-lineage routes. */
     private static final String API_PREFIX = "/api/v1";
+
+    /** Prefix of the hash-lineage routes, the only v2 routes used. */
+    private static final String API_V2_PREFIX = "/api/v2";
 
     public static final String PATH_ASSETS = API_PREFIX + "/assets";
     public static final String PATH_FILTERS = API_PREFIX + "/assets/filters";
@@ -76,10 +82,29 @@ public class MattersApiClient {
     public static final String PATH_SCAN_STATUS = API_PREFIX + "/data/security/inventory/scan/status";
     /** Followed by {@code {sourceId}/history}. */
     public static final String PATH_SCAN_HISTORY_PREFIX = API_PREFIX + "/data/security/scan/asset/";
-    /** Followed by {@code {sourceId}/detail}. */
+    /**
+     * Followed by {@code {sourceId}/detail}, {@code /scan-summary}, {@code /sensitives/records} or
+     * {@code /files}.
+     */
     public static final String PATH_SAAS_ASSET_PREFIX = API_PREFIX + "/data/security/saas/asset/";
 
-    // Data Flow routes. They answer bare objects ({data[], pagination}) without a success flag.
+    // Console routes behind the SaaS file drawer. Keyed by the file's 24-hex id from the SaaS file list.
+    /** Followed by {@code {fileId}/overview}. */
+    public static final String PATH_SAAS_INVENTORY_PREFIX = API_PREFIX + "/data/security/saas/inventory/";
+    /** Followed by {@code {fileId}/logs}. */
+    public static final String PATH_REMEDIATION_OBJECTS_PREFIX = API_PREFIX + "/remediation/objects/";
+    public static final String PATH_HASH_LINEAGE_COPIES = API_V2_PREFIX + "/hash-lineage/copies";
+    public static final String PATH_HASH_LINEAGE_TIMELINE = API_V2_PREFIX + "/hash-lineage/timeline";
+
+    // Console routes behind the Endpoint drawer. Keyed by the row's 24-hex source_id (the agent id).
+    /**
+     * Followed by {@code {agentId}/overview}, {@code /filter-options}, {@code /sensitive-files},
+     * {@code /entity}, {@code /files} or {@code /scans}.
+     */
+    public static final String PATH_ENDPOINT_AGENT_PREFIX = API_PREFIX + "/endpoint-agent/agent/";
+
+    // Data Flow routes. They answer bare objects ({data[], pagination}) without a success flag. The
+    // diagram routes ({schemas|databases}/{id}/erd) and tables/{id}/relations sit under the same prefix.
     public static final String PATH_DATABASE_SCHEMA = API_PREFIX + "/data/security/database-schema";
 
     /** The project's scan runs. Called only by {@link #verifyPlatformScope}; a bare {data[], pagination}. */
@@ -88,13 +113,17 @@ public class MattersApiClient {
     private static final Pattern SOURCE_ID = Pattern.compile("^[0-9a-fA-F]{24}$");
     private static final Pattern UUID = Pattern.compile(
             "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
+    private static final Pattern DATA_HASH = Pattern.compile("^[0-9a-fA-F]{64}$");
+
+    /** The two views of the SaaS records route. */
+    private static final List<String> SAAS_VIEWS = List.of("data_elements", "document_classes");
 
     /**
      * Vendor 400 messages that mean "no such asset". The console routes answer an unknown id with 400
-     * rather than 404, worded differently per route.
+     * rather than 404, worded differently per route. The SaaS file overview says "No file found with ID …".
      */
-    private static final List<String> NOT_FOUND_PHRASES =
-            List.of("no asset data found", "asset not found", "not inventory found", "no asset found");
+    private static final List<String> NOT_FOUND_PHRASES = List.of(
+            "no asset data found", "asset not found", "not inventory found", "no asset found", "no file found");
 
     static final String ASSET_NOT_FOUND_MESSAGE = "Asset not found";
     static final String FORBIDDEN_SCOPE_MESSAGE = "This Matters key needs the PLATFORM scope";
@@ -104,6 +133,12 @@ public class MattersApiClient {
      * rejected, so clamping here too keeps our own pagination arithmetic honest.
      */
     public static final int MAX_PAGE_SIZE = 100;
+
+    /** Largest {@code limit} sent to the console routes that page by skip and limit. */
+    public static final int MAX_LIMIT = 100;
+
+    /** Largest {@code skip} or {@code offset} sent to the console routes. */
+    public static final int MAX_OFFSET = 10_000;
 
     /**
      * Longest {@code Retry-After} we will wait out inline. Beyond this the 429 is returned to the
@@ -249,6 +284,126 @@ public class MattersApiClient {
         return get(credential, PATH_SAAS_ASSET_PREFIX + requireSourceId(sourceId) + "/detail", Map.of(), true);
     }
 
+    // ── console routes (SaaS drawer and SaaS file drawer) ────────────────────────────────────────
+
+    /** {@code GET …/saas/asset/{sourceId}/scan-summary}: supported and unsupported files, file types. */
+    public JsonNode saasScanSummary(MattersCredential credential, String sourceId) {
+        return get(credential, PATH_SAAS_ASSET_PREFIX + requireSourceId(sourceId) + "/scan-summary", Map.of(), true);
+    }
+
+    /** {@code GET …/saas/asset/{sourceId}/sensitives/records?view=}, view data_elements or document_classes. */
+    public JsonNode saasRecords(MattersCredential credential, String sourceId, String view) {
+        String path = PATH_SAAS_ASSET_PREFIX + requireSourceId(sourceId) + "/sensitives/records";
+        return get(credential, path, Map.of("view", List.of(requireView(view))), true);
+    }
+
+    /**
+     * {@code GET …/saas/asset/{sourceId}/files}: one page of the files behind a data element or a
+     * document class. The route needs {@code limit}; the element or class goes as a plain string (GAP-20).
+     */
+    public JsonNode saasFiles(MattersCredential credential, String sourceId, SaasFileQuery query) {
+        String path = PATH_SAAS_ASSET_PREFIX + requireSourceId(sourceId) + "/files";
+        requireOffset("skip", query.skip());
+        requireLimit(query.limit());
+        return get(credential, path, query.toVendorParams(), true);
+    }
+
+    /** {@code GET /api/v1/data/security/saas/inventory/{fileId}/overview}. */
+    public JsonNode saasFileOverview(MattersCredential credential, String fileId) {
+        return get(credential, PATH_SAAS_INVENTORY_PREFIX + requireSourceId(fileId) + "/overview", Map.of(), true);
+    }
+
+    /** {@code GET /api/v1/remediation/objects/{fileId}/logs}: the File Activity tab. */
+    public JsonNode remediationLogs(MattersCredential credential, String fileId) {
+        return get(credential, PATH_REMEDIATION_OBJECTS_PREFIX + requireSourceId(fileId) + "/logs", Map.of(), true);
+    }
+
+    /** {@code GET /api/v2/hash-lineage/copies?file_id=}: the file's content-hash copies. */
+    public JsonNode hashLineageCopies(MattersCredential credential, String fileId) {
+        return get(credential, PATH_HASH_LINEAGE_COPIES, Map.of("file_id", List.of(requireSourceId(fileId))), true);
+    }
+
+    /** {@code GET /api/v2/hash-lineage/timeline?data_hash=&limit=}: lanes and events of one content hash. */
+    public JsonNode hashLineageTimeline(MattersCredential credential, String dataHash, int limit) {
+        if (dataHash == null || !DATA_HASH.matcher(dataHash).matches()) {
+            throw new IllegalArgumentException("dataHash must be 64 hexadecimal characters");
+        }
+        Map<String, List<String>> query = new LinkedHashMap<>();
+        query.put("data_hash", List.of(dataHash));
+        query.put("limit", List.of(String.valueOf(requireLimit(limit))));
+        return get(credential, PATH_HASH_LINEAGE_TIMELINE, query, true);
+    }
+
+    // ── console routes (Endpoint drawer) ─────────────────────────────────────────────────────────
+    //
+    // Some of these answer 500 for an unknown agent, so they pass retryServerErrors=false: a 5xx is
+    // reported at once instead of being sent twice (design 4.8).
+
+    /** {@code GET /api/v1/endpoint-agent/agent/{agentId}/overview}. */
+    public JsonNode agentOverview(MattersCredential credential, String agentId) {
+        return get(credential, agentPath(agentId, "/overview"), Map.of(), true, false);
+    }
+
+    /** {@code GET …/endpoint-agent/agent/{agentId}/filter-options}. */
+    public JsonNode agentFilterOptions(MattersCredential credential, String agentId) {
+        return get(credential, agentPath(agentId, "/filter-options"), Map.of(), true, false);
+    }
+
+    /**
+     * {@code GET …/endpoint-agent/agent/{agentId}/sensitive-files}: totals and metrics, filtered by
+     * JSON-array filters.
+     *
+     * @param hideFalsePositives sends {@code isFalsePositive=false} when true; no filter otherwise.
+     */
+    public JsonNode agentSensitiveFiles(MattersCredential credential, String agentId, EndpointFilters filters,
+                                        boolean hideFalsePositives) {
+        String path = agentPath(agentId, "/sensitive-files");
+        Map<String, List<String>> query = new LinkedHashMap<>(filters.toVendorParams(objectMapper));
+        if (hideFalsePositives) {
+            query.put("isFalsePositive", List.of("false"));
+        }
+        return get(credential, path, query, true, false);
+    }
+
+    /**
+     * {@code GET …/endpoint-agent/agent/{agentId}/entity?entity_name=["…"]&offset=&limit=}: one page of
+     * an entity's occurrences. Carries raw samples: whitelist downstream, never cache.
+     *
+     * @param hideFalsePositives sends {@code isFalsePositive=false} when true; no filter otherwise.
+     */
+    public JsonNode agentEntity(MattersCredential credential, String agentId, String entityName, int offset,
+                                int limit, boolean hideFalsePositives) {
+        if (entityName == null || entityName.isBlank()) {
+            throw new IllegalArgumentException("entityName is required");
+        }
+        String path = agentPath(agentId, "/entity");
+        Map<String, List<String>> query = new LinkedHashMap<>();
+        query.put("entity_name", List.of(jsonArray(List.of(entityName))));
+        query.put("offset", List.of(String.valueOf(requireOffset("offset", offset))));
+        query.put("limit", List.of(String.valueOf(requireLimit(limit))));
+        if (hideFalsePositives) {
+            query.put("isFalsePositive", List.of("false"));
+        }
+        return get(credential, path, query, true, false);
+    }
+
+    /** {@code GET …/endpoint-agent/agent/{agentId}/files}: one page of the File View. */
+    public JsonNode agentFiles(MattersCredential credential, String agentId, EndpointFileQuery query) {
+        String path = agentPath(agentId, "/files");
+        requireOffset("skip", query.skip());
+        requireLimit(query.limit());
+        return get(credential, path, query.toVendorParams(objectMapper), true, false);
+    }
+
+    /** {@code GET …/endpoint-agent/agent/{agentId}/scans?skip=&limit=}: Scan History. */
+    public JsonNode agentScans(MattersCredential credential, String agentId, int skip, int limit) {
+        String path = agentPath(agentId, "/scans");
+        Map<String, List<String>> query = new LinkedHashMap<>();
+        query.put("skip", List.of(String.valueOf(requireOffset("skip", skip))));
+        query.put("limit", List.of(String.valueOf(requireLimit(limit))));
+        return get(credential, path, query, true, false);
+    }
+
     // ── Data Flow routes ─────────────────────────────────────────────────────────────────────────
 
     /** {@code GET …/database-schema/datastores/{sourceId}/databases?page=&page_size=}. */
@@ -281,22 +436,44 @@ public class MattersApiClient {
                 pageQuery(page, pageSize));
     }
 
+    /** {@code GET …/database-schema/schemas/{schemaId}/erd}: the schema diagram's tables and keys. */
+    public JsonNode schemaErd(MattersCredential credential, String schemaId) {
+        return get(credential, PATH_DATABASE_SCHEMA + "/schemas/" + requireUuid(schemaId) + "/erd", Map.of());
+    }
+
+    /** {@code GET …/database-schema/databases/{databaseId}/erd}, for schema-less engines. */
+    public JsonNode databaseErd(MattersCredential credential, String databaseId) {
+        return get(credential, PATH_DATABASE_SCHEMA + "/databases/" + requireUuid(databaseId) + "/erd", Map.of());
+    }
+
+    /** {@code GET …/database-schema/tables/{tableId}/relations}: the table's outgoing and incoming keys. */
+    public JsonNode tableRelations(MattersCredential credential, String tableId) {
+        return get(credential, PATH_DATABASE_SCHEMA + "/tables/" + requireUuid(tableId) + "/relations", Map.of());
+    }
+
     // ── internals ────────────────────────────────────────────────────────────────────────────────
 
     private JsonNode get(MattersCredential credential, String path, Map<String, List<String>> query) {
         return get(credential, path, query, false);
     }
 
-    /**
-     * @param consoleRoute the route may answer 200 with {@code success:false}; that is treated as a
-     *                     failure inside the audited block, so the failure row is written.
-     */
     private JsonNode get(MattersCredential credential, String path, Map<String, List<String>> query,
                          boolean consoleRoute) {
+        return get(credential, path, query, consoleRoute, true);
+    }
+
+    /**
+     * @param consoleRoute      the route may answer 200 with {@code success:false}; that is treated as a
+     *                          failure inside the audited block, so the failure row is written.
+     * @param retryServerErrors false for routes that answer 5xx for an unknown id: a 5xx is then
+     *                          {@code BAD_UPSTREAM_RESPONSE} after one request.
+     */
+    private JsonNode get(MattersCredential credential, String path, Map<String, List<String>> query,
+                         boolean consoleRoute, boolean retryServerErrors) {
         URI uri = buildUri(credential.baseUrl(), path, query);
         long startedAt = System.currentTimeMillis();
         try {
-            JsonNode body = exchange(uri, credential, path, false);
+            JsonNode body = exchange(uri, credential, path, false, retryServerErrors);
             if (consoleRoute) {
                 requireSuccess(body, path);
             }
@@ -314,10 +491,12 @@ public class MattersApiClient {
      * Issues the request, translating transport and status failures into
      * {@link MattersApiException}.
      *
-     * @param isRetry guards the single-retry policy — a retried call that fails again propagates
-     *                rather than recursing.
+     * @param isRetry           guards the single-retry policy — a retried call that fails again
+     *                          propagates rather than recursing.
+     * @param retryServerErrors false: a 5xx is not retried. 429 and connection failures are unaffected.
      */
-    private JsonNode exchange(URI uri, MattersCredential credential, String path, boolean isRetry) {
+    private JsonNode exchange(URI uri, MattersCredential credential, String path, boolean isRetry,
+                              boolean retryServerErrors) {
         try {
             ResponseEntity<String> response = restTemplate.exchange(
                     uri, HttpMethod.GET, new HttpEntity<>(authHeaders(credential)), String.class);
@@ -330,7 +509,7 @@ public class MattersApiClient {
                 int retryAfter = retryAfterSeconds(e);
                 if (!isRetry && retryAfter > 0 && retryAfter <= MAX_RETRY_WAIT_SECONDS) {
                     sleep(retryAfter * 1000L);
-                    return exchange(uri, credential, path, true);
+                    return exchange(uri, credential, path, true, retryServerErrors);
                 }
                 throw new MattersApiException(MattersApiException.Reason.RATE_LIMITED,
                         "Matters rate limit exceeded for this organisation's API key",
@@ -356,9 +535,14 @@ public class MattersApiClient {
             }
 
             if (status.is5xxServerError()) {
+                if (!retryServerErrors) {
+                    // The endpoint-agent routes answer 500 for an unknown agent; asking twice changes nothing.
+                    throw new MattersApiException(MattersApiException.Reason.BAD_UPSTREAM_RESPONSE,
+                            "Matters returned " + status.value() + " for " + path, e);
+                }
                 if (!isRetry) {
                     sleep(SERVER_ERROR_RETRY_DELAY_MS);
-                    return exchange(uri, credential, path, true);
+                    return exchange(uri, credential, path, true, retryServerErrors);
                 }
                 throw new MattersApiException(MattersApiException.Reason.UPSTREAM_UNAVAILABLE,
                         "Matters returned " + status.value() + " for " + path, e);
@@ -373,7 +557,7 @@ public class MattersApiClient {
             // Connect timeout, read timeout, DNS or TLS failure — the tenant is unreachable.
             if (!isRetry) {
                 sleep(SERVER_ERROR_RETRY_DELAY_MS);
-                return exchange(uri, credential, path, true);
+                return exchange(uri, credential, path, true, retryServerErrors);
             }
             throw new MattersApiException(MattersApiException.Reason.UPSTREAM_UNAVAILABLE,
                     "Could not reach Matters: " + e.getMostSpecificCause().getMessage(), e);
@@ -511,6 +695,44 @@ public class MattersApiClient {
         return Arrays.stream(joined.split(",", -1))
                 .map(part -> UriUtils.encode(part, StandardCharsets.UTF_8))
                 .collect(Collectors.joining(","));
+    }
+
+    /**
+     * A JSON array of strings, as the endpoint-agent routes take their filters: {@code ["EMAIL ADDRESS"]}.
+     * {@link #encodeValue} then percent-encodes it, leaving each comma literal, and a literal comma
+     * decodes to itself, so the vendor reads exactly this text.
+     */
+    private String jsonArray(List<String> values) {
+        try {
+            return objectMapper.writeValueAsString(values);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Could not write a JSON array of strings", e);
+        }
+    }
+
+    private static String agentPath(String agentId, String route) {
+        return PATH_ENDPOINT_AGENT_PREFIX + requireSourceId(agentId) + route;
+    }
+
+    private static String requireView(String view) {
+        if (view == null || !SAAS_VIEWS.contains(view)) {
+            throw new IllegalArgumentException("view must be data_elements or document_classes");
+        }
+        return view;
+    }
+
+    private static int requireLimit(int limit) {
+        if (limit < 1 || limit > MAX_LIMIT) {
+            throw new IllegalArgumentException("limit must be from 1 to " + MAX_LIMIT);
+        }
+        return limit;
+    }
+
+    private static int requireOffset(String name, int value) {
+        if (value < 0 || value > MAX_OFFSET) {
+            throw new IllegalArgumentException(name + " must be from 0 to " + MAX_OFFSET);
+        }
+        return value;
     }
 
     private static Map<String, List<String>> assetQuery(String sourceId) {

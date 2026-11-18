@@ -32,6 +32,11 @@ public final class DatastoreParams {
     public static final int MAX_SKIP = 10_000;
     public static final int DEFAULT_LIMIT = 10;
     public static final int MAX_LIMIT = 100;
+    public static final int MAX_TEXT_LENGTH = 128;
+
+    /** The SaaS records views; the first is the default. */
+    public static final String VIEW_DATA_ELEMENTS = "data_elements";
+    public static final String VIEW_DOCUMENT_CLASSES = "document_classes";
 
     private static final Pattern PAGE = Pattern.compile("^\\d{1,6}$");
     private static final Pattern PAGE_SIZE = Pattern.compile("^\\d{1,3}$");
@@ -89,6 +94,14 @@ public final class DatastoreParams {
     public static String sourceId(String raw) {
         if (raw == null || !SOURCE_ID.matcher(raw).matches()) {
             throw new DspmBadRequestException("sourceId", "sourceId must be 24 hexadecimal characters");
+        }
+        return raw.toLowerCase(Locale.ROOT);
+    }
+
+    /** A SaaS file's 24-hex id from the SaaS file list, lower-cased. */
+    public static String fileId(String raw) {
+        if (raw == null || !SOURCE_ID.matcher(raw).matches()) {
+            throw new DspmBadRequestException("fileId", "fileId must be 24 hexadecimal characters");
         }
         return raw.toLowerCase(Locale.ROOT);
     }
@@ -164,8 +177,13 @@ public final class DatastoreParams {
 
     /** {@code limit}: 1 to 3 digits, 1..100. Default 10. */
     public static int limit(String raw) {
+        return limit(raw, DEFAULT_LIMIT);
+    }
+
+    /** {@code limit}: 1 to 3 digits, 1..100, or {@code defaultValue} when absent. */
+    public static int limit(String raw, int defaultValue) {
         if (raw == null) {
-            return DEFAULT_LIMIT;
+            return defaultValue;
         }
         if (!LIMIT.matcher(raw).matches()) {
             throw limitError();
@@ -199,6 +217,32 @@ public final class DatastoreParams {
         if (value.isEmpty() || value.length() > MAX_ENTITY_NAME_LENGTH || hasControlCharacter(value)) {
             throw new DspmBadRequestException("entityName",
                     "entityName is required and must be 1 to 128 characters without control characters");
+        }
+        return value;
+    }
+
+    // ── SaaS drawer ──────────────────────────────────────────────────────────────────────────────
+
+    /** {@code view}: exactly {@code data_elements} or {@code document_classes}. Default data_elements. */
+    public static String saasView(String raw) {
+        if (raw == null) {
+            return VIEW_DATA_ELEMENTS;
+        }
+        if (!VIEW_DATA_ELEMENTS.equals(raw) && !VIEW_DOCUMENT_CLASSES.equals(raw)) {
+            throw new DspmBadRequestException("view", "view must be data_elements or document_classes");
+        }
+        return raw;
+    }
+
+    /**
+     * A required text value such as a data element or document class name: trimmed, 1..128 characters,
+     * no control characters. Membership, where it applies, is checked by the service, after this.
+     */
+    public static String requiredText(String parameter, String raw) {
+        String value = raw == null ? "" : raw.trim();
+        if (value.isEmpty() || value.length() > MAX_TEXT_LENGTH || hasControlCharacter(value)) {
+            throw new DspmBadRequestException(parameter,
+                    parameter + " is required and must be 1 to 128 characters without control characters");
         }
         return value;
     }
