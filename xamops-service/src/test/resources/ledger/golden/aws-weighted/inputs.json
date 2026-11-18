@@ -1,0 +1,130 @@
+{
+ "days": [
+  {
+   "calcVersion": "aws-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-15T00:00:00Z",
+     "desired": "6"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000001",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 501,
+    "cloudAccountId": 1001,
+    "groupId": "11111111-1111-4111-8111-111111111111",
+    "region": "us-east-1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "2",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "i-spot-w2",
+     "instanceType": "m5.2xlarge",
+     "intervalId": "spot-w2",
+     "lastSeenAt": null,
+     "platform": "Linux",
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-20T00:00:00Z",
+     "zone": "us-east-1a"
+    },
+    {
+     "capacityWeight": "4",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "i-spot-w4",
+     "instanceType": "m5.4xlarge",
+     "intervalId": "spot-w4",
+     "lastSeenAt": null,
+     "platform": "Linux",
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-20T00:00:00Z",
+     "zone": "us-east-1a"
+    }
+   ],
+   "odPrices": [
+    {
+     "discountBasis": "PROVEN_NONE",
+     "effectiveRate": "0.3840000000",
+     "instanceType": "m5.2xlarge",
+     "listRate": "0.3840000000",
+     "platform": "Linux",
+     "snapshotId": "60000000-0000-4000-8000-000000000002"
+    },
+    {
+     "discountBasis": "PROVEN_NONE",
+     "effectiveRate": "0.7680000000",
+     "instanceType": "m5.4xlarge",
+     "listRate": "0.7680000000",
+     "platform": "Linux",
+     "snapshotId": "60000000-0000-4000-8000-000000000003"
+    },
+    {
+     "discountBasis": "PROVEN_NONE",
+     "effectiveRate": "0.1920000000",
+     "instanceType": "m5.xlarge",
+     "listRate": "0.1920000000",
+     "platform": "Linux",
+     "snapshotId": "60000000-0000-4000-8000-000000000001"
+    }
+   ],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "m5.xlarge",
+      "normalizationFactor": "8",
+      "platform": "Linux",
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "AWS",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [
+    {
+     "effectiveFrom": "2026-08-01T00:00:00Z",
+     "effectiveTo": null,
+     "instanceType": "m5.2xlarge",
+     "platform": "Linux",
+     "rate": "0.1140000000",
+     "snapshotId": "50000000-0000-4000-8000-000000000002",
+     "zone": "us-east-1a"
+    },
+    {
+     "effectiveFrom": "2026-08-01T00:00:00Z",
+     "effectiveTo": null,
+     "instanceType": "m5.4xlarge",
+     "platform": "Linux",
+     "rate": "0.2280000000",
+     "snapshotId": "50000000-0000-4000-8000-000000000003",
+     "zone": "us-east-1a"
+    }
+   ],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-15T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-15T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-10-02T00:00:00Z",
+   "windowStart": "2026-10-01T00:00:00Z"
+  }
+ ]
+}

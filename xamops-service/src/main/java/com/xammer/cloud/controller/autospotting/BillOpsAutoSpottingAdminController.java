@@ -5,10 +5,12 @@ import com.xammer.cloud.domain.autospotting.Provider;
 import com.xammer.cloud.dto.autospotting.ledger.ContractDto;
 import com.xammer.cloud.dto.autospotting.ledger.ContractRequests;
 import com.xammer.cloud.dto.autospotting.ledger.GoLiveDto;
+import com.xammer.cloud.dto.autospotting.ledger.RecomputeDto;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.autospotting.core.AutoSpottingApiException;
 import com.xammer.cloud.service.autospotting.core.IdempotencyService;
 import com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter.Actor;
+import com.xammer.cloud.service.autospotting.ledger.LedgerRecomputeCommand;
 import com.xammer.cloud.service.autospotting.ledger.contract.ContractService;
 import com.xammer.cloud.service.autospotting.ledger.contract.GoLiveService;
 import org.springframework.http.HttpStatus;
@@ -52,12 +54,15 @@ public class BillOpsAutoSpottingAdminController {
     private final ContractService contractService;
     private final GoLiveService goLiveService;
     private final IdempotencyService idempotencyService;
+    private final LedgerRecomputeCommand recomputeCommand;
 
     public BillOpsAutoSpottingAdminController(ContractService contractService, GoLiveService goLiveService,
-                                              IdempotencyService idempotencyService) {
+                                              IdempotencyService idempotencyService,
+                                              LedgerRecomputeCommand recomputeCommand) {
         this.contractService = contractService;
         this.goLiveService = goLiveService;
         this.idempotencyService = idempotencyService;
+        this.recomputeCommand = recomputeCommand;
     }
 
     @GetMapping("/clients/{clientId}/contracts")
@@ -94,6 +99,14 @@ public class BillOpsAutoSpottingAdminController {
         return ResponseEntity.ok(ContractDto.from(saved, Instant.now()));
     }
 
+    /**
+     * Read-only recompute of one ledger entry from its stored inputs and calc version, diffing every
+     * money field and the statement lines that cite it (design-ledger.md §14.1, AC-LED-17).
+     */
+    @GetMapping("/entries/{id}/recompute")
+    public ResponseEntity<RecomputeDto> recompute(@PathVariable UUID id) {
+        return ResponseEntity.ok(RecomputeDto.from(recomputeCommand.recompute(id)));
+    }
     @GetMapping("/golive")
     public ResponseEntity<List<GoLiveDto>> goLives() {
         return ResponseEntity.ok(goLiveService.list().stream().map(GoLiveDto::from).toList());

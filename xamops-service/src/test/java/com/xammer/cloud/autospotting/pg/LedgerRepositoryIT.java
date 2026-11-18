@@ -5,10 +5,12 @@ import com.xammer.cloud.domain.autospotting.ledger.AutoSpottingContract;
 import com.xammer.cloud.domain.autospotting.ledger.SavingsLedgerEntry;
 import com.xammer.cloud.domain.autospotting.ledger.SavingsLedgerGoLive;
 import com.xammer.cloud.domain.autospotting.ledger.SavingsLedgerRun;
+import com.xammer.cloud.domain.autospotting.ledger.SavingsStatementLine;
 import com.xammer.cloud.repository.autospotting.ledger.AutoSpottingContractRepository;
 import com.xammer.cloud.repository.autospotting.ledger.SavingsLedgerEntryRepository;
 import com.xammer.cloud.repository.autospotting.ledger.SavingsLedgerGoLiveRepository;
 import com.xammer.cloud.repository.autospotting.ledger.SavingsLedgerRunRepository;
+import com.xammer.cloud.repository.autospotting.ledger.SavingsStatementLineRepository;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -27,6 +29,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -62,6 +65,7 @@ class LedgerRepositoryIT {
                 SavingsLedgerEntryRepository entries = context.getBean(SavingsLedgerEntryRepository.class);
                 AutoSpottingContractRepository contracts = context.getBean(AutoSpottingContractRepository.class);
                 SavingsLedgerGoLiveRepository goLives = context.getBean(SavingsLedgerGoLiveRepository.class);
+                SavingsStatementLineRepository statementLines = context.getBean(SavingsStatementLineRepository.class);
                 EntityManager em = context.getBean(EntityManager.class);
 
                 UUID runId = UUID.randomUUID();
@@ -107,6 +111,18 @@ class LedgerRepositoryIT {
                 assertThat(call(tx, () -> entries.findById(entryId).orElseThrow().getNetSavings().toPlainString()))
                         .isEqualTo("-3.1234567891");
 
+                // The recompute tool finds the statement lines that cite an entry (AC-LED-17), read only.
+                UUID statementId = UUID.randomUUID();
+                UUID otherEntry = UUID.randomUUID();
+                tx.executeWithoutResult(s -> {
+                    statementLines.save(line(statementId, 1, new UUID[] {entryId, otherEntry}));
+                    statementLines.save(line(statementId, 2, new UUID[] {otherEntry}));
+                });
+                List<SavingsStatementLine> citing = call(tx, () -> statementLines.findReferencing(entryId));
+                assertThat(citing).hasSize(1);
+                assertThat(citing.get(0).getLineNo()).isEqualTo(1);
+                assertThat(citing.get(0).getRawNet().toPlainString()).isEqualTo("-1.2000000000");
+                assertThat(call(tx, () -> statementLines.findReferencing(UUID.randomUUID()))).isEmpty();
                 // Go-live is stored once, by provider.
                 tx.executeWithoutResult(s -> {
                     SavingsLedgerGoLive g = new SavingsLedgerGoLive();
@@ -163,6 +179,27 @@ class LedgerRepositoryIT {
         return tx.execute(status -> supplier.get());
     }
 
+    private static SavingsStatementLine line(UUID statementId, int lineNo, UUID[] entryIds) {
+        SavingsStatementLine l = new SavingsStatementLine();
+        l.setStatementId(statementId);
+        l.setLineNo(lineNo);
+        l.setLineKind("GROUP_PERIOD");
+        l.setGroupId(UUID.randomUUID());
+        l.setGroupKey("asg/x");
+        l.setTier("MEASURED_ONLY");
+        l.setBillable(false);
+        l.setNonBillableReason("NOT_RECONCILED");
+        l.setInstanceHours(new BigDecimal("1.000000"));
+        l.setCounterfactualCost(new BigDecimal("1.9200000000"));
+        l.setSpotCost(new BigDecimal("3.1200000000"));
+        l.setCommitmentDeduction(new BigDecimal("0E-10"));
+        l.setRawNet(new BigDecimal("-1.2000000000"));
+        l.setBillableAmount(new BigDecimal("0.00"));
+        l.setCurrency("USD");
+        l.setDetail("{}");
+        l.setEntryIds(entryIds);
+        return l;
+    }
     private static SavingsLedgerEntry entry(UUID id, UUID runId, String net) {
         SavingsLedgerEntry e = new SavingsLedgerEntry();
         e.setId(id);

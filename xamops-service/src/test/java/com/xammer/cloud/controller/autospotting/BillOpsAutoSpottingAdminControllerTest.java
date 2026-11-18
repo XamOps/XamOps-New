@@ -108,6 +108,8 @@ class BillOpsAutoSpottingAdminControllerTest {
     @MockitoBean
     private GoLiveService goLiveService;
     @MockitoBean
+    private com.xammer.cloud.service.autospotting.ledger.LedgerRecomputeCommand recomputeCommand;
+    @MockitoBean
     private com.xammer.cloud.service.autospotting.core.IdempotencyService idempotencyService;
     @MockitoBean
     private com.xammer.cloud.repository.UserRepository userRepository;
@@ -208,6 +210,38 @@ class BillOpsAutoSpottingAdminControllerTest {
         mvc.perform(get(BASE + "/golive").with(as(role))).andExpect(status().isOk());
     }
 
+    @Test
+    void recompute_isABillOpsAdminRead_withPlainDecimalStrings_andDeniedToEveryoneElse() throws Exception {
+        UUID entry = UUID.fromString("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
+        when(recomputeCommand.recompute(entry)).thenReturn(new com.xammer.cloud.service.autospotting.ledger.LedgerRecomputeCommand.Result(
+                entry.toString(), "aws-1", false, List.of(new com.xammer.cloud.service.autospotting.ledger.LedgerRecomputeCommand.FieldDiff(
+                        "entry", "spot_cost", "4.1040000000", "4.1760000000", true))));
+        for (String role : List.of("ROLE_BILLOPS_ADMIN", "ROLE_SUPER_ADMIN")) {
+            mvc.perform(get(BASE + "/entries/" + entry + "/recompute").with(as(role)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.entryId").value(entry.toString()))
+                    .andExpect(jsonPath("$.calcVersion").value("aws-1"))
+                    .andExpect(jsonPath("$.zeroDiff").value(false))
+                    .andExpect(jsonPath("$.diffs[0].field").value("spot_cost"))
+                    .andExpect(jsonPath("$.diffs[0].stored").value("4.1040000000"))
+                    .andExpect(jsonPath("$.diffs[0].recomputed").value("4.1760000000"))
+                    .andExpect(jsonPath("$.diffs[0].minorUnitDiffers").value(true));
+        }
+        for (String role : List.of("ROLE_XAMOPS_ADMIN", "ROLE_USER")) {
+            mvc.perform(get(BASE + "/entries/" + entry + "/recompute").with(as(role))).andExpect(status().isForbidden());
+        }
+        mvc.perform(get(BASE + "/entries/" + entry + "/recompute")).andExpect(status().isUnauthorized());
+        // A recompute is a read: no POST route exists for it.
+        mvc.perform(post(BASE + "/entries/" + entry + "/recompute", "{}").with(as("ROLE_BILLOPS_ADMIN")))
+                .andExpect(status().is4xxClientError());
+    }
+    @Test
+    void recompute_unknownEntry_is404() throws Exception {
+        UUID entry = UUID.fromString("aaaaaaaa-bbbb-4ccc-8ddd-ffffffffffff");
+        when(recomputeCommand.recompute(entry)).thenThrow(new AutoSpottingApiException(HttpStatus.NOT_FOUND, "ENTRY_NOT_FOUND", "none"));
+        mvc.perform(get(BASE + "/entries/" + entry + "/recompute").with(as("ROLE_BILLOPS_ADMIN")))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("ENTRY_NOT_FOUND"));
+    }
     @Test
     void xamOpsAdminWithoutTheBillOpsRole_customer_isForbidden() throws Exception {
         for (String role : List.of("ROLE_XAMOPS_ADMIN", "ROLE_USER", "ROLE_BILLOPS_ADMIN_SUB")) {
