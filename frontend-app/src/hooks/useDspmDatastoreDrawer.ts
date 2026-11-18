@@ -68,7 +68,7 @@ const BASE = '/api/dspm/datastores';
 const DATA_FLOW = '/api/dspm/data-flow';
 
 /** `path?key=value&…`, leaving out null values. */
-function withQuery(path: string, params: Record<string, string | number | boolean | null>): string {
+export function withQuery(path: string, params: Record<string, string | number | boolean | null>): string {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== null) query.set(key, String(value));
