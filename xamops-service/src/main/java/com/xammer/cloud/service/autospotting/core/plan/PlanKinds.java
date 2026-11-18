@@ -54,6 +54,21 @@ public final class PlanKinds {
         return ALLOWED.getOrDefault(kind, EnumSet.noneOf(GroupState.class)).contains(state);
     }
 
+    /**
+     * {@link #isAllowed(OperationKind, GroupState)} plus the GR-02 row (design-aws.md §5.3): a REVERT is allowed
+     * from REVERTED only when the group's last REVERT op ended with {@code EXACT_RESTORE_IMPOSSIBLE(PASSROLE_DENIED)},
+     * that is, after a drain-only revert. Every other REVERTED group still has nothing to revert
+     * ({@code NOT_MANAGED}).
+     *
+     * @param lastRevertPassRoleDenied whether the last REVERT op of the group was a drain-only revert
+     */
+    public static boolean isAllowed(OperationKind kind, GroupState state, boolean lastRevertPassRoleDenied) {
+        if (kind == OperationKind.REVERT && state == GroupState.REVERTED) {
+            return lastRevertPassRoleDenied;
+        }
+        return isAllowed(kind, state);
+    }
+
     /** The plan kinds a group in {@code state} ({@code null} = no row) allows, for the error detail. */
     public static Set<OperationKind> kindsAllowedIn(GroupState state) {
         EnumSet<OperationKind> kinds = EnumSet.noneOf(OperationKind.class);

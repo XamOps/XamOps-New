@@ -201,6 +201,11 @@ public class OperationRunner {
             }
 
             Step step = program.at(index);
+            if (step.mutates() && !enterRevertingWithFirstMutation(handle, fresh, group)) {
+                // The entry transition missed its guard: nothing was changed yet, so try again at the next boundary.
+                store.park(op.getId(), WaitReason.BACKOFF, Instant.now().plus(DEFAULT_CLOUD_POLL), seq, null);
+                return;
+            }
             Duration callTimeout = step.mutates() ? MUTATING_CALL_TIMEOUT : READ_CALL_TIMEOUT;
             StepOutcome outcome;
             try {
@@ -228,6 +233,27 @@ public class OperationRunner {
 
         // Program ran to the end: finish per the §2.2.1 success path for this phase.
         finishSuccess(handle, op, group);
+    }
+
+    /**
+     * The REVERT entry transition (design-core.md §2.3 "Who transitions", DR-04): the group enters REVERTING
+     * with the first mutating step, after step 0 has passed, under the group lease. A revert that fails in step 0
+     * never gets here, so the group stays in its state and the op ends FAILED with {@code first_mutation_seq}
+     * null. A crash between this transition and the step's intent row leaves a REVERTING group whose revert never
+     * mutated: the startup pass returns it to {@code prior_state} ({@code REVERT_NOT_STARTED}, §4.6). Returns
+     * false when the group is still not REVERTING afterwards, so the caller does not mutate.
+     */
+    private boolean enterRevertingWithFirstMutation(LeaseHandle handle, SpotOperation op, SpotGroup group) {
+        if (op.getKind() != com.xammer.cloud.domain.autospotting.OperationKind.REVERT
+                || op.getPhase() != OperationPhase.FORWARD) {
+            return true;
+        }
+        SpotGroup fresh = groups.findById(group.getId()).orElse(group);
+        if (fresh.getState() == GroupState.REVERTING) {
+            return true;
+        }
+        transitionTo(handle, group, GroupState.REVERTING, "REVERT_STARTED", op.getId());
+        return groups.findById(group.getId()).map(g -> g.getState() == GroupState.REVERTING).orElse(false);
     }
 
     /**
@@ -324,6 +350,9 @@ public class OperationRunner {
             // The reconciler requested compensation for a switch-paused op (§4.7). Switch to
             // COMPENSATING and re-drive; the compensation program is re-derived from its first step.
             store.beginCompensating(op.getId(), COMPENSATION_SEQ_BASE);
+            if (op.getCompensationTarget() == com.xammer.cloud.domain.autospotting.CompensationTarget.SNAPSHOT) {
+                transitionTo(handle, group, GroupState.REVERTING, "ENABLE_COMPENSATING", op.getId());
+            }
             SpotOperation compensating = operations.findById(op.getId()).orElse(op);
             drive(handle, compensating, group, providers.find(group.getProvider()).orElseThrow());
             return true;
@@ -442,13 +471,21 @@ public class OperationRunner {
             return;
         }
         if (safety) {
-            // SAFETY op after mutation: a terminal error ends it FAILED, leaving the group where it is.
+            // SAFETY op after mutation: a terminal error ends it FAILED. A REVERT moves REVERTING -> FAILED
+            // (§2.2.1); the other SAFETY ops leave the group where it is.
+            if (op.getKind() == com.xammer.cloud.domain.autospotting.OperationKind.REVERT) {
+                transitionTo(handle, group, GroupState.FAILED, "REVERT_FAILED", op.getId());
+            }
             store.finishFailed(op.getId(), failed.code(), failed.redactedMessage());
             audit(handle, op, group, "OP_FAILED", "FAILED", "SAFETY_TERMINAL_ERROR");
             return;
         }
         // PROGRESS op after mutation: switch to COMPENSATING and re-drive from its first step.
         store.beginCompensating(op.getId(), COMPENSATION_SEQ_BASE);
+        if (op.getCompensationTarget() == com.xammer.cloud.domain.autospotting.CompensationTarget.SNAPSHOT) {
+            // An ENABLE compensates to its snapshot through REVERTING (§2.2.1): APPLYING -> REVERTING -> REVERTED.
+            transitionTo(handle, group, GroupState.REVERTING, "ENABLE_COMPENSATING", op.getId());
+        }
         SpotOperation compensating = operations.findById(op.getId()).orElse(op);
         drive(handle, compensating, group, providers.find(group.getProvider()).orElseThrow());
     }

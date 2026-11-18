@@ -193,6 +193,47 @@ class ConfirmServiceTest {
         verify(operationStore, never()).insertQueued(any());
     }
 
+    /** A SUCCEEDED REVERT op of {@code groupId} whose plan body says {@code reasons} (the drain-only history). */
+    private void lastRevertWas(UUID groupId, String reasonsJson) {
+        SpotOperation last = new SpotOperation();
+        last.setId(UUID.randomUUID());
+        last.setKind(OperationKind.REVERT);
+        last.setStatus(com.xammer.cloud.domain.autospotting.OperationStatus.SUCCEEDED);
+        last.setCreatedAt(Instant.now());
+        SpotPlan lastPlan = plan(OperationKind.REVERT, groupId, "[]", false);
+        lastPlan.setBody("{\"revertPath\":{\"reasons\":" + reasonsJson + "}}");
+        last.setPlanId(lastPlan.getId());
+        when(operations.findByGroupId(groupId)).thenReturn(List.of(last));
+        when(plans.findById(lastPlan.getId())).thenReturn(Optional.of(lastPlan));
+    }
+
+    @Test
+    void gr02ARevertedGroupCannotBeRevertedAgainUnlessTheLastRevertWasDrainOnly() {
+        SpotGroup g = group(GroupState.REVERTED);
+        SpotPlan p = plan(OperationKind.REVERT, g.getId(), "[]", false);
+        when(plans.findById(p.getId())).thenReturn(Optional.of(p));
+        when(operations.findByPlanId(p.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+        lastRevertWas(g.getId(), "[]");
+        assertThatThrownBy(() -> confirm.confirm(account(), user(), p.getId(), cmd(1, List.of(), false)))
+                .isInstanceOfSatisfying(AutoSpottingApiException.class,
+                        ex -> assertThat(ex.getCode()).isEqualTo("PLAN_KIND_NOT_ALLOWED"));
+        verify(operationStore, never()).insertQueued(any());
+    }
+
+    @Test
+    void gr02ARevertedGroupAfterADrainOnlyRevertCanBeRevertedExactly() {
+        SpotGroup g = group(GroupState.REVERTED);
+        SpotPlan p = plan(OperationKind.REVERT, g.getId(), "[]", false);
+        when(plans.findById(p.getId())).thenReturn(Optional.of(p));
+        when(operations.findByPlanId(p.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+        when(plans.confirmIfOpen(eq(p.getId()), eq(1), anyString(), any(), anyString(), any())).thenReturn(1);
+        lastRevertWas(g.getId(), "[\"PASSROLE_DENIED\"]");
+        assertThat(confirm.confirm(account(), user(), p.getId(), cmd(1, List.of(), false)).status()).isEqualTo("QUEUED");
+        verify(operationStore).insertQueued(any());
+    }
+
     @Test
     void desiredOneEnableIs422_whileDesiredOneRevertIsAccepted() {
         // ENABLE with 100% Spot opt-in required but not given → 422 (PROGRESS check).

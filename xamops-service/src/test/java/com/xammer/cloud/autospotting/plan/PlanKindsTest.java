@@ -73,6 +73,17 @@ class PlanKindsTest {
     }
 
     @Test
+    void gr02RevertFromRevertedIsAllowedOnlyAfterADrainOnlyRevert() {
+        assertThat(PlanKinds.isAllowed(OperationKind.REVERT, GroupState.REVERTED, true)).isTrue();
+        assertThat(PlanKinds.isAllowed(OperationKind.REVERT, GroupState.REVERTED, false)).isFalse();
+        assertThat(PlanKinds.isAllowed(OperationKind.REVERT, GroupState.UNMANAGED, true)).isFalse();
+        // The flag changes nothing for another kind or another state.
+        assertThat(PlanKinds.isAllowed(OperationKind.CONFIG_APPLY, GroupState.REVERTED, true)).isFalse();
+        assertThat(PlanKinds.isAllowed(OperationKind.REVERT, GroupState.ACTIVE, false)).isTrue();
+        assertThat(PlanKinds.isAllowed(OperationKind.REVERT, GroupState.ACTIVE, true)).isTrue();
+    }
+
+    @Test
     void systemKindsAreNotPlanKinds() {
         assertThat(PlanKinds.isPlanKind(OperationKind.FALLBACK_ENTER)).isFalse();
         assertThat(PlanKinds.isPlanKind(OperationKind.FALLBACK_EXIT)).isFalse();

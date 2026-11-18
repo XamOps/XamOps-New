@@ -31,8 +31,8 @@ import static org.mockito.Mockito.doAnswer;
  * The shortage rule on real PostgreSQL (design-aws.md §2.5 tests, plan-phase-18.md task 18.2,
  * AC-AWS-05, AC-AWS-08 mechanics): a scale-out during ENABLE whose new Spot launches fail compensates
  * after the 10 minute window; the same under switch (d) through {@code compensate_requested}; under the
- * freeze nothing runs and an alert fires. Stubbed SDK; the ENABLE compensation reaches the Phase 19
- * REVERT seam (a recording stand-in here).
+ * freeze nothing runs and an alert fires. Stubbed SDK; the ENABLE compensation runs the real REVERT
+ * program (drain Spot, wait, restore the snapshot).
  */
 @Tag("containers")
 class AwsRolloutShortageIT {
@@ -74,12 +74,15 @@ class AwsRolloutShortageIT {
         h.claimAndRun();
     }
 
-    private void assertCompensatedToTheRevertSeam(AwsOpsHarness h) {
+    /** The ENABLE compensates through the real REVERT program: the group enters REVERTING and Spot is drained first. */
+    private void assertCompensatingThroughTheRevertProgram(AwsOpsHarness h) {
         assertThat(h.opPhase()).isEqualTo("COMPENSATING");
-        assertThat(h.revert.calls).as("the Phase 19 REVERT seam was asked for the snapshot program").isEqualTo(1);
-        assertThat(h.opStatus()).isEqualTo("FAILED");
-        assertThat(h.opError()).isEqualTo(StubAwsRevertProgramFactory.CODE);
-        assertThat(h.f.updates).as("no further write beyond the conversion").hasSize(1);
+        assertThat(h.revert.calls).as("the REVERT program was asked for the snapshot program").isGreaterThan(0);
+        assertThat(h.groupState()).isEqualTo("REVERTING");
+        assertThat(h.opStatus()).as("it waits for the drain, it does not fail").isEqualTo("WAITING");
+        assertThat(h.f.updates).as("the conversion, then the drain").hasSize(2);
+        assertThat(h.f.updates.get(1).mixedInstancesPolicy().instancesDistribution()
+                .onDemandPercentageAboveBaseCapacity()).isEqualTo(100);
         assertThat(h.count("SELECT count(*) FROM spot_group_snapshot WHERE captured_by_op = ?", h.f.opId))
                 .as("the snapshot to restore exists").isEqualTo(1);
     }
@@ -96,7 +99,14 @@ class AwsRolloutShortageIT {
             assertThat(h.opPhase()).isEqualTo("FORWARD");
 
             pollAfter(h, Duration.ofMinutes(1));
-            assertCompensatedToTheRevertSeam(h);
+            assertCompensatingThroughTheRevertProgram(h);
+            // Capacity returns as On-Demand: the restore unwraps the policy and the group ends REVERTED.
+            h.f.replaceGroup(fiveInstances(h.f.group()));
+            h.claimAndRun();
+            assertThat(h.opStatus()).isEqualTo("SUCCEEDED");
+            assertThat(h.groupState()).isEqualTo("REVERTED");
+            assertThat(h.f.group().mixedInstancesPolicy()).isNull();
+            assertThat(h.f.group().capacityRebalance()).isFalse();
         }
     }
 
@@ -163,7 +173,7 @@ class AwsRolloutShortageIT {
             assertThat(h.jdbc.queryForObject("SELECT compensate_requested FROM spot_operation WHERE id = ?",
                     Boolean.class, h.f.opId)).isTrue();
             h.claimAndRun(); // compensation is SAFETY: it runs under switch (d)
-            assertCompensatedToTheRevertSeam(h);
+            assertCompensatingThroughTheRevertProgram(h);
         }
     }
 

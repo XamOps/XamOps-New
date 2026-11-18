@@ -78,6 +78,34 @@ public class AwsStepServices {
         return mutatingSource.mutatingClient(account, region);
     }
 
+    /**
+     * Whether a launch template version still exists: {@code TRUE}, {@code FALSE} when AWS says the template or
+     * the version is gone, {@code null} when the read failed for any other reason (unknown is never treated as
+     * gone). The error code goes through the redactor like every provider string (FR-SEC-06).
+     */
+    public Boolean templateVersionExists(AwsReadOnlyView view, AwsGroupFacts.LtSpec spec) {
+        if (spec == null) {
+            return Boolean.FALSE;
+        }
+        String version = spec.version() == null || spec.version().isBlank() ? "$Default" : spec.version();
+        try {
+            software.amazon.awssdk.services.ec2.model.DescribeLaunchTemplateVersionsRequest.Builder rb =
+                    software.amazon.awssdk.services.ec2.model.DescribeLaunchTemplateVersionsRequest.builder().versions(version);
+            if (spec.id() != null) {
+                rb.launchTemplateId(spec.id());
+            } else {
+                rb.launchTemplateName(spec.name());
+            }
+            return !view.ec2().describeLaunchTemplateVersions(rb.build()).launchTemplateVersions().isEmpty();
+        } catch (software.amazon.awssdk.awscore.exception.AwsServiceException e) {
+            String code = e.awsErrorDetails() == null ? "" : redactor.redactMessage(e.awsErrorDetails().errorCode());
+            return code != null && code.startsWith("InvalidLaunchTemplate") && code.contains("NotFound")
+                    ? Boolean.FALSE : null;
+        } catch (software.amazon.awssdk.core.exception.SdkException e) {
+            return null;
+        }
+    }
+
     public AwsEligibilityEvaluator evaluator() {
         return evaluator;
     }

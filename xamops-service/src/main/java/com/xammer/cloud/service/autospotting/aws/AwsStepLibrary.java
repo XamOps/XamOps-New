@@ -36,7 +36,7 @@ import java.util.Optional;
  *  CONFIG_APPLY /        0 VERIFY_PRECONDITIONS  1 CHECK_PERMISSIONS  then 3, 4, 5 (no snapshot, no marker)
  *  PROFILE_CHANGE
  *  compensation          3, 4, 5 against the prior configuration (PRIOR_CONFIG: ADOPT, CONFIG_APPLY,
- *                        PROFILE_CHANGE). A SNAPSHOT compensation (ENABLE) is the Phase 19 REVERT program.
+ *                        PROFILE_CHANGE). A SNAPSHOT compensation (ENABLE) is the REVERT program ({@link AwsRestoreProgram}).
  * </pre>
  *
  * <p>Persisted {@code seq} equals the position in the list for the forward leg, so {@link WriteMarkerStep}

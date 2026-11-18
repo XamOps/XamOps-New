@@ -54,4 +54,24 @@ public class OperationFacts {
     public int stepAttempts(UUID operationId, int seq) {
         return steps.findByOperationIdAndSeq(operationId, seq).map(SpotOperationStep::getAttempts).orElse(1);
     }
+
+    /**
+     * The target configuration of the group's most recent conversion operation (ENABLE, ADOPT, CONFIG_APPLY or
+     * PROFILE_CHANGE), or empty. A revert that preempts a conversion still in flight needs it: the conversion
+     * already wrote its target to the cloud, but {@code desired_config} is written only when it succeeds, so it is
+     * the only record of what XamOps added.
+     */
+    public Optional<String> latestConversionTarget(UUID groupId) {
+        if (groupId == null) {
+            return Optional.empty();
+        }
+        return operations.findByGroupId(groupId).stream()
+                .filter(o -> o.getTargetConfig() != null && switch (o.getKind()) {
+                    case ENABLE, ADOPT, CONFIG_APPLY, PROFILE_CHANGE -> true;
+                    default -> false;
+                })
+                .max(java.util.Comparator.comparing(
+                        (SpotOperation o) -> o.getCreatedAt() == null ? java.time.Instant.EPOCH : o.getCreatedAt()))
+                .map(SpotOperation::getTargetConfig);
+    }
 }

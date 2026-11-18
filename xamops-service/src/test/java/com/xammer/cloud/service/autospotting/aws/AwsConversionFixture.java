@@ -143,6 +143,7 @@ final class AwsConversionFixture {
     final OperationFacts facts = mock(OperationFacts.class);
     final AuditRedactor redactor = new AuditRedactor(JSON);
     final AwsLaunchEventRecorder events = mock(AwsLaunchEventRecorder.class);
+    final GroupLookup groupLookup = mock(GroupLookup.class);
     final UUID groupId = UUID.randomUUID();
     final UUID opId = UUID.randomUUID();
     final UUID planId = UUID.randomUUID();
@@ -187,7 +188,7 @@ final class AwsConversionFixture {
                 rolloutParts.evaluator, events, clock);
         library = new AwsStepLibrary(services);
         provider = new AwsSpotProvider(accounts, views, evaluator, new AwsGroupStatusReader(), prices, switches, gate,
-                library, new StubAwsRevertProgramFactory(), rolloutParts.evaluator, clock);
+                library, new AwsRestoreProgram(services, groupLookup), rolloutParts.evaluator, clock);
         wireWrites();
     }
 
@@ -196,13 +197,14 @@ final class AwsConversionFixture {
      * same stubbed AWS reads and writes.
      */
     AwsSpotProvider providerWith(OperationFacts realFacts, AwsSnapshotStore realSnapshots,
-                                 AwsLaunchEventRecorder realEvents, AwsRevertProgramFactory revert) {
+                                 AwsLaunchEventRecorder realEvents,
+                                 java.util.function.Function<AwsStepServices, AwsRevertProgramFactory> revert) {
         AwsStatusAndRollout parts = new AwsStatusAndRollout();
         AwsStepServices real = new AwsStepServices(accounts, views, (a, r) -> client, gate, evaluator, planReader,
                 new AwsGroupStatusReader(), realSnapshots, realFacts, redactor, parts.observer,
                 parts.evaluator, realEvents, clock);
         return new AwsSpotProvider(accounts, views, evaluator, new AwsGroupStatusReader(), prices, switches, gate,
-                new AwsStepLibrary(real), revert, parts.evaluator, clock);
+                new AwsStepLibrary(real), revert.apply(real), parts.evaluator, clock);
     }
 
     /** The observer and evaluator the services and the provider share. */
@@ -252,7 +254,7 @@ final class AwsConversionFixture {
         aws.groups(g);
     }
 
-    private void applyUpdate(UpdateAutoScalingGroupRequest r) {
+    void applyUpdate(UpdateAutoScalingGroupRequest r) {
         AutoScalingGroup.Builder b = group().toBuilder();
         if (r.capacityRebalance() != null) {
             b.capacityRebalance(r.capacityRebalance());

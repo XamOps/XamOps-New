@@ -40,16 +40,23 @@ import java.util.UUID;
  */
 final class AwsOpsHarness implements AutoCloseable {
 
-    /** A revert factory that records the call and builds the same failing program as the stub. */
+    /** The real REVERT program, counting how often it was asked for a program. */
     static final class RecordingRevert implements AwsRevertProgramFactory {
         int calls;
+        AwsRestoreProgram delegate;
 
         @Override
         public com.xammer.cloud.service.autospotting.spi.StepProgram program(
                 com.xammer.cloud.service.autospotting.spi.OperationContext op,
                 com.xammer.cloud.service.autospotting.spi.SnapshotPayload snapshot) {
             calls++;
-            return new StubAwsRevertProgramFactory().program(op, snapshot);
+            return delegate.program(op, snapshot);
+        }
+
+        @Override
+        public PlanBody plan(com.xammer.cloud.service.autospotting.spi.PlanRequest request,
+                             com.xammer.cloud.domain.CloudAccount account) {
+            return delegate.plan(request, account);
         }
     }
 
@@ -92,14 +99,113 @@ final class AwsOpsHarness implements AutoCloseable {
         provider = f.providerWith(new com.xammer.cloud.service.autospotting.core.ops.OperationFacts(
                         ctx.getBean(SpotPlanRepository.class), ctx.getBean(SpotOperationRepository.class),
                         ctx.getBean(SpotOperationStepRepository.class)),
-                new AwsSnapshotStore(jdbc, ctx.getBean(FencedTx.class)), new AwsLaunchEventRecorder(jdbc), revert);
-        runner = new OperationRunner(ctx.getBean(SpotOperationRepository.class), ctx.getBean(SpotGroupRepository.class),
+                new AwsSnapshotStore(jdbc, ctx.getBean(FencedTx.class)), new AwsLaunchEventRecorder(jdbc), services -> {
+                    revert.delegate = new AwsRestoreProgram(services, new com.xammer.cloud.service.autospotting.core
+                            .GroupLookup(ctx.getBean(SpotGroupRepository.class)));
+                    return revert;
+                });
+        runner = newRunner();
+        lease = ctx.getBean(LeaseService.class).acquireGroup(f.groupId, LeaseService.Component.DISPATCHER).orElseThrow();
+    }
+
+    /**
+     * A REVERT ready to run: {@code live} is the converted group, {@code original} what it was before ENABLE
+     * (stored as the group's linked snapshot), the group row is in {@code groupState} with {@code desired_config}
+     * set, and the plan is the provider's own REVERT plan with every warning acknowledged at confirm.
+     */
+    AwsOpsHarness(AutoScalingGroup live, AutoScalingGroup original, GroupState groupState, String desiredConfig) {
+        this(live, original, groupState, desiredConfig, true);
+    }
+
+    /** As above; {@code claim=false} leaves the REVERT op QUEUED (an op it preempts must end first). */
+    AwsOpsHarness(AutoScalingGroup live, AutoScalingGroup original, GroupState groupState, String desiredConfig,
+                  boolean claim) {
+        this(live, original, groupState, desiredConfig, claim, x -> { });
+    }
+
+    /** As above; {@code beforePlan} stubs the fake AWS before the plan reads it (the plan reader caches the template). */
+    AwsOpsHarness(AutoScalingGroup live, AutoScalingGroup original, GroupState groupState, String desiredConfig,
+                  boolean claim, java.util.function.Consumer<AwsConversionFixture> beforePlan) {
+        db = PgHarness.emptySchema();
+        ctx = OpsContexts.contextFor(db);
+        jdbc = (JdbcTemplate) ctx.getBean("beanJdbc");
+        f = new AwsConversionFixture(live, true);
+        beforePlan.accept(f);
+        store = ctx.getBean(OperationStore.class);
+        insertGroup(groupState);
+        jdbc.update("UPDATE spot_group SET desired_config = ?::jsonb WHERE id = ?", desiredConfig, f.groupId);
+        UUID snapshotId = UUID.randomUUID();
+        com.xammer.cloud.service.autospotting.spi.SnapshotPayload snap = AwsSnapshotCodec.encode(FakeAws.REGION, original,
+                AwsSnapshotCodec.Context.none(), false);
+        jdbc.update("INSERT INTO spot_group_snapshot (id, group_id, provider, schema_version, exact, payload,"
+                        + " payload_sha256, captured_at, captured_by_op) VALUES (?, ?, 'AWS', ?, true, ?::jsonb, ?, ?, ?)",
+                snapshotId, f.groupId, snap.schemaVersion(), snap.payloadJson(), snap.payloadSha256(),
+                Timestamp.from(f.clock.instant()), UUID.randomUUID());
+        jdbc.update("UPDATE spot_group SET snapshot_id = ? WHERE id = ?", snapshotId, f.groupId);
+        provider = f.providerWith(new com.xammer.cloud.service.autospotting.core.ops.OperationFacts(
+                        ctx.getBean(SpotPlanRepository.class), ctx.getBean(SpotOperationRepository.class),
+                        ctx.getBean(SpotOperationStepRepository.class)),
+                new AwsSnapshotStore(jdbc, ctx.getBean(FencedTx.class)), new AwsLaunchEventRecorder(jdbc), services -> {
+                    revert.delegate = new AwsRestoreProgram(services, new com.xammer.cloud.service.autospotting.core
+                            .GroupLookup(ctx.getBean(SpotGroupRepository.class)));
+                    return revert;
+                });
+        plan = provider.createPlan(new com.xammer.cloud.service.autospotting.spi.PlanRequest(
+                new com.xammer.cloud.service.autospotting.spi.GroupRef(com.xammer.cloud.domain.autospotting.Provider.AWS,
+                        7L, FakeAws.REGION + "/web-asg", null), OperationKind.REVERT, null), f.aws.view());
+        insertRevertPlan();
+        store.insertQueued(OperationRecord.builder(f.opId, f.groupId, 7L, OperationKind.REVERT)
+                .planId(f.planId).priorState(groupState)
+                .compensationTarget(CompensationTargets.forKind(OperationKind.REVERT))
+                .targetConfigJson(plan.targetJson()).requestedBy("tester").build());
+        if (claim) {
+            store.claimForRun(f.opId);
+        }
+        runner = newRunner();
+        lease = ctx.getBean(LeaseService.class).acquireGroup(f.groupId, LeaseService.Component.DISPATCHER).orElseThrow();
+    }
+
+    final UUID enableOpId = UUID.randomUUID();
+
+    /** An ENABLE that already changed the group and waits for its rollout (WAITING, first mutation at step 3). */
+    void startEnableInFlight(String targetJson) {
+        jdbc.update("UPDATE spot_group SET state = 'APPLYING' WHERE id = ?", f.groupId);
+        store.insertQueued(OperationRecord.builder(enableOpId, f.groupId, 7L, OperationKind.ENABLE)
+                .priorState(GroupState.UNMANAGED)
+                .compensationTarget(com.xammer.cloud.domain.autospotting.CompensationTarget.SNAPSHOT)
+                .targetConfigJson(targetJson).requestedBy("tester").build());
+        store.claimForRun(enableOpId);
+        store.park(enableOpId, com.xammer.cloud.domain.autospotting.WaitReason.CLOUD_PROGRESS,
+                Instant.now().minusSeconds(1), 4, null);
+        jdbc.update("UPDATE spot_operation SET first_mutation_seq = 3 WHERE id = ?", enableOpId);
+    }
+
+    private OperationRunner newRunner() {
+        return new OperationRunner(ctx.getBean(SpotOperationRepository.class), ctx.getBean(SpotGroupRepository.class),
                 store, ctx.getBean(StepExecutor.class), ctx.getBean(GroupLifecycleService.class),
                 ctx.getBean(FencedTx.class), ctx.getBean(AutoSpottingAuditWriter.class),
                 ctx.getBean(SwitchService.class), ctx.getBean(SpotOpsLifecycle.class),
                 new ProviderRegistry(List.of(provider)),
                 ctx.getBean(com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics.class));
-        lease = ctx.getBean(LeaseService.class).acquireGroup(f.groupId, LeaseService.Component.DISPATCHER).orElseThrow();
+    }
+
+    /** The REVERT plan row: the live fingerprint now, the provider's body, and every warning acknowledged. */
+    private void insertRevertPlan() {
+        Instant now = f.clock.instant();
+        String fingerprint = AwsFingerprint.of(AwsGroupFacts.from(FakeAws.REGION, f.group()));
+        String body = "{\"current\":" + plan.currentJson() + ",\"target\":" + plan.targetJson()
+                + ",\"revertPath\":" + plan.revertPathJson() + "}";
+        StringBuilder acks = new StringBuilder("[");
+        for (var w : plan.eligibility().warnings()) {
+            acks.append(acks.length() > 1 ? "," : "").append('"').append(w.id()).append('"');
+        }
+        acks.append(']');
+        jdbc.update("INSERT INTO spot_plan (id, group_id, cloud_account_id, kind, status, from_state, version,"
+                        + " schema_version, live_fingerprint, body, requires_full_spot_optin, warning_ids, confirm_acks,"
+                        + " dry_run, created_by, created_at, expires_at) VALUES (?, ?, 7, 'REVERT', 'CONFIRMED',"
+                        + " 'ACTIVE', 1, 1, ?, ?::jsonb, false, '[]'::jsonb, ?::jsonb, false, 'test', ?, ?)",
+                f.planId, f.groupId, fingerprint, body, acks.toString(), Timestamp.from(now),
+                Timestamp.from(now.plusSeconds(3600)));
     }
 
     private void insertGroup(GroupState state) {

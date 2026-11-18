@@ -68,7 +68,7 @@ class AwsGroupListerTest {
                 prices, mock(AutoSpottingSwitchProperties.class),
                 new AwsProviderGate(mock(AutoSpottingSwitchProperties.class),
                         new com.xammer.cloud.service.autospotting.AutoSpottingFeatureFlags(false, false, false, false)),
-                mock(AwsStepLibrary.class), new StubAwsRevertProgramFactory(),
+                mock(AwsStepLibrary.class), mock(AwsRevertProgramFactory.class),
                 new AwsRolloutEvaluator(AwsRolloutProperties.defaults()));
         return new AwsGroupLister(views, evaluator, provider, status, lookup, budget, Clock.systemUTC());
     }

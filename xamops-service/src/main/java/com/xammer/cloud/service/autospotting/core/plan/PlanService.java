@@ -7,6 +7,7 @@ import com.xammer.cloud.domain.autospotting.Provider;
 import com.xammer.cloud.domain.autospotting.SpotGroup;
 import com.xammer.cloud.domain.autospotting.SpotPlan;
 import com.xammer.cloud.repository.autospotting.SpotGroupRepository;
+import com.xammer.cloud.repository.autospotting.SpotOperationRepository;
 import com.xammer.cloud.repository.autospotting.SpotPlanRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.autospotting.core.AutoSpottingApiException;
@@ -71,6 +72,7 @@ public class PlanService {
 
     private final SpotPlanRepository plans;
     private final SpotGroupRepository groups;
+    private final SpotOperationRepository operations;
     private final ProviderRegistry providers;
     private final FeeBasisResolver feeBasisResolver;
     private final RevertPreconditions revertPreconditions;
@@ -79,13 +81,15 @@ public class PlanService {
     private final GroupLifecycleService lifecycle;
     private final Duration planTtl;
 
-    public PlanService(SpotPlanRepository plans, SpotGroupRepository groups, ProviderRegistry providers,
+    public PlanService(SpotPlanRepository plans, SpotGroupRepository groups, SpotOperationRepository operations,
+                       ProviderRegistry providers,
                        FeeBasisResolver feeBasisResolver, RevertPreconditions revertPreconditions,
                        SwitchService switchService, AutoSpottingSwitchProperties switchProperties,
                        GroupLifecycleService lifecycle,
                        @Value("${autospotting.plan.ttl:15m}") Duration planTtl) {
         this.plans = plans;
         this.groups = groups;
+        this.operations = operations;
         this.providers = providers;
         this.feeBasisResolver = feeBasisResolver;
         this.revertPreconditions = revertPreconditions;
@@ -141,10 +145,16 @@ public class PlanService {
         Profile profile = new Profile(cmd.profileId() == null || cmd.profileId().isBlank()
                 ? "conservative" : cmd.profileId(), null);
 
-        EligibilityResult eligibility = spotProvider.checkEligibility(ref, view, profile, EvalMode.PLAN);
+        // A revert is never blocked by the conversion-only eligibility checks (DR-03): it takes the warnings of
+        // its own plan, and the provider's restore-permission pre-check (design-core.md §7.4) is part of it.
+        EligibilityResult eligibility = cmd.kind() == OperationKind.REVERT ? null
+                : spotProvider.checkEligibility(ref, view, profile, EvalMode.PLAN);
         com.xammer.cloud.service.autospotting.spi.PlanRequest planRequest =
                 new com.xammer.cloud.service.autospotting.spi.PlanRequest(ref, cmd.kind(), profile);
         PlanBody body = spotProvider.createPlan(planRequest, view);
+        if (eligibility == null) {
+            eligibility = body.eligibility() != null ? body.eligibility() : EligibilityResult.eligible(List.of(), List.of());
+        }
 
         String feeBasis = feeBasisResolver.resolve(account.getId(), switches);
         PlanBody bodyWithFee = withFeeBasis(body, feeBasis);
@@ -219,9 +229,13 @@ public class PlanService {
     }
 
     private void checkKindState(OperationKind kind, SpotGroup group, GroupState state) {
+        boolean regrant = false;
         if (kind == OperationKind.REVERT) {
+            // GR-02: a REVERTED group is revertible again only after a drain-only revert (PASSROLE_DENIED).
+            regrant = group != null && state == GroupState.REVERTED
+                    && RevertHistory.lastRevertPassRoleDenied(operations, plans, group.getId());
             // §7.4 REVERT exceptions, resolved before the general table.
-            if (group == null || state == GroupState.UNMANAGED || state == GroupState.REVERTED
+            if (group == null || state == GroupState.UNMANAGED || state == GroupState.REVERTED && !regrant
                     || state == GroupState.GONE || state == GroupState.PLANNED && !hasConfirmedEnable(group)) {
                 throw new AutoSpottingApiException(HttpStatus.CONFLICT, "NOT_MANAGED",
                         "XamOps does not manage this group, so there is nothing to revert.");
@@ -231,7 +245,7 @@ public class PlanService {
                         "AutoSpotting is already reverting this group.");
             }
         }
-        if (!PlanKinds.isAllowed(kind, state)) {
+        if (!PlanKinds.isAllowed(kind, state, regrant)) {
             throw AutoSpottingApiException.planKindNotAllowed(PlanKinds.notAllowedDetail(kind, state));
         }
     }

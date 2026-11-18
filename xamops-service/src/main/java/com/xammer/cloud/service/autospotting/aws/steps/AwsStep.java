@@ -83,6 +83,12 @@ abstract class AwsStep implements Step {
                 + (code == null ? "." : " (" + code + ")."));
     }
 
+    /** The AWS error code of {@code e}, redacted, or null (the message is never read). */
+    String errorCode(SdkException e) {
+        return e instanceof AwsServiceException a && a.awsErrorDetails() != null
+                ? services.redactor().redactMessage(a.awsErrorDetails().errorCode()) : null;
+    }
+
     protected Optional<CloudAccount> account() {
         return services.account(program.cloudAccountId());
     }

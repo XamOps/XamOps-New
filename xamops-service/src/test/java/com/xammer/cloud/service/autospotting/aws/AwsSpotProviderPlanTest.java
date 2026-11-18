@@ -92,7 +92,7 @@ class AwsSpotProviderPlanTest {
         provider = new AwsSpotProvider(accounts, views, evaluator, new AwsGroupStatusReader(), prices, switches,
                 new AwsProviderGate(switches, new com.xammer.cloud.service.autospotting.AutoSpottingFeatureFlags(
                         false, false, false, false)),
-                mock(AwsStepLibrary.class), new StubAwsRevertProgramFactory(),
+                mock(AwsStepLibrary.class), mock(AwsRevertProgramFactory.class),
                 new AwsRolloutEvaluator(AwsRolloutProperties.defaults()),
                 Clock.fixed(Instant.parse("2026-11-17T10:00:00Z"), ZoneOffset.UTC));
     }

@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.autospotting.GroupState;
+import com.xammer.cloud.domain.autospotting.OperationKind;
 import com.xammer.cloud.domain.autospotting.Provider;
 import com.xammer.cloud.domain.autospotting.SpotGroup;
 import com.xammer.cloud.repository.CloudAccountRepository;
@@ -54,7 +55,7 @@ import java.util.Optional;
  *   <li>{@code reconcile} is a pure decision. Health decisions return no fallback action until
  *       Phase 20.</li>
  *   <li>{@code executeConversion} returns the {@link AwsStepLibrary} program and {@code restore} the
- *       Phase 19 REVERT program, but only while {@link AwsProviderGate} is open: both
+ *       REVERT program ({@link AwsRestoreProgram}), but only while {@link AwsProviderGate} is open: both
  *       {@code autospotting.aws.v2-mutations-enabled} and {@code autospotting.aws.conversions-enabled}
  *       stay false until Phase 23, so each refuses with {@code AS_PROVIDER_NOT_READY} (the second lock
  *       behind switch (p) on the confirm path).</li>
@@ -130,6 +131,10 @@ public class AwsSpotProvider implements SpotProvider {
     public PlanBody createPlan(PlanRequest req, ReadOnlyCloudView view) {
         CloudAccount account = account(req.ref().cloudAccountId()).orElseThrow(() ->
                 new AutoSpottingApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Account not found."));
+        if (req.kind() == OperationKind.REVERT) {
+            // A revert is never blocked by the conversion-only checks (DR-03): its own plan, read only.
+            return revertPrograms.plan(req, account);
+        }
         Profile profile = req.profile() == null ? new Profile("conservative", null) : req.profile();
         AwsEligibilityEvaluator.Evaluation ev = evaluator.evaluate(account, req.ref().groupKey(), profile, EvalMode.PLAN);
         AwsGroupFacts g = ev.group();
