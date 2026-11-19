@@ -1536,6 +1536,19 @@ function routeBillopsAdmin(url: string, method = 'GET', body?: string): Response
   // Marketplace historical billing — must return arrays so .filter() works
   if (url.includes('/api/xamops/billops-admin/marketplace/'))
     return makeResponse([]);
+  // XamLens (DSPM) admin page: no mappings, no customers to map, no audit rows. The page filters the
+  // lists, so the {} below crashed it ("list.filter is not a function"). Matched on the path, because
+  // the audit read carries its filters in the query string.
+  if (url.includes('/api/xamops/billops-admin/dspm/')) {
+    const path = new URL(url, 'http://localhost').pathname;
+    if (path === '/api/xamops/billops-admin/dspm/mappings' || path === '/api/xamops/billops-admin/dspm/clients')
+      return makeResponse([]);
+    if (path === '/api/xamops/billops-admin/dspm/audit')
+      return makeResponse({
+        data: [], page: Number(param(url, 'page')) || 0, pageSize: Number(param(url, 'size')) || 50,
+        total: 0, totalPages: 0,
+      });
+  }
   if (url.includes('/api/xamops/billops-admin/'))
     return makeResponse({});
 

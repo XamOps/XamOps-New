@@ -24,6 +24,8 @@
  * areas rather than fourteen loose checkboxes.
  */
 
+import type { UserRole } from '../types/auth';
+
 export interface BillOpsAdminTab {
   key: string;
   label: string;
@@ -90,6 +92,13 @@ export const BILLOPS_ADMIN_MODULES: BillOpsAdminModule[] = [
     ],
   },
 ];
+
+/**
+ * Roles the XamLens (DSPM) admin API admits: DspmAdminController's @PreAuthorize. The `dspm-admin`
+ * nav item and its page are shown only to these, so a BillOps sub-admin (ROLE_BILLOPS_ADMIN_SUB),
+ * whom the API refuses, never sees the item or a page of failing requests. Change both together.
+ */
+export const DSPM_ADMIN_ROLES: UserRole[] = ['ROLE_BILLOPS_ADMIN', 'ROLE_SUPER_ADMIN'];
 
 /** Flat list of every BillOps admin section, in picker order. */
 export const ALL_BILLOPS_ADMIN_TABS: BillOpsAdminTab[] =

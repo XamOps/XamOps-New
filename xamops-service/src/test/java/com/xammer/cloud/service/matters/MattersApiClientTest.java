@@ -297,6 +297,8 @@ class MattersApiClientTest {
                 c -> c.schemaDatabaseTables(credential, UUID, 1, 50));
         calls.put(schema + "/tables/" + UUID + "/columns?page=4&page_size=100",
                 c -> c.schemaColumns(credential, UUID, 4, 100));
+        calls.put(BASE + "/api/v1/scan-management/scan-history?page=1&page_size=1",
+                c -> c.verifyPlatformScope(credential));
 
         calls.keySet().forEach(url -> expectGet(url).andRespond(withSuccess(OK, MediaType.APPLICATION_JSON)));
         calls.values().forEach(call -> assertThat(call.apply(client).path("success").asBoolean()).isTrue());

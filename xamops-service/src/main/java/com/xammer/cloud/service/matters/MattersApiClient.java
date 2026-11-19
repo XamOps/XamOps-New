@@ -82,6 +82,9 @@ public class MattersApiClient {
     // Data Flow routes. They answer bare objects ({data[], pagination}) without a success flag.
     public static final String PATH_DATABASE_SCHEMA = API_PREFIX + "/data/security/database-schema";
 
+    /** The project's scan runs. Called only by {@link #verifyPlatformScope}; a bare {data[], pagination}. */
+    public static final String PATH_SCAN_MANAGEMENT_HISTORY = API_PREFIX + "/scan-management/scan-history";
+
     private static final Pattern SOURCE_ID = Pattern.compile("^[0-9a-fA-F]{24}$");
     private static final Pattern UUID = Pattern.compile(
             "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
@@ -168,6 +171,22 @@ public class MattersApiClient {
      */
     public JsonNode verify(MattersCredential credential) {
         return get(credential, PATH_ASSETS, Map.of("page_size", List.of("1")));
+    }
+
+    /**
+     * Cheapest console route, for the admin Verify button's scope check.
+     *
+     * {@link #verify} only proves the key authenticates: the asset list answers any valid key. The console
+     * routes behind the XamLens drawer also need the PLATFORM scope, and Matters answers a key without it
+     * with 403, which {@link #exchange} turns into {@link MattersApiException.Reason#FORBIDDEN_SCOPE}.
+     *
+     * The project's scan-run list is the probe because it needs no asset id (a project with no assets
+     * answers an empty page), changes nothing on the vendor side (the scan-status route refreshes stored
+     * stage timings), returns a bare object with no {@code success} flag, and {@code page_size=1} keeps
+     * the body to one row at most.
+     */
+    public JsonNode verifyPlatformScope(MattersCredential credential) {
+        return get(credential, PATH_SCAN_MANAGEMENT_HISTORY, pageQuery(1, 1));
     }
 
     // ── console routes (datastore drawer) ────────────────────────────────────────────────────────

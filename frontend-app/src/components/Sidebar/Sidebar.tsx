@@ -17,7 +17,7 @@ import NavSection from './NavSection';
 import SubNav from './SubNav';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useXamTabAccess } from '../../contexts/XamTabAccessContext';
-import { makeBillopsTabGate } from '../../constants/billopsAdminTabs';
+import { DSPM_ADMIN_ROLES, makeBillopsTabGate } from '../../constants/billopsAdminTabs';
 import { XAMSECURE_SIDEBAR_TABS } from '../../constants/xamsecureTabs';
 import { XAMLENS_HOME, XAMLENS_SIDEBAR_TABS } from '../../constants/xamlensTabs';
 import { ClusterSectionsNav } from '../CloudK8s/shared/ClusterSectionsNav';
@@ -313,8 +313,9 @@ const Sidebar: React.FC = () => {
                   {isTabAllowed('client-intake') && <NavItem href="/billops-client-intake" icon="fas fa-clipboard-list" label="Client Intake" isActive={isActive('/billops-client-intake')} />}
                   {/* DSPM add-on administration: org -> Matters project mappings, the per-customer API
                       keys and the access audit trail. Sits next to Accounts because it is the other
-                      place a customer's entitlements are granted. */}
-                  {isTabAllowed('dspm-admin') && <NavItem href="/dspm-admin" icon="fas fa-database" label="XamLens" isActive={isActive('/dspm-admin')} />}
+                      place a customer's entitlements are granted. Shown only to the roles its API
+                      admits, so not to BillOps sub-admins. */}
+                  {isTabAllowed('dspm-admin') && hasAnyRole(DSPM_ADMIN_ROLES) && <NavItem href="/dspm-admin" icon="fas fa-database" label="XamLens" isActive={isActive('/dspm-admin')} />}
                 </>
               )}
             </>

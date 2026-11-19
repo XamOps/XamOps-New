@@ -373,6 +373,36 @@ describe('demo router — trial management (ROLE_BILLOPS_ADMIN)', () => {
   });
 });
 
+/**
+ * The XamLens (DSPM) admin page filters and counts its lists, so the billops-admin catch-all's {}
+ * crashed it for the BillOps demo login ("list.filter is not a function"). Empty, synthetic answers;
+ * none of these reads may reach the real admin API, which holds customers' Matters keys.
+ */
+describe('demo router — XamLens (DSPM) admin page (ROLE_BILLOPS_ADMIN)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_BILLOPS_ADMIN');
+  });
+
+  it.each([
+    '/api/xamops/billops-admin/dspm/mappings',
+    '/api/xamops/billops-admin/dspm/clients',
+  ])('answers %s with an empty list', async (url) => {
+    expect(await readDemoBody(url)).toEqual([]);
+  });
+
+  it('answers the audit trail with an empty page in the shape the audit table reads', async () => {
+    expect(await readDemoBody('/api/xamops/billops-admin/dspm/audit?page=0&size=25&action=MAPPING_CREATED&days=30'))
+      .toEqual({ data: [], page: 0, pageSize: 25, total: 0, totalPages: 0 });
+    expect(await readDemoBody('/api/xamops/billops-admin/dspm/audit')).toEqual(
+      { data: [], page: 0, pageSize: 50, total: 0, totalPages: 0 });
+  });
+
+  it('keeps every other DSPM admin path off the backend', async () => {
+    expect(await readDemoBody('/api/xamops/billops-admin/dspm/mappings/7/verify')).toEqual({});
+  });
+});
+
 describe('demo router — AutoSpotting feature status', () => {
   beforeEach(() => {
     sessionStorage.setItem(DEMO_MODE_KEY, 'true');
