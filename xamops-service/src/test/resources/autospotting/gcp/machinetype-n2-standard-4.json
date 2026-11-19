@@ -1,0 +1,6 @@
+{
+  "name": "n2-standard-4",
+  "guestCpus": 4,
+  "memoryMb": 16384,
+  "isSharedCpu": false
+}

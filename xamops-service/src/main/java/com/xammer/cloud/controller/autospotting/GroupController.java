@@ -16,6 +16,8 @@ import com.xammer.cloud.service.autospotting.aws.AwsErrors;
 import com.xammer.cloud.service.autospotting.aws.AwsGroupLister;
 import com.xammer.cloud.service.autospotting.core.AutoSpottingApiException;
 import com.xammer.cloud.service.autospotting.core.list.GroupListCache;
+import com.xammer.cloud.service.autospotting.gcp.GcpErrorMapper;
+import com.xammer.cloud.service.autospotting.gcp.GcpGroupLister;
 import com.xammer.cloud.service.autospotting.obs.AutoSpottingMdc;
 import com.xammer.cloud.service.autospotting.spi.EligibilityResult;
 import org.springframework.http.CacheControl;
@@ -54,16 +56,18 @@ public class GroupController {
 
     private final CloudAccountAccessService accountAccessService;
     private final AwsGroupLister awsLister;
+    private final GcpGroupLister gcpLister;
     private final GroupListCache listCache;
     private final SpotGroupRepository groups;
     private final SpotGroupTransitionRepository transitions;
     private final SpotOperationRepository operations;
 
-    public GroupController(CloudAccountAccessService accountAccessService, AwsGroupLister awsLister,
+    public GroupController(CloudAccountAccessService accountAccessService, AwsGroupLister awsLister, GcpGroupLister gcpLister,
                            GroupListCache listCache, SpotGroupRepository groups,
                            SpotGroupTransitionRepository transitions, SpotOperationRepository operations) {
         this.accountAccessService = accountAccessService;
         this.awsLister = awsLister;
+        this.gcpLister = gcpLister;
         this.listCache = listCache;
         this.groups = groups;
         this.transitions = transitions;
@@ -76,7 +80,7 @@ public class GroupController {
                                              @AuthenticationPrincipal ClientUserDetails userDetails) {
         CloudAccount account = accountAccessService.requireAccess(userDetails, accountId);
         try (AutoSpottingMdc.Scope ignored = AutoSpottingMdc.builder().cloudAccountId(account.getId()).open()) {
-            requireAws(account);
+            requireSupported(account);
             boolean refresh = cacheControl != null && cacheControl.toLowerCase(java.util.Locale.ROOT).contains("no-cache");
             return noStore(loadList(account, refresh));
         }
@@ -93,7 +97,7 @@ public class GroupController {
                                                   @AuthenticationPrincipal ClientUserDetails userDetails) {
         CloudAccount account = accountAccessService.requireAccess(userDetails, accountId);
         try (AutoSpottingMdc.Scope ignored = AutoSpottingMdc.builder().cloudAccountId(account.getId()).open()) {
-            requireAws(account);
+            requireSupported(account);
             GroupListDto list = loadList(account, false);
             double total = 0;
             int priced = 0;
@@ -124,7 +128,7 @@ public class GroupController {
                 return cached.get();
             }
         }
-        GroupListDto list = awsLister.list(account);
+        GroupListDto list = isGcp(account) ? gcpLister.list(account) : awsLister.list(account);
         listCache.put(account.getId(), list); // a partial list is never stored
         return list;
     }
@@ -138,13 +142,14 @@ public class GroupController {
             SpotGroup row = groups.findById(groupId)
                     .filter(g -> account.getId() != null && account.getId().equals(g.getCloudAccountId()))
                     .orElseThrow(() -> new AutoSpottingApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Group not found."));
-            requireAws(account);
+            requireSupported(account);
             GroupRowDto head;
             try {
-                head = awsLister.row(account, row.getGroupKey(), row).orElseGet(() -> rowFromSpine(row));
+                head = (isGcp(account) ? gcpLister.row(account, row.getGroupKey(), row)
+                        : awsLister.row(account, row.getGroupKey(), row)).orElseGet(() -> rowFromSpine(row));
             } catch (RuntimeException e) {
                 throw new AutoSpottingApiException(HttpStatus.BAD_GATEWAY, "CLOUD_READ_FAILED",
-                        "XamOps couldn't read this group right now (" + AwsErrors.classify(e).name() + ").",
+                        "XamOps couldn't read this group right now (" + (isGcp(account) ? GcpErrorMapper.classify(e) : AwsErrors.classify(e)).name() + ").",
                         true, null, null);
             }
             List<GroupDetailDto.Transition> history = transitions.findByGroupIdOrderByIdAsc(groupId).stream()
@@ -165,15 +170,21 @@ public class GroupController {
     /** The row the spine alone can show (the group is gone from the cloud). */
     private static GroupRowDto rowFromSpine(SpotGroup row) {
         String key = row.getGroupKey();
-        int slash = key.indexOf('/');
-        String location = slash > 0 ? key.substring(0, slash) : null;
-        String name = slash > 0 ? key.substring(slash + 1) : key;
+        // AWS keys are region/name; GCP keys are project/location/name (design-core.md §9.1).
+        String[] parts = key.split("/");
+        String location = parts.length == 3 ? parts[1] : parts.length == 2 ? parts[0] : null;
+        String name = parts[parts.length - 1];
         return GroupRowDto.of(row.getId(), row.getProvider().name(), key, location, name, row.getState().name(),
                 true, false, null, null, null, null, new EligibilityResult(List.of(), List.of(), List.of()), null, false);
     }
 
-    private static void requireAws(CloudAccount account) {
-        if (account.getProvider() != null && !"AWS".equalsIgnoreCase(account.getProvider())) {
+    private static boolean isGcp(CloudAccount account) {
+        return "GCP".equalsIgnoreCase(account.getProvider());
+    }
+
+    /** AWS and GCP serve groups; any other cloud is not ready yet. */
+    private static void requireSupported(CloudAccount account) {
+        if (account.getProvider() != null && !"AWS".equalsIgnoreCase(account.getProvider()) && !isGcp(account)) {
             throw new AutoSpottingApiException(HttpStatus.CONFLICT, "AS_PROVIDER_NOT_READY",
                     "AutoSpotting groups are not available for this cloud yet.");
         }

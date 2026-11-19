@@ -117,7 +117,6 @@ const GcpSecurityPage = lazy(() => import('./pages/GcpSecurityPage'));
 const GcpPerformancePage = lazy(() => import('./pages/GcpPerformancePage'));
 const GcpAlertsPage = lazy(() => import('./pages/GcpAlertsPage'));
 const GcpBillingPage = lazy(() => import('./pages/GcpBillingPage'));
-const GcpSpotAutomationPage = lazy(() => import('./pages/GcpSpotAutomationPage'));
 const AutoSpottingRoute = lazy(() => import('./pages/autospotting/AutoSpottingRoute'));
 const LegacyAsgRoute = lazy(() => import('./pages/autospotting/LegacyAsgRoute'));
 const GcpDataOpsPage = lazy(() => import('./pages/GcpDataOpsPage'));
@@ -648,7 +647,7 @@ const AppContent: React.FC = () => {
                             <Route path="/soc2-program/:tab" element={<Soc2ProgramPage />} />
                             <Route path="/billops-admin-user-manager" element={<BillOpsAdminUserManagerPage />} />
                             <Route path="/dspm-admin" element={<DspmAdminPage />} />
-                            <Route path="/gcp-autospotting" element={<GcpSpotAutomationPage />} />
+                            <Route path="/gcp-autospotting" element={<AutoSpottingRoute gcp />} />
                             <Route path="/azure-autospotting" element={<Navigate to="/azure-dashboard" replace />} />
                             <Route path="/gcp-cloudsitter" element={<GcpCloudSitterPage />} />
                             <Route path="/azure-cloudsitter" element={<AzureCloudSitterPage />} />

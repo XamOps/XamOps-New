@@ -1660,6 +1660,65 @@ describe('demo router — AutoSpotting shell (ROLE_XAMOPS)', () => {
   });
 });
 
+/** AC-UI-06 (GCP): the demo GCP project answers every path the shell calls with GCP data. */
+describe('demo router — AutoSpotting shell for GCP (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+    resetAutoSpottingDemo();
+  });
+
+  const call = async (url: string, method = 'GET', body?: unknown) => {
+    const response = resolveDemoResponse(url, method, body === undefined ? undefined : JSON.stringify(body));
+    expect(response, `expected a demo response for ${method} ${url}`).not.toBeNull();
+    return { status: response!.status, body: JSON.parse(await response!.text()) };
+  };
+  const V2 = '/api/autospotting/v2';
+  const G = `${V2}/accounts/9101`;
+
+  it('gives the demo GCP project a XamOps account id and lists GCP in the config', async () => {
+    expect(demoAccounts.find(a => a.provider === 'GCP')?.dbId).toBe(9101);
+    const { body } = await call(`${V2}/config`);
+    expect(body.providers.GCP.conversionsEnabled).toBe(false);
+    expect(body.providers.GCP.v2MutationsEnabled).toBe(false);
+  });
+
+  it('answers the MIG list with GKE excluded from the potential, and one detail', async () => {
+    const list = (await call(`${G}/groups`)).body;
+    expect(list.items.every((r: { provider: string }) => r.provider === 'GCP')).toBe(true);
+    expect(list.items.some((r: { groupKey: string }) => r.groupKey.split('/').length === 3)).toBe(true);
+    expect(list.blockedCounts.GCP_GKE_NODE_POOL).toBe(1);
+    expect(list.blockedCounts.GCP_NO_READINESS_GATE).toBe(1);
+    const potential = (await call(`${G}/groups/potential`)).body;
+    expect(potential.ineligibleGroups).toBe(2);
+    expect(potential.unpricedGroups).toBe(1);
+    const detail = await call(`${G}/groups/demo-grp-gcp-api`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.group.provider).toBe('GCP');
+  });
+
+  it('plans with the two-version floor and confirms through a scripted operation', async () => {
+    const created = await call(`${G}/plans`, 'POST', { kind: 'ENABLE', groupRef: 'gcp-analytics-demo/us-central1/web-mig' });
+    expect(created.status).toBe(201);
+    const body = JSON.parse(created.body.body);
+    expect(body.target.floorMechanism).toBe('TWO_VERSION_MIG');
+    expect(body.onDemandFloor.floorN).toBe(3);
+    expect(body.estimates.map((e: { profile: string }) => e.profile)).toEqual(['conservative', 'balanced', 'aggressive']);
+    const confirmed = await call(`${G}/plans/${created.body.planId}/confirm`, 'POST', { planVersion: 1, acknowledgedWarningIds: [], fullSpotOptIn: false });
+    for (let i = 0; i < 6; i++) await call(`${G}/operations/${confirmed.body.operationId}`);
+    const web = (await call(`${G}/groups`)).body.items.find((r: { name: string }) => r.name === 'web-mig');
+    expect(web.state).toBe('ACTIVE');
+  });
+
+  it('answers analytics, activity and commitments for the GCP project', async () => {
+    const analytics = (await call(`${G}/analytics?from=2026-10-22&to=2026-11-20`)).body;
+    expect(analytics.groups[0].byType[0].instanceType).toBe('c2-standard-8');
+    const audit = (await call(`${G}/audit?from=2026-10-22&to=2026-11-20&limit=100`)).body;
+    expect(audit.every((e: { groupKey: string | null }) => e.groupKey === null || e.groupKey.startsWith('gcp-analytics-demo/'))).toBe(true);
+    expect((await call(`${G}/commitments/settings`)).status).toBe(200);
+  });
+});
+
 describe.each(['ROLE_XAMOPS', 'ROLE_BILLOPS_ADMIN'])('demo router — AutoSpotting operator views (%s)', role => {
   beforeEach(() => {
     sessionStorage.setItem(DEMO_MODE_KEY, 'true');

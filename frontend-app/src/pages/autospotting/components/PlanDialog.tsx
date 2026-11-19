@@ -296,7 +296,12 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
               {conservativeBlocked && !selectedProfile && (
                 <p className="mt-1 text-gray-600">{blockedReason(desired)}</p>
               )}
-              {body.onDemandFloor && (
+              {body.onDemandFloor && body.onDemandFloor.floorN !== undefined && (
+                <p className="mt-2 text-gray-600">
+                  {`Standard floor: ${String(body.onDemandFloor.floorN)} standard VMs at this size`}
+                </p>
+              )}
+              {body.onDemandFloor && body.onDemandFloor.floorN === undefined && (
                 <p className="mt-2 text-gray-600">
                   {`On-Demand floor: ${String(body.onDemandFloor.baseCapacity ?? '--')} base, ${String(
                     body.onDemandFloor.onDemandCount ?? '--',

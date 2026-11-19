@@ -1,0 +1,11 @@
+{
+  "version": "gcp-shared-core-v1",
+  "note": "Billed vCPU fraction of GCP shared-core machine types (PD-09, design-ledger.md 4.2). Never guestCpus, which reports 2 for the E2 shared-core types. A shared-core type missing here is GCP_SHARED_CORE_UNSUPPORTED. V-GCP-15 confirms the fractions.",
+  "types": {
+    "e2-micro": "0.25",
+    "e2-small": "0.5",
+    "e2-medium": "1",
+    "f1-micro": "0.2",
+    "g1-small": "0.5"
+  }
+}

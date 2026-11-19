@@ -70,11 +70,11 @@ describe('legacy AWS routes (plan-phase-14 task 14.3)', () => {
       expect(await screen.findByText(`at /autospotting?group=${encodeURIComponent('us-east-1/web-asg')}`)).toBeInTheDocument();
     });
 
-    it('keeps a GCP account on the legacy GCP page', async () => {
+    it('opens the shell for a GCP account (the GCP adapter ships in Phase 26)', async () => {
       account.provider = 'GCP';
       installFetch([{ match: /\/v2\/config$/, responses: [{ body: config(true) }] }]);
       renderWithProviders(routes, '/spot-automation');
-      expect(await screen.findByText('legacy gcp page')).toBeInTheDocument();
+      expect(await screen.findByText('shared shell')).toBeInTheDocument();
     });
   });
 

@@ -17,6 +17,7 @@ import com.xammer.cloud.repository.autospotting.SpotOperationRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CloudAccountAccessService;
 import com.xammer.cloud.service.autospotting.aws.AwsGroupLister;
+import com.xammer.cloud.service.autospotting.gcp.GcpGroupLister;
 import com.xammer.cloud.service.autospotting.core.AutoSpottingApiException;
 import com.xammer.cloud.service.autospotting.core.list.GroupListCache;
 import com.xammer.cloud.service.autospotting.spi.EligibilityResult;
@@ -52,11 +53,12 @@ class GroupControllerTest {
     private static final long ACCOUNT_ID = 7L;
     private final CloudAccountAccessService access = mock(CloudAccountAccessService.class);
     private final AwsGroupLister lister = mock(AwsGroupLister.class);
+    private final GcpGroupLister gcpLister = mock(GcpGroupLister.class);
     private final GroupListCache cache = new GroupListCache(Duration.ofSeconds(60));
     private final SpotGroupRepository groups = mock(SpotGroupRepository.class);
     private final SpotGroupTransitionRepository transitions = mock(SpotGroupTransitionRepository.class);
     private final SpotOperationRepository operations = mock(SpotOperationRepository.class);
-    private final GroupController controller = new GroupController(access, lister, cache, groups, transitions, operations);
+    private final GroupController controller = new GroupController(access, lister, gcpLister, cache, groups, transitions, operations);
     private final ClientUserDetails user = new ClientUserDetails("owner", "x",
             List.of(new SimpleGrantedAuthority("ROLE_USER")), 7L, 100L, "t");
 
@@ -119,13 +121,23 @@ class GroupControllerTest {
     }
 
     @Test
-    void aNonAwsAccountIsNotReadyYet() {
-        account("GCP");
+    void anAccountOfAnotherCloudIsNotReadyYet() {
+        account("AZURE");
         assertThatThrownBy(() -> controller.list(ACCOUNT_ID, null, user)).isInstanceOfSatisfying(
                 AutoSpottingApiException.class, e -> {
                     assertThat(e.getCode()).isEqualTo("AS_PROVIDER_NOT_READY");
                     assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT);
                 });
+    }
+
+    @Test
+    void aGcpAccountIsListedThroughTheGcpLister() {
+        CloudAccount a = account("GCP");
+        when(gcpLister.list(a)).thenReturn(list(false));
+        ResponseEntity<GroupListDto> response = controller.list(ACCOUNT_ID, null, user);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        verify(gcpLister, times(1)).list(a);
+        verify(lister, never()).list(any());
     }
 
     private SpotGroup row(UUID id, long accountId) {

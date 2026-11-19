@@ -11,7 +11,7 @@ import type { ResourceChange, ResourceLineChange, DailyCost } from '../api/curIn
 export const demoAccounts: Account[] = [
   { id: 'demo-aws-001', dbId: 9001, name: 'Xammer Production',  provider: 'AWS',   status: 'CONNECTED', access: 'read-write', grafanaIp: 'play.grafana.org', grafanaDashboardUid: '000000012', grafanaDashboardSlug: 'grafana-play-home' },
   { id: 'demo-aws-002', dbId: 9002, name: 'Xammer Staging',     provider: 'AWS',   status: 'CONNECTED', access: 'read-only' },
-  { id: 'demo-gcp-001', name: 'GCP Analytics',      provider: 'GCP',   status: 'CONNECTED' },
+  { id: 'demo-gcp-001', dbId: 9101, name: 'GCP Analytics',      provider: 'GCP',   status: 'CONNECTED' },
   { id: 'demo-azure-001', name: 'Azure Enterprise', provider: 'Azure', status: 'CONNECTED' },
 ];
 

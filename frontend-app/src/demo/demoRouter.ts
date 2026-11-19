@@ -128,7 +128,7 @@ function parseJson(body?: string): unknown {
 const V2_PREFIX = '/api/autospotting/v2/';
 
 /**
- * Every v2 path the AutoSpotting shell calls (AC-UI-06, AWS): config, groups, detail, plan for all
+ * Every v2 path the AutoSpotting shell calls (AC-UI-06, AWS and the GCP demo project): config, groups, detail, plan for all
  * profiles, confirm (a scripted operation that ends ACTIVE), revert, analytics, activity and commitments.
  * An unknown v2 path is a 404 problem body, never the generic empty object.
  */
@@ -136,8 +136,9 @@ function routeAutoSpottingV2(url: string, method: string, body?: string): Respon
   const m = method.toUpperCase();
   const path = url.slice(url.indexOf(V2_PREFIX) + V2_PREFIX.length - 1).split('?')[0];
   if (path === '/config' && m === 'GET') return makeResponse(spot.demoAutoSpottingConfig);
-  if (/^\/accounts\/[^/]+\/groups\/potential$/.test(path) && m === 'GET') return makeResponse(spot.demoPotential());
-  if (/^\/accounts\/[^/]+\/groups$/.test(path) && m === 'GET') return makeResponse(spot.demoGroupList());
+  const cloud = spot.demoProviderOf(/^\/accounts\/([^/]+)/.exec(path)?.[1]);
+  if (/^\/accounts\/[^/]+\/groups\/potential$/.test(path) && m === 'GET') return makeResponse(spot.demoPotential(cloud));
+  if (/^\/accounts\/[^/]+\/groups$/.test(path) && m === 'GET') return makeResponse(spot.demoGroupList(cloud));
   const group = /^\/accounts\/[^/]+\/groups\/([^/]+)$/.exec(path);
   if (group && m === 'GET') {
     const detail = spot.demoGroupDetail(decodeURIComponent(group[1]));
@@ -163,8 +164,8 @@ function routeAutoSpottingV2(url: string, method: string, body?: string): Respon
     return found ? makeResponse(found) : makeResponse({ code: 'NOT_FOUND', detail: 'Operation not found.' }, 404);
   }
   if (/^\/accounts\/[^/]+\/analytics$/.test(path) && m === 'GET')
-    return makeResponse(spot.demoAnalytics(param(url, 'from') || '2026-10-22', param(url, 'to') || '2026-11-20'));
-  if (/^\/accounts\/[^/]+\/audit$/.test(path) && m === 'GET') return makeResponse(spot.demoAudit());
+    return makeResponse(spot.demoAnalytics(param(url, 'from') || '2026-10-22', param(url, 'to') || '2026-11-20', cloud));
+  if (/^\/accounts\/[^/]+\/audit$/.test(path) && m === 'GET') return makeResponse(spot.demoAudit(cloud));
   if (/^\/accounts\/[^/]+\/commitments\/coverage$/.test(path) && m === 'GET') return makeResponse(spot.demoCommitmentCoverage);
   if (/^\/accounts\/[^/]+\/commitments\/settings$/.test(path) && m === 'GET') return makeResponse(spot.demoCommitmentSettings());
   if (/^\/accounts\/[^/]+\/commitments\/settings\/risp-respect$/.test(path) && m === 'PUT')

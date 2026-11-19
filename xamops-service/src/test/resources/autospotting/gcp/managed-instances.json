@@ -1,0 +1,39 @@
+[
+  {
+    "instance": "https://www.googleapis.com/compute/v1/projects/xamops-test/zones/us-central1-a/instances/web-1",
+    "instanceStatus": "RUNNING",
+    "currentAction": "NONE",
+    "version": {
+      "name": "xas-standard",
+      "instanceTemplate": "https://www.googleapis.com/compute/v1/projects/xamops-test/global/instanceTemplates/web-tpl-1"
+    }
+  },
+  {
+    "instance": "https://www.googleapis.com/compute/v1/projects/xamops-test/zones/us-central1-b/instances/web-2",
+    "instanceStatus": "RUNNING",
+    "currentAction": "NONE",
+    "version": {
+      "name": "xas-spot",
+      "instanceTemplate": "https://www.googleapis.com/compute/v1/projects/xamops-test/global/instanceTemplates/web-tpl-1"
+    },
+    "instanceHealth": [
+      {
+        "detailedHealthState": "HEALTHY"
+      }
+    ]
+  },
+  {
+    "instance": "https://www.googleapis.com/compute/v1/projects/xamops-test/zones/us-central1-c/instances/web-3",
+    "instanceStatus": "RUNNING",
+    "currentAction": "NONE",
+    "version": {
+      "name": "xas-spot",
+      "instanceTemplate": "https://www.googleapis.com/compute/v1/projects/xamops-test/global/instanceTemplates/web-tpl-1"
+    },
+    "instanceHealth": [
+      {
+        "detailedHealthState": "UNHEALTHY"
+      }
+    ]
+  }
+]
