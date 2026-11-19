@@ -60,4 +60,42 @@ class ProfileDefaultsTest {
         assertThat(load("application-prod.properties").getProperty("autospotting.sqs.queue-url"))
                 .as("prod names the queue").isEqualTo(PROD_QUEUE);
     }
+
+    private static final String UAT_EVENTS_QUEUE =
+            "https://sqs.ap-south-1.amazonaws.com/605134457560/xamops-autospotting-events-uat.fifo";
+    private static final String PROD_EVENTS_QUEUE =
+            "https://sqs.ap-south-1.amazonaws.com/605134457560/xamops-autospotting-events.fifo";
+
+    /** plan-phase-22.md 22.2: the events queue URL is set only in uat and prod; the UAT URL carries the -uat suffix. */
+    @Test
+    void theEventsQueueUrlIsSetOnlyInUatAndProd() throws Exception {
+        String key = "autospotting.aws.events.queue-url";
+        assertThat(load("application.properties").getProperty(key)).as("base has no queue url").isNull();
+        assertThat(load("application-local.properties").getProperty(key)).as("local has no queue url").isNull();
+        assertThat(load("application-preprod.properties").getProperty(key)).as("preprod has no queue url").isNull();
+        assertThat(load("application-uat.properties").getProperty(key)).isEqualTo(UAT_EVENTS_QUEUE).endsWith("-uat.fifo");
+        assertThat(load("application-prod.properties").getProperty(key)).isEqualTo(PROD_EVENTS_QUEUE);
+    }
+
+    /** Record-only lift: events on in uat and prod only, still record-only, and no mutation flag lifted anywhere. */
+    @Test
+    void theEventsFlagIsLiftedRecordOnlyAndNoMutationFlagIsLifted() throws Exception {
+        assertThat(load("application.properties").getProperty("autospotting.aws.events.enabled")).isNull();
+        for (String profile : List.of("local", "preprod")) {
+            assertThat(load("application-" + profile + ".properties").getProperty("autospotting.aws.events.enabled"))
+                    .isIn(null, "false");
+        }
+        for (String profile : List.of("uat", "prod")) {
+            Properties p = load("application-" + profile + ".properties");
+            assertThat(p.getProperty("autospotting.aws.events.enabled")).isEqualTo("true");
+            assertThat(p.getProperty("autospotting.aws.events.record-only")).isEqualTo("true");
+        }
+        // The base value (true) is not checked here: src/test/resources/application.properties shadows the main one
+        // on the test classpath. AwsEventProperties defaults record-only to true in code.
+        for (String profile : List.of("", "-local", "-uat", "-preprod", "-prod")) {
+            Properties p = load("application" + profile + ".properties");
+            assertThat(p.getProperty("autospotting.aws.v2-mutations-enabled")).as(profile).isIn(null, "false");
+            assertThat(p.getProperty("autospotting.aws.conversions-enabled")).as(profile).isIn(null, "false");
+        }
+    }
 }

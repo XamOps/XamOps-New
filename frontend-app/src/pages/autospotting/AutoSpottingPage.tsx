@@ -16,6 +16,8 @@ import { useLedgerSummary } from '../../hooks/autospotting/useLedgerSavings';
 import { useStackCapabilities } from '../../hooks/autospotting/useStackCapabilities';
 import StackUpdateModal from '../../components/AccountManager/StackUpdateModal';
 import UpdateStackBanner from './components/UpdateStackBanner';
+import RegionCoverageList from './components/RegionCoverageList';
+import { useRegionCoverage } from '../../hooks/autospotting/useRegionCoverage';
 import { AutoSpottingApiError, disableLegacyGroup, type GroupRow } from '../../api/autospottingApi';
 import { awsAdapter } from './adapters/awsAdapter';
 import type { ProviderAdapter } from './adapters/types';
@@ -57,6 +59,7 @@ const AutoSpottingPage: React.FC = () => {
   // The open month's ledger accrual; "Not tracked" while it can't be read (shadow figure, not final).
   const ledgerSummary = useLedgerSummary(adapter ? accountId : null);
   const stackCapabilities = useStackCapabilities(adapter ? accountId : null);
+  const regionCoverage = useRegionCoverage(adapter && account?.provider === 'AWS' ? accountId : null);
   const [updatingStack, setUpdatingStack] = useState(false);
   const accruingNotFinal = ledgerSummary.data ? Number(ledgerSummary.data.accruingNotFinal.amount) : null;
 
@@ -243,6 +246,7 @@ const AutoSpottingPage: React.FC = () => {
         onUpdate={() => setUpdatingStack(true)}
         consoleHref="/account-manager"
       />
+      <RegionCoverageList coverage={regionCoverage.data} />
       {updatingStack && account && (
         <StackUpdateModal accountId={account.id} accountName={account.name} onClose={() => setUpdatingStack(false)} />
       )}

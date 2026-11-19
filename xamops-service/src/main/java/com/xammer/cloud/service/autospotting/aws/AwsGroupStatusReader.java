@@ -41,6 +41,7 @@ public class AwsGroupStatusReader {
     /** Instance refresh statuses that mean a refresh is running (DR-6). */
     static final Set<String> ACTIVE_REFRESH = Set.of("Pending", "InProgress", "Cancelling", "RollbackInProgress");
     static final int MAX_ACTIVITIES = 50;
+    static final int MAX_INSTANCE_IDS = 500;
 
     /** The Spot/On-Demand split, cached briefly so a sweep rarely calls DescribeInstances. */
     private final Cache<String, int[]> splitCache = Caffeine.newBuilder()
@@ -124,6 +125,14 @@ public class AwsGroupStatusReader {
         unhealthyByType.forEach((t, n) -> unhealthyJson.append(unhealthyJson.length() > 1 ? "," : "")
                 .append('"').append(t.replace("\"", "")).append("\":").append(n));
         unhealthyJson.append('}');
+        // The instance ids, so the reconciler can keep spot_group_instance current (design-aws.md §9.7).
+        StringBuilder instanceIds = new StringBuilder();
+        int listedIds = 0;
+        for (AwsGroupFacts.InstanceFacts i : facts.instances()) {
+            if (i.id() != null && i.id().startsWith("i-") && listedIds < MAX_INSTANCE_IDS) {
+                instanceIds.append(listedIds++ == 0 ? "" : ",").append('"').append(i.id().replace("\"", "")).append('"');
+            }
+        }
         String health = "{\"inService\":" + inService
                 + ",\"instances\":" + facts.instances().size()
                 + ",\"recentFailedActivities\":" + failed
@@ -135,6 +144,7 @@ public class AwsGroupStatusReader {
                 + ",\"quotaFailureAt\":" + (quotaAt == null ? "null" : "\"" + quotaAt + "\"")
                 + ",\"onDemandFailureAt\":" + (odFailureAt == null ? "null" : "\"" + odFailureAt + "\"")
                 + ",\"unhealthyByType\":" + unhealthyJson
+                + ",\"instanceIds\":[" + instanceIds + "]"
                 + "}";
         String capacity = "{\"min\":" + facts.min() + ",\"max\":" + facts.max()
                 + ",\"desired\":" + facts.desired()

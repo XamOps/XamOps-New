@@ -101,6 +101,8 @@ class AutoSpottingOperatorControllerTest {
     @MockitoBean
     private com.xammer.cloud.service.autospotting.core.allowlist.AllowlistOperatorService allowlistService;
     @MockitoBean
+    private com.xammer.cloud.service.autospotting.aws.events.AwsEventDlqService dlqService;
+    @MockitoBean
     private com.xammer.cloud.repository.UserRepository userRepository;
     @MockitoBean
     private CustomAuthenticationSuccessHandler authenticationSuccessHandler;
@@ -341,6 +343,47 @@ class AutoSpottingOperatorControllerTest {
                 .andExpect(status().isUnprocessableEntity());
     }
 
+    // ── AWS event DLQ (plan-phase-22.md 22.5, design-aws.md §9.8) ──
+    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder redrive(String body, boolean key) {
+        var b = org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                .post("/api/xamops/autospotting-admin/events/dlq/redrive")
+                .contentType("application/json")
+                .header(AutoSpottingIntentFilter.INTENT_HEADER, AutoSpottingIntentFilter.INTENT_VALUE)
+                .content(body);
+        return key ? b.header("Idempotency-Key", "11111111-1111-1111-1111-111111111111") : b;
+    }
+    @ParameterizedTest
+    @ValueSource(strings = { "ROLE_SUPER_ADMIN", "ROLE_XAMOPS_ADMIN" })
+    void dlq_operatorsReadAndRedrive(String role) throws Exception {
+        when(dlqService.summary()).thenReturn(new com.xammer.cloud.service.autospotting.aws.events.AwsEventDlqService.Summary(
+                true, "q-dlq.fifo", 2, List.of(), false));
+        when(dlqService.redrive(eq("replay"), any())).thenReturn(
+                new com.xammer.cloud.service.autospotting.aws.events.AwsEventDlqService.RedriveResult("MOVE_TASK", "t1", 0));
+        mvc.perform(get("/api/xamops/autospotting-admin/events/dlq?provider=aws").with(as(role)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.depth").value(2));
+        mvc.perform(redrive("{\"reason\":\"replay\"}", true).with(as(role)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.mode").value("MOVE_TASK"));
+    }
+    @Test
+    void dlq_rulesAndGates() throws Exception {
+        mvc.perform(get("/api/xamops/autospotting-admin/events/dlq?provider=gcp").with(as("ROLE_SUPER_ADMIN")))
+                .andExpect(status().isUnprocessableEntity());
+        mvc.perform(get("/api/xamops/autospotting-admin/events/dlq").with(as("ROLE_BILLOPS_ADMIN")))
+                .andExpect(status().isForbidden());
+        org.mockito.Mockito.doThrow(new com.xammer.cloud.service.autospotting.core.AutoSpottingApiException(
+                org.springframework.http.HttpStatus.BAD_REQUEST, "IDEMPOTENCY_KEY_REQUIRED", "key"))
+                .when(idempotencyService).requireKey(org.mockito.ArgumentMatchers.isNull());
+        mvc.perform(redrive("{\"reason\":\"replay\"}", false).with(as("ROLE_SUPER_ADMIN")))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REQUIRED"));
+        // A missing or oversized reason is a field error (the problem advice maps bean validation to 400 CHECK_FAILED).
+        mvc.perform(redrive("{\"reason\":\"" + "x".repeat(501) + "\"}", true).with(as("ROLE_SUPER_ADMIN")))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("CHECK_FAILED"));
+        when(dlqService.redrive(anyString(), any())).thenThrow(
+                new com.xammer.cloud.service.autospotting.core.AutoSpottingApiException(
+                        org.springframework.http.HttpStatus.CONFLICT, "REDRIVE_IN_PROGRESS", "running"));
+        mvc.perform(redrive("{\"reason\":\"again\"}", true).with(as("ROLE_SUPER_ADMIN")))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("REDRIVE_IN_PROGRESS"));
+    }
     // ── AC-SPN-05: a PUT engage is visible through GET /switches and ActionGate within 60 s ──
 
     @Test

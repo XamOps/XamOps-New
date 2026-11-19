@@ -222,6 +222,16 @@ public class CloudAccount {
     private Instant stackCheckedAt;
 
     /**
+     * The unique id ({@code AROA...}) of the AutoSpotting event forwarder's execution role, from the
+     * stack output {@code AutoSpottingForwarderRoleId}. The event listener compares it with the SQS
+     * {@code SenderId} so one customer account cannot send events as another (design-aws.md §9.5).
+     * Null until the coverage job or the {@code iam:GetRole} fallback reads it.
+     */
+    @JsonIgnore
+    @Column(name = "as_forwarder_role_id", length = 128)
+    private String asForwarderRoleId;
+
+    /**
      * The CUR stack created for this account's own Cost and Usage Report, recorded separately
      * from the connection stack above because the two now live in different regions and are
      * created independently. The CUR stack has no EventBridge callback of its own, so its

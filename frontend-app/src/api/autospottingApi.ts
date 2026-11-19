@@ -462,6 +462,13 @@ export interface StackCapabilities {
 }
 export const getStackCapabilities = (accountId: number): Promise<StackCapabilities> =>
   request('GET', `${V2}/accounts/${accountId}/stack-capabilities`);
+/** The AWS event pipeline's coverage per region (design-aws.md §9.4). Only COVERED lets a group convert. */
+export interface RegionCoverage {
+  applicable: boolean;
+  regions: { region: string; status: 'COVERED' | 'MISSING' | 'SKIPPED' | 'UNKNOWN'; checkedAt: string; lastEventAt: string | null }[];
+}
+export const getRegionCoverage = (accountId: number): Promise<RegionCoverage> =>
+  request('GET', `${V2}/accounts/${accountId}/region-coverage`);
 export const getCommitmentCoverage = (accountId: number): Promise<RispCoverageBody> =>
   request('GET', `${V2}/accounts/${accountId}/commitments/coverage`);
 export const getCommitmentSettings = (accountId: number): Promise<CommitmentSettings> =>
@@ -603,6 +610,35 @@ export const removeFromAllowlist = (
     body: { reason },
     idempotencyKey,
   });
+// ---------------------------------------------------------------------------
+// Operator: AWS event dead-letter queue (Phase 22, design-aws.md section 9.8). No message bodies.
+// ---------------------------------------------------------------------------
+export interface DlqEntry {
+  messageId: string;
+  detailType: string | null;
+  account: string | null;
+  groupId: string | null;
+  sentAt: string | null;
+  receiveCount: number;
+}
+export interface DlqSummary {
+  configured: boolean;
+  queue: string | null;
+  depth: number;
+  messages: DlqEntry[];
+  redriveRunning: boolean;
+}
+export interface DlqRedriveResult {
+  mode: 'MOVE_TASK' | 'RESEND';
+  taskHandle: string | null;
+  moved: number;
+}
+export const getEventsDlq = (): Promise<DlqSummary> => request('GET', `${ADMIN}/events/dlq?provider=aws`);
+export const redriveEventsDlq = (
+  reason: string,
+  idempotencyKey: string = newIdempotencyKey(),
+): Promise<DlqRedriveResult> =>
+  request('POST', `${ADMIN}/events/dlq/redrive?provider=aws`, { body: { reason }, idempotencyKey });
 // ---------------------------------------------------------------------------
 // BillOps admin: contracts and go-live (Phase 15, ledger design section 11.4). BillOps and super admins only.
 // Percentages and amounts travel as decimal strings; the form never turns them into numbers.

@@ -188,6 +188,25 @@ def _dim(props, key, value):
     return False
 
 
+def _dim_has(props, key, fragment):
+    """True when a dimension named key has a value containing fragment (values can be !Sub/!If scalars)."""
+    dims = props.get('Dimensions')
+    if not isinstance(dims, list):
+        return False
+    for d in dims:
+        if isinstance(d, dict) and d.get('Name') == key:
+            if fragment in str(d.get('Value')):
+                return True
+            # An !If value parses as a list of scalars.
+            if isinstance(d.get('Value'), list) and any(fragment in str(v) for v in d['Value']):
+                return True
+    return False
+
+
+def _events_queue(props):
+    return _dim_has(props, 'QueueName', 'xamops-autospotting-events')
+
+
 EXPECTED = [
     ('Group needs a human (groups state=FAILED)',
      lambda mn, p: mn == 'autospotting.groups' and _dim(p, 'state', 'FAILED')),
@@ -216,9 +235,17 @@ EXPECTED = [
     ('UNKNOWN price ratio (ledger.unknown / ledger.entries.all metric math)',
      lambda mn, p: mn == 'autospotting.ledger.unknown'),
     ('DLQ depth (engine stack ApproximateNumberOfMessagesVisible)',
-     lambda mn, p: mn == 'ApproximateNumberOfMessagesVisible'),
+     lambda mn, p: mn == 'ApproximateNumberOfMessagesVisible' and not _events_queue(p)),
     ('Event lag (engine stack ApproximateAgeOfOldestMessage)',
-     lambda mn, p: mn == 'ApproximateAgeOfOldestMessage'),
+     lambda mn, p: mn == 'ApproximateAgeOfOldestMessage' and not _events_queue(p)),
+    ('Events DLQ depth (xamops-autospotting-events DLQ ApproximateNumberOfMessagesVisible)',
+     lambda mn, p: mn == 'ApproximateNumberOfMessagesVisible' and _events_queue(p)),
+    ('Events queue age (xamops-autospotting-events ApproximateAgeOfOldestMessage)',
+     lambda mn, p: mn == 'ApproximateAgeOfOldestMessage' and _events_queue(p)),
+    ('Events sender mismatch (events.security reason=sender_mismatch)',
+     lambda mn, p: mn == 'autospotting.events.security' and _dim(p, 'reason', 'sender_mismatch')),
+    ('Events forwarder failure (rule xamops-as-forwarder-failure invocations)',
+     lambda mn, p: mn == 'Invocations' and _dim_has(p, 'RuleName', 'xamops-as-forwarder-failure')),
 ]
 
 

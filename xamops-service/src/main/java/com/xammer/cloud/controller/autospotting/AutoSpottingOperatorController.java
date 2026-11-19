@@ -12,6 +12,7 @@ import com.xammer.cloud.dto.autospotting.v2.SwitchChangeRequest;
 import com.xammer.cloud.dto.autospotting.v2.SwitchDto;
 import com.xammer.cloud.repository.autospotting.SpotOperationRepository;
 import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.service.autospotting.aws.events.AwsEventDlqService;
 import com.xammer.cloud.service.autospotting.core.AutoSpottingApiException;
 import com.xammer.cloud.service.autospotting.core.allowlist.AllowlistOperatorService;
 import com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter.Actor;
@@ -46,7 +47,8 @@ import java.util.UUID;
  * {@code /api/xamops/autospotting-admin}. Super admins and XamOps admins engage switches and pause
  * or resume groups at runtime, without a deploy. The dashboard reads moved in Phase 02 stay on
  * {@code AutoSpottingAdminController} in the same namespace (and keep allowing BillOps admin);
- * the allowlist endpoints (Phase 15, billing basis per DC-11) sit here too, DLQ endpoints in Phase 22.
+ * the allowlist endpoints (Phase 15, billing basis per DC-11) sit here too, and so do the AWS event DLQ
+ * endpoints (Phase 22): a read of the depth and a message summary without bodies, and a replay.
  *
  * <p><strong>Role gate (G1 decision D3 pattern).</strong> The class {@code @PreAuthorize} requires
  * {@code ROLE_SUPER_ADMIN} or {@code ROLE_XAMOPS_ADMIN} <em>and</em>
@@ -77,17 +79,20 @@ public class AutoSpottingOperatorController {
     private final SpotOperationRepository operations;
     private final com.xammer.cloud.service.autospotting.core.IdempotencyService idempotencyService;
     private final AllowlistOperatorService allowlistService;
+    private final AwsEventDlqService dlqService;
 
     public AutoSpottingOperatorController(SwitchOperatorService switchOperatorService,
                                           OperatorGroupService operatorGroupService,
                                           SpotOperationRepository operations,
                                           com.xammer.cloud.service.autospotting.core.IdempotencyService idempotencyService,
-                                          AllowlistOperatorService allowlistService) {
+                                          AllowlistOperatorService allowlistService,
+                                          AwsEventDlqService dlqService) {
         this.switchOperatorService = switchOperatorService;
         this.operatorGroupService = operatorGroupService;
         this.operations = operations;
         this.idempotencyService = idempotencyService;
         this.allowlistService = allowlistService;
+        this.dlqService = dlqService;
     }
 
     @GetMapping("/switches")
@@ -191,6 +196,32 @@ public class AutoSpottingOperatorController {
         requireIdempotencyKey(idempotencyKey);
         allowlistService.remove(cloudAccountId, body.reason(), operatorActor(userDetails));
         return ResponseEntity.noContent().build();
+    }
+    // ── AWS event DLQ (design-aws.md §9.8, core §6.6) ───────────────────────────
+    /** Depth and a summary of the dead-lettered messages (no bodies). AWS only. */
+    @GetMapping("/events/dlq")
+    public ResponseEntity<AwsEventDlqService.Summary> dlq(
+            @RequestParam(value = "provider", defaultValue = "aws") String provider) {
+        requireAws(provider);
+        return ResponseEntity.ok(dlqService.summary());
+    }
+    /** Replay the DLQ into the events queue. One replay at a time (409 {@code REDRIVE_IN_PROGRESS}). */
+    @PostMapping("/events/dlq/redrive")
+    public ResponseEntity<AwsEventDlqService.RedriveResult> redriveDlq(
+            @RequestParam(value = "provider", defaultValue = "aws") String provider,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @Valid @RequestBody ReasonRequest body,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        requireNotImpersonated();
+        requireIdempotencyKey(idempotencyKey);
+        requireAws(provider);
+        return ResponseEntity.ok(dlqService.redrive(body.reason().trim(), operatorActor(userDetails)));
+    }
+    private static void requireAws(String provider) {
+        if (!"aws".equalsIgnoreCase(provider)) {
+            throw new AutoSpottingApiException(org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY,
+                    "CHECK_FAILED", "Only the AWS event queue has a dead-letter queue.");
+        }
     }
     // ── gates shared by every non-GET ───────────────────────────────────────
 

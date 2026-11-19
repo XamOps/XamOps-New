@@ -98,6 +98,8 @@ public class SpotReconciler {
     private final com.xammer.cloud.service.autospotting.core.lease.LeaseProperties leaseProperties;
     private final AutoSpottingMetrics metrics;
     private final Duration stuckThreshold;
+    /** Keeps {@code spot_group_instance} current each sweep (design-aws.md §9.7); absent in the narrow test contexts. */
+    private GroupInstanceIndex instanceIndex;
 
     /** Per-provider staleness and stuck gauges (updated each sweep, published by Micrometer). */
     private final java.util.Map<Provider, AtomicLong> staleness = new java.util.EnumMap<>(Provider.class);
@@ -141,6 +143,12 @@ public class SpotReconciler {
                     stalenessGauge::get);
             metrics.bindReconcilerGauge(AutoSpottingMetrics.OPS_STUCK, provider, stuckGauge::get);
         }
+    }
+
+    /** Optional: the AWS instance index the event listener reads (plan-phase-22.md task 22.3). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setInstanceIndex(GroupInstanceIndex instanceIndex) {
+        this.instanceIndex = instanceIndex;
     }
 
     /**
@@ -281,6 +289,10 @@ public class SpotReconciler {
             reconcilerStore.writeError(group.getId(), null, null, now);
         }
 
+        // The instance index the event listener resolves EC2 events with (aws §9.7). Data only.
+        if (provider == Provider.AWS && instanceIndex != null) {
+            instanceIndex.sync(group, status.healthJson(), now);
+        }
         // Step 4: apply pending switch PAUSE / release first (§6.4), with the GR-06 fenced re-read.
         SwitchState switchState = switchService.readUncached();
         if (switchPauseApplier.pauseEngaged(switchState, group)) {

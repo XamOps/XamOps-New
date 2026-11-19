@@ -104,7 +104,7 @@ class AwsEligibilityEvaluatorTest {
     }
 
     @Test
-    void untilPhase22EveryRegionIsNotCovered() {
+    void aRegionWithoutVerifiedCoverageIsNotCovered() {
         setUp(false, new FakeAws().happyPath(FakeAws.asg("web-asg").build()));
         assertThat(codes(eval(EvalMode.PLAN).blockers())).containsExactly("REGION_NOT_COVERED");
         assertThat(new AwsRegionCoverage().covered(account, "ap-south-1")).isFalse();
