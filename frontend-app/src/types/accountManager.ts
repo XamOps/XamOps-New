@@ -20,6 +20,8 @@ export interface CloudAccount {
   /** Where cost data is read from. Absent on responses from an older backend. */
   billingSource?: 'OWN_EXPORT' | 'XAMMER_CSP_DATASET' | 'XAMMER_EXPORT';
   billingDataAvailable?: boolean | null;
+  /** GCP connect-time check: READ_ONLY, AUTOSPOTTING or READ_WRITE. Null/absent = not checked yet. */
+  gcpAccessType?: 'READ_ONLY' | 'AUTOSPOTTING' | 'READ_WRITE' | null;
 }
 
 export interface GitHubConfig {

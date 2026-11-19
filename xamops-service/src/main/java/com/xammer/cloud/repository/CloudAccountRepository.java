@@ -15,6 +15,7 @@ import java.util.Optional;
 public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long> {
 
     Optional<CloudAccount> findByGcpProjectId(String gcpProjectId);
+    boolean existsByGcpProjectId(String gcpProjectId);
     Optional<CloudAccount> findByExternalId(String externalId);
 
     /**

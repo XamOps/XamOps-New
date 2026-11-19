@@ -586,6 +586,43 @@ public class GcpClientProvider {
         }
     }
 
+    /**
+     * {@code projects.testIamPermissions} with a freshly supplied key: returns the subset of
+     * {@code permissions} the credential holds on the project. Throws on any failure, so the caller
+     * never saves an account it could not check.
+     */
+    public java.util.Set<String> testProjectPermissions(String serviceAccountKey, String projectId,
+            java.util.List<String> permissions) throws IOException {
+        GoogleCredentials credentials = GoogleCredentials
+                .fromStream(new ByteArrayInputStream(serviceAccountKey.getBytes()))
+                .createScoped("https://www.googleapis.com/auth/cloud-platform");
+        ProjectsSettings settings = ProjectsSettings.newBuilder()
+                .setCredentialsProvider(FixedCredentialsProvider.create(credentials))
+                .build();
+        try (ProjectsClient client = ProjectsClient.create(settings)) {
+            return new java.util.HashSet<>(client.testIamPermissions(
+                    com.google.iam.v1.TestIamPermissionsRequest.newBuilder()
+                            .setResource("projects/" + projectId)
+                            .addAllPermissions(permissions)
+                            .build()).getPermissionsList());
+        }
+    }
+
+    /** Credential source for a connected account (design-gcp.md §10.4). Only {@code KEY} exists until the pool is approved. */
+    public static GcpAuthMode authModeOf(CloudAccount account) {
+        String m = account == null ? null : account.getGcpAuthMode();
+        return GcpAuthMode.fromColumn(m);
+    }
+
+    /**
+     * Confused-deputy guard for an impersonation connect: the service-account description must carry the
+     * per-attempt nonce ({@code xamops-connect:<nonce>}). Unused while keyless is off.
+     */
+    public static boolean nonceMatches(String expectedNonce, String serviceAccountDescription) {
+        return expectedNonce != null && !expectedNonce.isBlank() && serviceAccountDescription != null
+                && serviceAccountDescription.contains("xamops-connect:" + expectedNonce);
+    }
+
     public Optional<SQLAdmin> getSqlAdminClient(String gcpProjectId) {
         try {
             Optional<GoogleCredentials> credsOpt = getCredentials(gcpProjectId);

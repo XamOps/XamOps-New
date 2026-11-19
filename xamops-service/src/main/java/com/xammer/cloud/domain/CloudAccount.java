@@ -100,6 +100,13 @@ public class CloudAccount {
 
     @Column(name = "gcp_billing_account_id")
     private String gcpBillingAccountId;
+    /** GCP credential source: {@code KEY} (default) or {@code IMPERSONATION} (keyless, not offered yet). */
+    @Column(name = "gcp_auth_mode", length = 16, nullable = false,
+            columnDefinition = "VARCHAR(16) NOT NULL DEFAULT 'KEY'")
+    private String gcpAuthMode = "KEY";
+    /** {@code READ_ONLY}, {@code AUTOSPOTTING} or {@code READ_WRITE}, from the connect-time permission check. Null = not checked yet. */
+    @Column(name = "gcp_access_type", length = 16)
+    private String gcpAccessType;
 
     @Column(name = "azure_tenant_id")
     private String azureTenantId;

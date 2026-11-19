@@ -244,6 +244,25 @@ class GcpEligibilityEvaluatorTest {
     }
 
     @Test
+    void storedReadOnlyTypeBlocksAndAnOutdatedRoleIsReportedOnlyForCheckedProjects() {
+        FakeGcp gcp = FakeGcp.healthy();
+        CloudAccount ro = account();
+        ro.setGcpAccessType("READ_ONLY");
+        assertThat(codes(evaluator(gcp, false).evaluate(ro, gcp.view(), KEY, null, null, conservative, EvalMode.PLAN,
+                new HashMap<>()).result().blockers())).contains("GCP_ACCOUNT_READ_ONLY").doesNotContain("GCP_ROLE_OUTDATED");
+        // The fake holds the 7 permissions of the plan check, not the 14 of role v1: outdated for a checked project.
+        CloudAccount as = account();
+        as.setGcpAccessType("AUTOSPOTTING");
+        assertThat(codes(evaluator(gcp, false).evaluate(as, gcp.view(), KEY, null, null, conservative, EvalMode.PLAN,
+                new HashMap<>()).result().blockers())).contains("GCP_ROLE_OUTDATED");
+        FakeGcp full = FakeGcp.healthy();
+        full.grantedProject.addAll(GcpAccessValidator.currentRolePermissions());
+        assertThat(codes(evaluator(full, false).evaluate(as, full.view(), KEY, null, null, conservative, EvalMode.PLAN,
+                new HashMap<>()).result().blockers())).doesNotContain("GCP_ROLE_OUTDATED");
+        // Null type (not checked yet): never runs the check.
+        assertThat(codes(plan(FakeGcp.healthy()).blockers())).doesNotContain("GCP_ROLE_OUTDATED");
+    }
+    @Test
     void noReadinessGateForALoadBalancedMigWithoutAutohealing() {
         EligibilityResult blocked = with(g -> g.backendServices.add(backend(g)));
         assertThat(codes(blocked.blockers())).contains("GCP_NO_READINESS_GATE");

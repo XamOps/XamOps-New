@@ -570,7 +570,10 @@ public class AccountManagerController {
         try {
             CloudAccount savedAccount = gcpDataService.createGcpAccount(gcpAccountRequestDto, client);
             grantSubUserAccess(userDetails, savedAccount);
-            return ResponseEntity.ok(Map.of("message", "GCP Account added successfully."));
+            return ResponseEntity.ok(Map.of("message", "GCP Account added successfully.",
+                    "gcpAccessType", String.valueOf(savedAccount.getGcpAccessType())));
+        } catch (com.xammer.cloud.service.gcp.GcpProjectAlreadyConnectedException e) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
@@ -615,6 +618,7 @@ public class AccountManagerController {
         dto.setCspManaged(account.isCspManaged());
         dto.setBillingSource(account.resolveBillingSource().name());
         dto.setBillingDataAvailable(account.getBillingDataAvailable());
+        dto.setGcpAccessType(account.getGcpAccessType());
         return dto;
     }
 

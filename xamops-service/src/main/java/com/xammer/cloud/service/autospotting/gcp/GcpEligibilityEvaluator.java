@@ -304,6 +304,18 @@ public class GcpEligibilityEvaluator {
         } else {
             deferred.add(deferred("GCP_PERMISSION"));
         }
+        // 15b. GCP_ROLE_OUTDATED: a checked AutoSpotting project whose custom role lacks part of the current
+        // version (xamops-as-role v1 = 14 permissions). Null access type (not checked yet) never runs it.
+        if (fresh && roleCheckApplies(account)) {
+            Sig<Boolean> outdated = attempt(() -> {
+                Set<String> granted = view.reads().testIamPermissions(GcpAccessValidator.currentRolePermissions());
+                return !granted.containsAll(GcpAccessValidator.currentRolePermissions());
+            });
+            if (outdated instanceof Sig.Ok<Boolean> o && o.value()) {
+                blockers.add(blocker("GCP_ROLE_OUTDATED", "The XamOps custom role in this project is older than this version "
+                        + "expects. Re-run the setup script with --refresh to update it, then plan again."));
+            }
+        }
         // 16. GCP_ACCOUNT_READ_ONLY: a null access type never blocks reads.
         if (readOnlyAccount(account)) {
             blockers.add(blocker("GCP_ACCOUNT_READ_ONLY", "This project was connected read-only, so XamOps can't change its groups."));
@@ -480,8 +492,15 @@ public class GcpEligibilityEvaluator {
         return groups;
     }
 
-    /** A project connected read-only. A null access type never blocks (the column lands in Phase 29). */
+    static boolean roleCheckApplies(CloudAccount account) {
+        String t = account.getGcpAccessType();
+        return GcpAccessValidator.AUTOSPOTTING.equals(t) || GcpAccessValidator.READ_WRITE.equals(t);
+    }
+    /** A project connected read-only. A null access type never blocks reads. */
     static boolean readOnlyAccount(CloudAccount account) {
+        if (GcpAccessValidator.READ_ONLY.equals(account.getGcpAccessType())) {
+            return true;
+        }
         String t = account.getAccessType();
         if (t == null) {
             return false;

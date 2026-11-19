@@ -151,6 +151,7 @@ public class GcpDataService {
     private boolean assetInventoryEnabled;
 
     private final GcpAssetInventoryService gcpAssetInventoryService;
+    private final com.xammer.cloud.service.autospotting.gcp.GcpAccessValidator gcpAccessValidator;
 
     public GcpDataService(GcpClientProvider gcpClientProvider,
             GcpCostService gcpCostService,
@@ -161,7 +162,8 @@ public class GcpDataService {
             CachedDataRepository cachedDataRepository,
             TransactionTemplate transactionTemplate,
             RedisCacheService redisCache,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            com.xammer.cloud.service.autospotting.gcp.GcpAccessValidator gcpAccessValidator) {
         this.gcpClientProvider = gcpClientProvider;
         this.gcpCostService = gcpCostService;
         this.gcpOptimizationService = gcpOptimizationService;
@@ -172,6 +174,7 @@ public class GcpDataService {
         this.transactionTemplate = transactionTemplate;
         this.objectMapper = objectMapper;
         this.redisCache = redisCache;
+        this.gcpAccessValidator = gcpAccessValidator;
     }
 
     private Map<String, double[]> loadRegionCoordinates() {
@@ -1073,6 +1076,17 @@ public class GcpDataService {
             if (validationError.isPresent()) {
                 throw new RuntimeException(validationError.get());
             }
+            if (cloudAccountRepository.existsByGcpProjectId(projectId)) {
+                throw new GcpProjectAlreadyConnectedException(projectId);
+            }
+            // testIamPermissions (FR-ONB-04): a credential missing part of the read set is refused here,
+            // before anything is saved. Keyless stays off, so the mode is always KEY.
+            com.xammer.cloud.service.autospotting.gcp.GcpAccessValidator.Result access =
+                    gcpAccessValidator.validate(request.getServiceAccountKey(), projectId);
+            if (access.roleOutdated()) {
+                log.warn("GCP project {} holds an older xamopsAutoSpotting role than the code expects; missing {}",
+                        projectId, access.missingFromCurrentRole());
+            }
 
             // Create CloudAccount entity
             CloudAccount account = new CloudAccount();
@@ -1084,6 +1098,8 @@ public class GcpDataService {
 
             // GCP specific fields
             account.setGcpProjectId(projectId);
+            account.setGcpAuthMode(GcpAuthMode.KEY.name());
+            account.setGcpAccessType(access.accessType());
             account.setGcpServiceAccountEmail(serviceAccountEmail);
             account.setGcpServiceAccountKey(request.getServiceAccountKey());
             account.setGcpWorkloadIdentityPoolId(request.getGcpWorkloadIdentityPoolId());
@@ -1151,6 +1167,8 @@ public class GcpDataService {
 
             return savedAccount;
 
+        } catch (GcpProjectAlreadyConnectedException e) {
+            throw e;
         } catch (Exception e) {
             log.error("❌ Failed to create GCP account: {}", e.getMessage(), e);
             throw new RuntimeException("Failed to create GCP account: " + e.getMessage());
