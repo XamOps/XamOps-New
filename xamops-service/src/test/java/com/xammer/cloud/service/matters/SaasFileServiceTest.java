@@ -291,7 +291,8 @@ class SaasFileServiceTest {
         verify(apiClient, never()).hashLineageTimeline(eq(CREDENTIAL), anyString(), anyInt());
         assertThat(copies.available()).isTrue();
         assertThat(copies.copies()).extracting(SaasFileCopies.Copy::fileName).containsExactly("Plan Draft.docx");
-        assertThat(copies.locations()).isEqualTo(1);
+        // Plan C20: Locations is the vendor's summary.locations (2 in COPIES_BODY).
+        assertThat(copies.locations()).isEqualTo(2);
     }
 
     @Test

@@ -168,7 +168,7 @@ public class SaasDrawerMapper {
                 upper(DrawerJson.string(source, "drive_type")),
                 DrawerJson.string(source, "account_name"),
                 DrawerJson.string(overview, "owner"),
-                DrawerJson.string(overview, "category_label"),
+                DatastoreLabels.categoryChipLabel(DrawerJson.string(overview, "category_label")),
                 DrawerJson.string(overview, "subcategory_label"),
                 longOrNull(overview, "size"),
                 structured.isBoolean() ? structured.booleanValue() : null,
@@ -326,13 +326,16 @@ public class SaasDrawerMapper {
 
     /**
      * File Copies and Related Files from {@code /api/v2/hash-lineage/copies}: every copy but the opened
-     * file's own, in API order. {@code locations} counts their distinct lanes (GAP-60).
+     * file's own, in API order. {@code locations} is the vendor's {@code data.summary.locations} when it is a
+     * non-negative integer, else the distinct lanes of every copy, the opened file's included (plan C20).
      */
     public SaasFileCopies toCopies(JsonNode copiesBody, String fileId) {
         List<SaasFileCopies.Copy> copies = new ArrayList<>();
         Set<String> locations = new HashSet<>();
-        for (CopyLane copy : copyLanes(copiesBody.path("data"), fileId)) {
+        JsonNode data = copiesBody.path("data");
+        for (CopyLane copy : copyLanes(data, fileId)) {
             SaasFileLineage.Lane lane = copy.lane();
+            locations.add(copy.locationKey());
             if (lane.self()) {
                 continue;
             }
@@ -345,9 +348,11 @@ public class SaasDrawerMapper {
                     DrawerJson.string(copy.copy(), "path"), lane.driveType(), lane.os(), lane.provider(),
                     lane.channelLabel(), DatastoreLabels.copyLocationLabel(copy.source(), lane.driveType(), lane.os()),
                     lane.ownerName(), lane.ownerEmail(), userOrDevice));
-            locations.add(copy.locationKey());
         }
-        return new SaasFileCopies(true, copies, locations.size());
+        JsonNode summaryLocations = data.path("summary").path("locations");
+        int count = summaryLocations.isIntegralNumber() && summaryLocations.canConvertToInt()
+                && summaryLocations.intValue() >= 0 ? summaryLocations.intValue() : locations.size();
+        return new SaasFileCopies(true, copies, count);
     }
 
     /** Every {@code data.copies[]} item [200], in API order, through {@link #copyLane}. */
@@ -476,8 +481,8 @@ public class SaasDrawerMapper {
         return null;
     }
 
-    /** The first field of {@code node} that holds text. */
-    private static String firstText(JsonNode node, String... fields) {
+    /** The first field of {@code node} that holds text. Package-private: {@code FilesPageMapper} reads events too. */
+    static String firstText(JsonNode node, String... fields) {
         for (String field : fields) {
             String text = DrawerJson.string(node, field);
             if (text != null) {
@@ -487,8 +492,8 @@ public class SaasDrawerMapper {
         return null;
     }
 
-    /** The first field of {@code node} that is present and not JSON null. */
-    private static JsonNode firstPresent(JsonNode node, String... fields) {
+    /** The first field of {@code node} that is present and not JSON null. Package-private, as {@link #firstText}. */
+    static JsonNode firstPresent(JsonNode node, String... fields) {
         for (String field : fields) {
             JsonNode value = node.path(field);
             if (!value.isMissingNode() && !value.isNull()) {

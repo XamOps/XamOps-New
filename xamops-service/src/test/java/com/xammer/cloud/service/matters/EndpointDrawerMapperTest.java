@@ -268,10 +268,11 @@ class EndpointDrawerMapperTest {
                  "total": 2}
                 """), 0, 10);
         assertThat(page.rows()).containsExactly(
-                new EndpointFilePage.File("Setup Guide.PDF", "pdf", "/Users/synthetic/Docs/Setup Guide.PDF", "ROBIN",
-                        204800L, 4, List.of("Personal"), "It & Technical", "System Documentation", List.of(),
-                        1789725004L),
-                new EndpointFilePage.File("bare", null, null, null, null, 0, List.of(), null, null, List.of(), null));
+                new EndpointFilePage.File(null, "Setup Guide.PDF", "pdf", "/Users/synthetic/Docs/Setup Guide.PDF",
+                        "ROBIN", 204800L, 4, List.of("Personal"), "It & Technical", "System Documentation", List.of(),
+                        1789725004L, 1700000004L),
+                new EndpointFilePage.File(null, "bare", null, null, null, null, 0, List.of(), null, null, List.of(),
+                        null, null));
         assertThat(page.total()).isEqualTo(2);
         assertThat(serialise(page)).doesNotContain(MARKER).doesNotContain("1700000001")
                 .doesNotContain("1700000003");
@@ -299,5 +300,30 @@ class EndpointDrawerMapperTest {
         assertThat(page.total()).isEqualTo(7);
         assertThat(serialise(page)).doesNotContain(MARKER);
         assertThat(mapper.toScanPage(parse("{}"), 10, 10).total()).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("file page: a UUID id lower-cased, other ids null; zero and negative times null; Other and the "
+            + "structured-data placeholder read as no category")
+    void filePageIdsTimesAndOther() {
+        EndpointFilePage page = mapper.toFilePage(parse("""
+                {"data": [
+                  {"id": "0000AAAA-0000-4000-8000-00000000000C", "name": "a.txt", "fileModifiedTime": -62135596800,
+                   "updatedAt": 1789725300, "category": "Other", "subcategory": "Other"},
+                  {"id": "0000aaaa00004000800000000000000c", "name": "b.txt", "fileModifiedTime": 0, "updatedAt": 0,
+                   "category": "Doc Cls Not Supported for Structured Data",
+                   "subcategory": "Doc Cls Not Supported for Structured Data"},
+                  {"id": 42, "name": "c.txt", "fileModifiedTime": 1789725004, "updatedAt": "2026-09-10T09:15:00Z",
+                   "category": "financial", "subcategory": "travel receipts"}]}
+                """), 0, 10);
+        assertThat(page.rows()).extracting(EndpointFilePage.File::id)
+                .containsExactly("0000aaaa-0000-4000-8000-00000000000c", null, null);
+        assertThat(page.rows()).extracting(EndpointFilePage.File::modifiedAt).containsExactly(null, null, 1789725004L);
+        assertThat(page.rows()).extracting(EndpointFilePage.File::scannedAt)
+                .containsExactly(1789725300L, null, Instant.parse("2026-09-10T09:15:00Z").getEpochSecond());
+        assertThat(page.rows()).extracting(EndpointFilePage.File::categoryLabel)
+                .containsExactly(null, null, "Financial");
+        assertThat(page.rows()).extracting(EndpointFilePage.File::documentClassLabel)
+                .containsExactly(null, null, "Travel Receipts");
     }
 }

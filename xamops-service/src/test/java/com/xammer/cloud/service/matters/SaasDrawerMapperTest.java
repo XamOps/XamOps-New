@@ -464,7 +464,7 @@ class SaasDrawerMapperTest {
         SaasFileCopies copies = mapper.toCopies(parse(COPIES), DRIVE_DOCX);
         assertThat(copies.available()).isTrue();
         assertThat(copies.copies()).extracting(SaasFileCopies.Copy::key).containsExactly("copy-0", "copy-2", "copy-3");
-        assertThat(copies.locations()).isEqualTo(2);
+        assertThat(copies.locations()).isEqualTo(3);
         assertThat(copies.copies().get(0)).isEqualTo(new SaasFileCopies.Copy("copy-0", "Plan Draft.pdf", "pdf", null,
                 "GMAIL", null, "GOOGLE_WORKSPACE", "Gmail", "SaaS \u00B7 Gmail", "Robin Vale", "robin@example.test",
                 "robin@example.test"));
@@ -476,11 +476,39 @@ class SaasDrawerMapperTest {
 
         SaasFileCopies fromGmail = mapper.toCopies(parse(COPIES), GMAIL_PDF);
         assertThat(fromGmail.copies()).extracting(SaasFileCopies.Copy::key).containsExactly("copy-1", "copy-2", "copy-3");
-        assertThat(fromGmail.locations()).isEqualTo(1);
+        assertThat(fromGmail.locations()).isEqualTo(3);
 
         assertThat(serialise(copies)).doesNotContain(MARKER).doesNotContain("https://").doesNotContain("origin")
                 .doesNotContain("do-").doesNotContain("res-").doesNotContain("bbbbbbbb").doesNotContain("summary");
         assertThat(SaasFileCopies.unavailable()).isEqualTo(new SaasFileCopies(false, List.of(), 0));
+    }
+
+    @Test
+    @DisplayName("copies without a usable summary: locations counts the distinct lanes of every copy, self included")
+    void copiesWithoutSummary() {
+        String noSummary = COPIES.replace("\"summary\": {\"locations\": 3, \"total_events\": 0},", "");
+        assertThat(noSummary).doesNotContain("summary");
+        assertThat(mapper.toCopies(parse(noSummary), DRIVE_DOCX).locations()).isEqualTo(2);
+        assertThat(mapper.toCopies(parse(noSummary), GMAIL_PDF).locations()).isEqualTo(2);
+
+        String negative = COPIES.replace("\"locations\": 3", "\"locations\": -1");
+        assertThat(mapper.toCopies(parse(negative), DRIVE_DOCX).locations()).isEqualTo(2);
+        String text = COPIES.replace("\"locations\": 3", "\"locations\": \"3\"");
+        assertThat(mapper.toCopies(parse(text), DRIVE_DOCX).locations()).isEqualTo(2);
+        String zero = COPIES.replace("\"locations\": 3", "\"locations\": 0");
+        assertThat(mapper.toCopies(parse(zero), DRIVE_DOCX).locations()).isZero();
+    }
+
+    @Test
+    @DisplayName("file overview Category: each word's first letter upper-cased, the rest kept")
+    void overviewCategoryChipLabel() {
+        for (String[] pair : new String[][]{{"other", "Other"}, {"it & technical", "It & Technical"},
+                {"IT & Technical", "IT & Technical"}, {"Field Notes", "Field Notes"},
+                {"QA and Release", "QA And Release"}}) {
+            String body = "{\"overview\": {\"name\": \"a.pdf\", \"category_label\": \"" + pair[0] + "\"}}";
+            assertThat(mapper.toFileOverview(parse(body)).categoryLabel()).isEqualTo(pair[1]);
+        }
+        assertThat(mapper.toFileOverview(parse("{\"overview\": {\"name\": \"a.pdf\"}}")).categoryLabel()).isNull();
     }
 
     @Test

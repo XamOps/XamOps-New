@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.UnaryOperator;
+import java.util.regex.Pattern;
 
 import static com.xammer.cloud.service.matters.DatastoreRowMapper.longOr;
 import static com.xammer.cloud.service.matters.DatastoreRowMapper.longOrNull;
@@ -44,6 +45,14 @@ public class EndpointDrawerMapper {
     static final int MAX_TAGS = 20;
     static final int MAX_TAG_LENGTH = 128;
     static final int MAX_SAMPLES = 20;
+
+    /** The vendor's placeholder category and class for structured files, shown as no value (plan C6). */
+    static final String NOT_SUPPORTED_DOCUMENT_CLASS = "Doc Cls Not Supported for Structured Data";
+    /** The vendor's catch-all category and class, shown as no value in the endpoint file tables (plan item 3). */
+    private static final String OTHER = "Other";
+
+    private static final Pattern UUID = Pattern.compile(
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
 
     /**
      * {@code …/overview}. {@code id}, {@code os} and {@code os_type} (the header icon comes from the list
@@ -249,9 +258,12 @@ public class EndpointDrawerMapper {
     }
 
     /**
-     * {@code …/files}: one page of the File View or a document class's files. Category and document class
-     * in title case, the File View's spelling (GAP-51). {@code sampleMatches}, {@code sensitiveEntities},
-     * {@code id}, {@code dataHash} and the other timestamps are never read.
+     * {@code …/files} and {@code /agent/files}: one page of the File View, a document class's files or the
+     * Files page Endpoint tab. Category and document class in title case, the File View's spelling (GAP-51);
+     * "Other" and the structured-data placeholder read as null. {@code id} is kept when it is a UUID, for the
+     * Endpoint file drawer; a non-positive {@code fileModifiedTime} (Go's zero time, G5) is null; {@code updatedAt}
+     * is the Last Scanned time. {@code sampleMatches}, {@code sensitiveEntities}, {@code dataHash} and the other
+     * timestamps are never read.
      */
     public EndpointFilePage toFilePage(JsonNode body, int skip, int limit) {
         List<EndpointFilePage.File> rows = new ArrayList<>();
@@ -266,17 +278,20 @@ public class EndpointDrawerMapper {
                     labels.add(DatastoreLabels.sensitiveCategoryLabel(code));
                 }
             }
-            rows.add(new EndpointFilePage.File(DrawerJson.string(item, "name"),
+            String id = DrawerJson.string(item, "id");
+            rows.add(new EndpointFilePage.File(id != null && UUID.matcher(id).matches() ? lower(id) : null,
+                    DrawerJson.string(item, "name"),
                     lower(DrawerJson.string(item, "extension")),
                     DrawerJson.string(item, "path"),
                     DrawerJson.string(item, "currentUser"),
                     longOrNull(item, "size"),
                     longOr(item, "sensitiveEntitiesCount", 0L),
                     labels,
-                    DatastoreLabels.titleCase(DrawerJson.string(item, "category")),
-                    DatastoreLabels.titleCase(DrawerJson.string(item, "subcategory")),
+                    DatastoreLabels.titleCase(shownCategory(DrawerJson.string(item, "category"))),
+                    DatastoreLabels.titleCase(shownCategory(DrawerJson.string(item, "subcategory"))),
                     DrawerJson.strings(item.path("tags"), MAX_TAGS, MAX_TAG_LENGTH),
-                    DrawerJson.epochSeconds(item.path("fileModifiedTime"))));
+                    positive(DrawerJson.epochSeconds(item.path("fileModifiedTime"))),
+                    positive(DrawerJson.epochSeconds(item.path("updatedAt")))));
         }
         return new EndpointFilePage(rows, skip, limit, total(body, "total", skip, rows.size()));
     }
@@ -300,6 +315,16 @@ public class EndpointDrawerMapper {
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────────────────────────
+
+    /** Null for "Other" and the structured-data placeholder, which the file tables show as "-". */
+    private static String shownCategory(String value) {
+        return OTHER.equals(value) || NOT_SUPPORTED_DOCUMENT_CLASS.equals(value) ? null : value;
+    }
+
+    /** Null unless positive: the vendor's zero time and a missing time look the same. */
+    private static Long positive(Long epochSeconds) {
+        return epochSeconds != null && epochSeconds > 0 ? epochSeconds : null;
+    }
 
     /** The elements of an array; nothing for any other node. */
     private static Iterable<JsonNode> items(JsonNode array) {

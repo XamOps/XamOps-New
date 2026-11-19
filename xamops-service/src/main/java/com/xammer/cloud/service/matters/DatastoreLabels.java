@@ -150,6 +150,37 @@ public final class DatastoreLabels {
      */
     private static final Set<String> ENDPOINT_SOURCES = Set.of("ENDPOINT", "ENDPOINT_AGENT");
 
+    // Files page (plan C4, C5, C7, C12, C18): the console's wording.
+    private static final Map<String, String> SHARING_MODES = Map.of(
+            "PUBLIC", "Anyone with the link",
+            "EXTERNAL", "Externally Shared",
+            "INTERNAL", "Internally Shared",
+            "PRIVATE", "Private");
+    private static final Map<String, String> SHARING_FILTERS = Map.of(
+            "internal", "Shared Internally",
+            "external", "Shared Externally",
+            "public", "Shared Publicly");
+    private static final Map<String, String> LAST_MODIFIED = Map.of(
+            "48h", "Last 48 hours",
+            "7d", "Last 7 days",
+            "30d", "Last 30 days");
+    private static final Map<String, String> APP_TYPES = Map.of(
+            "ONE_DRIVE", "OneDrive",
+            "SHARE_POINT", "SharePoint",
+            "OUTLOOK", "Outlook",
+            "GOOGLE_WORKSPACE", "Google Drive",
+            "GMAIL", "Gmail",
+            "JIRA", "Jira",
+            "CONFLUENCE", "Confluence",
+            "GITLAB", "GitLab",
+            "SLACK", "Slack");
+    private static final Map<String, String> MIP_ACTIONS = Map.of(
+            "TAG_APPLIED", "Tag applied",
+            "TAG_CHANGED", "Tag changed",
+            "TAG_REMOVED", "Tag removed",
+            "TAG_SKIPPED", "Tag skipped",
+            "USER_OVERRIDE", "User override");
+
     // ── list ─────────────────────────────────────────────────────────────────────────────────────
 
     /** FR-FLT-6: S3 → S3, SELF_HOSTED_POSTGRES → PostgreSQL (self-hosted); else title case. */
@@ -433,6 +464,74 @@ public final class DatastoreLabels {
             return null;
         }
         return KNOWN_UPPER_EXTENSIONS.contains(key) ? key.toUpperCase(Locale.ROOT) : capitalise(key);
+    }
+
+    // ── Files page ───────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * A category or document class chip (plan C10, the console chip's CSS capitalize): each space-separated
+     * word's first letter upper-cased, the rest kept. "other" → "Other", "it &amp; technical" → "It &amp;
+     * Technical", "QA and Release" → "QA And Release"; null when blank.
+     */
+    public static String categoryChipLabel(String value) {
+        return words(value, word -> Character.toUpperCase(word.charAt(0)) + word.substring(1));
+    }
+
+    /** A SaaS row's sharing mode (plan C7): PUBLIC "Anyone with the link" … PRIVATE "Private". */
+    public static String sharingModeLabel(String code) {
+        return lookup(SHARING_MODES, code);
+    }
+
+    /** The Sharing Mode filter's options (plan C4): internal "Shared Internally" …; null for any other value. */
+    public static String sharingFilterLabel(String value) {
+        return value == null ? null : SHARING_FILTERS.get(value);
+    }
+
+    /** The Last Modified filter's options: 48h "Last 48 hours", 7d "Last 7 days", 30d "Last 30 days". */
+    public static String lastModifiedLabel(String value) {
+        return value == null ? null : LAST_MODIFIED.get(value);
+    }
+
+    /** A SaaS row's app (plan C12): GOOGLE_WORKSPACE → Google Drive, GITLAB → GitLab; others prettified. */
+    public static String appTypeLabel(String code) {
+        return lookup(APP_TYPES, code);
+    }
+
+    /** The App Type filter's label (plan C5): as {@link #appTypeLabel}, but GITLAB reads "Gitlab". */
+    public static String appTypeOptionLabel(String code) {
+        String key = code(code);
+        return "GITLAB".equals(key) ? "Gitlab" : appTypeLabel(key);
+    }
+
+    /** A MIP audit action (plan C18): TAG_APPLIED → "Tag applied" …; any other code as it is. */
+    public static String mipActionLabel(String code) {
+        String key = code(code);
+        if (key == null) {
+            return null;
+        }
+        String label = MIP_ACTIONS.get(key);
+        return label != null ? label : code;
+    }
+
+    /**
+     * A data element filter option (plan C6): sentence case within each {@code _}-separated part, "EMAIL
+     * ADDRESS" → "Email address"; null when blank.
+     */
+    public static String dataElementOptionLabel(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String[] parts = value.trim().split("_", -1);
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < parts.length; i++) {
+            if (i > 0) {
+                out.append('_');
+            }
+            if (!parts[i].isEmpty()) {
+                out.append(capitalise(parts[i]));
+            }
+        }
+        return out.toString();
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────────────────────────

@@ -160,4 +160,68 @@ class DatastoreLabelsTest {
         assertThat(DatastoreLabels.agentStatusLabel("ONLINE")).isEqualTo("Online");
         assertThat(DatastoreLabels.deviceTypeLabel("laptop")).isEqualTo("Laptop");
     }
+
+    @Test
+    @DisplayName("categoryChipLabel: each word's first letter upper-cased, the rest kept; null when blank")
+    void categoryChipLabel() {
+        assertThat(DatastoreLabels.categoryChipLabel("other")).isEqualTo("Other");
+        assertThat(DatastoreLabels.categoryChipLabel("it & technical")).isEqualTo("It & Technical");
+        assertThat(DatastoreLabels.categoryChipLabel("IT & Technical")).isEqualTo("IT & Technical");
+        assertThat(DatastoreLabels.categoryChipLabel("Media R&D")).isEqualTo("Media R&D");
+        assertThat(DatastoreLabels.categoryChipLabel("QA and Release")).isEqualTo("QA And Release");
+        assertThat(DatastoreLabels.categoryChipLabel("travel receipts")).isEqualTo("Travel Receipts");
+        assertThat(DatastoreLabels.categoryChipLabel(" ")).isNull();
+        assertThat(DatastoreLabels.categoryChipLabel(null)).isNull();
+    }
+
+    @Test
+    @DisplayName("sharing modes, the Sharing Mode filter and Last Modified read as the console writes them")
+    void sharingAndLastModified() {
+        assertThat(DatastoreLabels.sharingModeLabel("PUBLIC")).isEqualTo("Anyone with the link");
+        assertThat(DatastoreLabels.sharingModeLabel("EXTERNAL")).isEqualTo("Externally Shared");
+        assertThat(DatastoreLabels.sharingModeLabel("INTERNAL")).isEqualTo("Internally Shared");
+        assertThat(DatastoreLabels.sharingModeLabel("PRIVATE")).isEqualTo("Private");
+        assertThat(DatastoreLabels.sharingFilterLabel("internal")).isEqualTo("Shared Internally");
+        assertThat(DatastoreLabels.sharingFilterLabel("external")).isEqualTo("Shared Externally");
+        assertThat(DatastoreLabels.sharingFilterLabel("public")).isEqualTo("Shared Publicly");
+        assertThat(DatastoreLabels.sharingFilterLabel("any")).isNull();
+        assertThat(DatastoreLabels.lastModifiedLabel("48h")).isEqualTo("Last 48 hours");
+        assertThat(DatastoreLabels.lastModifiedLabel("7d")).isEqualTo("Last 7 days");
+        assertThat(DatastoreLabels.lastModifiedLabel("30d")).isEqualTo("Last 30 days");
+        assertThat(DatastoreLabels.lastModifiedLabel(null)).isNull();
+    }
+
+    @Test
+    @DisplayName("app types: the nine labels, GitLab in a row and Gitlab in the filter, others prettified")
+    void appTypes() {
+        assertThat(DatastoreLabels.appTypeLabel("ONE_DRIVE")).isEqualTo("OneDrive");
+        assertThat(DatastoreLabels.appTypeLabel("SHARE_POINT")).isEqualTo("SharePoint");
+        assertThat(DatastoreLabels.appTypeLabel("OUTLOOK")).isEqualTo("Outlook");
+        assertThat(DatastoreLabels.appTypeLabel("google_workspace")).isEqualTo("Google Drive");
+        assertThat(DatastoreLabels.appTypeLabel("GMAIL")).isEqualTo("Gmail");
+        assertThat(DatastoreLabels.appTypeLabel("JIRA")).isEqualTo("Jira");
+        assertThat(DatastoreLabels.appTypeLabel("CONFLUENCE")).isEqualTo("Confluence");
+        assertThat(DatastoreLabels.appTypeLabel("GITLAB")).isEqualTo("GitLab");
+        assertThat(DatastoreLabels.appTypeLabel("SLACK")).isEqualTo("Slack");
+        assertThat(DatastoreLabels.appTypeLabel("BOX_DRIVE")).isEqualTo("Box Drive");
+        assertThat(DatastoreLabels.appTypeLabel(null)).isNull();
+        assertThat(DatastoreLabels.appTypeOptionLabel("GITLAB")).isEqualTo("Gitlab");
+        assertThat(DatastoreLabels.appTypeOptionLabel("GOOGLE_WORKSPACE")).isEqualTo("Google Drive");
+    }
+
+    @Test
+    @DisplayName("MIP actions and data element options")
+    void mipActionsAndDataElements() {
+        assertThat(DatastoreLabels.mipActionLabel("TAG_APPLIED")).isEqualTo("Tag applied");
+        assertThat(DatastoreLabels.mipActionLabel("TAG_CHANGED")).isEqualTo("Tag changed");
+        assertThat(DatastoreLabels.mipActionLabel("TAG_REMOVED")).isEqualTo("Tag removed");
+        assertThat(DatastoreLabels.mipActionLabel("TAG_SKIPPED")).isEqualTo("Tag skipped");
+        assertThat(DatastoreLabels.mipActionLabel("USER_OVERRIDE")).isEqualTo("User override");
+        assertThat(DatastoreLabels.mipActionLabel("LABEL_SYNCED")).isEqualTo("LABEL_SYNCED");
+        assertThat(DatastoreLabels.mipActionLabel(null)).isNull();
+        assertThat(DatastoreLabels.dataElementOptionLabel("EMAIL ADDRESS")).isEqualTo("Email address");
+        assertThat(DatastoreLabels.dataElementOptionLabel("BADGE NUMBER")).isEqualTo("Badge number");
+        assertThat(DatastoreLabels.dataElementOptionLabel("AWS_ACCESS KEY")).isEqualTo("Aws_Access key");
+        assertThat(DatastoreLabels.dataElementOptionLabel("")).isNull();
+    }
 }
