@@ -209,6 +209,36 @@ public final class DatastoreCacheKeys {
         return key("dsmisconf", clientId, "all");
     }
 
+    // ── Data Lineage page ────────────────────────────────────────────────────────────────────────
+
+    /** {@code dspm:lnopts:<c>:all}: the exposure filter options snapshot. */
+    public static String lineageOptions(Long clientId) {
+        return key("lnopts", clientId, "all");
+    }
+
+    /** {@code dspm:lncats:<c>:all}: the category cards with their counts. */
+    public static String lineageCategories(Long clientId) {
+        return key("lncats", clientId, "all");
+    }
+
+    /** {@code dspm:lnpol:<c>:<category>:<sha256 hex>}: one page of a category's policies. */
+    public static String lineagePolicies(Long clientId, ExposureCategory category, LineageRowQuery query) {
+        return key("lnpol", clientId, category.name() + ":" + sha256Hex(query.canonicalFragment()));
+    }
+
+    /** {@code dspm:lnds:<c>:<policyId>:<sha256 hex>}: one page of a policy's datastores. */
+    public static String lineageDatastores(Long clientId, String policyId, LineageRowQuery query) {
+        return key("lnds", clientId, policyId + ":" + sha256Hex(query.canonicalFragment()));
+    }
+
+    /**
+     * {@code dspm:lnfiles:<c>:<exposureId>:<skip>-<limit>}: one page of an exposure's files. The two numbers
+     * are joined by {@code -}, as in {@link #endpointScans}.
+     */
+    public static String lineageFiles(Long clientId, String exposureId, int skip, int limit) {
+        return key("lnfiles", clientId, exposureId + ":" + skip + "-" + limit);
+    }
+
     // ── eviction ─────────────────────────────────────────────────────────────────────────────────
 
     /** The glob {@code MattersDspmService.evictClient} sweeps; it matches every key above. */

@@ -4,6 +4,7 @@ import com.xammer.cloud.controller.DspmAdminController;
 import com.xammer.cloud.controller.DspmController;
 import com.xammer.cloud.controller.DspmDatastoreController;
 import com.xammer.cloud.controller.DspmEndpointController;
+import com.xammer.cloud.controller.DspmLineageController;
 import com.xammer.cloud.controller.DspmMisconfigurationController;
 import com.xammer.cloud.controller.DspmSaasController;
 import com.xammer.cloud.security.XamLensAccessDeniedException;
@@ -42,7 +43,7 @@ import java.util.Map;
  */
 @RestControllerAdvice(assignableTypes = {DspmController.class, DspmAdminController.class,
         DspmDatastoreController.class, DspmSaasController.class, DspmEndpointController.class,
-        DspmMisconfigurationController.class})
+        DspmMisconfigurationController.class, DspmLineageController.class})
 @Order(Ordered.HIGHEST_PRECEDENCE)
 @Slf4j
 public class MattersExceptionHandler {

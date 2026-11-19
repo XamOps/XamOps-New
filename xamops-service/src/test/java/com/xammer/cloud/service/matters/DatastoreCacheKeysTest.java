@@ -19,6 +19,8 @@ class DatastoreCacheKeysTest {
     private static final String SOURCE_ID = "0123456789abcdef01234567";
     private static final String UUID = "0000000a-0000-4000-8000-00000000000b";
     private static final String FILE_ID = "abcdef0123456789abcdef01";
+    /** Non-numeric, so it cannot read as another client's id (build 4 plan A-1). */
+    private static final String EXPOSURE_ID = "exposure-one";
 
     private static MultiValueMap<String, String> params(String... pairs) {
         MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
@@ -73,7 +75,15 @@ class DatastoreCacheKeysTest {
                         new EndpointFileQuery(EndpointFilters.NONE, null, 1, 11)),
                 DatastoreCacheKeys.endpointScans(clientId, SOURCE_ID, 1, 11),
                 DatastoreCacheKeys.endpointScans(clientId, SOURCE_ID, 110, 99),
-                DatastoreCacheKeys.misconfigurations(clientId));
+                DatastoreCacheKeys.misconfigurations(clientId),
+                DatastoreCacheKeys.lineageOptions(clientId),
+                DatastoreCacheKeys.lineageCategories(clientId),
+                DatastoreCacheKeys.lineagePolicies(clientId, ExposureCategory.SENSITIVE_FINDINGS,
+                        new LineageRowQuery("plan", 1, 11, LineageFilters.NONE)),
+                DatastoreCacheKeys.lineageDatastores(clientId, UUID,
+                        new LineageRowQuery(null, 110, 7, LineageFilters.NONE)),
+                DatastoreCacheKeys.lineageFiles(clientId, EXPOSURE_ID, 1, 11),
+                DatastoreCacheKeys.lineageFiles(clientId, EXPOSURE_ID, 110, 99));
     }
 
     @Test
@@ -262,6 +272,44 @@ class DatastoreCacheKeysTest {
                         new EndpointFileQuery(EndpointFilters.NONE, null, 10, 10)));
         assertThat(DatastoreCacheKeys.endpointScans(CLIENT, SOURCE_ID, 1, 10))
                 .isNotEqualTo(DatastoreCacheKeys.endpointScans(CLIENT, SOURCE_ID, 11, 0));
+    }
+
+    // ── build 4: Data Lineage keys (design 5.8) ──────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("Data Lineage keys have the design 5.8 shape, the files page joined by '-'")
+    void lineageKeyShapes() {
+        LineageRowQuery query = new LineageRowQuery(null, 0, 7, LineageFilters.NONE);
+        assertThat(DatastoreCacheKeys.lineageOptions(CLIENT)).isEqualTo("dspm:lnopts:10:all");
+        assertThat(DatastoreCacheKeys.lineageCategories(CLIENT)).isEqualTo("dspm:lncats:10:all");
+        assertThat(DatastoreCacheKeys.lineagePolicies(CLIENT, ExposureCategory.STALE_DATA, query))
+                .matches("^dspm:lnpol:10:STALE_DATA:[0-9a-f]{64}$")
+                .endsWith(DatastoreCacheKeys.sha256Hex(query.canonicalFragment()));
+        assertThat(DatastoreCacheKeys.lineageDatastores(CLIENT, UUID, query))
+                .matches("^dspm:lnds:10:" + UUID + ":[0-9a-f]{64}$")
+                .endsWith(DatastoreCacheKeys.sha256Hex(query.canonicalFragment()));
+        assertThat(DatastoreCacheKeys.lineageFiles(CLIENT, EXPOSURE_ID, 14, 7))
+                .isEqualTo("dspm:lnfiles:10:" + EXPOSURE_ID + ":14-7");
+    }
+
+    @Test
+    @DisplayName("no search text or filter value reaches a Data Lineage key; filters and pages separate keys")
+    void noNeedleInALineageKey() {
+        LineageFilters filters = LineageFilters.parse(params("severity", "NEEDLE_SEV",
+                "datastoreName_exclude", "needle-store", "label", "needle-label"), LineageFilters.POLICY_DIMENSIONS);
+        LineageRowQuery query = new LineageRowQuery("needle-search", 0, 7, filters);
+        List<String> keys = List.of(
+                DatastoreCacheKeys.lineagePolicies(CLIENT, ExposureCategory.SENSITIVE_FINDINGS, query),
+                DatastoreCacheKeys.lineageDatastores(CLIENT, UUID, query));
+
+        assertThat(keys).allSatisfy(key -> assertThat(key).doesNotContainIgnoringCase("needle"));
+        assertThat(DatastoreCacheKeys.lineagePolicies(CLIENT, ExposureCategory.SENSITIVE_FINDINGS, query))
+                .isNotEqualTo(DatastoreCacheKeys.lineagePolicies(CLIENT, ExposureCategory.SENSITIVE_FINDINGS,
+                        new LineageRowQuery("needle-search", 0, 7, LineageFilters.NONE)));
+        assertThat(DatastoreCacheKeys.lineageDatastores(CLIENT, UUID, new LineageRowQuery(null, 0, 7, null)))
+                .isNotEqualTo(DatastoreCacheKeys.lineageDatastores(CLIENT, UUID, new LineageRowQuery(null, 7, 7, null)));
+        assertThat(DatastoreCacheKeys.lineageFiles(CLIENT, EXPOSURE_ID, 1, 10))
+                .isNotEqualTo(DatastoreCacheKeys.lineageFiles(CLIENT, EXPOSURE_ID, 11, 0));
     }
 
     @Test
