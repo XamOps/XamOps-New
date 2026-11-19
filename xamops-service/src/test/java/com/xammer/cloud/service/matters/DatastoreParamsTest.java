@@ -32,6 +32,25 @@ class DatastoreParamsTest {
     }
 
     @Test
+    @DisplayName("policyId is 1 to 128 letters, digits, '_', '-' or '.', kept as given; the message never echoes it")
+    void policyId() {
+        for (String valid : new String[]{"p-0123456789abcdef", "snake_case_rule", "a.b-c_d", "P-ABC", "x"}) {
+            assertThat(DatastoreParams.isPolicyId(valid)).isTrue();
+            assertThat(DatastoreParams.policyId(valid)).isEqualTo(valid);
+        }
+        assertThat(DatastoreParams.policyId("a" + "b".repeat(127))).hasSize(128);
+        for (String invalid : new String[]{null, "", "a".repeat(129), "-leading", "p/1", "p 1", "p%2F1", "../p"}) {
+            assertThat(DatastoreParams.isPolicyId(invalid)).isFalse();
+            assertThatThrownBy(() -> DatastoreParams.policyId(invalid))
+                    .isInstanceOfSatisfying(DspmBadRequestException.class, e -> {
+                        assertThat(e.parameter()).isEqualTo("policyId");
+                        assertThat(e.getMessage())
+                                .isEqualTo("policyId must be 1 to 128 letters, digits, '_', '-' or '.'");
+                    });
+        }
+    }
+
+    @Test
     @DisplayName("Data Flow ids are canonical UUIDs, lower-cased, and the error names the parameter")
     void uuid() {
         assertThat(DatastoreParams.uuid("schemaId", "0000000A-0000-4000-8000-00000000000B"))

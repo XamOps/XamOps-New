@@ -45,6 +45,8 @@ public final class DatastoreParams {
     private static final Pattern SOURCE_ID = Pattern.compile("^[0-9a-fA-F]{24}$");
     private static final Pattern UUID = Pattern.compile(
             "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
+    /** A misconfiguration policy id: {@code p-} plus 16 hex today, snake_case words on some rules. */
+    private static final Pattern POLICY_ID = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$");
 
     private DatastoreParams() {
     }
@@ -112,6 +114,20 @@ public final class DatastoreParams {
             throw new DspmBadRequestException(parameter, parameter + " must be a UUID");
         }
         return raw.toLowerCase(Locale.ROOT);
+    }
+
+    /** True when the text is a policy id {@link #policyId} accepts. */
+    public static boolean isPolicyId(String raw) {
+        return raw != null && POLICY_ID.matcher(raw).matches();
+    }
+
+    /** A misconfiguration's vendor {@code policy_id}: 1 to 128 letters, digits, '_', '-' or '.', as given. */
+    public static String policyId(String raw) {
+        if (!isPolicyId(raw)) {
+            throw new DspmBadRequestException("policyId",
+                    "policyId must be 1 to 128 letters, digits, '_', '-' or '.'");
+        }
+        return raw;
     }
 
     // ── paging ───────────────────────────────────────────────────────────────────────────────────

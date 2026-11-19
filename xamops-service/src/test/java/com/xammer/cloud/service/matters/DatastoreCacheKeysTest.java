@@ -72,7 +72,8 @@ class DatastoreCacheKeysTest {
                 DatastoreCacheKeys.endpointFiles(clientId, SOURCE_ID,
                         new EndpointFileQuery(EndpointFilters.NONE, null, 1, 11)),
                 DatastoreCacheKeys.endpointScans(clientId, SOURCE_ID, 1, 11),
-                DatastoreCacheKeys.endpointScans(clientId, SOURCE_ID, 110, 99));
+                DatastoreCacheKeys.endpointScans(clientId, SOURCE_ID, 110, 99),
+                DatastoreCacheKeys.misconfigurations(clientId));
     }
 
     @Test
@@ -261,6 +262,16 @@ class DatastoreCacheKeysTest {
                         new EndpointFileQuery(EndpointFilters.NONE, null, 10, 10)));
         assertThat(DatastoreCacheKeys.endpointScans(CLIENT, SOURCE_ID, 1, 10))
                 .isNotEqualTo(DatastoreCacheKeys.endpointScans(CLIENT, SOURCE_ID, 11, 0));
+    }
+
+    @Test
+    @DisplayName("the Misconfigurations snapshot key is dspm:dsmisconf:<c>:all and its client's glob evicts it")
+    void misconfigurationsKey() {
+        assertThat(DatastoreCacheKeys.misconfigurations(CLIENT)).isEqualTo("dspm:dsmisconf:10:all");
+        assertThat(globMatches(DatastoreCacheKeys.evictionPattern(CLIENT), DatastoreCacheKeys.misconfigurations(CLIENT)))
+                .isTrue();
+        assertThat(globMatches(DatastoreCacheKeys.evictionPattern(11L), DatastoreCacheKeys.misconfigurations(CLIENT)))
+                .isFalse();
     }
 
     @Test

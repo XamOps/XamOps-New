@@ -13,6 +13,7 @@ import com.xammer.cloud.service.matters.DatastoreDataFlowService;
 import com.xammer.cloud.service.matters.DatastoreDrawerService;
 import com.xammer.cloud.service.matters.DatastoreListService;
 import com.xammer.cloud.service.matters.EndpointDrawerService;
+import com.xammer.cloud.service.matters.MisconfigurationService;
 import com.xammer.cloud.service.matters.SaasDrawerService;
 import com.xammer.cloud.service.matters.SaasFileService;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,7 +55,8 @@ class DspmDatastoreUnauthenticatedTest {
     @Configuration
     @EnableWebMvc
     @Import({SecurityConfig.class, ImpersonationJwtFilter.class, TrialEnforcementFilter.class,
-            DspmDatastoreController.class, DspmSaasController.class, DspmEndpointController.class})
+            DspmDatastoreController.class, DspmSaasController.class, DspmEndpointController.class,
+            DspmMisconfigurationController.class})
     static class TestConfig {
     }
 
@@ -72,6 +74,8 @@ class DspmDatastoreUnauthenticatedTest {
     private SaasFileService saasFileService;
     @MockitoBean
     private EndpointDrawerService endpointDrawerService;
+    @MockitoBean
+    private MisconfigurationService misconfigurationService;
 
     @MockitoBean
     private UserRepository userRepository;
@@ -135,5 +139,23 @@ class DspmDatastoreUnauthenticatedTest {
                 .andExpect(status().isUnauthorized());
 
         verifyNoInteractions(guard, endpointDrawerService);
+    }
+
+    @Test
+    @DisplayName("the Misconfigurations list returns 401 and the controller is never reached")
+    void misconfigurationListIsAuthenticated() throws Exception {
+        mvc.perform(get("/api/dspm/misconfigurations"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(guard, misconfigurationService);
+    }
+
+    @Test
+    @DisplayName("a Misconfigurations policy returns 401 and the controller is never reached")
+    void misconfigurationDetailIsAuthenticated() throws Exception {
+        mvc.perform(get("/api/dspm/misconfigurations/policies/p-0123456789abcdef"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(guard, misconfigurationService);
     }
 }

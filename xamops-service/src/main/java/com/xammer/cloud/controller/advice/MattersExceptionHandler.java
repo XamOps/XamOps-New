@@ -4,6 +4,7 @@ import com.xammer.cloud.controller.DspmAdminController;
 import com.xammer.cloud.controller.DspmController;
 import com.xammer.cloud.controller.DspmDatastoreController;
 import com.xammer.cloud.controller.DspmEndpointController;
+import com.xammer.cloud.controller.DspmMisconfigurationController;
 import com.xammer.cloud.controller.DspmSaasController;
 import com.xammer.cloud.security.XamLensAccessDeniedException;
 import com.xammer.cloud.service.matters.DspmBadRequestException;
@@ -40,7 +41,8 @@ import java.util.Map;
  * it. The status comes from the reason itself, so it cannot drift between endpoints.
  */
 @RestControllerAdvice(assignableTypes = {DspmController.class, DspmAdminController.class,
-        DspmDatastoreController.class, DspmSaasController.class, DspmEndpointController.class})
+        DspmDatastoreController.class, DspmSaasController.class, DspmEndpointController.class,
+        DspmMisconfigurationController.class})
 @Order(Ordered.HIGHEST_PRECEDENCE)
 @Slf4j
 public class MattersExceptionHandler {

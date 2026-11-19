@@ -23,6 +23,9 @@ import java.util.HexFormat;
  * {@link EndpointFileQuery#canonicalFragment()} (build 2, design 5.8). Every other key holds only the
  * client id, a validated 24-hex source or file id or UUID, a vendor page number, a validated skip and
  * limit, or a fixed word.
+ *
+ * <p>{@link #misconfigurations} ({@code dspm:dsmisconf:<clientId>:all}, build 5) holds the project-wide
+ * Misconfigurations snapshot aggregated from every cloud and on-prem datastore's issues.
  */
 public final class DatastoreCacheKeys {
 
@@ -197,6 +200,13 @@ public final class DatastoreCacheKeys {
      */
     public static String endpointScans(Long clientId, String agentId, int skip, int limit) {
         return key("dsepscans", clientId, agentId + ":" + skip + "-" + limit);
+    }
+
+    // ── Misconfigurations ────────────────────────────────────────────────────────────────────────
+
+    /** {@code dspm:dsmisconf:<c>:all}: the per-policy snapshot behind the Misconfigurations page. */
+    public static String misconfigurations(Long clientId) {
+        return key("dsmisconf", clientId, "all");
     }
 
     // ── eviction ─────────────────────────────────────────────────────────────────────────────────
