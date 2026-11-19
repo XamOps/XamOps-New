@@ -567,6 +567,7 @@ const AppContent: React.FC = () => {
                             <Route path="/xamsecure/:tab" element={<XamSecurePage />} />
                             <Route path="/xamlens" element={<Navigate to="/xamlens/datastores/all" replace />} />
                             <Route path="/xamlens/datastores/:datastoreTab" element={<XamLensPage />} />
+                            <Route path="/xamlens/files/:filesTab" element={<XamLensPage />} />
                             <Route path="/xamlens/:tab" element={<XamLensPage />} />
                             <Route path="/gcp-security" element={<GcpSecurityPage />} />
                             <Route path="/azure-security" element={<AzureSecurityPage />} />

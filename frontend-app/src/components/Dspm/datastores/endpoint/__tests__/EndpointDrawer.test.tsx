@@ -132,9 +132,9 @@ function occurrencePage(url: URL): EndpointOccurrencePage {
 
 /** The air4 shape: user as returned, size base 1024, title-cased category and class, no tags. */
 const AIR4_SHAPED: EndpointFileRow = {
-  name: 'deploy-checklist.md', extension: 'md', path: '/Users/tester/projects/demo/deploy-checklist.md', user: 'APPLE',
+  id: null, name: 'deploy-checklist.md', extension: 'md', path: '/Users/tester/projects/demo/deploy-checklist.md', user: 'APPLE',
   sizeBytes: 327_062, sensitiveCount: 1, labels: ['Personal'], categoryLabel: 'It & Technical',
-  documentClassLabel: 'System Documentation', tags: [], modifiedAt: local(2026, 10, 26, 11, 36),
+  documentClassLabel: 'System Documentation', tags: [], modifiedAt: local(2026, 10, 26, 11, 36), scannedAt: null,
 };
 
 function filePage(url: URL, total = 23): EndpointFilePage {
@@ -143,9 +143,9 @@ function filePage(url: URL, total = 23): EndpointFilePage {
     const n = skip + i + 1;
     if (n === 1) return AIR4_SHAPED;
     return {
-      name: `report-${n}.txt`, extension: 'txt', path: `/Users/tester/projects/demo/report-${n}.txt`, user: null,
+      id: null, name: `report-${n}.txt`, extension: 'txt', path: `/Users/tester/projects/demo/report-${n}.txt`, user: null,
       sizeBytes: null, sensitiveCount: 0, labels: [], categoryLabel: null, documentClassLabel: null, tags: ['internal'],
-      modifiedAt: null,
+      modifiedAt: null, scannedAt: null,
     };
   });
   return { rows, skip, limit, total };

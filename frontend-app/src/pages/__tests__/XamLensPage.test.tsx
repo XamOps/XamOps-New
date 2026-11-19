@@ -17,6 +17,9 @@ vi.mock('../../components/Dspm/misconfigurations/MisconfigurationsPage', () => (
 vi.mock('../../components/Dspm/lineage/DataLineagePage', () => ({
   default: () => <div data-testid="data-lineage-page" />,
 }));
+vi.mock('../../components/Dspm/files/FilesPage', () => ({
+  default: ({ tab }: { tab: string }) => <div data-testid="files-page">{tab}</div>,
+}));
 
 import apiClient from '../../utils/apiClient';
 import { TopbarProvider } from '../../contexts/TopbarContext';
@@ -39,6 +42,7 @@ function renderAt(url: string) {
         <Routes>
           <Route path="/xamlens" element={<Navigate to="/xamlens/datastores/all" replace />} />
           <Route path="/xamlens/datastores/:datastoreTab" element={<XamLensPage />} />
+          <Route path="/xamlens/files/:filesTab" element={<XamLensPage />} />
           <Route path="/xamlens/:tab" element={<XamLensPage />} />
         </Routes>
         <LocationProbe />
@@ -89,6 +93,20 @@ describe('XamLensPage routing', () => {
     expect(await screen.findByTestId('misconfigurations-page')).toHaveTextContent('true');
     expect(screen.queryByTestId('datastores-page')).toBeNull();
     expect(screen.getByTestId('location')).toHaveTextContent('/xamlens/misconfigurations');
+  });
+
+  it.each(['/xamlens/files', '/xamlens/files/foo'])('sends %s to the SaaS Files tab', async url => {
+    renderAt(url);
+    expect(await screen.findByTestId('files-page')).toHaveTextContent('saas');
+    expect(screen.getByTestId('location')).toHaveTextContent('/xamlens/files/saas');
+    expect(screen.queryByTestId('datastores-page')).toBeNull();
+  });
+
+  it.each(['saas', 'endpoint'])('renders the Files tab %s in place', async tab => {
+    renderAt(`/xamlens/files/${tab}`);
+    expect(await screen.findByTestId('files-page')).toHaveTextContent(tab);
+    expect(screen.getByTestId('location')).toHaveTextContent(`/xamlens/files/${tab}`);
+    expect(screen.queryByTestId('datastores-page')).toBeNull();
   });
 
   it('renders the status page on /xamlens/connection', async () => {

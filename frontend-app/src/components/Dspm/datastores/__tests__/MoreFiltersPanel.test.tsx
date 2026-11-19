@@ -69,3 +69,16 @@ describe('MoreFiltersPanel placement', () => {
     expect(screen.getByRole('dialog', { name: 'More filters' }).style.left).toBe('-4px');
   });
 });
+
+describe('MoreFiltersPanel defaults', () => {
+  it('has no heading, no Include / Exclude select in local mode and checkbox options without the new props', async () => {
+    renderPanel();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'More filters' }));
+    const dialog = screen.getByRole('dialog', { name: 'More filters' });
+    expect(dialog.querySelector('h3')).toBeNull();
+    expect(dialog.className).not.toContain('flex-col');
+    expect(screen.queryByRole('combobox', { name: 'Include or exclude' })).toBeNull();
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(screen.getByRole('checkbox', { name: 'Personal' })).toBeInTheDocument();
+  });
+});

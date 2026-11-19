@@ -2,10 +2,13 @@ import React, { useEffect } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useDspmStatus } from '../hooks/useDspmData';
-import { LEGACY_XAMLENS_SEGMENTS, XAMLENS_HOME, datastoreTab } from '../constants/xamlensTabs';
+import {
+  LEGACY_XAMLENS_SEGMENTS, XAMLENS_FILES_HOME, XAMLENS_HOME, datastoreTab, filesTab,
+} from '../constants/xamlensTabs';
 import PoweredByProvider from '../components/XamSecure/PoweredByProvider';
 import DatastoresPage from '../components/Dspm/datastores/DatastoresPage';
 import MisconfigurationsPage from '../components/Dspm/misconfigurations/MisconfigurationsPage';
+import FilesPage from '../components/Dspm/files/FilesPage';
 import DspmStatusTab from '../components/Dspm/DspmStatusTab';
 import DataLineagePage from '../components/Dspm/lineage/DataLineagePage';
 
@@ -18,13 +21,15 @@ import DataLineagePage from '../components/Dspm/lineage/DataLineagePage';
  * Source / Account filter is the equivalent control. There is no account guard here for the same
  * reason, which also means a customer without cloud accounts can still use it.
  *
- * Routes: `/xamlens/datastores/:datastoreTab` is the Datastores page; `/xamlens/misconfigurations` the
+ * Routes: `/xamlens/datastores/:datastoreTab` is the Datastores page; `/xamlens/files/:filesTab` the
+ * Files page (`/xamlens/files` and an unknown tab land on SaaS); `/xamlens/misconfigurations` the
  * Misconfigurations page; `/xamlens/data-lineage` the Data Lineage page; `/xamlens/connection` the
  * connection status. The old `/xamlens/cloud`, `/saas` and `/endpoint` links land on the matching
  * Datastores tab, and any other segment on All.
  */
 const XamLensPage: React.FC = () => {
-  const { tab, datastoreTab: datastoreSlug } = useParams<{ tab?: string; datastoreTab?: string }>();
+  const { tab, datastoreTab: datastoreSlug, filesTab: filesSlug } =
+    useParams<{ tab?: string; datastoreTab?: string; filesTab?: string }>();
   const { setTitle, setTitleAdornment } = useTopbar();
   // Fetched once per visit rather than per tab: the route element is reused across tab changes.
   const { status, statusLoading, reloadStatus } = useDspmStatus();
@@ -36,13 +41,18 @@ const XamLensPage: React.FC = () => {
     return () => { setTitle(null); setTitleAdornment(null); };
   }, [setTitle, setTitleAdornment]);
 
+  const filesDef = filesSlug === undefined ? undefined : filesTab(filesSlug);
+  if (filesSlug !== undefined && !filesDef) return <Navigate to={XAMLENS_FILES_HOME} replace />;
+  if (filesSlug === undefined && datastoreSlug === undefined && tab === 'files') {
+    return <Navigate to={XAMLENS_FILES_HOME} replace />;
+  }
   const def = datastoreSlug === undefined ? undefined : datastoreTab(datastoreSlug);
   if (datastoreSlug !== undefined && !def) return <Navigate to={XAMLENS_HOME} replace />;
 
   const connection = datastoreSlug === undefined && tab === 'connection';
   const misconfigurations = datastoreSlug === undefined && tab === 'misconfigurations';
   const lineage = datastoreSlug === undefined && tab === 'data-lineage';
-  if (datastoreSlug === undefined && !connection && !misconfigurations && !lineage) {
+  if (datastoreSlug === undefined && !connection && !misconfigurations && !lineage && !filesDef) {
     const legacy = tab !== undefined && Object.prototype.hasOwnProperty.call(LEGACY_XAMLENS_SEGMENTS, tab)
       ? LEGACY_XAMLENS_SEGMENTS[tab]
       : undefined;
@@ -61,6 +71,9 @@ const XamLensPage: React.FC = () => {
         )}
         {!statusLoading && status && misconfigurations && (
           <MisconfigurationsPage status={status} onRetry={reloadStatus} />
+        )}
+        {!statusLoading && status && filesDef && (
+          <FilesPage tab={filesDef.slug} status={status} onRetry={reloadStatus} />
         )}
         {!statusLoading && status && connection && (
           <DspmStatusTab status={status} onRetry={reloadStatus} />

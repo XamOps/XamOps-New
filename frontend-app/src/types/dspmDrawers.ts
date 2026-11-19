@@ -353,6 +353,8 @@ export interface EndpointOccurrencePage {
 
 /** `EndpointFilePage.File`. No samples. */
 export interface EndpointFileRow {
+  /** The vendor's file id (a UUID), which opens the Endpoint file drawer; null when missing. */
+  id: string | null;
   name: string | null;
   /** The file icon. */
   extension: string | null;
@@ -368,6 +370,8 @@ export interface EndpointFileRow {
   documentClassLabel: string | null;
   tags: string[];
   modifiedAt: number | null;
+  /** Epoch seconds of the file's last scan (the vendor's `updatedAt`), or null. */
+  scannedAt: number | null;
 }
 
 /** `EndpointFilePage`. */

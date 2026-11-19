@@ -229,6 +229,7 @@ function fileRow(source: DemoEndpointSource, file: DemoSourceFile): EndpointFile
   const documentClass = documentClassOf(file);
   const hash = hashOf(file.path ?? file.name);
   return {
+    id: null,
     name: file.name,
     extension: extensionOf(file),
     path: file.path,
@@ -240,6 +241,7 @@ function fileRow(source: DemoEndpointSource, file: DemoSourceFile): EndpointFile
     documentClassLabel: documentClass ? titleCase(documentClass.documentClass) : null,
     tags: TAGS[file.name] ?? [],
     modifiedAt: daysAgo(2 + (hash % 90)),
+    scannedAt: null,
   };
 }
 

@@ -9,9 +9,10 @@
  * deep links redirect to the matching tab. Misconfigurations (`/xamlens/misconfigurations`) sits under the
  * console's "Risks" section, which the sidebar heads above "Data Inventory", as the console does. Risks has
  * only that entry: the console's Alerts, Exposure and DAM pages have no API data.
+ * The Files page (`/xamlens/files/:tab`) lists files by source.
  */
 
-export type XamLensTab = 'misconfigurations' | 'datastores' | 'data-lineage' | 'connection';
+export type XamLensTab = 'misconfigurations' | 'datastores' | 'files' | 'data-lineage' | 'connection';
 
 export interface XamLensTabDef {
   id: XamLensTab;
@@ -28,6 +29,7 @@ export interface XamLensTabDef {
 }
 
 export const XAMLENS_HOME = '/xamlens/datastores/all';
+export const XAMLENS_FILES_HOME = '/xamlens/files/saas';
 
 /** The Data Lineage page; its steps live in the query (`lineageQuery.ts`). */
 export const XAMLENS_LINEAGE_HOME = '/xamlens/data-lineage';
@@ -35,6 +37,7 @@ export const XAMLENS_LINEAGE_HOME = '/xamlens/data-lineage';
 export const XAMLENS_TABS: XamLensTabDef[] = [
   { id: 'misconfigurations', label: 'Misconfigurations', icon: 'fas fa-shield-alt', href: '/xamlens/misconfigurations', activePrefix: '/xamlens/misconfigurations', section: 'Risks' },
   { id: 'datastores', label: 'Datastores', icon: 'fas fa-database', href: XAMLENS_HOME, activePrefix: '/xamlens/datastores', section: 'Data Inventory' },
+  { id: 'files', label: 'Files', icon: 'fas fa-file', href: XAMLENS_FILES_HOME, activePrefix: '/xamlens/files', section: 'Data Inventory' },
   { id: 'data-lineage', label: 'Data Lineage', icon: 'fas fa-diagram-project', href: XAMLENS_LINEAGE_HOME, activePrefix: XAMLENS_LINEAGE_HOME, section: 'Data Inventory' },
   // Connection state. Deep-link only: it matters when something is wrong, not in the healthy path.
   { id: 'connection', label: 'Connection', icon: 'fas fa-circle-nodes', href: '/xamlens/connection', activePrefix: '/xamlens/connection', sidebar: false },
@@ -60,3 +63,10 @@ export const LEGACY_XAMLENS_SEGMENTS: Record<string, DatastoreTabSlug> = { cloud
 
 /** Tab definition for a route segment, or undefined for an unknown one. */
 export const datastoreTab = (slug: string | undefined) => DATASTORE_TABS.find(t => t.slug === slug);
+/** URL segment of a Files tab. */
+export type FilesTabSlug = 'saas' | 'endpoint';
+export const FILES_TABS: ReadonlyArray<{ slug: FilesTabSlug; label: string }> = [
+  { slug: 'saas', label: 'SaaS' }, { slug: 'endpoint', label: 'Endpoint' },
+];
+/** Files tab definition for a route segment, or undefined for an unknown one. */
+export const filesTab = (slug: string | undefined) => FILES_TABS.find(t => t.slug === slug);

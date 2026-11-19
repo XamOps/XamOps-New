@@ -21,7 +21,7 @@ vi.mock('../AccountSelector', () => ({ default: () => <div>Account selector</div
 import Sidebar from '../Sidebar';
 import { ThemeProvider, useTheme } from '../../../contexts/ThemeContext';
 import { XamTabAccessProvider } from '../../../contexts/XamTabAccessContext';
-import { DATASTORE_TABS, XAMLENS_HOME, XAMLENS_LINEAGE_HOME } from '../../../constants/xamlensTabs';
+import { DATASTORE_TABS, XAMLENS_FILES_HOME, XAMLENS_HOME, XAMLENS_LINEAGE_HOME } from '../../../constants/xamlensTabs';
 
 let allowedTabs: string[] = [];
 
@@ -73,6 +73,29 @@ describe('Sidebar XamLens entries', () => {
     },
   );
 
+  it.each(['/xamlens/files/saas', '/xamlens/files/endpoint'])(
+    'lists Datastores then an active Files entry under one DATA INVENTORY label on %s',
+    async url => {
+      renderAt(url);
+      const files = await screen.findByRole('link', { name: 'Files' });
+      const datastores = screen.getByRole('link', { name: 'Datastores' });
+      expect(files).toHaveAttribute('href', XAMLENS_FILES_HOME);
+      expect(files).toHaveAttribute('href', '/xamlens/files/saas');
+      expect(files.className).toContain('font-semibold');
+      expect(datastores.className).not.toContain('font-semibold');
+      expect(screen.getAllByText('Data Inventory')).toHaveLength(1);
+      expect(label().compareDocumentPosition(datastores) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(datastores.compareDocumentPosition(files) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    },
+  );
+
+  it('lists Files, not active, on a Datastores route', async () => {
+    renderAt(XAMLENS_HOME);
+    const files = await screen.findByRole('link', { name: 'Files' });
+    expect(files.className).not.toContain('font-semibold');
+    expect(screen.getByRole('link', { name: 'Datastores' }).className).toContain('font-semibold');
+  });
+
   it.each([
     ['light', false, 'text-[rgba(0,0,0,0.55)]'],
     ['dark', true, 'text-[rgba(255,255,255,0.5)]'],
@@ -117,7 +140,7 @@ describe('Sidebar XamLens entries', () => {
     expect(risksLabel().closest('[aria-hidden="true"]')).not.toBeNull();
   });
 
-  it('puts an active Data Lineage entry directly after Datastores under the one DATA INVENTORY label', async () => {
+  it('puts an active Data Lineage entry directly after Datastores and Files under the one DATA INVENTORY label', async () => {
     renderAt(XAMLENS_LINEAGE_HOME);
     const lineage = await screen.findByRole('link', { name: 'Data Lineage' });
     const datastores = screen.getByRole('link', { name: 'Datastores' });
@@ -128,7 +151,8 @@ describe('Sidebar XamLens entries', () => {
     expect(label().compareDocumentPosition(datastores) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(datastores.compareDocumentPosition(lineage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const links = screen.getAllByRole('link');
-    expect(links[links.indexOf(datastores) + 1]).toBe(lineage);
+    expect(links[links.indexOf(datastores) + 1]).toBe(screen.getByRole('link', { name: 'Files' }));
+    expect(links[links.indexOf(datastores) + 2]).toBe(lineage);
   });
 
   it('folds Data Lineage away off the XamLens routes', async () => {
@@ -145,6 +169,7 @@ describe('Sidebar XamLens entries', () => {
     expect(screen.queryByRole('link', { name: 'Datastores', hidden: true })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Misconfigurations', hidden: true })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Data Lineage', hidden: true })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Files', hidden: true })).toBeNull();
     expect(screen.queryByText('Data Inventory')).toBeNull();
     expect(screen.queryByText('Risks', { selector: 'p' })).toBeNull();
   });
