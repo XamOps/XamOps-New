@@ -18,6 +18,8 @@ public final class FallbackSteps {
     public static final String UPDATE_DISTRIBUTION = "UPDATE_DISTRIBUTION";
     public static final String VERIFY_FALLBACK_APPLIED = "VERIFY_FALLBACK_APPLIED";
     public static final String WAIT_CAPACITY = "WAIT_CAPACITY";
+    /** A provider whose live hash includes the update policy (GCP) refreshes the stored fingerprint when this step is done. */
+    public static final String RESTORE_UPDATE_POLICY = "RESTORE_UPDATE_POLICY";
     public static final String FINGERPRINT = "fallbackFingerprint";
     public static final String CAPACITY = "capacity";
     public static final String SHORT_SINCE = "shortSince";

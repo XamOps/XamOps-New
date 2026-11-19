@@ -61,12 +61,17 @@ public final class PatchMigStep extends GcpStep {
             return failed(ErrorKind.VALIDATION, "TEMPLATE_NOT_REGISTERED", "The Spot template was not registered.");
         }
         ObjectNode policy = GcpRolloutPolicy.xamopsPolicy(g);
-        if (GcpTargets.matches(g, versions) && GcpTargets.policyHas(g.updatePolicy(), policy)) {
+        JsonNode flex = revertFlexibility(g);
+        boolean flexDone = flex == null || flex.equals(g.instanceFlexibilityPolicy());
+        if (GcpTargets.matches(g, versions) && GcpTargets.policyHas(g.updatePolicy(), policy) && flexDone) {
             return done("{\"alreadyApplied\":true}");
         }
         ObjectNode body = JSON.createObjectNode();
         body.set("versions", versions);
         body.set("updatePolicy", policy);
+        if (flex != null) {
+            body.set("instanceFlexibilityPolicy", flex); // a revert restores the snapshot's GCP Spot field too
+        }
         GcpMigClient.Mutating client = services.mutating(account);
         JsonNode op = patch(ctx, view, client, g, body);
         return new StepOutcome.Done("{\"patched\":true}", op.hasNonNull("id") ? java.util.List.of(op.path("id").asText())

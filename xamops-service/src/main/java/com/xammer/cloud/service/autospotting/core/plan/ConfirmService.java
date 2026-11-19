@@ -113,6 +113,8 @@ public class ConfirmService {
     /** The confirm command (controller-resolved; the account is already tenancy-authorized). */
     /** The marker stored in {@code confirm_acks} when the customer confirmed a 100% Spot plan (FR-PLN-04). */
     public static final String FULL_SPOT_OPTIN = "FULL_SPOT_OPTIN";
+    /** GR-03: the 409 code of a GCP revert plan that needs a permission XamOps does not have. */
+    public static final String REVERT_NEEDS_PERMISSION = "REVERT_NEEDS_PERMISSION";
 
     public record ConfirmCommand(int planVersion, List<String> acknowledgedWarningIds, boolean fullSpotOptIn,
                                  String reason, boolean dryRunRequested, String idempotencyKey,
@@ -180,6 +182,14 @@ public class ConfirmService {
                     "The plan changed since you read it. Reload and try again.");
         }
 
+        // GR-03: a GCP revert has no partial safe target that needs fewer permissions than the PATCH itself, so a plan
+        // that carries REVERT_NEEDS_PERMISSION is refused here (retryable: re-plan after the grant). Nothing was
+        // enqueued, so the group keeps its state and fallback and billing carry on.
+        if (revert && provider == Provider.GCP && planNeedsPermission(plan)) {
+            throw new AutoSpottingApiException(HttpStatus.CONFLICT, REVERT_NEEDS_PERMISSION,
+                    "XamOps is missing a permission it needs to revert this group. Grant it, then plan the revert again.",
+                    true, null, null);
+        }
         // 5. Every warning id acknowledged.
         Set<String> required = warningIds(plan);
         Set<String> acked = new HashSet<>(cmd.acknowledgedWarningIds() == null ? List.of() : cmd.acknowledgedWarningIds());
@@ -329,6 +339,20 @@ public class ConfirmService {
         return ids;
     }
 
+    /** True when the plan's eligibility carries a {@code REVERT_NEEDS_PERMISSION} blocker (GCP, GR-03). */
+    private boolean planNeedsPermission(SpotPlan plan) {
+        try {
+            JsonNode body = objectMapper.readTree(plan.getBody() == null ? "{}" : plan.getBody());
+            for (JsonNode blocker : body.path("eligibility").path("blockers")) {
+                if (REVERT_NEEDS_PERMISSION.equals(blocker.path("code").asText())) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+            // an unreadable body carries no such blocker; step 0 of the revert checks the permissions again
+        }
+        return false;
+    }
     /** The first definitive blocker the plan recorded, or null when it has none. */
     private JsonNode firstBlocker(SpotPlan plan) {
         try {

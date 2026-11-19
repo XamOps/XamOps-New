@@ -53,6 +53,12 @@ public final class GcpTargets {
         return out;
     }
 
+    /** The single {@code xas-standard} version of a fallback: the original template, no fixed size (design-gcp.md §7.3). */
+    public static ArrayNode fallbackVersions(String originalTemplate) {
+        ArrayNode out = JSON.createArrayNode();
+        out.addObject().put("name", GcpMigFacts.STANDARD_VERSION).put("instanceTemplate", originalTemplate);
+        return out;
+    }
     /** Version name to the template its instances must run ("" for an unnamed version). */
     public static Map<String, String> expected(ArrayNode versions) {
         Map<String, String> m = new LinkedHashMap<>();

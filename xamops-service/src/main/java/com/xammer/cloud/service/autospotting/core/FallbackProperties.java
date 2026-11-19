@@ -28,7 +28,10 @@ public class FallbackProperties {
     private final Duration stormWindow;
     private final Duration stillShort;
     private final Duration reentryWindow;
-
+    private final Duration tailWaitMax;
+    /** The GCP view ({@code autospotting.gcp.fallback.*}); null on the GCP view itself. */
+    private final FallbackProperties gcp;
+    @org.springframework.beans.factory.annotation.Autowired
     public FallbackProperties(
             @Value("${autospotting.aws.fallback.enter-wait:30m}") Duration enterWait,
             @Value("${autospotting.aws.fallback.max-transitions-per-day:5}") int maxTransitionsPerDay,
@@ -42,7 +45,13 @@ public class FallbackProperties {
             @Value("${autospotting.aws.fallback.storm-fraction:0.30}") double stormFraction,
             @Value("${autospotting.aws.fallback.storm-window:30m}") Duration stormWindow,
             @Value("${autospotting.aws.fallback.still-short:20m}") Duration stillShort,
-            @Value("${autospotting.aws.fallback.reentry-window:30m}") Duration reentryWindow) {
+            @Value("${autospotting.aws.fallback.reentry-window:30m}") Duration reentryWindow,
+            @Value("${autospotting.gcp.fallback.max-transitions-per-day:5}") int gcpMaxTransitionsPerDay,
+            @Value("${autospotting.gcp.fallback.dwell:60m}") Duration gcpDwell,
+            @Value("${autospotting.gcp.fallback.backoff-minutes:60,120,240,480}") String gcpBackoffMinutes,
+            @Value("${autospotting.gcp.fallback.still-short:20m}") Duration gcpStillShort,
+            @Value("${autospotting.gcp.fallback.reentry-window:30m}") Duration gcpReentryWindow,
+            @Value("${autospotting.gcp.fallback.tail-wait-max:2h}") Duration gcpTailWaitMax) {
         this.enterWait = enterWait;
         // The cap must leave room for one enter and one exit, otherwise no group could ever leave FALLBACK.
         this.maxTransitionsPerDay = Math.max(2, maxTransitionsPerDay);
@@ -57,22 +66,44 @@ public class FallbackProperties {
         this.stormWindow = stormWindow;
         this.stillShort = stillShort;
         this.reentryWindow = reentryWindow;
+        this.tailWaitMax = Duration.ofHours(2);
+        this.gcp = new FallbackProperties(this, gcpMaxTransitionsPerDay, gcpDwell, parse(gcpBackoffMinutes),
+                gcpStillShort, gcpReentryWindow, gcpTailWaitMax);
     }
-
+    /** The GCP view: the same knobs read from {@code autospotting.gcp.fallback.*} (design-gcp.md §7.2, DC-07). */
+    private FallbackProperties(FallbackProperties base, int cap, Duration dwell, List<Duration> backoff,
+                               Duration stillShort, Duration reentryWindow, Duration tailWaitMax) {
+        this.enterWait = base.enterWait;
+        this.maxTransitionsPerDay = Math.max(2, cap);
+        this.dwell = dwell;
+        this.minScore = base.minScore;
+        this.backoff = backoff;
+        this.shortfall = base.shortfall;
+        this.launchFailures = base.launchFailures;
+        this.failureWindow = base.failureWindow;
+        this.stormMin = base.stormMin;
+        this.stormFraction = base.stormFraction;
+        this.stormWindow = base.stormWindow;
+        this.stillShort = stillShort;
+        this.reentryWindow = reentryWindow;
+        this.tailWaitMax = tailWaitMax;
+        this.gcp = null;
+    }
     /** The documented defaults (tests and non-Spring callers). */
     public static FallbackProperties defaults() {
-        return new FallbackProperties(Duration.ofMinutes(30), 5, Duration.ofMinutes(60), 7, "60,120,240,480",
-                Duration.ofMinutes(10), 3, Duration.ofMinutes(15), 3, 0.30, Duration.ofMinutes(30),
-                Duration.ofMinutes(20), Duration.ofMinutes(30));
+        return withCap(5);
     }
-
-    /** The defaults with a different daily cap. */
+    /** The defaults with a different daily cap (both clouds). */
     public static FallbackProperties withCap(int cap) {
         return new FallbackProperties(Duration.ofMinutes(30), cap, Duration.ofMinutes(60), 7, "60,120,240,480",
                 Duration.ofMinutes(10), 3, Duration.ofMinutes(15), 3, 0.30, Duration.ofMinutes(30),
-                Duration.ofMinutes(20), Duration.ofMinutes(30));
+                Duration.ofMinutes(20), Duration.ofMinutes(30), cap, Duration.ofMinutes(60), "60,120,240,480",
+                Duration.ofMinutes(20), Duration.ofMinutes(30), Duration.ofHours(2));
     }
-
+    /** The knobs of {@code provider}: AWS is this instance, GCP its {@code autospotting.gcp.fallback.*} view. */
+    public FallbackProperties forProvider(com.xammer.cloud.domain.autospotting.Provider provider) {
+        return provider == com.xammer.cloud.domain.autospotting.Provider.GCP && gcp != null ? gcp : this;
+    }
     private static List<Duration> parse(String minutes) {
         List<Duration> out = new ArrayList<>();
         for (String part : (minutes == null ? "" : minutes).split(",")) {
@@ -104,5 +135,7 @@ public class FallbackProperties {
     public Duration stormWindow() { return stormWindow; }
     public Duration stillShort() { return stillShort; }
     public Duration reentryWindow() { return reentryWindow; }
+    /** GCP only: how long a FALLBACK_ENTER waits for standard capacity before ending CAPACITY_PENDING (DR-24). */
+    public Duration tailWaitMax() { return tailWaitMax; }
     public FallbackCap cap() { return new FallbackCap(maxTransitionsPerDay); }
 }

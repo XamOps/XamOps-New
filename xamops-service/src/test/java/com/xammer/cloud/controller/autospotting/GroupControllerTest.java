@@ -186,6 +186,29 @@ class GroupControllerTest {
     }
 
     @Test
+    void aGcpGroupTheSweepHasPolledShowsItsPreemptionsOfTheLastSevenDays_otherGroupsShowNone() {
+        com.xammer.cloud.repository.autospotting.SpotGroupEventRepository events =
+                mock(com.xammer.cloud.repository.autospotting.SpotGroupEventRepository.class);
+        controller.setEvents(events);
+        CloudAccount a = account("GCP");
+        UUID id = UUID.randomUUID();
+        SpotGroup g = row(id, ACCOUNT_ID);
+        g.setHealthState("{\"preemption\":{\"preemptions24h\":2}}");
+        when(groups.findById(id)).thenReturn(Optional.of(g));
+        when(gcpLister.row(eq(a), any(), eq(g))).thenReturn(Optional.of(list(false).items().get(0)));
+        when(transitions.findByGroupIdOrderByIdAsc(id)).thenReturn(List.of());
+        when(events.countByGroupIdAndEventTypeAndOccurredAtGreaterThanEqual(eq(id), eq("PREEMPTION"), any())).thenReturn(4L);
+        assertThat(controller.detail(ACCOUNT_ID, id, user).getBody().preemptions7d()).isEqualTo(4L);
+        // A group the sweep has not polled yet is "Not tracked", never 0.
+        g.setHealthState(null);
+        assertThat(controller.detail(ACCOUNT_ID, id, user).getBody().preemptions7d()).isNull();
+        // AWS pushes its own events: no figure here.
+        CloudAccount aws = account("AWS");
+        g.setHealthState("{\"preemption\":{}}");
+        when(lister.row(eq(aws), any(), eq(g))).thenReturn(Optional.of(list(false).items().get(0)));
+        assertThat(controller.detail(ACCOUNT_ID, id, user).getBody().preemptions7d()).isNull();
+    }
+    @Test
     void aGroupOfAnotherAccountIs404NotALeak() {
         account("AWS");
         UUID id = UUID.randomUUID();

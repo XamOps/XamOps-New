@@ -2,7 +2,10 @@ package com.xammer.cloud.service.autospotting.gcp.steps;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.autospotting.OperationKind;
 import com.xammer.cloud.service.autospotting.gcp.GcpMigFacts;
+import com.xammer.cloud.service.autospotting.gcp.GcpRevertTarget;
+import com.xammer.cloud.service.autospotting.gcp.GcpTargets;
 import com.xammer.cloud.service.autospotting.gcp.GcpProgram;
 import com.xammer.cloud.service.autospotting.gcp.GcpReadException;
 import com.xammer.cloud.service.autospotting.gcp.GcpReadOnlyView;
@@ -130,6 +133,37 @@ abstract class GcpStep implements Step {
         return g.versions().isEmpty() ? null : g.versions().get(0).instanceTemplate();
     }
 
+    /** True when the §4.4 success test passes against this program's target right now (used where a wait may have been cut short). */
+    protected boolean rolloutComplete(GcpReadOnlyView view, GcpMigFacts g) {
+        com.fasterxml.jackson.databind.node.ArrayNode versions = targetVersions(g);
+        if (versions == null) {
+            return false;
+        }
+        java.time.Instant now = services.clock().instant();
+        var managed = view.reads().listManagedInstances(g.regional(), g.location(), g.name());
+        var o = com.xammer.cloud.service.autospotting.gcp.GcpVersionTargetEvaluator.Observation.of(now, g, managed,
+                java.util.List.of());
+        var target = new com.xammer.cloud.service.autospotting.gcp.GcpVersionTargetEvaluator.Target(GcpTargets.expected(versions),
+                GcpTargets.floorOf(versions));
+        var asStable = new com.xammer.cloud.service.autospotting.gcp.GcpVersionTargetEvaluator.State(now, now, -1,
+                now.minus(com.xammer.cloud.service.autospotting.gcp.GcpVersionTargetEvaluator.STABLE_GAP));
+        return services.rollout().evaluate(o, target, asStable,
+                com.xammer.cloud.service.autospotting.gcp.GcpVersionTargetEvaluator.Mode.LENIENT)
+                instanceof com.xammer.cloud.service.autospotting.gcp.GcpVersionTargetEvaluator.Done;
+    }
+
+    /** The snapshot {@code instanceFlexibilityPolicy} a REVERT restores, or null (never for another kind). */
+    protected JsonNode revertFlexibility(GcpMigFacts g) {
+        if (program.kind() != OperationKind.REVERT) {
+            return null;
+        }
+        CloudAccount account = account().orElse(null);
+        if (account == null) {
+            return null;
+        }
+        return GcpRevertTarget.resolve(services, program, services.view(account), g).flexibility();
+    }
+
     /** The region of a regional template self-link, or null for a global one. */
     protected static String regionOf(String templateLink) {
         java.util.regex.Matcher m = java.util.regex.Pattern.compile("/regions/([^/]+)/instanceTemplates/").matcher(templateLink);
@@ -154,6 +188,24 @@ abstract class GcpStep implements Step {
 
     /** The {@code versions[]} this program drives the MIG to; null when the Spot template is not registered yet. */
     protected com.fasterxml.jackson.databind.node.ArrayNode targetVersions(GcpMigFacts g) {
+        OperationKind kind = program.kind();
+        if (kind == OperationKind.REVERT) {
+            CloudAccount account = account().orElse(null);
+            if (account == null) {
+                return null;
+            }
+            GcpRevertTarget.Resolved r = GcpRevertTarget.resolve(services, program, services.view(account), g);
+            return r.failure() == null ? r.versions() : null;
+        }
+        if (kind == OperationKind.FALLBACK_ENTER || (kind == OperationKind.FALLBACK_EXIT && program.compensation())) {
+            String original = originalTemplate(g);
+            return original == null ? null : GcpTargets.fallbackVersions(original);
+        }
+        if (kind == OperationKind.FALLBACK_EXIT) {
+            String original = originalTemplate(g);
+            return services.registry().latestSpot(program.groupId()).filter(r -> original != null)
+                    .map(r -> GcpTargets.versions(program, original, r.selfLink())).orElse(null);
+        }
         if (program.compensation()) {
             return com.xammer.cloud.service.autospotting.gcp.GcpTargets.versions(program, null, null);
         }

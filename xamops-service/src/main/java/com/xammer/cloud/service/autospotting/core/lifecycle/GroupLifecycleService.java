@@ -146,6 +146,15 @@ public class GroupLifecycleService {
     }
 
     /**
+     * Re-store {@code fallback_fingerprint} in its own fenced transaction. A provider whose live hash includes
+     * something its fallback changes after the group is already in FALLBACK (GCP's update policy) calls this through
+     * the runner once that change is final, so the drift check compares the hash the group really has.
+     */
+    public void refreshFallbackFingerprint(LeaseHandle handle, SpotGroup group, String fallbackFingerprint) {
+        fencedTx.run(handle, () -> lifecycle.setFallbackFingerprint(group.getId(), fallbackFingerprint));
+    }
+
+    /**
      * The plan-driven exceptions of §2.3 (PLANNED on plan creation and on plan expiry): a group with
      * no op has no lease holder, so lock the row with {@code SELECT ... FOR UPDATE} under the same
      * guard, then apply. Runs in a new transaction so the row lock is scoped to this unit of work.

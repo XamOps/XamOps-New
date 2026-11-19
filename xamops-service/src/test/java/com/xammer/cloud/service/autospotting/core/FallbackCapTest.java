@@ -49,7 +49,8 @@ class FallbackCapTest {
     @EnumSource(Provider.class)
     void overASimulatedUtcDayAtMostCapTransitionsAndEveryNeededEnterRuns(Provider provider) {
         int capValue = 5;
-        FallbackCap cap = new FallbackCap(capValue);
+        FallbackCap cap = FallbackProperties.withCap(capValue).forProvider(provider).cap();
+        assertThat(cap.cap()).as(provider + " cap").isEqualTo(capValue);
         List<Instant> starts = new ArrayList<>();
         boolean inFallback = false;
         int neededEnters = 0;
@@ -88,6 +89,16 @@ class FallbackCapTest {
         assertThat(firstExitOfDay2).isEqualTo(DAY1.plus(Duration.ofHours(25)));
     }
 
+    @Test
+    void theGcpViewReadsItsOwnPropertiesAndDefaultsToFivePerDay() {
+        FallbackProperties p = FallbackProperties.defaults();
+        assertThat(p.forProvider(Provider.GCP).maxTransitionsPerDay()).isEqualTo(5);
+        assertThat(p.forProvider(Provider.GCP).cap().exitAllowed(3)).isTrue();
+        assertThat(p.forProvider(Provider.GCP).cap().exitAllowed(4)).isFalse();
+        assertThat(p.forProvider(Provider.GCP).tailWaitMax()).isEqualTo(Duration.ofHours(2));
+        assertThat(p.forProvider(Provider.GCP).dwell()).isEqualTo(Duration.ofMinutes(60));
+        assertThat(p.forProvider(Provider.AWS)).isSameAs(p);
+    }
     @Test
     void theExitBackoffIsDwellThenOneTwoFourThenEightHours() {
         FallbackBackoff b = FallbackBackoff.of(FallbackProperties.defaults());

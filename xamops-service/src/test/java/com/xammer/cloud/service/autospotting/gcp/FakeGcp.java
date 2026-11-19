@@ -37,6 +37,8 @@ final class FakeGcp implements GcpMigClient.ReadOnly {
     final List<JsonNode> perInstanceConfigs = new ArrayList<>();
     final List<JsonNode> managedInstances = new ArrayList<>();
     final List<JsonNode> errors = new ArrayList<>();
+    /** Zone operations by zone name (any operationType; the fake filters like the API does). */
+    final Map<String, List<JsonNode>> zoneOperations = new HashMap<>();
     final Set<String> grantedProject = new HashSet<>(GcpEligibilityEvaluator.REQUIRED_PERMISSIONS);
     final Set<String> actAsDenied = new HashSet<>();
     List<JsonNode> skus = new ArrayList<>();
@@ -173,6 +175,19 @@ final class FakeGcp implements GcpMigClient.ReadOnly {
         return List.copyOf(errors);
     }
 
+    @Override
+    public List<JsonNode> listZoneOperations(String zone, String operationType, String insertedAfter) {
+        hit("zoneOperations.list");
+        List<JsonNode> out = new ArrayList<>();
+        for (JsonNode o : zoneOperations.getOrDefault(zone, List.of())) {
+            if (operationType.equals(o.path("operationType").asText())
+                    && (insertedAfter == null || o.path("insertTime").asText("").compareTo(insertedAfter) > 0)) {
+                out.add(o);
+            }
+        }
+        out.sort(java.util.Comparator.comparing(o -> o.path("insertTime").asText("")));
+        return out;
+    }
     @Override
     public JsonNode getOperation(String scope, String location, String operationName) {
         hit("operations.get");

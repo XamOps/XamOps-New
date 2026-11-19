@@ -30,6 +30,9 @@ public interface SpotGroupEventRepository extends JpaRepository<SpotGroupEvent, 
     List<Object[]> countByGroupAndType(@Param("groupIds") Collection<UUID> groupIds,
                                        @Param("from") Instant from, @Param("to") Instant to);
 
+    /** The preemptions of a group since {@code from} (the GCP Preemptions figure, design-gcp.md §8.3). */
+    long countByGroupIdAndEventTypeAndOccurredAtGreaterThanEqual(UUID groupId, String eventType, Instant from);
+
     /** True when the event pipeline has recorded anything for these groups, ever (a metric has a source). */
     boolean existsByGroupIdIn(Collection<UUID> groupIds);
 }

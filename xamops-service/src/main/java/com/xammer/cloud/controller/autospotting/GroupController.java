@@ -61,6 +61,13 @@ public class GroupController {
     private final SpotGroupRepository groups;
     private final SpotGroupTransitionRepository transitions;
     private final SpotOperationRepository operations;
+    private com.xammer.cloud.repository.autospotting.SpotGroupEventRepository events;
+
+    /** Optional: the event table the GCP preemption figure reads. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setEvents(com.xammer.cloud.repository.autospotting.SpotGroupEventRepository events) {
+        this.events = events;
+    }
 
     public GroupController(CloudAccountAccessService accountAccessService, AwsGroupLister awsLister, GcpGroupLister gcpLister,
                            GroupListCache listCache, SpotGroupRepository groups,
@@ -160,10 +167,17 @@ public class GroupController {
                     .toList();
             OperationDto current = row.getCurrentOperationId() == null ? null
                     : operations.findById(row.getCurrentOperationId()).map(OperationDto::from).orElse(null);
+            Long preemptions = null;
+            // Only a group the sweep has polled has a count; a group it has not seen is "Not tracked", never 0.
+            if (isGcp(account) && events != null && row.getHealthState() != null
+                    && row.getHealthState().contains("\"preemption\"")) {
+                preemptions = events.countByGroupIdAndEventTypeAndOccurredAtGreaterThanEqual(groupId, "PREEMPTION",
+                        java.time.Instant.now().minus(java.time.Duration.ofDays(7)));
+            }
             return ResponseEntity.ok(new GroupDetailDto(head,
                     row.getConfigMode() == null ? null : row.getConfigMode().name(),
                     row.getDriftStatus() == null ? null : row.getDriftStatus().name(),
-                    row.getLastErrorCode(), history, current));
+                    row.getLastErrorCode(), history, current, preemptions));
         }
     }
 

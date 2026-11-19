@@ -94,12 +94,79 @@ public class GcpMigStatusReader {
             }
         }
         health.put("recentCapacityErrors", capacityErrors);
+        // The signals of design-gcp.md §7.1, raw: the provider adds the windows and the carried since-times.
+        int notDeleting = 0;
+        int stuck = 0;
+        com.fasterxml.jackson.databind.node.ArrayNode stuckNames = health.putArray("creatingInstances");
+        for (JsonNode mi : instances) {
+            String action = mi.path("currentAction").asText("NONE");
+            if ("RUNNING".equals(mi.path("instanceStatus").asText())
+                    && !"DELETING".equals(action) && !"ABANDONING".equals(action)) {
+                notDeleting++;
+            }
+            if (("CREATING".equals(action) || "CREATING_WITHOUT_RETRIES".equals(action) || "RECREATING".equals(action))
+                    && mi.path("lastAttempt").path("errors").path("errors").size() > 0) {
+                stuck++;
+                stuckNames.add(shortName(mi.path("instance").asText("")));
+            }
+        }
+        // What the preemption tracker needs to match zone operations to this group (design-gcp.md §8.2); it removes them.
+        health.put("baseInstanceName", g.raw().path("baseInstanceName").asText(null));
+        com.fasterxml.jackson.databind.node.ArrayNode zones = health.putArray("zones");
+        if (g.regional()) {
+            g.distributionZones().forEach(zones::add);
+        } else if (g.location() != null) {
+            zones.add(g.location());
+        }
+        String spotTemplate = null;
+        for (GcpMigFacts.Version v : g.versions()) {
+            if (GcpMigFacts.SPOT_VERSION.equals(v.name())) {
+                spotTemplate = v.instanceTemplate();
+            }
+        }
+        health.put("spotTemplate", spotTemplate);
+        com.fasterxml.jackson.databind.node.ArrayNode seenInstances = health.putArray("instances");
+        for (JsonNode mi : instances) {
+            if (seenInstances.size() >= 300) {
+                break;
+            }
+            String link = mi.path("instance").asText("");
+            String zoneLink = link.contains("/zones/") ? link.substring(link.indexOf("/zones/") + 7) : "";
+            ObjectNode o = seenInstances.addObject();
+            o.put("n", shortName(link));
+            o.put("z", zoneLink.contains("/") ? zoneLink.substring(0, zoneLink.indexOf('/')) : null);
+            o.put("s", GcpMigFacts.SPOT_VERSION.equals(mi.path("version").path("name").asText("")));
+            o.put("a", mi.path("currentAction").asText("NONE"));
+        }
+        health.put("runningNotDeleting", notDeleting);
+        health.put("stuckCreating", stuck);
+        health.put("shortfall", Math.max(0, g.targetSize() - notDeleting));
+        com.fasterxml.jackson.databind.node.ArrayNode errorList = health.putArray("errors");
+        for (JsonNode e : errors) {
+            if (errorList.size() >= 50) {
+                break;
+            }
+            ObjectNode o = errorList.addObject();
+            o.put("code", e.path("error").path("code").asText(""));
+            o.put("instance", shortName(e.path("instanceActionDetails").path("instance").path("instance").asText(
+                    e.path("instanceActionDetails").path("instance").asText(""))));
+            o.put("timestamp", e.path("timestamp").asText(""));
+            String metric = quotaMetric(e);
+            if (metric != null) {
+                o.put("quotaMetric", metric);
+            }
+        }
         ObjectNode capacity = JSON.createObjectNode();
         capacity.put("desired", g.targetSize());
         capacity.put("standard", onStandard);
         capacity.put("spot", onSpot);
+        capacity.put("hasSpotVersion", g.versions().stream().anyMatch(v -> GcpMigFacts.SPOT_VERSION.equals(v.name())));
         capacity.put("ownedFingerprint", GcpFingerprint.of(g));
-        boolean foreign = (!g.versionTargetReached() || !g.stable()) && !g.isXamopsPair();
+        // A rollout XamOps started carries its xas-* version names (the pair, or the single standard version of a
+        // fallback): only an unnamed or customer-named rollout is foreign (DR-6).
+        boolean ours = g.versions().stream().anyMatch(v -> GcpMigFacts.STANDARD_VERSION.equals(v.name())
+                || GcpMigFacts.SPOT_VERSION.equals(v.name()));
+        boolean foreign = (!g.versionTargetReached() || !g.stable()) && !ours;
         try {
             return new GroupStatus(true, GcpFingerprint.planHash(g), JSON.writeValueAsString(health),
                     JSON.writeValueAsString(capacity), foreign);
@@ -108,6 +175,28 @@ public class GcpMigStatusReader {
         }
     }
 
+    private static String shortName(String link) {
+        int i = link == null ? -1 : link.lastIndexOf('/');
+        return i < 0 ? link : link.substring(i + 1);
+    }
+    private static final java.util.regex.Pattern QUOTA_IN_TEXT =
+            java.util.regex.Pattern.compile("[Qq]uota '?\"?([A-Z][A-Z0-9_]+)'?\"? exceeded");
+    /** The quota metric of a {@code QUOTA_EXCEEDED} entry, from the structured detail when present, else the message. */
+    static String quotaMetric(JsonNode entry) {
+        for (JsonNode err : entry.path("error").path("errors")) {
+            for (JsonNode d : err.path("errorDetails")) {
+                String m = d.path("quotaInfo").path("metricName").asText(null);
+                if (m != null && !m.isBlank()) {
+                    return m.substring(m.lastIndexOf('/') + 1).toUpperCase(java.util.Locale.ROOT);
+                }
+            }
+            java.util.regex.Matcher m = QUOTA_IN_TEXT.matcher(err.path("message").asText(""));
+            if (m.find()) {
+                return m.group(1);
+            }
+        }
+        return null;
+    }
     /** Read the MIG, its autoscaler and every referenced template (used by the snapshot and the plan). */
     public Read readForSnapshot(GcpReadOnlyView view, String groupKey) {
         GcpEligibilityEvaluator.Key key = GcpEligibilityEvaluator.split(groupKey);

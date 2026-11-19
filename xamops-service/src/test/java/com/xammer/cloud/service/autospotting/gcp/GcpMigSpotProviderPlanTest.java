@@ -63,7 +63,9 @@ class GcpMigSpotProviderPlanTest {
         GcpEstimatePriceService prices = new GcpEstimatePriceService(views, shapes, Clock.systemUTC());
         GcpProviderGate gate = new GcpProviderGate(switches(false), DefaultAutoSpottingFlags.load());
         return new GcpMigSpotProvider(accounts, views, evaluator, new GcpMigStatusReader(), prices, gate, false, false,
-                Clock.systemUTC(), null);
+                Clock.systemUTC(), null, null, null,
+                new GcpFallbackRules(GcpHealthProperties.defaults(),
+                        com.xammer.cloud.service.autospotting.core.FallbackProperties.defaults()));
     }
 
     private static PlanRequest enable(CloudAccount a, String profile) {
@@ -186,11 +188,12 @@ class GcpMigSpotProviderPlanTest {
 
     @Test
     void aRevertPlanIsNeverBlockedByConversionChecks() {
-        FakeGcp gcp = FakeGcp.healthy();
-        gcp.mig().put("targetSize", 1);
-        CloudAccount a = account(5L);
-        PlanBody revert = provider(gcp).createPlan(new PlanRequest(new GroupRef(Provider.GCP, a.getId(), KEY, null),
-                OperationKind.REVERT, null), gcp.view());
+        // Phase 28: the revert plan reads the saved original; a group that has shrunk to one VM is still revertible.
+        GcpConversionFixture f = new GcpConversionFixture();
+        GroupRef ref = new GroupRef(Provider.GCP, 3L, f.key, null);
+        f.snapshots.persist(null, f.opId, f.groupId, f.provider().takeSnapshot(ref, f.gcp.view()), f.clock.instant());
+        f.gcp.mig().put("targetSize", 1);
+        PlanBody revert = f.provider().createPlan(new PlanRequest(ref, OperationKind.REVERT, null), f.gcp.view());
         assertThat(revert.eligibility().blockers()).isEmpty();
         assertThat(revert.revertPathJson()).contains("REVERT");
     }

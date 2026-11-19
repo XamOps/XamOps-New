@@ -86,7 +86,10 @@ class GcpEnableEndToEndIT {
             GcpViewSource views = a -> f.gcp.view();
             return new GcpMigSpotProvider(f.accounts, views, f.evaluator, new GcpMigStatusReader(),
                     new GcpEstimatePriceService(views, f.shapes, java.time.Clock.systemUTC()), f.gate, false, false,
-                    java.time.Clock.systemUTC(), new GcpStepLibrary(services));
+                    java.time.Clock.systemUTC(), new GcpStepLibrary(services), new GcpRestoreProgram(services),
+                    new GcpFallbackPrograms(services, com.xammer.cloud.service.autospotting.core.FallbackProperties.defaults()),
+                    new GcpFallbackRules(GcpHealthProperties.defaults(),
+                            com.xammer.cloud.service.autospotting.core.FallbackProperties.defaults()));
         }
 
         /** A new runner over a new provider, as after a process restart: nothing carried over in memory. */

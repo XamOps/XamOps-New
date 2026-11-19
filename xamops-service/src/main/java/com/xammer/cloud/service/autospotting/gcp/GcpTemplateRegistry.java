@@ -77,6 +77,16 @@ public class GcpTemplateRegistry {
                 GcpTemplateRegistry::map, opId).stream().findFirst();
     }
 
+    /** Every self-link XamOps ever registered for the group, whatever its status: the "XamOps-owned" set of a revert. */
+    public List<String> ownedLinks(UUID groupId) {
+        return jdbc.queryForList("SELECT self_link FROM spot_gcp_template WHERE group_id = ?", String.class, groupId);
+    }
+    /** The group's newest SPOT template that still exists (IN_USE or RETIRED): what a FALLBACK_EXIT returns to. */
+    public Optional<Row> latestSpot(UUID groupId) {
+        return jdbc.query("SELECT " + COLS + " FROM spot_gcp_template WHERE group_id = ? AND role = 'SPOT'"
+                + " AND status IN ('IN_USE','RETIRED') ORDER BY generation DESC LIMIT 1", GcpTemplateRegistry::map, groupId)
+                .stream().findFirst();
+    }
     /** Highest generation recorded for the group (0 when none). */
     public int maxGeneration(UUID groupId) {
         Integer g = jdbc.queryForObject("SELECT COALESCE(MAX(generation), 0) FROM spot_gcp_template WHERE group_id = ?",
@@ -124,6 +134,24 @@ public class GcpTemplateRegistry {
                 GcpTemplateRegistry::map, Timestamp.from(now));
     }
 
+    /**
+     * Rows still {@code CREATING} whose creating operation is terminal and untouched for {@code quiet}: a template an
+     * operation that was preempted or failed may have inserted. Resolved by the GC job (read the template back, then
+     * retire it), never deleted from here.
+     */
+    public List<Row> orphanCandidates(Instant now, Duration quiet) {
+        return jdbc.query("SELECT t.id, t.group_id, t.generation, t.role, t.name, t.scope, t.self_link, t.gcp_id,"
+                + " t.source_self_link, t.body_sha256, t.created_by_op, t.status, t.delete_after, t.insert_operation"
+                + " FROM spot_gcp_template t JOIN spot_operation o ON o.id = t.created_by_op"
+                + " WHERE t.status = 'CREATING' AND o.status IN ('SUCCEEDED','FAILED','CANCELLED') AND t.updated_at < ?"
+                + " ORDER BY t.created_at LIMIT 100", GcpTemplateRegistry::map, Timestamp.from(now.minus(quiet)));
+    }
+    /** An orphan that exists in the cloud and is ours: record its id and retire it with a grace period. */
+    public void retireOrphan(UUID id, String gcpId, Duration retention, Instant now) {
+        jdbc.update("UPDATE spot_gcp_template SET gcp_id = COALESCE(gcp_id, ?), status = 'RETIRED', retired_at = ?,"
+                + " delete_after = ?, updated_at = ? WHERE id = ? AND status = 'CREATING'", gcpId, Timestamp.from(now),
+                Timestamp.from(now.plus(retention)), Timestamp.from(now), id);
+    }
     /** RETIRED to DELETING, guarded: false when another instance already took the row. */
     public boolean markDeleting(UUID id, Instant now) {
         return jdbc.update("UPDATE spot_gcp_template SET status = 'DELETING', updated_at = ? WHERE id = ?"

@@ -40,6 +40,18 @@ describe('gcpAdapter', () => {
     expect(screen.getByText('Not tracked yet')).toBeInTheDocument();
   });
 
+  it('shows the recorded preemption count of the last 7 days once the group has one', () => {
+    const { ConfigFields } = gcpAdapter;
+    render(<ConfigFields group={{ ...detail, preemptions7d: 4 } as unknown as GroupDetail} current={null} />);
+    expect(screen.getByText('Preemptions in the last 7 days')).toBeInTheDocument();
+    expect(screen.getByText('4')).toBeInTheDocument();
+    expect(screen.queryByText('Not tracked yet')).not.toBeInTheDocument();
+  });
+  it('shows zero preemptions as 0, never as not tracked', () => {
+    const { ConfigFields } = gcpAdapter;
+    render(<ConfigFields group={{ ...detail, preemptions7d: 0 } as unknown as GroupDetail} current={null} />);
+    expect(screen.getByText('0')).toBeInTheDocument();
+  });
   it('says a field is shown at plan time when no plan is loaded', () => {
     const { ConfigFields } = gcpAdapter;
     render(<ConfigFields group={detail} current={null} />);

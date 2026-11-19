@@ -46,6 +46,12 @@ public class GcpSnapshotStore {
                 + " JOIN spot_group g ON g.snapshot_id = s.id WHERE g.id = ?", groupId);
     }
 
+    /** The snapshot linked to the group with this key on this account (a plan knows the key, not the row id). */
+    public Optional<Stored> findLinkedByKey(Long cloudAccountId, String groupKey) {
+        return one("SELECT s.id, s.group_id, s.exact, s.payload::text, s.payload_sha256 FROM spot_group_snapshot s"
+                + " JOIN spot_group g ON g.snapshot_id = s.id WHERE g.cloud_account_id = ? AND g.group_key = ?"
+                + " AND g.provider = 'GCP'", cloudAccountId, groupKey);
+    }
     /**
      * Persist {@code payload} for {@code operationId} and link it to the group, in one fenced
      * transaction. Idempotent: a second call for the same operation returns the first row.
@@ -67,7 +73,7 @@ public class GcpSnapshotStore {
         return new Stored(id, groupId, payload.exact(), payload.payloadJson(), payload.payloadSha256());
     }
 
-    private Optional<Stored> one(String sql, Object arg) {
+    private Optional<Stored> one(String sql, Object... arg) {
         List<Stored> rows = jdbc.query(sql, (rs, i) -> new Stored((UUID) rs.getObject(1), (UUID) rs.getObject(2),
                 rs.getBoolean(3), rs.getString(4), rs.getString(5)), arg);
         return rows.stream().findFirst();

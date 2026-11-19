@@ -53,20 +53,48 @@ public final class RestoreUpdatePolicyStep extends GcpStep {
             return groupMissing();
         }
         GcpMigFacts g = live.get();
+        if (program.kind() == com.xammer.cloud.domain.autospotting.OperationKind.FALLBACK_ENTER && !rolloutComplete(view, g)) {
+            // The tail wait ended at its bound (DR-24): restoring a customer policy mid-rollout could delete VMs before
+            // their replacements exist, so the XamOps surge-first policy stays until a later exit or revert.
+            return finish(view, "{\"restored\":false,\"outcome\":\"CAPACITY_PENDING\"}");
+        }
         if (program.customerPolicy() == null || !program.customerPolicy().isObject() || program.customerPolicy().isEmpty()) {
-            return done("{\"restored\":false,\"reason\":\"NO_CUSTOMER_POLICY\"}");
+            return finish(view, "{\"restored\":false,\"reason\":\"NO_CUSTOMER_POLICY\"}");
         }
         GcpRolloutPolicy.Restored restored = GcpRolloutPolicy.restore(program.customerPolicy(), floor(g), g);
         if (GcpTargets.policyHas(g.updatePolicy(), restored.policy())) {
-            return done("{\"restored\":true,\"alreadyApplied\":true}");
+            return finish(view, "{\"restored\":true,\"alreadyApplied\":true}");
         }
         ObjectNode body = JSON.createObjectNode();
         body.set("updatePolicy", restored.policy());
         GcpMigClient.Mutating client = services.mutating(account);
         patch(ctx, view, client, g, body);
-        return done("{\"restored\":true,\"overridden\":" + JSON.valueToTree(restored.overridden()) + "}");
+        return finish(view, "{\"restored\":true,\"overridden\":" + JSON.valueToTree(restored.overridden()) + "}");
     }
 
+    /**
+     * A FALLBACK_ENTER reports the live hash after this step as {@code fallbackFingerprint}: the policy is the last
+     * thing the fallback changes, and the drift check compares the hash {@code getStatus} reports, which includes it.
+     * The runner stores it, so two sweeps after the op show no drift whether the customer's policy was restored or the
+     * wait ended CAPACITY_PENDING with XamOps's policy still on the MIG.
+     */
+    private StepOutcome finish(GcpReadOnlyView view, String json) {
+        if (program.kind() != com.xammer.cloud.domain.autospotting.OperationKind.FALLBACK_ENTER) {
+            return done(json);
+        }
+        Optional<GcpMigFacts> fresh = live(view);
+        if (fresh.isEmpty()) {
+            return done(json);
+        }
+        try {
+            ObjectNode out = (ObjectNode) JSON.readTree(json);
+            out.put(com.xammer.cloud.service.autospotting.spi.FallbackSteps.FINGERPRINT,
+                    com.xammer.cloud.service.autospotting.gcp.GcpFingerprint.planHash(fresh.get()));
+            return done(out.toString());
+        } catch (java.io.IOException e) {
+            return done(json);
+        }
+    }
     private int floor(GcpMigFacts g) {
         ArrayNode v = targetVersions(g);
         return v == null ? 0 : GcpTargets.floorOf(v);
@@ -81,7 +109,7 @@ public final class RestoreUpdatePolicyStep extends GcpStep {
         Optional<GcpMigFacts> live = live(services.view(account));
         return live.isPresent() && GcpTargets.policyHas(live.get().updatePolicy(),
                 GcpRolloutPolicy.restore(program.customerPolicy(), floor(live.get()), live.get()).policy())
-                ? done("{\"restored\":true,\"alreadyApplied\":true}") : notYet();
+                ? finish(services.view(account), "{\"restored\":true,\"alreadyApplied\":true}") : notYet();
     }
 
     @Override

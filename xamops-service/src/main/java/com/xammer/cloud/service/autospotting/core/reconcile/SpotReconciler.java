@@ -145,6 +145,28 @@ public class SpotReconciler {
         }
     }
 
+    /** Optional: per-provider trackers of events the cloud does not push (GCP preemptions, design-gcp.md §8). */
+    private java.util.List<com.xammer.cloud.service.autospotting.spi.PreemptionTracker> trackers = java.util.List.of();
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPreemptionTrackers(java.util.List<com.xammer.cloud.service.autospotting.spi.PreemptionTracker> trackers) {
+        this.trackers = trackers == null ? java.util.List.of() : java.util.List.copyOf(trackers);
+    }
+    /** Run the provider's tracker, if any. A tracker failure never fails the sweep: the status stands without it. */
+    private GroupStatus track(Provider provider, SpotGroup group, GroupStatus status) {
+        if (status == null || !status.found()) {
+            return status;
+        }
+        for (com.xammer.cloud.service.autospotting.spi.PreemptionTracker t : trackers) {
+            if (t.provider() == provider) {
+                try {
+                    return t.track(group, status);
+                } catch (RuntimeException e) {
+                    log.warn("preemption tracking failed for group {}: {}", group.getId(), e.toString());
+                }
+            }
+        }
+        return status;
+    }
     /** Optional: the AWS instance index the event listener reads (plan-phase-22.md task 22.3). */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setInstanceIndex(GroupInstanceIndex instanceIndex) {
@@ -237,7 +259,7 @@ public class SpotReconciler {
                     Instant.now());
             return;
         }
-        GroupStatus status = provider.getStatus(group, readOnlyView());
+        GroupStatus status = track(provider.provider(), group, provider.getStatus(group, readOnlyView()));
         List<ReconcileAction> actions = provider.reconcile(group, status);
         healthPass.run(group, status, actions);
     }
@@ -289,6 +311,8 @@ public class SpotReconciler {
             reconcilerStore.writeError(group.getId(), null, null, now);
         }
 
+        // Preemptions the cloud does not push are found by polling here (GCP, design-gcp.md §8.2).
+        status = track(provider, group, status);
         // The instance index the event listener resolves EC2 events with (aws §9.7). Data only.
         if (provider == Provider.AWS && instanceIndex != null) {
             instanceIndex.sync(group, status.healthJson(), now);

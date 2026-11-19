@@ -37,6 +37,7 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -52,13 +53,15 @@ import java.util.Optional;
  *   <li>The floor mechanism is the two-version MIG, Option A (design-gcp.md §5.2, PO-19): no dependency
  *       on a pre-GA {@code provisioningModelMix}. {@code autospotting.gcp.native-mix-enabled} is read
  *       and recorded in the plan but changes nothing here.</li>
- *   <li>{@code reconcile} is a pure decision and returns no fallback action until Phase 28.</li>
+ *   <li>{@code reconcile} is a pure decision ({@link GcpFallbackRules}): stockout and quota fallback, DEGRADED and
+ *       the exit signal (design-gcp.md §7). {@code getStatus} adds the windows and since-times the sweep carries
+ *       in {@code spot_group.health_state}.</li>
  *   <li>{@code executeConversion} builds the {@link GcpStepLibrary} programs (Phase 27) but only while
  *       {@link GcpProviderGate} is open: {@code autospotting.gcp.v2-mutations-enabled} and
  *       {@code autospotting.gcp.conversions-enabled} stay false, so each refuses with
  *       {@code AS_PROVIDER_NOT_READY}. MIG_POLICY_UPDATE is not a conversion and is not gated by (p).
- *       {@code restore} builds the ENABLE compensation (SNAPSHOT) from the saved original; the REVERT program
- *       arrives in Phase 28.</li>
+ *       {@code restore} builds the REVERT program ({@link GcpRestoreProgram}) and the ENABLE compensation (SNAPSHOT)
+ *       from the saved original; the fallback programs ({@link GcpFallbackPrograms}) are gated the same way.</li>
  * </ul>
  * Two {@code CloudAccount} rows on one {@code gcp_project_id}: the lowest id owns the project and a
  * plan for any other is refused with 409 {@code DUPLICATE_PROVIDER_ACCOUNT} (AC-SPN-14).
@@ -78,21 +81,28 @@ public class GcpMigSpotProvider implements SpotProvider {
     private final boolean autoscaledFloorAllowed;
     private final Clock clock;
     private final GcpStepLibrary library;
-
+    private final GcpRestoreProgram restorePrograms;
+    private final GcpFallbackPrograms fallbackPrograms;
+    private final GcpFallbackRules rules;
     @Autowired
     public GcpMigSpotProvider(CloudAccountRepository accounts, GcpViewSource views, GcpEligibilityEvaluator evaluator,
                               GcpMigStatusReader statusReader, GcpEstimatePriceService prices, GcpProviderGate gate,
                               @Value("${autospotting.gcp.native-mix-enabled:false}") boolean nativeMixEnabled,
                               @Value("${autospotting.gcp.floor.autoscaled-n-allowed:false}") boolean autoscaledFloorAllowed,
-                              GcpStepLibrary library) {
+                              GcpStepLibrary library, GcpRestoreProgram restorePrograms,
+                              GcpFallbackPrograms fallbackPrograms, GcpFallbackRules rules) {
         this(accounts, views, evaluator, statusReader, prices, gate, nativeMixEnabled, autoscaledFloorAllowed,
-                Clock.systemUTC(), library);
+                Clock.systemUTC(), library, restorePrograms, fallbackPrograms, rules);
     }
 
     GcpMigSpotProvider(CloudAccountRepository accounts, GcpViewSource views, GcpEligibilityEvaluator evaluator,
                        GcpMigStatusReader statusReader, GcpEstimatePriceService prices, GcpProviderGate gate,
-                       boolean nativeMixEnabled, boolean autoscaledFloorAllowed, Clock clock, GcpStepLibrary library) {
+                       boolean nativeMixEnabled, boolean autoscaledFloorAllowed, Clock clock, GcpStepLibrary library,
+                       GcpRestoreProgram restorePrograms, GcpFallbackPrograms fallbackPrograms, GcpFallbackRules rules) {
         this.library = library;
+        this.restorePrograms = restorePrograms;
+        this.fallbackPrograms = fallbackPrograms;
+        this.rules = rules;
         this.accounts = accounts;
         this.views = views;
         this.evaluator = evaluator;
@@ -139,10 +149,8 @@ public class GcpMigSpotProvider implements SpotProvider {
                 new AutoSpottingApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Account not found."));
         requireUniqueProject(account);
         if (req.kind() == OperationKind.REVERT) {
-            // A revert is never blocked by the conversion-only checks (DR-03). Its program arrives in Phase 28.
-            ObjectNode revert = JSON.createObjectNode().put("program", "REVERT").put("method", "RESTORE_SNAPSHOT");
-            return new PlanBody(null, null, null, null, new EligibilityResult(List.of(), List.of(), List.of()), null,
-                    List.of(), null, null, write(revert));
+            // A revert is never blocked by the conversion-only checks (DR-03); its own pre-check is the restore permissions.
+            return restorePrograms.plan(req, account, viewFor(account, view));
         }
         if (req.kind() == OperationKind.MIG_POLICY_UPDATE
                 || (req.kind() == OperationKind.CONFIG_APPLY && GcpPolicyPlans.isPolicyEdit(req.profile()))) {
@@ -418,26 +426,100 @@ public class GcpMigSpotProvider implements SpotProvider {
     }
 
     // ---- status ----
-
     @Override
     public GroupStatus getStatus(SpotGroup group, ReadOnlyCloudView view) {
         CloudAccount account = account(group.getCloudAccountId()).orElseThrow(() ->
                 new GcpReadException("account", ErrorKind.NOT_FOUND));
-        return statusReader.read(viewFor(account, view), group.getGroupKey());
+        return withSignals(group, statusReader.read(viewFor(account, view), group.getGroupKey()));
+    }
+
+    /**
+     * The signals only the sweep can add (design-gcp.md §7.1): the capacity and quota errors of the window, deduped;
+     * when the shortfall began (carried from the previous observation in {@code health_state}, so two sweeps are
+     * needed); when it last was zero; and the preemption cursors the tracker keeps in the same column. Read only.
+     */
+    private GroupStatus withSignals(SpotGroup group, GroupStatus status) {
+        if (status == null || !status.found() || status.healthJson() == null) {
+            return status;
+        }
+        try {
+            Instant now = clock.instant();
+            ObjectNode health = (ObjectNode) JSON.readTree(status.healthJson());
+            JsonNode capacity = status.capacityJson() == null ? JSON.createObjectNode() : JSON.readTree(status.capacityJson());
+            JsonNode prior = group.getHealthState() == null ? JSON.createObjectNode() : JSON.readTree(group.getHealthState());
+            GcpFallbackRules.ErrorCounts c = rules.count(health.path("errors"), now);
+            health.put("capacityErrors15m", c.capacity());
+            health.put("quotaErrors15m", c.preemptibleQuota());
+            health.put("standardQuotaErrors15m", c.standardQuota());
+            health.put("standardQuotaMetric", c.standardQuotaMetric());
+            health.put("preemptibleQuotaMetric", c.preemptibleQuotaMetric());
+            int target = capacity.path("desired").asInt(0);
+            int shortfall = health.path("shortfall").asInt(0);
+            health.put("observedAt", now.toString());
+            health.put("shortfallSince", shortfall >= 1 ? carry(prior, "shortfallSince", now) : null);
+            boolean fast = target > 0 && (long) shortfall * 100 >= (long) rules.health().fastPercent() * target;
+            health.put("fastShortfallSince", fast ? carry(prior, "fastShortfallSince", now) : null);
+            health.put("noShortfallSince", shortfall == 0 ? carry(prior, "noShortfallSince", now) : null);
+            // Instances stuck creating: the age is the first sweep that saw them (§7.1).
+            com.fasterxml.jackson.databind.node.ObjectNode stuckSince = health.putObject("stuckSince");
+            int stuckOld = 0;
+            for (JsonNode name : health.path("creatingInstances")) {
+                String first = prior.path("stuckSince").path(name.asText()).asText(null);
+                Instant at = parseInstant(first);
+                at = at == null ? now : at;
+                stuckSince.put(name.asText(), at.toString());
+                if (!at.plus(rules.health().stuckAge()).isAfter(now)) {
+                    stuckOld++;
+                }
+            }
+            health.put("stuckCreatingOld", stuckOld);
+            // The preemption tracker's cursors and rates ride along until the next sweep rewrites them.
+            if (prior.path("preemption").isObject()) {
+                health.set("preemption", prior.path("preemption").deepCopy());
+            }
+            return new GroupStatus(true, status.liveFingerprint(), JSON.writeValueAsString(health), status.capacityJson(),
+                    status.foreignActivity());
+        } catch (JsonProcessingException | RuntimeException e) {
+            return status; // the signals are an addition: the base status stands
+        }
+    }
+
+    private static String carry(JsonNode prior, String field, Instant now) {
+        Instant at = parseInstant(prior.path(field).asText(null));
+        return (at == null ? now : at).toString();
+    }
+
+    private static Instant parseInstant(String v) {
+        if (v == null || v.isBlank() || "null".equals(v)) {
+            return null;
+        }
+        try {
+            return Instant.parse(v);
+        } catch (java.time.format.DateTimeParseException e) {
+            return null;
+        }
     }
 
     // ---- reconcile: a pure decision ----
-
     @Override
     public List<ReconcileAction> reconcile(SpotGroup group, GroupStatus status) {
-        // No fallback or health actions until Phase 28: the GCP health rules arrive with the fallback programs.
-        return List.of();
+        if (status == null || !status.found() || status.healthJson() == null || group.getState() == null) {
+            return List.of();
+        }
+        GcpFallbackRules.Decision d = rules.evaluate(group.getState(), group.getPauseReason(), group.getPausedFromState(),
+                group.getConfigMode(), group.getStateChangedAt(),
+                GcpFallbackRules.signals(clock.instant(), status.healthJson(), status.capacityJson()));
+        return new ArrayList<>(d.actions());
     }
 
     // ---- mutating programs: refused ----
 
     @Override
     public StepProgram executeConversion(OperationContext op) {
+        if (GcpFallbackPrograms.supports(op.kind())) {
+            gate.requireOpen();
+            return fallbackPrograms.program(op);
+        }
         if (op.kind() != OperationKind.MIG_POLICY_UPDATE) {
             gate.requireOpen();
         }
@@ -448,9 +530,7 @@ public class GcpMigSpotProvider implements SpotProvider {
     public StepProgram restore(OperationContext op, SnapshotPayload snapshot) {
         gate.requireOpen();
         if (op.kind() == OperationKind.REVERT) {
-            // The GCP revert program (and its permission pre-check) is Phase 28; refuse rather than guess.
-            throw new AutoSpottingApiException(HttpStatus.CONFLICT, "AS_PROVIDER_NOT_READY",
-                    "The GCP revert is not available yet.");
+            return restorePrograms.program(op); // restores the saved snapshot, never the runner's fresh live read
         }
         return library.restoreFromSaved(op);
     }

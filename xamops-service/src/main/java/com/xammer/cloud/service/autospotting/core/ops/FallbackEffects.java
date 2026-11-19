@@ -78,6 +78,12 @@ final class FallbackEffects {
         try {
             if (FallbackSteps.VERIFY_FALLBACK_APPLIED.equals(step.name()) && outcome instanceof StepOutcome.Done d) {
                 applied(handle, op, group, d.outputJson());
+            } else if (FallbackSteps.RESTORE_UPDATE_POLICY.equals(step.name()) && outcome instanceof StepOutcome.Done d) {
+                String fingerprint = text(d.outputJson(), FallbackSteps.FINGERPRINT);
+                SpotGroup fresh = groups.findById(group.getId()).orElse(group);
+                if (fingerprint != null && fresh.getConfigMode() == ConfigMode.FALLBACK) {
+                    lifecycle.refreshFallbackFingerprint(handle, fresh, fingerprint);
+                }
             } else if (FallbackSteps.WAIT_CAPACITY.equals(step.name())) {
                 String json = outcome instanceof StepOutcome.Done d ? d.outputJson()
                         : outcome instanceof StepOutcome.InProgress p ? p.progressJson() : null;

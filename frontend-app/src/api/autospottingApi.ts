@@ -110,6 +110,8 @@ export interface GroupDetail {
     occurredAt: string;
   }>;
   currentOperation: Operation | null;
+  /** GCP: preemptions recorded in the last 7 days; null when nothing is tracked for the group yet. */
+  preemptions7d?: number | null;
 }
 
 export interface Plan {

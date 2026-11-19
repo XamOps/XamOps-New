@@ -131,6 +131,9 @@ final class GcpConversionFixture {
                 mig.set("versions", versions);
                 mig.put("instanceTemplate", versions.path(0).path("instanceTemplate").asText());
             }
+            if (body.has("instanceFlexibilityPolicy")) {
+                mig.set("instanceFlexibilityPolicy", body.get("instanceFlexibilityPolicy").deepCopy());
+            }
             if (body.has("updatePolicy")) {
                 ObjectNode policy = mig.has("updatePolicy") ? (ObjectNode) mig.get("updatePolicy") : mig.putObject("updatePolicy");
                 body.get("updatePolicy").fields().forEachRemaining(e -> policy.set(e.getKey(), e.getValue().deepCopy()));
@@ -160,6 +163,9 @@ final class GcpConversionFixture {
     final Map<UUID, String> progress = new HashMap<>();
     GcpStepServices services;
     GcpStepLibrary library;
+    GcpRestoreProgram restoreProgram;
+    GcpFallbackPrograms fallbackPrograms;
+    GcpFallbackRules rules;
     GcpProviderGate gate;
     GcpEligibilityEvaluator evaluator;
     GcpMachineShapes shapes;
@@ -190,6 +196,11 @@ final class GcpConversionFixture {
         services = new GcpStepServices(accounts, views, acc -> mutating, gate, evaluator, new GcpMigStatusReader(), snapshots,
                 registry, new GcpVersionTargetEvaluator(), facts, clock, Duration.ofDays(7));
         library = new GcpStepLibrary(services);
+        restoreProgram = new GcpRestoreProgram(services);
+        rules = new GcpFallbackRules(GcpHealthProperties.defaults(),
+                com.xammer.cloud.service.autospotting.core.FallbackProperties.defaults());
+        fallbackPrograms = new GcpFallbackPrograms(services,
+                com.xammer.cloud.service.autospotting.core.FallbackProperties.defaults());
     }
 
     /** Six instances, all on the original template (a plain MIG), or empty. */
@@ -246,11 +257,33 @@ final class GcpConversionFixture {
     }
 
     GcpMigSpotProvider provider() {
+        return provider(Clock.systemUTC());
+    }
+    /** The provider on {@code clock}: the health windows the sweep carries advance with the test's clock. */
+    GcpMigSpotProvider provider(Clock clock) {
         GcpViewSource views = acc -> gcp.view();
         return new GcpMigSpotProvider(accounts, views, evaluator, new GcpMigStatusReader(),
-                new GcpEstimatePriceService(views, shapes, Clock.systemUTC()), gate, false, false, Clock.systemUTC(), library);
+                new GcpEstimatePriceService(views, shapes, Clock.systemUTC()), gate, false, false, clock, library,
+                restoreProgram, fallbackPrograms, rules);
     }
 
+    /** ENABLE at floor {@code n} driven to completion; the call log and patches are cleared for the next phase of a test. */
+    void enableCompleted(int n) {
+        planAgainstLive();
+        StepProgram p = library.program(context(OperationKind.ENABLE, target(n).toString(), null, OperationPhase.FORWARD));
+        for (int i = 0; i <= 5; i++) {
+            run(p.at(i), i);
+        }
+        completeRollout(n, registry.findByOp(opId).orElseThrow().selfLink());
+        pollDone(p.at(6), 6);
+        for (int i = 7; i <= 9; i++) {
+            run(p.at(i), i);
+        }
+        mutating.calls.clear();
+        mutating.patches.clear();
+        mutating.inserted.clear();
+        lastProgress = null;
+    }
     /** Swap the regional MIG for the zonal one (four instances, one zone). */
     void useZonalMig() {
         gcp.migs.clear();
@@ -371,6 +404,29 @@ final class GcpConversionFixture {
         }
 
         final List<UUID> deleting = new ArrayList<>();
+        /** Operations the test declares terminal (the orphan pass only looks at rows of terminal ops). */
+        final java.util.Set<UUID> terminalOps = new java.util.HashSet<>();
+        @Override
+        public List<String> ownedLinks(UUID groupId) {
+            return rows.stream().filter(r -> r.groupId().equals(groupId)).map(Row::selfLink).toList();
+        }
+        @Override
+        public Optional<Row> latestSpot(UUID groupId) {
+            return rows.stream().map(this::current).filter(r -> r.groupId().equals(groupId) && "SPOT".equals(r.role())
+                    && List.of("IN_USE", "RETIRED").contains(r.status()))
+                    .max(java.util.Comparator.comparingInt(Row::generation));
+        }
+        @Override
+        public List<Row> orphanCandidates(Instant now, Duration quiet) {
+            return rows.stream().map(this::current).filter(r -> "CREATING".equals(r.status())
+                    && terminalOps.contains(r.createdByOp())).toList();
+        }
+        @Override
+        public void retireOrphan(UUID id, String gcpId, Duration retention, Instant now) {
+            gcpIds.putIfAbsent(id, gcpId);
+            status.put(id, "RETIRED");
+            deleteAfter.put(id, now.plus(retention));
+        }
 
         @Override
         public List<Row> deletionCandidates(Instant now) {
@@ -429,6 +485,10 @@ final class GcpConversionFixture {
             return Optional.ofNullable(byOp.get(operationId));
         }
 
+        @Override
+        public Optional<Stored> findLinkedByKey(Long cloudAccountId, String groupKey) {
+            return byOp.values().stream().findFirst();
+        }
         @Override
         public Optional<Stored> findLinked(UUID groupId) {
             return byOp.values().stream().filter(s -> s.groupId().equals(groupId)).findFirst();

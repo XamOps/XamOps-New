@@ -317,6 +317,37 @@ class ConfirmServiceTest {
     }
 
     @Test
+    void gr03AGcpRevertPlanThatNeedsAPermissionIs409RetryableAndNoOp_otherRevertsAreNotRefused() {
+        CloudAccount gcp = account();
+        gcp.setProvider("GCP");
+        SpotGroup g = group(GroupState.ACTIVE);
+        g.setProvider(Provider.GCP);
+        SpotPlan p = plan(OperationKind.REVERT, g.getId(), "[]", false);
+        p.setBody("{\"eligibility\":{\"blockers\":[{\"code\":\"REVERT_NEEDS_PERMISSION\",\"text\":\"x\"}]}}");
+        when(plans.findById(p.getId())).thenReturn(Optional.of(p));
+        when(operations.findByPlanId(p.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+        assertThatThrownBy(() -> confirm.confirm(gcp, user(), p.getId(), cmd(1, List.of(), false)))
+                .isInstanceOfSatisfying(AutoSpottingApiException.class, ex -> {
+                    assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+                    assertThat(ex.getCode()).isEqualTo("REVERT_NEEDS_PERMISSION");
+                    assertThat(ex.isRetryable()).isTrue();
+                });
+        verify(operationStore, never()).insertQueued(any());
+        verify(plans, never()).confirmIfOpen(any(), anyInt(), anyString(), any(), anyString(), any());
+        // The same blocker on an AWS plan is not a GCP refusal (AWS has its own drain-only path), and a GCP revert
+        // plan without it confirms.
+        SpotGroup ok = group(GroupState.ACTIVE);
+        ok.setProvider(Provider.GCP);
+        SpotPlan clean = plan(OperationKind.REVERT, ok.getId(), "[]", false);
+        clean.setBody("{\"eligibility\":{\"blockers\":[]}}");
+        when(plans.findById(clean.getId())).thenReturn(Optional.of(clean));
+        when(operations.findByPlanId(clean.getId())).thenReturn(Optional.empty());
+        when(groups.findById(ok.getId())).thenReturn(Optional.of(ok));
+        when(plans.confirmIfOpen(eq(clean.getId()), eq(1), anyString(), any(), anyString(), any())).thenReturn(1);
+        assertThat(confirm.confirm(gcp, user(), clean.getId(), cmd(1, List.of(), false)).status()).isEqualTo("QUEUED");
+    }
+    @Test
     void unreadableSwitchStoreHoldsRevert() {
         when(switchService.readUncached()).thenReturn(new SwitchState(Set.of(), Set.of(), true, false));
         SpotGroup g = group(GroupState.ACTIVE);

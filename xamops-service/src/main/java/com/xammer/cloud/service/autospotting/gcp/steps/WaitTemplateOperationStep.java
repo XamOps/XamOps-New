@@ -38,6 +38,9 @@ public final class WaitTemplateOperationStep extends GcpStep {
     StepOutcome doExecute(StepContext ctx) {
         Optional<GcpTemplateRegistry.Row> found = services.registry().findByOp(program.operationId());
         CloudAccount account = account().orElse(null);
+        if (found.isEmpty() && program.kind() == com.xammer.cloud.domain.autospotting.OperationKind.REVERT) {
+            return done("{\"template\":null,\"reason\":\"ORIGINAL_TEMPLATE_EXISTS\"}"); // an exact revert creates nothing
+        }
         if (found.isEmpty() || account == null) {
             return failed(ErrorKind.VALIDATION, "TEMPLATE_NOT_REGISTERED", "The Spot template was not registered.");
         }
@@ -59,7 +62,10 @@ public final class WaitTemplateOperationStep extends GcpStep {
         if (cloud.isEmpty()) {
             return new StepOutcome.InProgress(POLL, null);
         }
-        if (!GcpTemplateCloner.isOurs(cloud.get(), row.bodySha256(), program.groupId())) {
+        boolean ours = "REBUILT".equals(row.role())
+                ? com.xammer.cloud.service.autospotting.gcp.GcpRevertTarget.isRebuilt(cloud.get(), row.bodySha256(), program.groupId())
+                : GcpTemplateCloner.isOurs(cloud.get(), row.bodySha256(), program.groupId());
+        if (!ours) {
             return failed(ErrorKind.VALIDATION, "TEMPLATE_BODY_MISMATCH", "The created template does not match the plan.");
         }
         services.registry().markInUse(row.id(), cloud.get().path("id").asText(null), services.clock().instant());

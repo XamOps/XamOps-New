@@ -134,7 +134,7 @@ public class FallbackEnqueuer {
         }
         List<SpotOperation> history = operations.findFallbackOpsByGroup(group.getId());
         Instant fallbackSince = group.getStateChangedAt() == null ? now : group.getStateChangedAt();
-        Instant due = nextAttemptAt(history, fallbackSince);
+        Instant due = nextAttemptAt(history, fallbackSince, props.forProvider(group.getProvider()));
         if (now.isBefore(due)) {
             return Result.TOO_EARLY;
         }
@@ -144,7 +144,7 @@ public class FallbackEnqueuer {
         List<Instant> starts = new ArrayList<>();
         history.forEach(o -> starts.add(o.getCreatedAt()));
         int today = FallbackCap.transitionsToday(starts, now);
-        FallbackCap cap = props.cap();
+        FallbackCap cap = props.forProvider(group.getProvider()).cap();
         if (!cap.exitAllowed(today)) {
             metrics.reconcileAlert(group.getState().name());
             metrics.fallback(group.getProvider(), "exit", "capped");
@@ -170,6 +170,9 @@ public class FallbackEnqueuer {
 
     /** The earliest instant the next exit attempt may start, from the group's fallback history. */
     Instant nextAttemptAt(List<SpotOperation> history, Instant fallbackSince) {
+        return nextAttemptAt(history, fallbackSince, props);
+    }
+    Instant nextAttemptAt(List<SpotOperation> history, Instant fallbackSince, FallbackProperties props) {
         int failed = 0;
         Instant lastFinished = null;
         boolean fastReentry = false;

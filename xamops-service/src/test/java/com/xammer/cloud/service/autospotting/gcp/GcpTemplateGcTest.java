@@ -84,6 +84,60 @@ class GcpTemplateGcTest {
     }
 
     @Test
+    void aTemplateNamedLikeOursButNotInTheRegistryIsNeverDeleted_whateverItsNameDescriptionOrLabel() {
+        retiredCopy();
+        for (String name : new String[] {"web-mig-spot", "web-tpl-od-1", "web-mig-xas-deadbeef", "web-tpl-1-spot"}) {
+            String link = FakeGcp.P + "/global/instanceTemplates/" + name;
+            ObjectNode t = GcpConversionFixture.JSON.createObjectNode().put("id", "42").put("name", name)
+                    .put("description", "XamOps AutoSpotting copy of web-tpl-1 for group " + f.groupId);
+            t.putObject("properties").putObject("labels").put("xamops-autospotting", f.groupId.toString());
+            f.gcp.templates.put(link, t);
+        }
+        f.clock.advance(Duration.ofDays(60));
+        GcpTemplateGc.Result r = gc().runOnce();
+        assertThat(r.deleted()).as("only the registered, retired copy").isEqualTo(1);
+        assertThat(f.mutating.deleted).containsExactly("web-mig-xas-aaaaaaaa");
+    }
+    @Test
+    void anOrphanCreatingRowOfATerminalOpIsRetiredNeverDeletedInlineAndDeletedOnlyAfterTheGrace() {
+        // An op that was preempted after its insert: the row stayed CREATING and the template exists.
+        spot = FakeGcp.P + "/global/instanceTemplates/web-mig-xas-bbbbbbbb";
+        UUID op = UUID.randomUUID();
+        GcpTemplateRegistry.Row r = f.registry.registerCreating(f.groupId, 1, "SPOT", "web-mig-xas-bbbbbbbb", "global", spot,
+                GcpConversionFixture.ORIGINAL, "7700", "sha", op, f.clock.instant());
+        ObjectNode t = GcpConversionFixture.JSON.createObjectNode().put("id", "9100").put("name", "web-mig-xas-bbbbbbbb")
+                .put("description", "XamOps AutoSpotting copy of web-tpl-1 for group " + f.groupId);
+        t.putObject("properties").putObject("scheduling").put("provisioningModel", "SPOT");
+        t.with("properties").putObject("labels").put("xamops-autospotting", f.groupId.toString());
+        f.gcp.templates.put(spot, t);
+        f.registry.terminalOps.add(op);
+        assertThat(gc().runOnce().deleted()).isZero();
+        assertThat(f.mutating.deleted).as("retired, never deleted inline").isEmpty();
+        assertThat(f.registry.findByOp(op).orElseThrow().status()).isEqualTo("RETIRED");
+        f.clock.advance(Duration.ofDays(8));
+        assertThat(gc().runOnce().deleted()).isEqualTo(1);
+        assertThat(f.mutating.deleted).containsExactly("web-mig-xas-bbbbbbbb");
+    }
+    @Test
+    void anOrphanThatIsGoneFromTheCloudIsMarkedGoneAndOneThatIsNotOursIsLeftAlone() {
+        UUID op = UUID.randomUUID();
+        String gone = FakeGcp.P + "/global/instanceTemplates/web-mig-xas-cccccccc";
+        f.registry.registerCreating(f.groupId, 1, "SPOT", "web-mig-xas-cccccccc", "global", gone,
+                GcpConversionFixture.ORIGINAL, "7700", "sha", op, f.clock.instant());
+        UUID op2 = UUID.randomUUID();
+        String theirs = FakeGcp.P + "/global/instanceTemplates/web-mig-xas-dddddddd";
+        f.registry.registerCreating(f.groupId, 2, "SPOT", "web-mig-xas-dddddddd", "global", theirs,
+                GcpConversionFixture.ORIGINAL, "7700", "sha", op2, f.clock.instant());
+        f.gcp.templates.put(theirs, GcpConversionFixture.JSON.createObjectNode().put("id", "5").put("name", "web-mig-xas-dddddddd"));
+        f.registry.terminalOps.add(op);
+        f.registry.terminalOps.add(op2);
+        f.clock.advance(Duration.ofDays(30));
+        assertThat(gc().runOnce().deleted()).isZero();
+        assertThat(f.registry.findByOp(op).orElseThrow().status()).isEqualTo("GONE");
+        assertThat(f.registry.findByOp(op2).orElseThrow().status()).isEqualTo("GONE");
+        assertThat(f.mutating.deleted).isEmpty();
+    }
+    @Test
     void whileTheGateIsClosedGcDoesNothing() {
         retiredCopy();
         f.gateOpen = false;

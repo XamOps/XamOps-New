@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
  * project references it, and the GCP mutation gate is open. A template still in use puts the row back to RETIRED
  * with a new grace period. The original customer template is never in the registry.
  *
- * <p>Nothing schedules this class in this phase: it is invoked by the Phase 28 job, behind the same gate.
+ * <p>{@link GcpTemplateGcJob} runs it daily under a job lease, behind the same gate.
  */
 @Component
 public class GcpTemplateGc {
@@ -71,6 +71,7 @@ public class GcpTemplateGc {
             return new Result(0, 0, 0, 0); // dark: every GCP mutation switch must be on
         }
         Instant now = clock.instant();
+        resolveOrphans(now);
         int deleted = 0;
         int inUse = 0;
         int gone = 0;
@@ -96,6 +97,52 @@ public class GcpTemplateGc {
         return new Result(deleted, inUse, gone, skipped);
     }
 
+    /**
+     * A template inserted by an operation that was preempted or failed before its rollout finished is still a
+     * {@code CREATING} row. Once that operation is terminal the template is read back: not there is GONE; there and
+     * ours and referenced by a MIG is IN_USE; there and ours and unreferenced is RETIRED with the usual grace period.
+     * Nothing is deleted here (design-gcp.md §9.3: templates of compensated, preempted or reverted ops are retired).
+     */
+    private void resolveOrphans(Instant now) {
+        for (GcpTemplateRegistry.Row row : registry.orphanCandidates(now, Duration.ofHours(1))) {
+            Optional<CloudAccount> account = accountOf(row);
+            if (account.isEmpty()) {
+                continue;
+            }
+            try {
+                GcpReadOnlyView view = views.view(account.get());
+                JsonNode cloud;
+                try {
+                    cloud = view.reads().getInstanceTemplate(row.selfLink());
+                } catch (GcpReadException e) {
+                    if (e.kind() == ErrorKind.NOT_FOUND) {
+                        registry.markGone(row.id(), now);
+                        continue;
+                    }
+                    throw e;
+                }
+                boolean ours = "REBUILT".equals(row.role())
+                        ? GcpRevertTarget.isRebuilt(cloud, row.bodySha256(), row.groupId())
+                        : GcpTemplateCloner.isOurs(cloud, row.bodySha256(), row.groupId());
+                if (!ours) {
+                    registry.markGone(row.id(), now); // someone else's template under our name: never touched
+                    continue;
+                }
+                boolean referenced = false;
+                for (JsonNode mig : view.reads().aggregatedListMigs()) {
+                    GcpMigFacts g = GcpMigFacts.from(view.project(), mig);
+                    referenced |= g.templateLinks().stream().anyMatch(l -> GcpTemplateRegistry.sameTemplate(l, row.selfLink()));
+                }
+                if (referenced) {
+                    registry.markInUse(row.id(), cloud.path("id").asText(null), now);
+                } else {
+                    registry.retireOrphan(row.id(), cloud.path("id").asText(null), retention, now);
+                }
+            } catch (GcpReadException e) {
+                log.warn("orphan template {} not resolved this run: {}", row.name(), e.check());
+            }
+        }
+    }
     private enum Outcome { DELETED, IN_USE, GONE }
 
     private Outcome collect(GcpTemplateRegistry.Row row, CloudAccount account, Instant now) {

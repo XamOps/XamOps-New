@@ -167,6 +167,44 @@ class ReconcilerIT {
 
     // ── fixtures ──────────────────────────────────────────────────────────────
 
+    @Test
+    void aPreemptionTrackerRunsBetweenGetStatusAndReconcile_andItsStateIsPersistedWithTheRuntimeColumn() {
+        UUID id = insertActiveGroup("fp-managed", ConfigMode.MANAGED, 1L);
+        provider.status.put(id, new GroupStatus(true, "fp-managed", "{\"h\":true}", "{\"c\":2}", false));
+        java.util.List<String> seenByReconcile = new java.util.ArrayList<>();
+        provider.onReconcile = s -> seenByReconcile.add(s.healthJson());
+        reconciler.setPreemptionTrackers(List.of(new com.xammer.cloud.service.autospotting.spi.PreemptionTracker() {
+            @Override
+            public Provider provider() {
+                return Provider.AWS;
+            }
+            @Override
+            public GroupStatus track(SpotGroup group, GroupStatus status) {
+                return new GroupStatus(true, status.liveFingerprint(), "{\"h\":true,\"preemption\":{\"preemptions24h\":2}}",
+                        status.capacityJson(), status.foreignActivity());
+            }
+        }));
+        reconciler.sweepProvider(Provider.AWS);
+        assertThat(seenByReconcile).hasSize(1);
+        assertThat(seenByReconcile.get(0)).contains("preemptions24h");
+        assertThat(jdbc.queryForObject("SELECT health_state::text FROM spot_group WHERE id = ?", String.class, id))
+                .contains("preemptions24h");
+        // A tracker that throws never fails the sweep: the status as read stands.
+        reconciler.setPreemptionTrackers(List.of(new com.xammer.cloud.service.autospotting.spi.PreemptionTracker() {
+            @Override
+            public Provider provider() {
+                return Provider.AWS;
+            }
+            @Override
+            public GroupStatus track(SpotGroup group, GroupStatus status) {
+                throw new IllegalStateException("boom");
+            }
+        }));
+        reconciler.sweepProvider(Provider.AWS);
+        assertThat(groups.findById(id).orElseThrow().getState()).isEqualTo(GroupState.ACTIVE);
+        assertThat(seenByReconcile).hasSize(2);
+        assertThat(seenByReconcile.get(1)).doesNotContain("preemptions24h");
+    }
     private UUID insertActiveGroup(String desiredFingerprint, ConfigMode mode, long cloudAccountId) {
         return insertGroup(GroupState.ACTIVE, desiredFingerprint, mode, cloudAccountId, null, null);
     }
@@ -214,6 +252,7 @@ class ReconcilerIT {
     private static final class TestReconcileProvider implements SpotProvider {
         final Map<UUID, GroupStatus> status = new ConcurrentHashMap<>();
         final Map<UUID, List<ReconcileAction>> actions = new ConcurrentHashMap<>();
+        java.util.function.Consumer<GroupStatus> onReconcile = s -> { };
 
         @Override
         public Provider provider() {
@@ -261,6 +300,7 @@ class ReconcilerIT {
 
         @Override
         public List<ReconcileAction> reconcile(SpotGroup group, GroupStatus s) {
+            onReconcile.accept(s);
             return actions.getOrDefault(group.getId(), List.of());
         }
     }

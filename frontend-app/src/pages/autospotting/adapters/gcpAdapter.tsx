@@ -91,7 +91,7 @@ export const gcpAdapter: ProviderAdapter = {
   locationLabel: 'Location',
   columns: [{ id: 'instanceType', header: 'Machine type', render: row => row.instanceType ?? '--' }],
 
-  ConfigFields: ({ current }) => {
+  ConfigFields: ({ group, current }) => {
     const c = current ?? {};
     return (
       <dl>
@@ -100,7 +100,10 @@ export const gcpAdapter: ProviderAdapter = {
         <Field label="Distribution shape" value={distributionText(c.distributionZones, c.locationType)} />
         <Field label="Update policy" value={updatePolicyText(c.updatePolicy)} />
         <Field label="Floor mechanism" value={floorMechanismText(c.floorMechanism) ?? (current ? 'None (not converted)' : null)} />
-        <Field label="Preemptions in the last 7 days" value="Not tracked yet" />
+        <Field
+          label="Preemptions in the last 7 days"
+          value={group.preemptions7d === null || group.preemptions7d === undefined ? 'Not tracked yet' : String(group.preemptions7d)}
+        />
       </dl>
     );
   },

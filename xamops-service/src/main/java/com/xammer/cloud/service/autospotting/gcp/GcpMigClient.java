@@ -60,6 +60,8 @@ public class GcpMigClient {
     private static final Pattern PROJECT = Pattern.compile("^[a-z][-a-z0-9]{4,28}[a-z0-9]$");
     private static final Pattern NAME = Pattern.compile("^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$");
     private static final Pattern LOCATION = Pattern.compile("^[a-z]+(-[a-z]+[0-9]+)(-[a-z])?$");
+    private static final Pattern OPERATION_TYPE = Pattern.compile("^[A-Za-z0-9._-]{1,64}$");
+    private static final Pattern INSTANT = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}T[0-9:.]+(Z|[+-]\\d{2}:\\d{2})$");
     private static final Pattern EMAIL = Pattern.compile("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$");
     private static final Pattern TEMPLATE_LINK = Pattern.compile(
             "^https://(?:www|compute)\\.googleapis\\.com/compute/(?:v1|beta)/projects/([^/]+)/"
@@ -137,6 +139,12 @@ public class GcpMigClient {
         List<JsonNode> listManagedInstances(boolean regional, String location, String name);
 
         List<JsonNode> listErrors(boolean regional, String location, String name);
+        /**
+         * Operations of one zone whose {@code operationType} is {@code operationType} and whose {@code insertTime} is
+         * after {@code insertedAfter} (an RFC 3339 instant, or null for the first page of history), oldest first
+         * (design-gcp.md §8.2 source 1: {@code compute.instances.preempted}). Read only.
+         */
+        List<JsonNode> listZoneOperations(String zone, String operationType, String insertedAfter);
 
         /** One poll of a zone, region or global operation ({@code scope} is {@code zones}, {@code regions} or {@code global}). */
         JsonNode getOperation(String scope, String location, String operationName);
@@ -275,6 +283,36 @@ public class GcpMigClient {
             return items(call(project, "instanceGroupManagers.listErrors", readTemplate, HttpMethod.GET, uri, null).path("items"));
         }
 
+        @Override
+        public List<JsonNode> listZoneOperations(String zone, String operationType, String insertedAfter) {
+            requireLocation(zone);
+            if (operationType == null || !OPERATION_TYPE.matcher(operationType).matches()) {
+                throw new GcpReadException("zoneOperations.list", ErrorKind.VALIDATION);
+            }
+            if (insertedAfter != null && !INSTANT.matcher(insertedAfter).matches()) {
+                throw new GcpReadException("zoneOperations.list", ErrorKind.VALIDATION);
+            }
+            String filter = "operationType=\"" + operationType + "\""
+                    + (insertedAfter == null ? "" : " AND insertTime>\"" + insertedAfter + "\"");
+            List<JsonNode> out = new ArrayList<>();
+            String token = null;
+            for (int page = 0; page < MAX_PAGES; page++) {
+                UriComponentsBuilder b = UriComponentsBuilder.fromUriString(COMPUTE + "/projects/" + project + "/zones/"
+                        + zone + "/operations").queryParam("maxResults", 500).queryParam("filter", filter);
+                if (token != null) {
+                    b.queryParam("pageToken", token);
+                }
+                JsonNode resp = call(project, "zoneOperations.list", readTemplate, HttpMethod.GET,
+                        b.build().encode().toUri(), null);
+                out.addAll(items(resp.path("items")));
+                token = resp.path("nextPageToken").asText(null);
+                if (token == null || token.isEmpty()) {
+                    out.sort(java.util.Comparator.comparing(o -> o.path("insertTime").asText("")));
+                    return out;
+                }
+            }
+            throw new GcpReadException("zoneOperations.list", ErrorKind.TRANSIENT);
+        }
         @Override
         public JsonNode getOperation(String scope, String location, String operationName) {
             requireName(operationName);
