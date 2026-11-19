@@ -120,7 +120,8 @@ const EndpointEntityView: React.FC<Props> = ({ api, filters, showFalsePositives,
                 </tr>
                 {open && (
                   <tr className="border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.015)]">
-                    <td colSpan={2} className="px-4 py-3">
+                    {/* max-w-0: the nested table's width stays out of the column sizing, so it scrolls in its own box. */}
+                    <td colSpan={2} className="max-w-0 px-4 py-3">
                       {documentClass
                         ? <EndpointClassFiles api={api} documentClass={metric.name} />
                         : <EndpointOccurrenceTable api={api} entityName={metric.name} showFalsePositives={showFalsePositives} />}

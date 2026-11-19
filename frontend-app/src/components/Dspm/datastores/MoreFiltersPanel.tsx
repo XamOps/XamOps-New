@@ -31,12 +31,23 @@ const NO_LABELS: ReadonlyMap<string, string> = new Map();
  * Closes on an outside click and on Escape, read by a React `onKeyDown` and stopped there. Inside a
  * drawer the open panel is also on the drawer's Escape stack, as the other popovers are.
  *
- * The panel opens under the button, left-aligned. When that runs past the viewport's right edge (the Endpoint
- * drawer's filter row sits near it), it moves left until `VIEWPORT_MARGIN` is free on that side; a panel that
- * fits stays where it is.
+ * The panel opens under the button, left-aligned. When that runs past the right edge of its visible area (the
+ * nearest scroll container, such as a drawer body, clipped to the viewport; the Endpoint drawer's filter row sits
+ * near it), it moves left until `VIEWPORT_MARGIN` is free on that side; a panel that fits stays where it is.
+ *
+ * At its first, unshifted place the panel can run past that container, and the search box's autofocus then
+ * scrolls the container sideways before the panel is placed. The placement puts the container's scrollLeft back
+ * first, so opening the panel never moves the content behind it.
  */
-/** The space kept between a shifted panel and the viewport's edges. */
+/** The space kept between a shifted panel and the edges of its visible area. */
 const VIEWPORT_MARGIN = 16;
+/** The nearest ancestor that clips its content sideways, or null when only the viewport does. */
+function clippingParent(el: HTMLElement): HTMLElement | null {
+  for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+    if (/auto|scroll|hidden|clip/.test(getComputedStyle(p).overflowX)) return p;
+  }
+  return null;
+}
 
 const MoreFiltersPanel: React.FC<Props> = ({
   dimensions, labelFor, options, optionsLoading, optionsError, filters, labelMemory, onChange, local, canSelectValue,
@@ -48,6 +59,8 @@ const MoreFiltersPanel: React.FC<Props> = ({
   const panel = useRef<HTMLDivElement>(null);
   /** How far left of the button the open panel starts, in px (0 when it fits). */
   const [shift, setShift] = useState(0);
+  /** The clipping container's scrollLeft when the panel was opened. */
+  const scrollLeftAtOpen = useRef(0);
   const close = useCallback(() => setOpen(false), []);
   usePopoverEscape(open, close, trigger);
 
@@ -70,9 +83,19 @@ const MoreFiltersPanel: React.FC<Props> = ({
       setShift(0);
       return;
     }
+    let minX = 0;
+    let maxX = viewport;
+    const clip = clippingParent(wrapper.current);
+    if (clip) {
+      // Undo the sideways scroll the search box's autofocus caused, then measure the container's visible box.
+      if (clip.scrollLeft !== scrollLeftAtOpen.current) clip.scrollLeft = scrollLeftAtOpen.current;
+      const box = clip.getBoundingClientRect();
+      minX = Math.max(minX, box.left + clip.clientLeft);
+      maxX = Math.min(maxX, box.left + clip.clientLeft + clip.clientWidth);
+    }
     const left = wrapper.current.getBoundingClientRect().left;
     const right = left + panel.current.offsetWidth;
-    setShift(right <= viewport ? 0 : Math.max(VIEWPORT_MARGIN - left, viewport - VIEWPORT_MARGIN - right));
+    setShift(right <= maxX ? 0 : Math.max(minX + VIEWPORT_MARGIN - left, maxX - VIEWPORT_MARGIN - right));
   }, [open]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -83,7 +106,11 @@ const MoreFiltersPanel: React.FC<Props> = ({
   };
 
   const toggleOpen = () => {
-    if (!open) setActive(null);
+    if (!open) {
+      setActive(null);
+      const clip = wrapper.current && clippingParent(wrapper.current);
+      scrollLeftAtOpen.current = clip ? clip.scrollLeft : 0;
+    }
     setOpen(!open);
   };
 
