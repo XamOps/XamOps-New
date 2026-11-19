@@ -326,6 +326,93 @@ public final class DatastoreParams {
         return raw;
     }
 
+    // ── build 6 ──────────────────────────────────────────────────────────────────────────────────
+
+    /** Longest free-text filter value ({@code account}). */
+    public static final int MAX_FREE_TEXT_LENGTH = 128;
+
+    private static final Pattern CODE = Pattern.compile("^[A-Z][A-Z0-9_]{0,63}$");
+    private static final Pattern DOMAIN = Pattern.compile("^[A-Za-z0-9.-]{1,253}$");
+
+    /** A SaaS integration's 24-hex id ({@code source.account} of its rows), lower-cased. */
+    public static String integrationId(String raw) {
+        if (raw == null || !SOURCE_ID.matcher(raw).matches()) {
+            throw new DspmBadRequestException("integrationId", "integrationId must be 24 hexadecimal characters");
+        }
+        return raw.toLowerCase(Locale.ROOT);
+    }
+
+    /** A schedule, run or scope id: 24 hex characters or a canonical UUID, lower-cased. */
+    public static String scanObjectId(String parameter, String raw) {
+        if (raw == null || !(SOURCE_ID.matcher(raw).matches() || UUID.matcher(raw).matches())) {
+            throw new DspmBadRequestException(parameter,
+                    parameter + " must be 24 hexadecimal characters or a UUID");
+        }
+        return raw.toLowerCase(Locale.ROOT);
+    }
+
+    /** An upper-snake vendor code ({@code ^[A-Z][A-Z0-9_]{0,63}$}), or null when absent. */
+    public static String code(String parameter, String raw) {
+        if (raw == null) {
+            return null;
+        }
+        if (!CODE.matcher(raw).matches()) {
+            throw new DspmBadRequestException(parameter,
+                    parameter + " must be an upper-case code of 1 to 64 letters, digits or underscores");
+        }
+        return raw;
+    }
+
+    /** Exactly one of {@code allowed} (case-sensitive), or null when absent. */
+    public static String oneOf(String parameter, String raw, Set<String> allowed) {
+        if (raw == null) {
+            return null;
+        }
+        if (!allowed.contains(raw)) {
+            throw new DspmBadRequestException(parameter,
+                    parameter + " must be one of " + String.join(", ", allowed.stream().sorted().toList()));
+        }
+        return raw;
+    }
+
+    /** Trimmed text of 1 to 128 characters without control characters or commas, or null when absent. */
+    public static String freeText(String parameter, String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String value = raw.trim();
+        if (value.isEmpty() || value.length() > MAX_FREE_TEXT_LENGTH || hasControlCharacter(value)
+                || value.indexOf(',') >= 0) {
+            throw new DspmBadRequestException(parameter,
+                    parameter + " must be 1 to 128 characters without control characters or commas");
+        }
+        return value;
+    }
+
+    /** {@code domain}: 1 to 253 letters, digits, dots or hyphens, or null when absent. */
+    public static String domain(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        if (!DOMAIN.matcher(raw).matches()) {
+            throw new DspmBadRequestException("domain",
+                    "domain must be 1 to 253 letters, digits, dots or hyphens");
+        }
+        return raw;
+    }
+
+    /** Exactly {@code true} or {@code false}, or null when absent. */
+    public static Boolean booleanFlag(String parameter, String raw) {
+        if (raw == null) {
+            return null;
+        }
+        return switch (raw) {
+            case "true" -> Boolean.TRUE;
+            case "false" -> Boolean.FALSE;
+            default -> throw new DspmBadRequestException(parameter, parameter + " must be true or false");
+        };
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────────────────────────
 
     /** True when the text holds an ISO control character. */

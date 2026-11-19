@@ -233,4 +233,92 @@ class DatastoreParamsTest {
         assertThatThrownBy(() -> DatastoreParams.choice("lastModified", "1d", List.of("48h", "7d", "30d")))
                 .hasMessage("lastModified must be one of 48h, 7d, 30d");
     }
+
+    // ── build 6 ──────────────────────────────────────────────────────────────────────────────────
+
+    private static void assertRejectedWithout(Executable call, String parameter, String value) {
+        assertThatThrownBy(call::execute)
+                .isInstanceOfSatisfying(DspmBadRequestException.class, e -> {
+                    assertThat(e.parameter()).isEqualTo(parameter);
+                    assertThat(e.getMessage()).contains(parameter).doesNotContain(value);
+                });
+    }
+
+    @Test
+    @DisplayName("integrationId is 24 hex characters, lower-cased, and the error names integrationId")
+    void integrationId() {
+        assertThat(DatastoreParams.integrationId("ABCDEF0123456789ABCDEF01")).isEqualTo("abcdef0123456789abcdef01");
+        assertRejected(() -> DatastoreParams.integrationId(null), "integrationId");
+        assertRejectedWithout(() -> DatastoreParams.integrationId("needle0123456789abcdef01"), "integrationId",
+                "needle");
+        assertRejected(() -> DatastoreParams.integrationId("0000000a-0000-4000-8000-00000000000b"), "integrationId");
+    }
+
+    @Test
+    @DisplayName("scanObjectId accepts 24 hex or a canonical UUID, lower-cased, and names its parameter")
+    void scanObjectId() {
+        assertThat(DatastoreParams.scanObjectId("scheduleId", "ABCDEF0123456789ABCDEF01"))
+                .isEqualTo("abcdef0123456789abcdef01");
+        assertThat(DatastoreParams.scanObjectId("runId", "0000000A-0000-4000-8000-00000000000B"))
+                .isEqualTo("0000000a-0000-4000-8000-00000000000b");
+        assertRejected(() -> DatastoreParams.scanObjectId("runId", null), "runId");
+        assertRejected(() -> DatastoreParams.scanObjectId("scopeId", "abcdef0123456789abcdef0"), "scopeId");
+        assertRejectedWithout(() -> DatastoreParams.scanObjectId("scheduleId", "../needle"), "scheduleId", "needle");
+    }
+
+    @Test
+    @DisplayName("code is an upper-snake code of 1 to 64 characters; absent is null")
+    void code() {
+        assertThat(DatastoreParams.code("status", null)).isNull();
+        assertThat(DatastoreParams.code("status", "WAITING_APPROVAL")).isEqualTo("WAITING_APPROVAL");
+        assertThat(DatastoreParams.code("status", "A" + "1".repeat(63))).hasSize(64);
+        assertRejected(() -> DatastoreParams.code("status", "A" + "1".repeat(64)), "status");
+        assertRejected(() -> DatastoreParams.code("actionType", ""), "actionType");
+        assertRejected(() -> DatastoreParams.code("actionType", "_MAKE"), "actionType");
+        assertRejectedWithout(() -> DatastoreParams.code("trigger", "needle"), "trigger", "needle");
+    }
+
+    @Test
+    @DisplayName("oneOf accepts exactly a listed value, case-sensitive; absent is null")
+    void oneOf() {
+        Set<String> platforms = Set.of("cloud", "on_prem", "endpoint");
+        assertThat(DatastoreParams.oneOf("platform", null, platforms)).isNull();
+        assertThat(DatastoreParams.oneOf("platform", "on_prem", platforms)).isEqualTo("on_prem");
+        assertRejected(() -> DatastoreParams.oneOf("platform", "CLOUD", platforms), "platform");
+        assertRejected(() -> DatastoreParams.oneOf("platform", "", platforms), "platform");
+        assertRejectedWithout(() -> DatastoreParams.oneOf("platform", "needle", platforms), "platform", "needle");
+    }
+
+    @Test
+    @DisplayName("freeText is trimmed, 1 to 128 characters, no control character, no comma; absent is null")
+    void freeText() {
+        assertThat(DatastoreParams.freeText("account", null)).isNull();
+        assertThat(DatastoreParams.freeText("account", "  prod account ")).isEqualTo("prod account");
+        assertThat(DatastoreParams.freeText("account", "x".repeat(128))).hasSize(128);
+        assertRejected(() -> DatastoreParams.freeText("account", "   "), "account");
+        assertRejected(() -> DatastoreParams.freeText("account", "x".repeat(129)), "account");
+        assertRejected(() -> DatastoreParams.freeText("account", "a\u0007b"), "account");
+        assertRejectedWithout(() -> DatastoreParams.freeText("account", "needle,other"), "account", "needle");
+    }
+
+    @Test
+    @DisplayName("domain is 1 to 253 letters, digits, dots or hyphens; absent is null")
+    void domain() {
+        assertThat(DatastoreParams.domain(null)).isNull();
+        assertThat(DatastoreParams.domain("mail.example-test.org")).isEqualTo("mail.example-test.org");
+        assertThat(DatastoreParams.domain("a".repeat(253))).hasSize(253);
+        assertRejected(() -> DatastoreParams.domain("a".repeat(254)), "domain");
+        assertRejected(() -> DatastoreParams.domain(""), "domain");
+        assertRejectedWithout(() -> DatastoreParams.domain("needle@example.test"), "domain", "needle");
+    }
+
+    @Test
+    @DisplayName("booleanFlag accepts exactly true and false; absent is null")
+    void booleanFlag() {
+        assertThat(DatastoreParams.booleanFlag("isNew", null)).isNull();
+        assertThat(DatastoreParams.booleanFlag("isNew", "true")).isTrue();
+        assertThat(DatastoreParams.booleanFlag("isNew", "false")).isFalse();
+        assertRejected(() -> DatastoreParams.booleanFlag("isNew", "TRUE"), "isNew");
+        assertRejectedWithout(() -> DatastoreParams.booleanFlag("isNew", "yes"), "isNew", "yes");
+    }
 }

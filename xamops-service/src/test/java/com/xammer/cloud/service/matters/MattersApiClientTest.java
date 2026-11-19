@@ -757,4 +757,149 @@ class MattersApiClientTest {
         calls.forEach(call -> assertThatThrownBy(call::run).isInstanceOf(IllegalArgumentException.class));
         server.verify();
     }
+
+    // ── build 6: pages, Scan Management and scan settings ────────────────────────────────────────
+
+    private static String scanUrl(String route) {
+        return BASE + "/api/v1/scan-management" + route;
+    }
+
+    private static ScanListQuery scanList(ScanListQuery.Kind kind, String search, Map<String, String> filters) {
+        return new ScanListQuery(kind, search, filters, 2, 10);
+    }
+
+    @Test
+    @DisplayName("each build 6 route hits its path and query with GET; the audit path has no query")
+    void everyBuildSixRouteHitsItsRoute() {
+        Map<String, String> scheduleFilters = new LinkedHashMap<>();
+        scheduleFilters.put("platform", "cloud");
+        scheduleFilters.put("status", "ACTIVE");
+        Map<String, String> runFilters = new LinkedHashMap<>();
+        runFilters.put("coverage", "SELECTED_DATASTORES");
+        runFilters.put("trigger", "IMMEDIATE");
+
+        Map<String, Function<MattersApiClient, JsonNode>> calls = new LinkedHashMap<>();
+        calls.put(BASE + "/api/v1/data/security/saas/categories", c -> c.saasCategories(credential));
+        calls.put(BASE + "/api/v1/data/security/fetch/assist", c -> c.fetchAssists(credential));
+        calls.put(BASE + "/api/v1/remediation/activity?skip=10&limit=10&status=FAILED&q=q4%20plan&actionType=MAKE_PRIVATE",
+                c -> c.remediationActivity(credential,
+                        new RemediationQuery("q4 plan", "FAILED", "MAKE_PRIVATE", 10, 10)));
+        calls.put(scanUrl("/schedules?page=2&page_size=10&q=nightly&platform=cloud&status=ACTIVE"),
+                c -> c.scanSchedules(credential, scanList(ScanListQuery.Kind.SCHEDULES, "nightly", scheduleFilters)));
+        calls.put(scanUrl("/schedules/" + SOURCE_ID), c -> c.scanSchedule(credential, SOURCE_ID));
+        calls.put(scanUrl("/scan-history?page=2&page_size=10&coverage=SELECTED_DATASTORES&trigger=IMMEDIATE"),
+                c -> c.scanRuns(credential, scanList(ScanListQuery.Kind.RUNS, null, runFilters)));
+        calls.put(scanUrl("/scan-history/" + UUID), c -> c.scanRun(credential, UUID));
+        calls.put(scanUrl("/scan-history/" + UUID + "/datastores?page=2&page_size=10&account=prod%20account"),
+                c -> c.scanRunDatastores(credential, UUID,
+                        scanList(ScanListQuery.Kind.RUN_DATASTORES, null, Map.of("account", "prod account"))));
+        calls.put(scanUrl("/scan-scopes?page=2&page_size=10"),
+                c -> c.scanScopes(credential, scanList(ScanListQuery.Kind.SCOPES, null, Map.of())));
+        calls.put(scanUrl("/scan-scopes/" + UUID), c -> c.scanScope(credential, UUID));
+        calls.put(BASE + "/api/v1/data/security/saas/" + SOURCE_ID + "/scan-configuration",
+                c -> c.saasScanConfiguration(credential, SOURCE_ID));
+        calls.put(BASE + "/api/v1/data/security/saas/assets/list?saasIntegrationId=" + SOURCE_ID
+                        + "&driveType=GMAIL&limit=10&skip=1&search=ann&status=ACTIVE&domain=example.test",
+                c -> c.saasScanUsers(credential, SOURCE_ID,
+                        new SaasUserQuery("GMAIL", "ann", "ACTIVE", "example.test", 2, 10)));
+        calls.put(BASE + "/api/v1/data/security/saas/channels/list?saasIntegrationId=" + SOURCE_ID
+                        + "&limit=10&skip=0&channelType=PUBLIC&isNew=true",
+                c -> c.saasChannels(credential, SOURCE_ID,
+                        new SaasChannelQuery(null, "PUBLIC", null, null, true, 1, 10)));
+        calls.put(BASE + "/api/v1/endpoint-agent/configuration", c -> c.endpointAgentConfiguration(credential));
+        calls.put(BASE + "/api/v1/data/scan/default/configuration?asset_id=" + SOURCE_ID,
+                c -> c.defaultScanConfiguration(credential, SOURCE_ID));
+        calls.put(BASE + "/api/v1/data/discovery/job/status/single?asset_id=" + SOURCE_ID,
+                c -> c.discoveryJobStatus(credential, SOURCE_ID));
+        calls.put(BASE + "/api/v1/data/security/databricks/asset/" + SOURCE_ID + "/databases",
+                c -> c.databricksDatabases(credential, SOURCE_ID));
+
+        calls.keySet().forEach(url -> expectGet(url).andRespond(withSuccess(OK, MediaType.APPLICATION_JSON)));
+        calls.values().forEach(call -> assertThat(call.apply(client).path("success").asBoolean()).isTrue());
+        server.verify();
+
+        ArgumentCaptor<String> paths = ArgumentCaptor.forClass(String.class);
+        verify(audit, atLeastOnce()).recordCredentialUse(eq(10L), eq("k1"), eq("p1"), paths.capture(), anyLong());
+        assertThat(paths.getAllValues()).hasSize(calls.size()).allSatisfy(p -> assertThat(p).doesNotContain("?"));
+        assertThat(paths.getAllValues()).contains(
+                "/api/v1/remediation/activity",
+                "/api/v1/scan-management/scan-history/" + UUID + "/datastores",
+                "/api/v1/data/security/saas/assets/list",
+                "/api/v1/data/discovery/job/status/single");
+    }
+
+    @Test
+    @DisplayName("scan-management bodies without success and the job status {success:false} are returned, not thrown")
+    void scanManagementAndJobStatusAreNotConsoleRoutes() {
+        String bare = "{\"data\":[],\"pagination\":{\"total\":0}}";
+        expectGet(scanUrl("/schedules?page=2&page_size=10"))
+                .andRespond(withSuccess(bare, MediaType.APPLICATION_JSON));
+        expectGet(scanUrl("/scan-history/" + SOURCE_ID)).andRespond(withSuccess("{\"id\":\"x\"}",
+                MediaType.APPLICATION_JSON));
+        expectGet(BASE + "/api/v1/data/discovery/job/status/single?asset_id=" + SOURCE_ID)
+                .andRespond(withSuccess("{\"success\":false,\"is_cooling_valid\":false}", MediaType.APPLICATION_JSON));
+        assertThat(client.scanSchedules(credential, scanList(ScanListQuery.Kind.SCHEDULES, null, Map.of()))
+                .path("data").isArray()).isTrue();
+        assertThat(client.scanRun(credential, SOURCE_ID).path("id").asText()).isEqualTo("x");
+        assertThat(client.discoveryJobStatus(credential, SOURCE_ID).path("success").asBoolean()).isFalse();
+        server.verify();
+
+        server.reset();
+        expectGet(BASE + "/api/v1/data/security/fetch/assist")
+                .andRespond(withSuccess("{\"success\":false}", MediaType.APPLICATION_JSON));
+        assertReason(() -> client.fetchAssists(credential), MattersApiException.Reason.BAD_UPSTREAM_RESPONSE);
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("'AssetId Not Found', 'No SaaS integration found' and 'Slack integration not found' are ASSET_NOT_FOUND")
+    void buildSixNotFoundPhrases() {
+        String status = BASE + "/api/v1/data/discovery/job/status/single?asset_id=" + SOURCE_ID;
+        expectGet(status).andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON)
+                .body("{\"success\":false,\"message\":\"AssetId Not Found\"}"));
+        assertReason(() -> client.discoveryJobStatus(credential, SOURCE_ID),
+                MattersApiException.Reason.ASSET_NOT_FOUND);
+        server.verify();
+
+        server.reset();
+        String configuration = BASE + "/api/v1/data/security/saas/" + SOURCE_ID + "/scan-configuration";
+        expectGet(configuration).andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON)
+                .body("{\"success\":false,\"message\":\"No SaaS integration found\"}"));
+        assertReason(() -> client.saasScanConfiguration(credential, SOURCE_ID),
+                MattersApiException.Reason.ASSET_NOT_FOUND);
+        server.verify();
+
+        server.reset();
+        String channels = BASE + "/api/v1/data/security/saas/channels/list?saasIntegrationId=" + SOURCE_ID
+                + "&limit=10&skip=0";
+        expectGet(channels).andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON)
+                .body("{\"success\":false,\"message\":\"Slack integration not found\"}"));
+        assertReason(() -> client.saasChannels(credential, SOURCE_ID,
+                new SaasChannelQuery(null, null, null, null, null, 1, 10)), MattersApiException.Reason.ASSET_NOT_FOUND);
+        server.verify();
+        verify(audit, times(3)).recordCredentialFailure(eq(10L), eq("k1"), eq("p1"), anyString(),
+                eq("ASSET_NOT_FOUND"), anyString());
+    }
+
+    @Test
+    @DisplayName("build 6 ids and paging are asserted before any request is made")
+    void buildSixArgumentAssertions() {
+        ScanListQuery scopes = scanList(ScanListQuery.Kind.SCOPES, null, Map.of());
+        List<Runnable> calls = List.of(
+                () -> client.scanSchedule(credential, "not-an-id"),
+                () -> client.scanSchedule(credential, null),
+                () -> client.scanRun(credential, UUID + "/../x"),
+                () -> client.scanRunDatastores(credential, SOURCE_ID.substring(1), scopes),
+                () -> client.scanScope(credential, UUID.substring(1)),
+                () -> client.saasScanConfiguration(credential, UUID),
+                () -> client.saasScanUsers(credential, "x", new SaasUserQuery("GMAIL", null, null, null, 1, 10)),
+                () -> client.saasChannels(credential, null, new SaasChannelQuery(null, null, null, null, null, 1, 10)),
+                () -> client.defaultScanConfiguration(credential, "x"),
+                () -> client.discoveryJobStatus(credential, null),
+                () -> client.databricksDatabases(credential, SOURCE_ID + "/../x"),
+                () -> client.remediationActivity(credential, new RemediationQuery(null, null, null, 10_001, 10)),
+                () -> client.remediationActivity(credential, new RemediationQuery(null, null, null, 0, 101)));
+        calls.forEach(call -> assertThatThrownBy(call::run).isInstanceOf(IllegalArgumentException.class));
+        server.verify();
+    }
 }

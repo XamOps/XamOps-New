@@ -137,6 +137,25 @@ public class MattersApiClient {
     private static final List<String> EXPOSURE_DATASTORE_TYPES = List.of("ONE_DRIVE", "SHARE_POINT", "ENDPOINT");
     private static final List<String> EXPOSURE_STATUSES = List.of("OPEN");
 
+    // Build 6: the Dashboard, Document Classes, Assists and Remediation pages, Scan Management and the
+    // datastore drawer's Scan Settings and sync status (design 5.5). PATH_SAAS_CATEGORIES is above (build 3).
+    public static final String PATH_FETCH_ASSIST = API_PREFIX + "/data/security/fetch/assist";
+    public static final String PATH_REMEDIATION_ACTIVITY = API_PREFIX + "/remediation/activity";
+    /** Bare {data[], pagination} bodies without a success flag. Followed by {@code /{id}} for one schedule. */
+    public static final String PATH_SCAN_MANAGEMENT_SCHEDULES = API_PREFIX + "/scan-management/schedules";
+    /** Bare {data[], pagination} bodies without a success flag. Followed by {@code /{id}} for one scope. */
+    public static final String PATH_SCAN_MANAGEMENT_SCOPES = API_PREFIX + "/scan-management/scan-scopes";
+    /** Followed by {@code {integrationId}/scan-configuration}. */
+    public static final String PATH_SAAS_PREFIX = API_PREFIX + "/data/security/saas/";
+    public static final String PATH_SAAS_ASSETS_LIST = API_PREFIX + "/data/security/saas/assets/list";
+    public static final String PATH_SAAS_CHANNELS_LIST = API_PREFIX + "/data/security/saas/channels/list";
+    public static final String PATH_ENDPOINT_AGENT_CONFIGURATION = API_PREFIX + "/endpoint-agent/configuration";
+    public static final String PATH_DEFAULT_SCAN_CONFIGURATION = API_PREFIX + "/data/scan/default/configuration";
+    /** Answers 200 {@code {"success": false}} when the datastore has no sync job: not a failure. */
+    public static final String PATH_DISCOVERY_JOB_STATUS = API_PREFIX + "/data/discovery/job/status/single";
+    /** Followed by {@code {sourceId}/databases}. */
+    public static final String PATH_DATABRICKS_ASSET_PREFIX = API_PREFIX + "/data/security/databricks/asset/";
+
     private static final Pattern SOURCE_ID = Pattern.compile("^[0-9a-fA-F]{24}$");
     private static final Pattern UUID = Pattern.compile(
             "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
@@ -149,9 +168,12 @@ public class MattersApiClient {
     /**
      * Vendor 400 messages that mean "no such asset". The console routes answer an unknown id with 400
      * rather than 404, worded differently per route. The SaaS file overview says "No file found with ID …".
+     * Build 6 adds the job status ("AssetId Not Found"), the SaaS scan configuration and users list ("No SaaS
+     * integration found") and the Slack channels list ("Slack integration not found").
      */
     private static final List<String> NOT_FOUND_PHRASES = List.of(
-            "no asset data found", "asset not found", "not inventory found", "no asset found", "no file found");
+            "no asset data found", "asset not found", "not inventory found", "no asset found", "no file found",
+            "assetid not found", "no saas integration found", "slack integration not found");
 
     static final String ASSET_NOT_FOUND_MESSAGE = "Asset not found";
     static final String FORBIDDEN_SCOPE_MESSAGE = "This Matters key needs the PLATFORM scope";
@@ -617,6 +639,105 @@ public class MattersApiClient {
         }
     }
 
+    // ── build 6: pages, Scan Management and the drawer's scan settings (design 5.5) ──────────────
+    //
+    // The scan-management routes answer bare objects without a success flag, so they use the 3-argument
+    // get (consoleRoute=false), as the Data Flow routes do. Every id has been validated by the caller.
+
+    /** {@code GET /api/v1/data/security/fetch/assist}: the project's assists. Whitelist downstream. */
+    public JsonNode fetchAssists(MattersCredential credential) {
+        return get(credential, PATH_FETCH_ASSIST, Map.of(), true);
+    }
+
+    /** {@code GET /api/v1/remediation/activity?skip=&limit=[&status=&q=&actionType=]}. */
+    public JsonNode remediationActivity(MattersCredential credential, RemediationQuery query) {
+        requireOffset("skip", query.skip());
+        requireLimit(query.limit());
+        return get(credential, PATH_REMEDIATION_ACTIVITY, query.toVendorParams(), true);
+    }
+
+    /** {@code GET /api/v1/scan-management/schedules?page=&page_size=…}. */
+    public JsonNode scanSchedules(MattersCredential credential, ScanListQuery query) {
+        return get(credential, PATH_SCAN_MANAGEMENT_SCHEDULES, query.toVendorParams());
+    }
+
+    /** {@code GET /api/v1/scan-management/schedules/{scheduleId}}. */
+    public JsonNode scanSchedule(MattersCredential credential, String scheduleId) {
+        return get(credential, PATH_SCAN_MANAGEMENT_SCHEDULES + "/" + requireScanObjectId(scheduleId), Map.of());
+    }
+
+    /** {@code GET /api/v1/scan-management/scan-history?page=&page_size=…}. */
+    public JsonNode scanRuns(MattersCredential credential, ScanListQuery query) {
+        return get(credential, PATH_SCAN_MANAGEMENT_HISTORY, query.toVendorParams());
+    }
+
+    /** {@code GET /api/v1/scan-management/scan-history/{runId}}. */
+    public JsonNode scanRun(MattersCredential credential, String runId) {
+        return get(credential, PATH_SCAN_MANAGEMENT_HISTORY + "/" + requireScanObjectId(runId), Map.of());
+    }
+
+    /** {@code GET /api/v1/scan-management/scan-history/{runId}/datastores?page=&page_size=…}. */
+    public JsonNode scanRunDatastores(MattersCredential credential, String runId, ScanListQuery query) {
+        return get(credential, PATH_SCAN_MANAGEMENT_HISTORY + "/" + requireScanObjectId(runId) + "/datastores",
+                query.toVendorParams());
+    }
+
+    /** {@code GET /api/v1/scan-management/scan-scopes?page=&page_size=…}. */
+    public JsonNode scanScopes(MattersCredential credential, ScanListQuery query) {
+        return get(credential, PATH_SCAN_MANAGEMENT_SCOPES, query.toVendorParams());
+    }
+
+    /** {@code GET /api/v1/scan-management/scan-scopes/{scopeId}}. */
+    public JsonNode scanScope(MattersCredential credential, String scopeId) {
+        return get(credential, PATH_SCAN_MANAGEMENT_SCOPES + "/" + requireScanObjectId(scopeId), Map.of());
+    }
+
+    /** {@code GET /api/v1/data/security/saas/{integrationId}/scan-configuration}. Whitelist downstream. */
+    public JsonNode saasScanConfiguration(MattersCredential credential, String integrationId) {
+        return get(credential, PATH_SAAS_PREFIX + requireSourceId(integrationId) + "/scan-configuration",
+                Map.of(), true);
+    }
+
+    /** {@code GET /api/v1/data/security/saas/assets/list?saasIntegrationId=&driveType=&limit=&skip=…}. */
+    public JsonNode saasScanUsers(MattersCredential credential, String integrationId, SaasUserQuery query) {
+        Map<String, List<String>> params = new LinkedHashMap<>();
+        params.put("saasIntegrationId", List.of(requireSourceId(integrationId)));
+        params.putAll(query.toVendorParams());
+        return get(credential, PATH_SAAS_ASSETS_LIST, params, true);
+    }
+
+    /** {@code GET /api/v1/data/security/saas/channels/list?saasIntegrationId=&limit=&skip=…}. */
+    public JsonNode saasChannels(MattersCredential credential, String integrationId, SaasChannelQuery query) {
+        Map<String, List<String>> params = new LinkedHashMap<>();
+        params.put("saasIntegrationId", List.of(requireSourceId(integrationId)));
+        params.putAll(query.toVendorParams());
+        return get(credential, PATH_SAAS_CHANNELS_LIST, params, true);
+    }
+
+    /** {@code GET /api/v1/endpoint-agent/configuration}. Carries bucket names and URLs: whitelist downstream. */
+    public JsonNode endpointAgentConfiguration(MattersCredential credential) {
+        return get(credential, PATH_ENDPOINT_AGENT_CONFIGURATION, Map.of(), true);
+    }
+
+    /** {@code GET /api/v1/data/scan/default/configuration?asset_id=}. May carry credentials: whitelist downstream. */
+    public JsonNode defaultScanConfiguration(MattersCredential credential, String sourceId) {
+        return get(credential, PATH_DEFAULT_SCAN_CONFIGURATION, assetQuery(sourceId), true);
+    }
+
+    /**
+     * {@code GET /api/v1/data/discovery/job/status/single?asset_id=}. consoleRoute=false: the route answers
+     * 200 {@code {"success": false}} when the datastore has no sync job, which the mapper reads as "no job".
+     */
+    public JsonNode discoveryJobStatus(MattersCredential credential, String sourceId) {
+        return get(credential, PATH_DISCOVERY_JOB_STATUS, assetQuery(sourceId));
+    }
+
+    /** {@code GET /api/v1/data/security/databricks/asset/{sourceId}/databases}. */
+    public JsonNode databricksDatabases(MattersCredential credential, String sourceId) {
+        return get(credential, PATH_DATABRICKS_ASSET_PREFIX + requireSourceId(sourceId) + "/databases",
+                Map.of(), true);
+    }
+
     // ── internals ────────────────────────────────────────────────────────────────────────────────
 
     private JsonNode get(MattersCredential credential, String path, Map<String, List<String>> query) {
@@ -971,6 +1092,14 @@ public class MattersApiClient {
     private static String requireUuid(String id) {
         if (id == null || !UUID.matcher(id).matches()) {
             throw new IllegalArgumentException("Data Flow id must be a UUID");
+        }
+        return id;
+    }
+
+    /** A schedule, run or scope id: 24 hex characters (legacy schedules) or a canonical UUID (runs). */
+    private static String requireScanObjectId(String id) {
+        if (id == null || !(SOURCE_ID.matcher(id).matches() || UUID.matcher(id).matches())) {
+            throw new IllegalArgumentException("scan object id must be 24 hexadecimal characters or a UUID");
         }
         return id;
     }
