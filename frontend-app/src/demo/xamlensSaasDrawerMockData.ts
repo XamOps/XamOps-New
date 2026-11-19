@@ -25,7 +25,9 @@ import type {
 import { demoSaasSource, type DemoSaasSource, type DemoSourceFile } from './xamlensMockData';
 
 const DAY = 24 * 60 * 60;
-const daysAgo = (days: number) => Math.floor(Date.now() / 1000) - Math.round(days * DAY);
+/** The module's now (epoch seconds), taken once at load, so every time it gives is stable for the page's life. */
+const NOW = Math.floor(Date.now() / 1000);
+const daysAgo = (days: number) => NOW - Math.round(days * DAY);
 
 const ACCOUNT_NAME = 'xammer-workspace';
 const DRIVE_LABEL: Record<DemoSaasSource['drive'], string> = { GMAIL: 'Gmail', GOOGLE_WORKSPACE: 'Google Drive' };
@@ -372,10 +374,12 @@ function copyOf(key: string, lane: LaneSeed, path: string | null): SaasFileCopy 
   };
 }
 
-function copiesOf(showcase: Showcase | null): SaasFileCopies {
+/** `locations` is the vendor's `summary.locations`: every distinct place of the content, the opened file's own included. */
+function copiesOf(source: DemoSaasSource, showcase: Showcase | null): SaasFileCopies {
   const copies = OFFER_COPIES();
   if (showcase === 'gmailOffer') {
-    return { available: true, copies: [copyOf('copy-1', copies.driveDocx, null), copyOf('copy-2', copies.drivePdf, null)], locations: 1 };
+    // Gmail and Priya's Drive.
+    return { available: true, copies: [copyOf('copy-1', copies.driveDocx, null), copyOf('copy-2', copies.drivePdf, null)], locations: 2 };
   }
   if (showcase === 'driveOffer') {
     return {
@@ -389,8 +393,31 @@ function copiesOf(showcase: Showcase | null): SaasFileCopies {
       locations: 3,
     };
   }
-  return { available: true, copies: [], locations: 0 };
+  // A Drive file is hashed, so its own place counts; Gmail files are not.
+  return { available: true, copies: [], locations: source.drive === 'GMAIL' ? 0 : 1 };
 }
+
+/**
+ * The offer letter's copies as the Mac's `offer-letter.docx` sees them (the Endpoint file drawer's showcase):
+ * the Gmail PDF and the two Drive DOCX, then its own Mac lane as `self`.
+ */
+export function demoMacOfferLetterCopies(): { lineage: SaasFileLineage; copies: SaasFileCopies } {
+  const copies = OFFER_COPIES();
+  const seeds = [copies.gmailPdf, copies.driveDocx, copies.driveDocxCopy, copies.macDocx];
+  const lanes = seeds.map((seed, i) => ({ ...seed, key: `copy-${i}`, self: i === 3 }));
+  return {
+    lineage: { available: true, coverageNote: COVERAGE_NOTE, lanes, events: [] },
+    copies: {
+      available: true,
+      copies: [copyOf('copy-0', copies.gmailPdf, null), copyOf('copy-1', copies.driveDocx, null), copyOf('copy-2', copies.driveDocxCopy, null)],
+      // Gmail, Priya's Drive and the MacBook.
+      locations: 3,
+    },
+  };
+}
+
+/** The coverage note of a file's lineage, for the Endpoint file drawer's demo. */
+export const DEMO_COVERAGE_NOTE = COVERAGE_NOTE;
 
 /**
  * `GET /api/dspm/saas-files/{fileId}/{resource}` for a file a SaaS row lists, or null for an unknown id
@@ -405,7 +432,33 @@ export function demoSaasFileResource(fileId: string, resource: string): object |
     case 'overview': return overviewOf(source, file, index);
     case 'activity': return activityOf(showcase);
     case 'lineage': return { available: true, coverageNote: COVERAGE_NOTE, ...lanesOf(showcase) } satisfies SaasFileLineage;
-    case 'copies': return copiesOf(showcase);
+    case 'copies': return copiesOf(source, showcase);
     default: return null;
   }
+}
+
+/** The overview of a file a SaaS row lists, which the Files page's SaaS rows read too; null for an unknown id. */
+export function demoSaasFileOverview(fileId: string): SaasFileOverview | null {
+  const found = fileOf(fileId);
+  return found ? overviewOf(found.source, found.file, found.index) : null;
+}
+
+/** The SaaS list's source id of the datastore holding this file; null for an unknown id. */
+export function demoSaasFileSourceId(fileId: string): string | null {
+  return fileOf(fileId)?.source.sourceId ?? null;
+}
+
+/** Every SaaS spec file's id: the SaaS datastores in spec order, each one's files in spec order. */
+export function demoSaasFileIds(): string[] {
+  const ids: string[] = [];
+  for (let number = 1; ; number++) {
+    const source = demoSaasSource(saasSourceId(number));
+    if (!source) return ids;
+    source.files.forEach((_, index) => ids.push(fileIdOf(source, index)));
+  }
+}
+
+/** The SaaS document classes with their categories, in the order the subject keywords are tried. */
+export function demoSaasDocumentClasses(): Array<{ category: string; documentClass: string }> {
+  return DOCUMENT_CLASSES.map(([, category, documentClass]) => ({ category, documentClass }));
 }

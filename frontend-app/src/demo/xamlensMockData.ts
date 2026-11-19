@@ -576,6 +576,8 @@ const DEVICE_SEEDS: DeviceSeed[] = [
       { name: 'payroll_draft.xlsx', path: '/Users/priya/Desktop/payroll_draft.xlsx', ext: 'xlsx',
         findings: [['BANK ACCOUNT NUMBER', 58], ['PAN NUMBER', 58]] },
       { name: 'credentials.bak', path: '/Users/priya/Documents/aws/credentials.bak', ext: 'bak', findings: [['ACCESS KEY AWS', 2]] },
+      // The Endpoint file drawer's showcase: the Mac copy of the offer letter, without findings.
+      { name: 'offer-letter.docx', path: '/Users/priya/Documents/offer-letter.docx', ext: 'docx', findings: [] },
     ] },
   { id: 'demo-ep-02', name: 'FIN-LAPTOP-07', os: 'WINDOWS', osVersion: '11 Pro 23H2', user: 'vijay', serial: '8TG5DEMO07',
     status: 'CLASSIFIED', online: true, pingHoursAgo: 1, risk: 'CRITICAL', objectTotal: 6932, ip: '203.0.113.87',

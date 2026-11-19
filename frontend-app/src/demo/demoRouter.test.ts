@@ -19,12 +19,17 @@ import type {
 import type { MisconfigurationDetail, MisconfigurationList } from '../types/dspmMisconfigurations';
 import type {
   DataFlowErd, DataFlowRelations, EndpointScanPage, EndpointSensitiveMetrics, EndpointSummary, SaasFileActivity,
-  SaasFileCopies, SaasFileLineage, SaasFileOverview, SaasFilePage, SaasRecords,
+  SaasFileCopies, SaasFileLineage, SaasFileOverview, SaasFilePage, SaasRecords, EndpointFilePage,
 } from '../types/dspmDrawers';
 import type {
   LineageCategories, LineageDatastorePage, LineageFilePage, LineagePolicyPage,
 } from '../types/dspmLineage';
 import { DEMO_LINEAGE_STEPS_DEFAULT, DEMO_LINEAGE_STEPS_KEY } from './xamlensLineageMockData';
+import type {
+  EndpointFileActivity, EndpointFileLineage, EndpointFileOverview, SaasFileListPage, SaasFileListRow,
+} from '../types/dspmFiles';
+import { DEMO_NOW } from './xamlensEndpointDrawerMockData';
+import { demoEndpointFileTimes } from './xamlensFilesMockData';
 
 /**
  * The generic `/api/xamops/*` fallback answers `{}`, which is wrong for any
@@ -1566,6 +1571,248 @@ describe('demo router — XamLens SaaS, Endpoint and Graph View drawers (ROLE_XA
     const files = readdirSync(dir).filter(name => /\.tsx?$/.test(name));
     expect(files.length).toBeGreaterThan(5);
     for (const name of files) expect(readFileSync(join(dir, name), 'utf8').includes(renamed), name).toBe(false);
+  });
+});
+
+describe('demo router — XamLens Files page and Endpoint file drawer (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const DS = '/api/dspm/datastores';
+  const FILES = '/api/dspm/files';
+  const saasPage = (query = '') => readDemoBody(`${FILES}/saas?limit=10${query}`) as Promise<SaasFileListPage>;
+  const endpointPage = (query = '') => readDemoBody(`${FILES}/endpoint?skip=0&limit=10${query}`) as Promise<EndpointFilePage>;
+  const allSaasRows = async (query = '') => {
+    const rows: SaasFileListRow[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: SaasFileListPage = await saasPage(`${query}${cursor ? `&cursor=${cursor}` : ''}`);
+      rows.push(...page.rows);
+      cursor = page.nextCursor;
+    } while (cursor);
+    return rows;
+  };
+  const endpointFile = (id: string, resource: string) => readDemoBody(`/api/dspm/endpoint-files/${id}/${resource}`);
+  const optionsOf = (options: DatastoreFilterOptions, key: string) => options.dimensions.find(d => d.key === key)!.options;
+  const deviceRows = async () =>
+    ((await readDemoBody(`${DS}?tab=endpoint&pageSize=100`)) as DspmPage<DatastoreRow>).data;
+  const modesOf = (sharing: SaasFileOverview['sharing']) => {
+    const codes = [sharing.publicShare && 'PUBLIC', sharing.externalEmails.length > 0 && 'EXTERNAL',
+      sharing.internalEmails.length > 0 && 'INTERNAL'].filter(Boolean);
+    return codes.length > 0 ? codes : ['PRIVATE'];
+  };
+  const showcaseRow = async () => (await endpointPage('&q=offer-letter')).rows[0];
+
+  it('answers every Files path with its DTO, never the {} catch-all', async () => {
+    const [first] = (await endpointPage()).rows;
+    const urls = [
+      `${FILES}/saas?limit=10`, `${FILES}/saas/filter-options`, `${FILES}/saas/filter-options?category=Legal`,
+      `${FILES}/endpoint?skip=0&limit=10`, `${FILES}/endpoint/filter-options`,
+      ...['overview', 'activity', 'lineage', 'copies'].map(resource => `/api/dspm/endpoint-files/${first.id}/${resource}`),
+    ];
+    for (const url of urls) {
+      const response = resolveDemoResponse(url);
+      expect(response, url).not.toBeNull();
+      expect(response!.status, url).toBe(200);
+      expect(await response!.json(), url).not.toEqual({});
+    }
+  });
+
+  it('answers an unknown endpoint file id or Files path with 404 ASSET_NOT_FOUND', async () => {
+    for (const url of [
+      '/api/dspm/endpoint-files/de500000-0000-4000-8000-000199999999/overview',
+      '/api/dspm/endpoint-files/00000000-0000-4000-8000-000000000000/lineage',
+      `${FILES}/unknown`,
+    ]) {
+      const response = resolveDemoResponse(url)!;
+      expect(response.status, url).toBe(404);
+      expect((await response.json()).code, url).toBe('ASSET_NOT_FOUND');
+    }
+  });
+
+  it('pages the SaaS tab forward and back through three pages, newest first, with a null cursor on the last', async () => {
+    const one = await saasPage();
+    const two = await saasPage(`&cursor=${one.nextCursor}`);
+    const three = await saasPage(`&cursor=${two.nextCursor}`);
+    expect([one, two, three].map(page => page.rows.length)).toEqual([10, 10, 10]);
+    expect(three.nextCursor).toBeNull();
+    // Back: the pager re-sends the cursor it kept for page 2.
+    expect(await saasPage(`&cursor=${one.nextCursor}`)).toEqual(two);
+    expect(await saasPage('&cursor=not-a-cursor')).toEqual(one);
+    const times = [...one.rows, ...two.rows, ...three.rows].map(row => row.lastModifiedAt!);
+    expect(times).toEqual([...times].sort((a, b) => b - a));
+    expect(new Set([...one.rows, ...two.rows, ...three.rows].map(row => row.id)).size).toBe(30);
+  });
+
+  it('opens every SaaS row as a drawer with the same name, owner, category, class, sharing and last modified', async () => {
+    for (const row of await allSaasRows()) {
+      const overview = await readDemoBody(`/api/dspm/saas-files/${row.id}/overview`) as SaasFileOverview;
+      expect([overview.name, overview.owner, overview.categoryLabel, overview.documentClassLabel, overview.lastModifiedAt], row.name!)
+        .toEqual([row.name, row.owner, row.categoryLabel, row.documentClassLabel, row.lastModifiedAt]);
+      expect(row.sharingModes.map(mode => mode.code), row.name!).toEqual(modesOf(overview.sharing));
+      expect(row.extension, row.name!).toBe(overview.fileExtension === 'msg' ? null : overview.fileExtension);
+    }
+  });
+
+  it('shows the sharing forms of the demo: Externally Shared + 1, Private and Internally Shared', async () => {
+    const rows = await allSaasRows();
+    const labels = (name: string) => rows.find(row => row.name === name)!.sharingModes.map(mode => mode.label);
+    expect(labels('Offer Letter - Priya Nair.docx')).toEqual(['Externally Shared', 'Internally Shared']);
+    expect(labels('Team Roster.xlsx')).toEqual(['Private']);
+    expect(labels('Offer Letter - Priya Nair.pdf')).toEqual(['Internally Shared']);
+  });
+
+  it('narrows the SaaS tab by each filter', async () => {
+    const all = await allSaasRows();
+    const gmail = await allSaasRows('&appType=GMAIL');
+    expect(gmail.length).toBeGreaterThan(0);
+    expect(gmail.length).toBeLessThan(all.length);
+    expect(gmail.every(row => row.source === 'GMAIL' && row.sourceLabel === 'Gmail')).toBe(true);
+    // A mail's subject is no extension; the Gmail attachment keeps its own.
+    expect(gmail.filter(row => row.extension !== null).map(row => [row.name, row.extension]))
+      .toEqual([['Offer Letter - Priya Nair.pdf', 'pdf']]);
+    expect((await allSaasRows('&sharing=external')).map(row => row.name)).toEqual(['Offer Letter - Priya Nair.docx']);
+    expect((await allSaasRows('&externalUser=talent.partner%40example.com')).map(row => row.name)).toEqual(['Offer Letter - Priya Nair.docx']);
+    expect((await allSaasRows('&documentClass=Invoices%20%26%20Receipts')).every(row => row.documentClassLabel === 'Invoices & Receipts')).toBe(true);
+    expect((await allSaasRows('&category=Legal')).every(row => row.categoryLabel === 'Legal')).toBe(true);
+    expect((await allSaasRows('&q=offer')).map(row => row.name).sort())
+      .toEqual(['Offer Letter - Priya Nair.docx', 'Offer Letter - Priya Nair.pdf', 'Re: Offer acceptance']);
+    const pci = await allSaasRows('&sensitives=PCI');
+    expect(pci.length).toBeGreaterThan(0);
+    expect(pci.length).toBeLessThan(all.length);
+  });
+
+  it('lists one Owner per SaaS datastore with files, so Priya twice, each selecting that datastore’s rows', async () => {
+    const options = await readDemoBody(`${FILES}/saas/filter-options`) as DatastoreFilterOptions;
+    expect(options.dimensions.map(d => d.key))
+      .toEqual(['sensitives', 'category', 'appType', 'documentClass', 'owner', 'internalUser', 'externalUser', 'sharing']);
+    const priya = optionsOf(options, 'owner').filter(option => option.label === 'priya@xammer.in');
+    expect(priya).toHaveLength(2);
+    const [gmail, drive] = await Promise.all(priya.map(option => allSaasRows(`&owner=${option.value}`)));
+    expect(gmail.every(row => row.source === 'GMAIL' && row.owner === 'priya@xammer.in')).toBe(true);
+    expect(drive.map(row => row.name).sort()).toEqual(['Offer Letter - Priya Nair.docx', 'Team Roster.xlsx']);
+    expect((await allSaasRows(`&owner=${priya.map(o => o.value).join(',')}`)).length).toBe(gmail.length + drive.length);
+  });
+
+  it('offers the fixed Sensitives, App Type and Sharing lists, and narrows Document Class by Category', async () => {
+    const options = await readDemoBody(`${FILES}/saas/filter-options`) as DatastoreFilterOptions;
+    expect(optionsOf(options, 'sensitives').map(o => [o.value, o.label]))
+      .toEqual([['PII', 'Personal'], ['PCI', 'Financial'], ['PHI', 'Health'], ['SECRETS', 'IT & Security']]);
+    expect(optionsOf(options, 'appType')).toHaveLength(9);
+    expect(optionsOf(options, 'sharing').map(o => o.label)).toEqual(['Shared Internally', 'Shared Externally', 'Shared Publicly']);
+    expect(optionsOf(options, 'documentClass').length).toBeGreaterThan(1);
+    const legal = await readDemoBody(`${FILES}/saas/filter-options?category=Legal`) as DatastoreFilterOptions;
+    expect(optionsOf(legal, 'documentClass').map(o => o.value)).toEqual(['General Contracts & Agreements']);
+    expect(optionsOf(options, 'externalUser').map(o => o.value)).toEqual(['talent.partner@example.com']);
+  });
+
+  it('lists every device’s File View rows on the Endpoint tab, of 32,325', async () => {
+    expect((await endpointPage()).total).toBe(32_325);
+    for (const device of await deviceRows()) {
+      const fileView = await readDemoBody(`${DS}/${device.sourceId}/endpoint/files?skip=0&limit=10`) as EndpointFilePage;
+      const files = await endpointPage(`&hostname=${encodeURIComponent(device.name!)}`);
+      expect(files.rows, device.name!).toEqual(fileView.rows);
+      expect(files.total, device.name!).toBe(fileView.total);
+    }
+  });
+
+  it('narrows the Endpoint tab by each filter', async () => {
+    expect((await endpointPage('&hostname=build-runner-01')).total).toBe(18_240);
+    expect((await endpointPage('&uid=C02XD4DEMO01')).total).toBe(4_210);
+    expect((await endpointPage('&tag=customer-data')).rows.map(row => row.name)).toEqual(['customer_export_sept.csv']);
+    expect((await endpointPage('&documentClass=payroll%20records')).rows.map(row => row.name)).toEqual(['payroll_draft.xlsx']);
+    expect((await endpointPage('&category=it%20%26%20technical')).total).toBe(3);
+    expect((await endpointPage('&dataElement=IFSC%20CODE')).rows.map(row => row.name)).toEqual(['vendor_bank_details.xlsx']);
+    expect((await endpointPage('&sensitives=PCI')).total).toBe(3);
+    const recent = await endpointPage('&lastModified=48h');
+    expect(recent.rows.map(row => row.name)).toEqual(['offer-letter.docx']);
+    expect((await endpointPage('&lastModified=30d')).total).toBeLessThan(32_325);
+  });
+
+  it('offers the Endpoint filters in the More filters order, data elements in sentence case', async () => {
+    const options = await readDemoBody(`${FILES}/endpoint/filter-options`) as DatastoreFilterOptions;
+    expect(options.dimensions.map(d => d.key))
+      .toEqual(['category', 'sensitives', 'documentClass', 'dataElement', 'tag', 'uid', 'hostname', 'lastModified']);
+    expect(optionsOf(options, 'dataElement').find(o => o.value === 'EMAIL ADDRESS')!.label).toBe('Email address');
+    expect(optionsOf(options, 'tag').map(o => o.value)).toEqual(['customer-data', 'hr-restricted']);
+    expect(optionsOf(options, 'hostname')).toHaveLength(6);
+    expect(optionsOf(options, 'lastModified').map(o => o.value)).toEqual(['48h', '7d', '30d']);
+  });
+
+  it('opens every endpoint row as a drawer with its name and times, also after the clock moves 61 s', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const firstRows = (await readDemoBody(`${FILES}/endpoint?skip=0&limit=100`) as EndpointFilePage).rows;
+    const deviceFirsts = [];
+    for (const device of await deviceRows()) {
+      const [row] = (await endpointPage(`&hostname=${encodeURIComponent(device.name!)}`)).rows;
+      if (row) deviceFirsts.push(row);
+    }
+    const saas = await allSaasRows();
+    expect(deviceFirsts).toHaveLength(4);
+    vi.setSystemTime(Date.now() + 61_000);
+    for (const row of [...firstRows, ...deviceFirsts]) {
+      expect(row.id).toMatch(/^de500000-0000-4000-8000-\d{12}$/);
+      expect(row.scannedAt).not.toBeNull();
+      const overview = await endpointFile(row.id!, 'overview') as EndpointFileOverview;
+      expect([overview.name, overview.modifiedAt, overview.path], row.id!).toEqual([row.name, row.modifiedAt, row.path]);
+      if (overview.modifiedAt === null) {
+        expect([overview.fileCreatedAt, overview.accessedAt]).toEqual([null, null]);
+      } else {
+        expect(overview.fileCreatedAt).toBe(overview.modifiedAt - 2_592_000);
+        expect(overview.accessedAt!).toBeGreaterThanOrEqual(overview.modifiedAt);
+        expect(overview.accessedAt!).toBeLessThanOrEqual(Math.max(overview.modifiedAt, DEMO_NOW));
+      }
+    }
+    for (const row of saas) {
+      const overview = await readDemoBody(`/api/dspm/saas-files/${row.id}/overview`) as SaasFileOverview;
+      expect(overview.lastModifiedAt, row.name!).toBe(row.lastModifiedAt);
+    }
+  });
+
+  it('derives File Created and Last Accessed from the change time', () => {
+    const N = 1_800_000_000;
+    expect(demoEndpointFileTimes(null, N)).toEqual({ fileCreatedAt: null, accessedAt: null });
+    expect(demoEndpointFileTimes(N - 864_000, N)).toEqual({ fileCreatedAt: N - 864_000 - 2_592_000, accessedAt: N - 777_600 });
+    expect(demoEndpointFileTimes(N - 3_600, N).accessedAt).toBe(N);
+    expect(demoEndpointFileTimes(N + 60, N).accessedAt).toBe(N + 60);
+  });
+
+  it('serves offer-letter.docx as the showcase: New, one File Activity entry, Mac, Gmail and Drive lanes, three copies', async () => {
+    const row = await showcaseRow();
+    expect(row.name).toBe('offer-letter.docx');
+    expect(DEMO_NOW - row.modifiedAt!).toBeGreaterThanOrEqual(0);
+    expect(DEMO_NOW - row.modifiedAt!).toBeLessThan(48 * 3600);
+    const activity = await endpointFile(row.id!, 'activity') as EndpointFileActivity;
+    expect(activity.entries).toEqual([{
+      action: 'TAG_APPLIED', actionLabel: 'Tag applied', selectedTag: 'Confidential', previousTag: null,
+      performedBy: 'priya@xammer.in', occurredAt: DEMO_NOW - 259_200, keywordsWritten: true, mipLabelWritten: false,
+    }]);
+    const lineage = await endpointFile(row.id!, 'lineage') as EndpointFileLineage;
+    expect(lineage.asset).toMatchObject({ title: 'offer-letter.docx', device: 'Priya’s MacBook Pro', osUser: 'priya', events: [] });
+    expect(lineage.copies.lanes.map(lane => [lane.channelLabel, lane.self]))
+      .toEqual([['Gmail', false], ['Google Drive', false], ['Google Drive', false], ['Endpoint', true]]);
+    const copies = await endpointFile(row.id!, 'copies') as SaasFileCopies;
+    expect(copies.locations).toBe(3);
+    expect(copies.copies.map(copy => copy.sourceLabel)).toEqual(['Gmail', 'Google Drive', 'Google Drive']);
+    const other = (await endpointPage()).rows[0];
+    expect(await endpointFile(other.id!, 'activity')).toEqual({ entries: [] });
+    expect(await endpointFile(other.id!, 'copies')).toEqual({ available: true, copies: [], locations: 1 });
+  });
+
+  it('puts offer-letter.docx fourth in demo-ep-01’s File View and keeps its 4,210 files and 5,400 records', async () => {
+    const mac = (await deviceRows()).find(row => row.name === 'Priya’s MacBook Pro')!;
+    expect(mac.sensitives.recordCount).toBe(5_400);
+    const fileView = await readDemoBody(`${DS}/${mac.sourceId}/endpoint/files?skip=0&limit=10`) as EndpointFilePage;
+    expect(fileView.total).toBe(4_210);
+    expect(fileView.rows[3]).toMatchObject({ name: 'offer-letter.docx', sensitiveCount: 0 });
+    const others = fileView.rows.filter(row => row.name !== 'offer-letter.docx');
+    expect(others.every(row => DEMO_NOW - row.modifiedAt! >= 48 * 3600)).toBe(true);
+    const summary = await readDemoBody(`${DS}/${mac.sourceId}/endpoint/summary`) as EndpointSummary;
+    expect(summary.extensions.find(chip => chip.extension === 'docx')).toMatchObject({ label: 'DOCX', count: 1 });
   });
 });
 /**

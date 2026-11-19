@@ -20,7 +20,14 @@ import type {
 import { demoEndpointSource, type DemoEndpointSource, type DemoSourceFile } from './xamlensMockData';
 
 const DAY = 24 * 60 * 60;
-const daysAgo = (days: number) => Math.floor(Date.now() / 1000) - Math.round(days * DAY);
+/** The module's now (epoch seconds), taken once at load, so every time it gives is stable for the page's life. */
+const NOW = Math.floor(Date.now() / 1000);
+/** The endpoint demo's now, which the Files page's demo dates against. */
+export const DEMO_NOW = NOW;
+const daysAgo = (days: number) => NOW - Math.round(days * DAY);
+
+/** The Endpoint file drawer's showcase: modified 6 hours before now, so it shows "New". */
+const SHOWCASE_FILE = 'offer-letter.docx';
 
 /** File name keyword → the vendor's lower-case category and document class, tried in order. */
 const DOCUMENT_CLASSES: ReadonlyArray<[keywords: string[], category: string, documentClass: string]> = [
@@ -184,10 +191,15 @@ function overview(source: DemoEndpointSource): EndpointOverview {
   };
 }
 
-/** Every file on the device: the spec files by records descending, then the clean filler. */
+const ALL_FILES = new Map<string, DemoSourceFile[]>();
+
+/** Every file on the device: the spec files by records descending, then the clean filler (pure, so memoised). */
 function allFiles(source: DemoEndpointSource): DemoSourceFile[] {
+  const known = ALL_FILES.get(source.id);
+  if (known) return known;
   const files = [...source.files].sort((a, b) => b.records - a.records);
   for (let i = 0; files.length < source.objectTotal; i++) files.push(source.filler(i));
+  ALL_FILES.set(source.id, files);
   return files;
 }
 
@@ -225,11 +237,29 @@ function summary(source: DemoEndpointSource): EndpointSummary {
   };
 }
 
-function fileRow(source: DemoEndpointSource, file: DemoSourceFile): EndpointFileRow {
+/** The device's number in its spec id (`demo-ep-01` → 1). */
+const deviceNumberOf = (source: DemoEndpointSource) => Number(source.id.replace(/\D/g, ''));
+
+/** The endpoint list's source id of a device number (`xamlensMockData.ts`, `sourceIdOf`: `de3`, surface digit 2). */
+const endpointSourceId = (number: number) => `de32${String(number).padStart(20, '0')}`;
+
+/** An endpoint file's UUID: `de500000-0000-4000-8000-`, the device in four digits, then its index in eight. */
+export const demoEndpointFileId = (deviceNumber: number, index: number) =>
+  `de500000-0000-4000-8000-${String(deviceNumber).padStart(4, '0')}${String(index).padStart(8, '0')}`;
+
+/** A device's file with its list row. */
+export interface DemoEndpointFileEntry {
+  source: DemoEndpointSource;
+  file: DemoSourceFile;
+  row: EndpointFileRow;
+}
+
+function fileRow(source: DemoEndpointSource, file: DemoSourceFile, index: number): EndpointFileRow {
   const documentClass = documentClassOf(file);
   const hash = hashOf(file.path ?? file.name);
+  const showcase = source.id === 'demo-ep-01' && file.name === SHOWCASE_FILE;
   return {
-    id: null,
+    id: demoEndpointFileId(deviceNumberOf(source), index),
     name: file.name,
     extension: extensionOf(file),
     path: file.path,
@@ -240,10 +270,50 @@ function fileRow(source: DemoEndpointSource, file: DemoSourceFile): EndpointFile
     categoryLabel: documentClass ? titleCase(documentClass.category) : null,
     documentClassLabel: documentClass ? titleCase(documentClass.documentClass) : null,
     tags: TAGS[file.name] ?? [],
-    modifiedAt: daysAgo(2 + (hash % 90)),
-    scannedAt: null,
+    modifiedAt: showcase ? NOW - 6 * 3600 : daysAgo(2 + (hash % 90)),
+    scannedAt: lastScanOf(source),
   };
 }
+
+const ENTRIES = new Map<string, DemoEndpointFileEntry[]>();
+
+/** Every file of the device with its row, in File View order; empty for an id that is not an endpoint row. */
+export function demoEndpointFileEntries(sourceId: string): DemoEndpointFileEntry[] {
+  const known = ENTRIES.get(sourceId);
+  if (known) return known;
+  const source = demoEndpointSource(sourceId);
+  if (!source) return [];
+  const entries = allFiles(source).map((file, index) => ({ source, file, row: fileRow(source, file, index) }));
+  ENTRIES.set(sourceId, entries);
+  return entries;
+}
+
+/** The rows File View lists for a device and the Files page's Endpoint tab lists for it, with ids and scan times. */
+export const demoEndpointFileRows = (sourceId: string): EndpointFileRow[] =>
+  demoEndpointFileEntries(sourceId).map(entry => entry.row);
+
+/** Every endpoint device's source id, in seed order. */
+export function demoEndpointSourceIds(): string[] {
+  const ids: string[] = [];
+  for (let number = 1; demoEndpointSource(endpointSourceId(number)); number++) ids.push(endpointSourceId(number));
+  return ids;
+}
+
+/** The file with this UUID and its device; null for an unknown id. */
+export function demoEndpointFileEntry(fileId: string): DemoEndpointFileEntry | null {
+  const match = fileId.match(/^de500000-0000-4000-8000-(\d{4})(\d{8})$/);
+  if (!match) return null;
+  return demoEndpointFileEntries(endpointSourceId(Number(match[1])))[Number(match[2])] ?? null;
+}
+
+/** Whether a file passes the Sensitives, Document Class, Category and Data Elements filters of these parameters. */
+export const demoEndpointFileMatches = (file: DemoSourceFile, params: URLSearchParams) => fileMatches(file, filtersOf(params));
+
+/** The vendor's lower-case category and document class of a file, or null without one. */
+export const demoEndpointDocumentClass = (file: DemoSourceFile) => documentClassOf(file);
+
+/** Build 2's Matters Tags, by file name. */
+export const DEMO_ENDPOINT_TAGS: Readonly<Record<string, readonly string[]>> = TAGS;
 
 const intParam = (params: URLSearchParams, name: string, fallback: number, min: number, max: number) =>
   Math.min(max, Math.max(min, Number.parseInt(params.get(name) ?? '', 10) || fallback));
@@ -298,10 +368,10 @@ export function demoEndpointResource(id: string, resource: string, url: string):
     case 'files': {
       const filters = filtersOf(params);
       const q = (params.get('q') ?? '').trim().toLowerCase();
-      const files = allFiles(source).filter(file => fileMatches(file, filters) && (!q || file.name.toLowerCase().includes(q)));
-      return {
-        rows: files.slice(skip, skip + limit).map(file => fileRow(source, file)), skip, limit, total: files.length,
-      } satisfies EndpointFilePage;
+      const rows = demoEndpointFileEntries(id)
+        .filter(({ file }) => fileMatches(file, filters) && (!q || file.name.toLowerCase().includes(q)))
+        .map(entry => entry.row);
+      return { rows: rows.slice(skip, skip + limit), skip, limit, total: rows.length } satisfies EndpointFilePage;
     }
     case 'scans': {
       const runs = scans(source);
