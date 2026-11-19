@@ -5,6 +5,7 @@ import { useDspmStatus } from '../hooks/useDspmData';
 import { LEGACY_XAMLENS_SEGMENTS, XAMLENS_HOME, datastoreTab } from '../constants/xamlensTabs';
 import PoweredByProvider from '../components/XamSecure/PoweredByProvider';
 import DatastoresPage from '../components/Dspm/datastores/DatastoresPage';
+import MisconfigurationsPage from '../components/Dspm/misconfigurations/MisconfigurationsPage';
 import DspmStatusTab from '../components/Dspm/DspmStatusTab';
 
 /**
@@ -16,9 +17,9 @@ import DspmStatusTab from '../components/Dspm/DspmStatusTab';
  * Source / Account filter is the equivalent control. There is no account guard here for the same
  * reason, which also means a customer without cloud accounts can still use it.
  *
- * Routes: `/xamlens/datastores/:datastoreTab` is the Datastores page; `/xamlens/connection` the
- * connection status. The old `/xamlens/cloud`, `/saas` and `/endpoint` links land on the matching
- * Datastores tab, and any other segment on All.
+ * Routes: `/xamlens/datastores/:datastoreTab` is the Datastores page; `/xamlens/misconfigurations` the
+ * Misconfigurations page; `/xamlens/connection` the connection status. The old `/xamlens/cloud`, `/saas`
+ * and `/endpoint` links land on the matching Datastores tab, and any other segment on All.
  */
 const XamLensPage: React.FC = () => {
   const { tab, datastoreTab: datastoreSlug } = useParams<{ tab?: string; datastoreTab?: string }>();
@@ -37,7 +38,8 @@ const XamLensPage: React.FC = () => {
   if (datastoreSlug !== undefined && !def) return <Navigate to={XAMLENS_HOME} replace />;
 
   const connection = datastoreSlug === undefined && tab === 'connection';
-  if (datastoreSlug === undefined && !connection) {
+  const misconfigurations = datastoreSlug === undefined && tab === 'misconfigurations';
+  if (datastoreSlug === undefined && !connection && !misconfigurations) {
     const legacy = tab !== undefined && Object.prototype.hasOwnProperty.call(LEGACY_XAMLENS_SEGMENTS, tab)
       ? LEGACY_XAMLENS_SEGMENTS[tab]
       : undefined;
@@ -53,6 +55,9 @@ const XamLensPage: React.FC = () => {
         )}
         {!statusLoading && status && def && (
           <DatastoresPage tab={def.slug} status={status} onRetry={reloadStatus} />
+        )}
+        {!statusLoading && status && misconfigurations && (
+          <MisconfigurationsPage status={status} onRetry={reloadStatus} />
         )}
         {!statusLoading && status && connection && (
           <DspmStatusTab status={status} onRetry={reloadStatus} />

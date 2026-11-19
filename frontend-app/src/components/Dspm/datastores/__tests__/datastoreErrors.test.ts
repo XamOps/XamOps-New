@@ -31,6 +31,13 @@ describe('datastoreErrorCopy', () => {
     expect(datastoreErrorCopy(notFound, 'file')).toEqual({ text: FILE_TEXT, retry: false });
   });
 
+  it("says a misconfiguration is no longer reported with the 'misconfiguration' subject, without Retry", () => {
+    expect(datastoreErrorCopy(notFound, 'misconfiguration'))
+      .toEqual({ text: 'This misconfiguration is no longer reported.', retry: false });
+    const outage = { code: 'UPSTREAM_UNAVAILABLE' as DspmReason };
+    expect(datastoreErrorCopy(outage, 'misconfiguration')).toEqual(datastoreErrorCopy(outage));
+  });
+
   it.each(OTHER_CODES)('gives %s the same copy for both subjects', code => {
     const error = { code, retryAfterSeconds: code === 'RATE_LIMITED' ? 7 : undefined };
     const copy = datastoreErrorCopy(error);

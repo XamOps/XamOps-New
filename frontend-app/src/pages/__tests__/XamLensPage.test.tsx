@@ -9,6 +9,10 @@ vi.mock('../../utils/apiClient', () => ({ default: { get: vi.fn() } }));
 vi.mock('../../components/Dspm/datastores/DatastoresPage', () => ({
   default: ({ tab }: { tab: string }) => <div data-testid="datastores-page">{tab}</div>,
 }));
+// Covered by MisconfigurationsPage.test.tsx; here only that the route renders it.
+vi.mock('../../components/Dspm/misconfigurations/MisconfigurationsPage', () => ({
+  default: ({ status }: { status: { ready: boolean } }) => <div data-testid="misconfigurations-page">{String(status.ready)}</div>,
+}));
 
 import apiClient from '../../utils/apiClient';
 import { TopbarProvider } from '../../contexts/TopbarContext';
@@ -74,6 +78,13 @@ describe('XamLensPage routing', () => {
     renderAt('/xamlens/datastores/on-prem');
     expect(await screen.findByTestId('datastores-page')).toHaveTextContent('on-prem');
     expect(screen.getByTestId('location')).toHaveTextContent('/xamlens/datastores/on-prem');
+  });
+
+  it('renders the Misconfigurations page on /xamlens/misconfigurations', async () => {
+    renderAt('/xamlens/misconfigurations');
+    expect(await screen.findByTestId('misconfigurations-page')).toHaveTextContent('true');
+    expect(screen.queryByTestId('datastores-page')).toBeNull();
+    expect(screen.getByTestId('location')).toHaveTextContent('/xamlens/misconfigurations');
   });
 
   it('renders the status page on /xamlens/connection', async () => {

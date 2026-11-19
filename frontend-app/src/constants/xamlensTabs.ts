@@ -6,10 +6,12 @@
  * all of its routes; the route gate matches by prefix, so `/xamlens/datastores/…` needs no new key.
  *
  * The Datastores page (`/xamlens/datastores/:tab`) replaces the old Cloud, SaaS and Endpoint pages, whose
- * deep links redirect to the matching tab.
+ * deep links redirect to the matching tab. Misconfigurations (`/xamlens/misconfigurations`) sits under the
+ * console's "Risks" section, which the sidebar heads above "Data Inventory", as the console does. Risks has
+ * only that entry: the console's Alerts, Exposure and DAM pages have no API data.
  */
 
-export type XamLensTab = 'datastores' | 'connection';
+export type XamLensTab = 'misconfigurations' | 'datastores' | 'connection';
 
 export interface XamLensTabDef {
   id: XamLensTab;
@@ -28,6 +30,7 @@ export interface XamLensTabDef {
 export const XAMLENS_HOME = '/xamlens/datastores/all';
 
 export const XAMLENS_TABS: XamLensTabDef[] = [
+  { id: 'misconfigurations', label: 'Misconfigurations', icon: 'fas fa-shield-alt', href: '/xamlens/misconfigurations', activePrefix: '/xamlens/misconfigurations', section: 'Risks' },
   { id: 'datastores', label: 'Datastores', icon: 'fas fa-database', href: XAMLENS_HOME, activePrefix: '/xamlens/datastores', section: 'Data Inventory' },
   // Connection state. Deep-link only: it matters when something is wrong, not in the healthy path.
   { id: 'connection', label: 'Connection', icon: 'fas fa-circle-nodes', href: '/xamlens/connection', activePrefix: '/xamlens/connection', sidebar: false },

@@ -1,6 +1,7 @@
 /**
  * XamLens's part of the Sidebar: under SecOps, XamLens and, on its routes, the Matters console's
- * "DATA INVENTORY" section label with Datastores beneath it, active on every Datastores tab. The entries
+ * "RISKS" section label with Misconfigurations beneath it, then the "DATA INVENTORY" label with
+ * Datastores beneath it, each active on its own routes. The entries
  * follow XamLens: they fold away off its routes, like other nested entries, and a user whose tab rules
  * hide XamLens sees none of them.
  */
@@ -43,6 +44,9 @@ function renderAt(url: string, dark = false) {
 }
 
 const label = () => screen.getByText('Data Inventory');
+// A section label is a <p>; SOC 2's own "Risks" entry, also in the sidebar, is not.
+const risksLabel = () => screen.getByText('Risks', { selector: 'p' });
+const follows = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
 beforeEach(() => {
   allowedTabs = [];
@@ -78,11 +82,39 @@ describe('Sidebar XamLens entries', () => {
     await waitFor(() => expect(label()).toHaveClass(colour));
   });
 
+  it('heads Misconfigurations with the RISKS label above DATA INVENTORY, with the same label classes', async () => {
+    renderAt(XAMLENS_HOME);
+    const datastores = await screen.findByRole('link', { name: 'Datastores' });
+    const misconfigurations = screen.getByRole('link', { name: 'Misconfigurations' });
+    expect(misconfigurations).toHaveAttribute('href', '/xamlens/misconfigurations');
+    expect(screen.getAllByText('Risks', { selector: 'p' })).toHaveLength(1);
+    expect(risksLabel().className).toBe(label().className);
+    expect(risksLabel()).toHaveClass('uppercase', 'text-[10px]', 'tracking-widest');
+    expect(follows(screen.getByRole('link', { name: 'XamLens' }), risksLabel())).toBe(true);
+    expect(follows(risksLabel(), misconfigurations)).toBe(true);
+    expect(follows(misconfigurations, label())).toBe(true);
+    expect(follows(label(), datastores)).toBe(true);
+    // Only Datastores is active on a Datastores route.
+    expect(datastores.className).toContain('font-semibold');
+    expect(misconfigurations.className).not.toContain('font-semibold');
+  });
+
+  it('makes Misconfigurations the active entry on /xamlens/misconfigurations', async () => {
+    renderAt('/xamlens/misconfigurations');
+    const misconfigurations = await screen.findByRole('link', { name: 'Misconfigurations' });
+    expect(screen.getByRole('button', { name: 'SecOps' })).toHaveAttribute('aria-expanded', 'true');
+    expect(misconfigurations.className).toContain('font-semibold');
+    expect(screen.getByRole('link', { name: 'Datastores' }).className).not.toContain('font-semibold');
+    expect(risksLabel()).toBeInTheDocument();
+  });
+
   it('folds the label and Datastores away off the XamLens routes', async () => {
     renderAt('/xamsecure/overview');
     await screen.findByRole('link', { name: 'XamLens' });
     expect(screen.queryByRole('link', { name: 'Datastores' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Misconfigurations' })).toBeNull();
     expect(label().closest('[aria-hidden="true"]')).not.toBeNull();
+    expect(risksLabel().closest('[aria-hidden="true"]')).not.toBeNull();
   });
 
   it('shows none of them to a user whose tab rules hide XamLens', async () => {
@@ -91,6 +123,8 @@ describe('Sidebar XamLens entries', () => {
     await screen.findByRole('link', { name: 'XamSecure' });
     expect(screen.queryByRole('link', { name: 'XamLens', hidden: true })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Datastores', hidden: true })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Misconfigurations', hidden: true })).toBeNull();
     expect(screen.queryByText('Data Inventory')).toBeNull();
+    expect(screen.queryByText('Risks', { selector: 'p' })).toBeNull();
   });
 });
