@@ -27,6 +27,7 @@ import type {
   DatastoreSensitiveTable,
 } from '../types/dspmDatastores';
 import type { DspmObject } from '../types/dspm';
+import type { DataFlowErd, DataFlowErdEdge, DataFlowErdExternalTable, DataFlowRelations } from '../types/dspmDrawers';
 // Circular: `xamlensMockData.ts` reads `SHOWCASE_SENSITIVES` from here. Each side reads the other only
 // inside functions, never while the modules load, so either may load first.
 import { demoDatastoreSource, type DemoDatastoreSource } from './xamlensMockData';
@@ -486,7 +487,7 @@ const CREATED: ColumnSeed = ['created_at', 'timestamp'];
 const CRM_TABLES: TableSeed[] = [
   { name: 'accounts', schema: 'public', rows: 1840, foreignKeys: 1, columns: [ID, ['name', 'varchar'], ['industry', 'varchar'], ['owner_id', 'int8'], CREATED] },
   { name: 'activities', schema: 'public', rows: 48210, foreignKeys: 2, scannedEmpty: true,
-    columns: [ID, ['contact_id', 'int8'], ['kind', 'text'], ['due_at', 'timestamp'], ['completed_at', 'timestamp']] },
+    columns: [ID, ['contact_id', 'int8'], ['deal_id', 'int8'], ['kind', 'text'], ['due_at', 'timestamp'], ['completed_at', 'timestamp']] },
   { name: 'api_keys', schema: 'public', rows: 412, foreignKeys: 1, columns: [
     ID, ['owner_id', 'int8'], ['secret', 'varchar', ['SHA KEY', 3100]],
     ['request_body', 'jsonb', ['SHA KEY', 310, [IT_SECURITY, PERSONAL]]], CREATED, ['revoked_at', 'timestamp'],
@@ -500,36 +501,36 @@ const CRM_TABLES: TableSeed[] = [
     CREATED, ['updated_at', 'timestamp'],
   ] },
   { name: 'deal_notes', schema: 'public', rows: 1306, foreignKeys: 2, columns: [
-    ID, ['deal_id', 'int8'], ['author_email', 'varchar', ['EMAIL ADDRESS', 130]], ['author_name', 'varchar', ['PERSON NAME', 30]],
+    ID, ['deal_id', 'int8'], ['contact_id', 'int8'], ['author_email', 'varchar', ['EMAIL ADDRESS', 130]], ['author_name', 'varchar', ['PERSON NAME', 30]],
     ['body', 'text'], CREATED,
   ] },
   { name: 'deal_stages', schema: 'public', rows: 9, foreignKeys: 0, scannedEmpty: true, columns: [ID, ['name', 'varchar'], ['position', 'int4']] },
   { name: 'deals', schema: 'public', rows: 3120, foreignKeys: 3, scannedEmpty: true,
-    columns: [ID, ['account_id', 'int8'], ['stage_id', 'int8'], ['amount', 'numeric'], ['closed_at', 'timestamp']] },
+    columns: [ID, ['account_id', 'int8'], ['stage_id', 'int8'], ['parent_deal_id', 'int8'], ['amount', 'numeric'], ['closed_at', 'timestamp']] },
   { name: 'email_templates', schema: 'public', rows: 64, foreignKeys: 0, columns: [ID, ['name', 'varchar'], ['subject', 'varchar'], ['body', 'text']] },
   { name: 'invoices', schema: 'public', rows: 5480, foreignKeys: 2, columns: [
-    ID, ['account_id', 'int8'], ['billing_email', 'varchar', ['EMAIL ADDRESS', 36]], ['billing_name', 'varchar', ['PERSON NAME', 20]],
+    ID, ['account_id', 'int8'], ['quote_id', 'int8'], ['billing_email', 'varchar', ['EMAIL ADDRESS', 36]], ['billing_name', 'varchar', ['PERSON NAME', 20]],
     ['amount', 'numeric'], ['issued_at', 'timestamp'],
   ] },
   { name: 'job_queue', schema: 'public', rows: null, foreignKeys: 0, scannedEmpty: true,
     columns: [ID, ['kind', 'text'], ['payload', 'jsonb'], ['run_at', 'timestamp']] },
   { name: 'leads', schema: 'public', rows: 980, foreignKeys: 1, columns: [
     ID, ['name', 'varchar', ['PERSON NAME', 72]], ['email', 'varchar', ['EMAIL ADDRESS', 401]], ['phone', 'varchar', ['PHONE NUMBER', 388]],
-    ['source', 'text'], CREATED,
+    ['source', 'text'], ['campaign_id', 'int8'], CREATED,
   ] },
-  { name: 'notes', schema: 'public', rows: 7410, foreignKeys: 2, columns: [ID, ['contact_id', 'int8'], ['body', 'text'], CREATED] },
-  { name: 'opportunities', schema: 'public', rows: 690, foreignKeys: 2, columns: [ID, ['account_id', 'int8'], ['amount', 'numeric'], ['stage', 'text']] },
+  { name: 'notes', schema: 'public', rows: 7410, foreignKeys: 2, columns: [ID, ['account_id', 'int8'], ['contact_id', 'int8'], ['body', 'text'], CREATED] },
+  { name: 'opportunities', schema: 'public', rows: 690, foreignKeys: 2, columns: [ID, ['account_id', 'int8'], ['contact_id', 'int8'], ['amount', 'numeric'], ['stage', 'text']] },
   { name: 'partner_contacts', schema: 'public', rows: 120, foreignKeys: 1,
     columns: [ID, ['partner_id', 'int8'], ['phone', 'varchar', ['PHONE NUMBER', 100]], ['region', 'text']] },
   { name: 'pricebooks', schema: 'public', rows: 12, foreignKeys: 0, columns: [ID, ['name', 'varchar'], ['currency', 'text']] },
   { name: 'products', schema: 'public', rows: 86, foreignKeys: 1, scannedEmpty: true,
-    columns: [ID, ['sku', 'varchar'], ['name', 'varchar'], ['price', 'numeric']] },
-  { name: 'quotes', schema: 'public', rows: 1530, foreignKeys: 3, columns: [ID, ['opportunity_id', 'int8'], ['total', 'numeric'], ['valid_until', 'date']] },
+    columns: [ID, ['pricebook_id', 'int8'], ['sku', 'varchar'], ['name', 'varchar'], ['price', 'numeric']] },
+  { name: 'quotes', schema: 'public', rows: 1530, foreignKeys: 3, columns: [ID, ['contact_id', 'int8'], ['opportunity_id', 'int8'], ['pricebook_id', 'int8'], ['total', 'numeric'], ['valid_until', 'date']] },
   { name: 'support_cases', schema: 'public', rows: 2210, foreignKeys: 2, columns: [
-    ID, ['requester_email', 'varchar', ['EMAIL ADDRESS', 64]], ['callback_phone', 'varchar', ['PHONE NUMBER', 120]],
+    ID, ['account_id', 'int8'], ['contact_id', 'int8'], ['requester_email', 'varchar', ['EMAIL ADDRESS', 64]], ['callback_phone', 'varchar', ['PHONE NUMBER', 120]],
     ['subject', 'varchar'], ['status', 'text'], CREATED,
   ] },
-  { name: 'tasks', schema: 'public', rows: null, foreignKeys: 2, columns: [ID, ['owner_id', 'int8'], ['title', 'varchar'], ['due_at', 'timestamp']] },
+  { name: 'tasks', schema: 'public', rows: null, foreignKeys: 2, columns: [ID, ['owner_id', 'int8'], ['contact_id', 'int8'], ['title', 'varchar'], ['due_at', 'timestamp']] },
   { name: 'territories', schema: 'public', rows: 18, foreignKeys: 0, columns: [ID, ['name', 'varchar'], ['region', 'text']] },
   { name: 'user_preferences', schema: 'public', rows: 340, foreignKeys: 1, columns: [ID, ['user_id', 'int8'], ['theme', 'text'], ['locale', 'text']] },
   { name: 'audit_log', schema: 'audit', rows: 182400, foreignKeys: 0, scannedEmpty: true,
@@ -583,6 +584,50 @@ const flowId = (kind: 'a' | 'b' | 'c' | 'd', n: number) => `de3${kind}0000-0000-
 const CRM_DATABASE: DataFlowDatabase = { id: flowId('a', 1), name: CRM_NAME, engine: 'POSTGRES', schemaless: false };
 const CRM_SCHEMAS = [{ id: flowId('b', 1), name: 'public' }, { id: flowId('b', 2), name: 'audit' }];
 
+/** A foreign key: the source table and column, the target schema, table and column. */
+type ForeignKeySeed = [sourceTable: string, sourceColumn: string, targetSchema: 'public' | 'audit', targetTable: string, targetColumn: string];
+
+/**
+ * The database's foreign keys (design 7.2), the one source of the Graph View's edges, the table panel's
+ * relations and the columns' FK flags: each table has exactly `foreignKeys` outgoing entries, so the Table
+ * View's counts and the diagram agree (30 keys in `public`, one in `audit`). No users table exists, so the
+ * owner and user keys point at `audit.service_accounts`, which the `public` diagram draws as one dashed
+ * external card. `email_templates`, `job_queue`, `territories` and `audit_log` take part in no key.
+ */
+export const CRM_FOREIGN_KEYS: ReadonlyArray<ForeignKeySeed> = [
+  ['contacts', 'account_id', 'public', 'accounts', 'id'],
+  ['deals', 'account_id', 'public', 'accounts', 'id'],
+  ['invoices', 'account_id', 'public', 'accounts', 'id'],
+  ['notes', 'account_id', 'public', 'accounts', 'id'],
+  ['opportunities', 'account_id', 'public', 'accounts', 'id'],
+  ['support_cases', 'account_id', 'public', 'accounts', 'id'],
+  ['partner_contacts', 'partner_id', 'public', 'accounts', 'id'],
+  ['activities', 'contact_id', 'public', 'contacts', 'id'],
+  ['campaign_members', 'contact_id', 'public', 'contacts', 'id'],
+  ['deal_notes', 'contact_id', 'public', 'contacts', 'id'],
+  ['notes', 'contact_id', 'public', 'contacts', 'id'],
+  ['opportunities', 'contact_id', 'public', 'contacts', 'id'],
+  ['quotes', 'contact_id', 'public', 'contacts', 'id'],
+  ['support_cases', 'contact_id', 'public', 'contacts', 'id'],
+  ['tasks', 'contact_id', 'public', 'contacts', 'id'],
+  ['activities', 'deal_id', 'public', 'deals', 'id'],
+  ['deal_notes', 'deal_id', 'public', 'deals', 'id'],
+  ['deals', 'parent_deal_id', 'public', 'deals', 'id'],
+  ['deals', 'stage_id', 'public', 'deal_stages', 'id'],
+  ['campaign_members', 'campaign_id', 'public', 'campaigns', 'id'],
+  ['leads', 'campaign_id', 'public', 'campaigns', 'id'],
+  ['invoices', 'quote_id', 'public', 'quotes', 'id'],
+  ['quotes', 'opportunity_id', 'public', 'opportunities', 'id'],
+  ['products', 'pricebook_id', 'public', 'pricebooks', 'id'],
+  ['quotes', 'pricebook_id', 'public', 'pricebooks', 'id'],
+  ['accounts', 'owner_id', 'audit', 'service_accounts', 'id'],
+  ['api_keys', 'owner_id', 'audit', 'service_accounts', 'id'],
+  ['contacts', 'owner_id', 'audit', 'service_accounts', 'id'],
+  ['tasks', 'owner_id', 'audit', 'service_accounts', 'id'],
+  ['user_preferences', 'user_id', 'audit', 'service_accounts', 'id'],
+  ['login_events', 'actor_id', 'audit', 'service_accounts', 'id'],
+];
+
 /** Every table with its Data Flow row and columns. */
 const CRM_FLOW = CRM_TABLES.map((seed, index): { schema: string; table: DataFlowTable; columns: DataFlowColumn[] } => ({
   schema: seed.schema,
@@ -600,10 +645,67 @@ const CRM_FLOW = CRM_TABLES.map((seed, index): { schema: string; table: DataFlow
     sensitiveCount: finding?.[1] ?? 0,
     dataElements: finding ? [finding[0]] : [],
     primaryKey: name === 'id',
-    // No demo foreign keys exist yet: FEAT-007 derives this flag from CRM_FOREIGN_KEYS.
-    foreignKey: false,
+    foreignKey: CRM_FOREIGN_KEYS.some(([table, sourceColumn]) => table === seed.name && sourceColumn === name),
   })),
 }));
+
+/** The schema a table belongs to (table names are unique across the two schemas). */
+const schemaOfTable = (name: string) => CRM_TABLES.find(table => table.name === name)?.schema ?? null;
+
+/**
+ * A diagram over these Data Flow tables, as `DataFlowMapper.toErd` builds it: the tables in API order;
+ * one edge per key whose source is drawn (`fk-<position>`), to a drawn table or else to an external card;
+ * each card's key columns are its keys' source columns and, for keys between drawn tables, the target
+ * columns, in edge order.
+ */
+function crmErd(entries: typeof CRM_FLOW): DataFlowErd {
+  // Every demo table has an id (`flowId`).
+  const idOf = (entry: (typeof CRM_FLOW)[number]) => entry.table.id!;
+  const ids = new Map(entries.map(entry => [`${entry.schema}.${entry.table.name}`, idOf(entry)]));
+  const keyColumns = new Map<string, string[]>(entries.map(entry => [idOf(entry), []]));
+  const addKey = (tableId: string, column: string) => {
+    const columns = keyColumns.get(tableId)!;
+    if (!columns.includes(column)) columns.push(column);
+  };
+  const edges: DataFlowErdEdge[] = [];
+  const externalTables = new Map<string, DataFlowErdExternalTable>();
+  for (const [sourceTable, sourceColumn, targetSchema, targetTable, targetColumn] of CRM_FOREIGN_KEYS) {
+    const sourceId = ids.get(`${schemaOfTable(sourceTable)}.${sourceTable}`);
+    if (!sourceId) continue;
+    const targetId = ids.get(`${targetSchema}.${targetTable}`);
+    const targetKey = targetId ?? `ext:${targetSchema}.${targetTable}`;
+    if (!targetId) externalTables.set(targetKey, { key: targetKey, schemaName: targetSchema, tableName: targetTable });
+    edges.push({ id: `fk-${edges.length}`, sourceTableId: sourceId, targetKey, external: !targetId });
+    addKey(sourceId, sourceColumn);
+    if (targetId) addKey(targetId, targetColumn);
+  }
+  return {
+    nodes: entries.map(entry => ({
+      id: idOf(entry), name: entry.table.name, sensitiveCount: entry.table.sensitiveCount, keyColumns: keyColumns.get(idOf(entry))!,
+    })),
+    edges,
+    externalTables: [...externalTables.values()],
+    nodesTruncated: false,
+    edgesTruncated: false,
+  };
+}
+
+/** A table's keys for the table panel's Relationships tab: the keys it holds and the keys that point at it. */
+function crmRelations(tableId: string): DataFlowRelations | null {
+  const entry = CRM_FLOW.find(e => e.table.id === tableId);
+  if (!entry) return null;
+  const name = entry.table.name;
+  return {
+    outgoing: CRM_FOREIGN_KEYS.filter(([sourceTable]) => sourceTable === name)
+      .map(([, sourceColumn, targetSchema, targetTable, targetColumn]) => ({
+        schemaName: targetSchema, tableName: targetTable, columns: [{ sourceColumn, targetColumn }],
+      })),
+    incoming: CRM_FOREIGN_KEYS.filter(([, , targetSchema, targetTable]) => targetSchema === entry.schema && targetTable === name)
+      .map(([sourceTable, sourceColumn, , , targetColumn]) => ({
+        schemaName: schemaOfTable(sourceTable), tableName: sourceTable, columns: [{ sourceColumn, targetColumn }],
+      })),
+  };
+}
 
 function crmShowcase(source: DemoDatastoreSource): DrawerData {
   return {
@@ -806,8 +908,9 @@ export function demoDatastoreResource(id: string, resource: string, url: string)
 
 /**
  * `GET /api/dspm/data-flow/{kind}/{id}/{child}`: a database's schemas, a schema's tables (paged, and
- * searched by name once `q` has 3 characters) and a table's columns. Null for an unknown id; the only
- * Data Flow database is `crm_production`'s, which has schemas, so `databases/{id}/tables` is never one.
+ * searched by name once `q` has 3 characters), a table's columns, a schema's or the database's diagram
+ * and a table's relations. Null for an unknown id; the only Data Flow database is `crm_production`'s,
+ * which has schemas, so `databases/{id}/tables` is never one.
  */
 export function demoDataFlowResource(kind: string, id: string, child: string, url: string): object | null {
   const params = new URL(url, 'http://localhost').searchParams;
@@ -826,5 +929,12 @@ export function demoDataFlowResource(kind: string, id: string, child: string, ur
     const entry = CRM_FLOW.find(e => e.table.id === id);
     return entry ? pageOf(entry.columns, params) satisfies DataFlowColumnPage : null;
   }
+  // Graph View (design 7.2): a schema's diagram, the whole database's, and a table's relations.
+  if (kind === 'schemas' && child === 'erd') {
+    const schema = CRM_SCHEMAS.find(s => s.id === id);
+    return schema ? crmErd(CRM_FLOW.filter(entry => entry.schema === schema.name)) : null;
+  }
+  if (kind === 'databases' && child === 'erd') return id === CRM_DATABASE.id ? crmErd(CRM_FLOW) : null;
+  if (kind === 'tables' && child === 'relations') return crmRelations(id);
   return null;
 }

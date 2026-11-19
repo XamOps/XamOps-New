@@ -473,21 +473,28 @@ const SAAS_SEEDS: SaasSeed[] = [
     ] },
   { id: 'demo-saas-02', person: 'Notifications', email: 'notifications@xammer.in', drive: 'GMAIL', status: 'CLASSIFIED', scanned: 1,
     risk: 'HIGH', inventories: 18420, sizeBytes: 0, unsupported: 254, files: [
-      mail('Welcome to XamOps - your account credentials', [['EMAIL ADDRESS', 1], ['HASHED SECRET KEY', 1]]),
-      mail('Delivery Status Notification (Failure)', [['EMAIL ADDRESS', 2]]),
+      mail('Your new XamOps sign-in', [['EMAIL ADDRESS', 1], ['HASHED SECRET KEY', 1]]),
+      mail('Undeliverable: weekly digest', [['EMAIL ADDRESS', 2]]),
       mail('Password reset requested', [['EMAIL ADDRESS', 1], ['JWT TOKEN', 1]]),
       mail('Invoice INV-2026-04-001 is ready', [['PERSON NAME', 1], ['ADDRESS', 1], ['EMAIL ADDRESS', 1]]),
     ] },
   { id: 'demo-saas-03', person: 'Priya Nair', email: 'priya@xammer.in', drive: 'GMAIL', status: 'CLASSIFIED', scanned: 1,
     risk: 'HIGH', inventories: 2672, sizeBytes: 0, unsupported: 96, files: [
-      mail('Re: Payroll inputs for September', [['BANK ACCOUNT NUMBER', 14], ['PAN NUMBER', 14], ['PERSON NAME', 14]]),
+      // The SaaS drawer's Gmail showcase (design 7.2): PERSON NAME is in six files, so its file list has a
+      // second page at Rows Per Page 5; the totals per element are build 1's.
+      mail('Re: Payroll inputs for September', [['BANK ACCOUNT NUMBER', 14], ['PAN NUMBER', 14], ['PERSON NAME', 8]]),
       mail('Fwd: Candidate documents', [['AADHAAR NUMBER', 1], ['DATE OF BIRTH', 1], ['ADDRESS', 1]]),
       mail('Customer escalation - refund', [['CREDIT CARD NUMBER', 1], ['PHONE NUMBER', 2], ['EMAIL ADDRESS', 3]]),
+      doc('Offer Letter - Priya Nair.pdf', [['PERSON NAME', 2]]),
+      mail('Re: Offer acceptance', [['PERSON NAME', 1]]),
+      mail('Signed contract - vendor NDA', [['PERSON NAME', 1]]),
+      mail('Incident review notes', [['PERSON NAME', 1]]),
+      mail('Payment confirmation - relocation', [['PERSON NAME', 1]]),
     ] },
   { id: 'demo-saas-04', person: 'Priya Nair', email: 'priya@xammer.in', drive: 'GOOGLE_WORKSPACE', status: 'CLASSIFIED', scanned: 2,
     risk: 'MEDIUM', inventories: 312, sizeBytes: 8.6 * GB, unsupported: 18, files: [
-      doc('Team contacts.xlsx', [['PERSON NAME', 84], ['PHONE NUMBER', 84], ['EMAIL ADDRESS', 84]]),
-      doc('Offer letter template.docx', [['PERSON NAME', 1], ['ADDRESS', 1]]),
+      doc('Team Roster.xlsx', [['PERSON NAME', 84], ['PHONE NUMBER', 84], ['EMAIL ADDRESS', 84]]),
+      doc('Offer Letter - Priya Nair.docx', [['PERSON NAME', 1], ['ADDRESS', 1]]),
     ] },
   { id: 'demo-saas-05', person: 'Rohan Mehta', email: 'rohan@xammer.in', drive: 'GMAIL', status: 'CLASSIFIED', scanned: 1,
     risk: 'MEDIUM', inventories: 1639, sizeBytes: 0, unsupported: 70, files: [
@@ -583,7 +590,7 @@ const DEVICE_SEEDS: DeviceSeed[] = [
     mac: '02:1a:4b:3c:5d:03', arch: 'arm64', memoryGb: 32, home: '/Users/akshay', agentVersion: '2.2.2', files: [
       { name: '.env', path: '/Users/akshay/code/billing-service/.env', ext: null, findings: [['HASHED SECRET KEY', 6], ['JWT TOKEN', 2]] },
       { name: 'leads.csv', path: '/Users/akshay/Downloads/leads.csv', ext: 'csv', findings: [['EMAIL ADDRESS', 420], ['PHONE NUMBER', 388]] },
-      { name: 'people-list.json', path: '/Users/akshay/code/xamops-service/src/test/resources/people-list.json', ext: 'json',
+      { name: 'contacts-sample.json', path: '/Users/akshay/code/crm-api/fixtures/contacts-sample.json', ext: 'json',
         findings: [['EMAIL ADDRESS', 2], ['PERSON NAME', 1]] },
     ] },
   { id: 'demo-ep-04', name: 'build-runner-01', os: 'LINUX', osVersion: 'Ubuntu 22.04', user: 'ci', serial: 'VM-DEMO-0001',
@@ -1274,5 +1281,112 @@ export function demoDatastoreSource(sourceId: string): DemoDatastoreSource | nul
     types: row.sensitives.types,
     typeLabels: row.sensitives.typeLabels,
     recordCount: row.sensitives.recordCount,
+  };
+}
+
+/** A spec file with its findings labelled, as the SaaS and Endpoint drawer data reads it. */
+export interface DemoSourceFile {
+  name: string;
+  path: string | null;
+  /** Lower case, or null without one (`.env`). */
+  extension: string | null;
+  findings: Array<{ entityType: string; category: string | null; categoryLabel: string | null; count: number }>;
+  /** The findings summed. */
+  records: number;
+}
+
+const sourceFileOf = (file: FileSpec): DemoSourceFile => {
+  const findings = file.findings.map(([entityType, count]) => {
+    const category = ENTITY_CATEGORY[entityType] ?? null;
+    return { entityType, category, categoryLabel: category ? CATEGORY_LABEL[category] : null, count };
+  });
+  return {
+    name: file.name, path: file.path, extension: file.ext, findings,
+    records: findings.reduce((sum, finding) => sum + finding.count, 0),
+  };
+};
+
+/** What `xamlensSaasDrawerMockData.ts` derives a SaaS row's drawer data from (design 7.2). */
+export interface DemoSaasSource {
+  /** The spec id (`demo-saas-03`) and its number, which the file ids carry. */
+  id: string;
+  number: number;
+  sourceId: string;
+  /** The person or mailbox. */
+  name: string;
+  email: string;
+  drive: 'GMAIL' | 'GOOGLE_WORKSPACE';
+  status: Status;
+  /** Epoch seconds, or null when never scanned. */
+  lastScannedAt: number | null;
+  facet: Record<string, unknown>;
+  /** The spec files in spec order: every file with findings. */
+  files: DemoSourceFile[];
+  /** The list row's record count: the files' findings summed. */
+  recordCount: number;
+}
+
+/** The SaaS row with this 24-hex source id; null for any other row and unknown ids. */
+export function demoSaasSource(sourceId: string): DemoSaasSource | null {
+  const item = BUILT.find(b => b.row.sourceId === sourceId);
+  if (!item || item.spec.category !== 'saas') return null;
+  const { spec, row } = item;
+  const seed = SAAS_SEEDS.find(s => s.id === spec.id)!;
+  return {
+    id: spec.id,
+    number: Number(spec.id.replace(/\D/g, '')),
+    sourceId,
+    name: spec.name,
+    email: seed.email,
+    drive: seed.drive,
+    status: spec.status,
+    lastScannedAt: row.scan.lastScannedAt,
+    facet: spec.facet,
+    files: spec.files.map(sourceFileOf),
+    recordCount: datastoreSensitivesOf(item).recordCount,
+  };
+}
+
+/** What `xamlensEndpointDrawerMockData.ts` derives an endpoint row's drawer data from (design 7.2). */
+export interface DemoEndpointSource {
+  id: string;
+  sourceId: string;
+  name: string;
+  os: 'MAC' | 'WINDOWS' | 'LINUX';
+  status: Status;
+  online: boolean;
+  /** The list row's risk level; NONE without findings. */
+  riskLevel: DspmSeverity;
+  user: string;
+  facet: Record<string, unknown>;
+  /** The spec files in spec order. */
+  files: DemoSourceFile[];
+  /** Every file on the device, the spec files included. */
+  objectTotal: number;
+  /** The clean file at position i, for the File View's pages after the spec files. */
+  filler: (i: number) => DemoSourceFile;
+  recordCount: number;
+}
+
+/** The endpoint row with this 24-hex source id; null for any other row and unknown ids. */
+export function demoEndpointSource(sourceId: string): DemoEndpointSource | null {
+  const item = BUILT.find(b => b.row.sourceId === sourceId);
+  if (!item || item.spec.category !== 'endpoint') return null;
+  const { spec } = item;
+  const seed = DEVICE_SEEDS.find(s => s.id === spec.id)!;
+  return {
+    id: spec.id,
+    sourceId,
+    name: spec.name,
+    os: seed.os,
+    status: spec.status,
+    online: seed.online,
+    riskLevel: spec.risk[0],
+    user: seed.user,
+    facet: spec.facet,
+    files: spec.files.map(sourceFileOf),
+    objectTotal: spec.objectTotal,
+    filler: i => sourceFileOf(spec.filler(i)),
+    recordCount: datastoreSensitivesOf(item).recordCount,
   };
 }

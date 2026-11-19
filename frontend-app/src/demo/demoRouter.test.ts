@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { resolveDemoResponse } from './demoRouter';
 import { DEMO_MODE_KEY, DEMO_ROLE_KEY } from './demoConfig';
 import { demoCapabilities } from './k8sAutomationMockData';
@@ -14,6 +16,10 @@ import type {
   DataFlowColumnPage, DataFlowDatabases, DataFlowSchemas, DataFlowTablePage, DatastoreFilterOptions, DatastoreKpis,
   DatastoreOccurrencePage, DatastoreOverview, DatastoreRow, DatastoreSensitives,
 } from '../types/dspmDatastores';
+import type {
+  DataFlowErd, DataFlowRelations, EndpointScanPage, EndpointSensitiveMetrics, EndpointSummary, SaasFileActivity,
+  SaasFileCopies, SaasFileLineage, SaasFileOverview, SaasFilePage, SaasRecords,
+} from '../types/dspmDrawers';
 
 /**
  * The generic `/api/xamops/*` fallback answers `{}`, which is wrong for any
@@ -1294,6 +1300,193 @@ describe('demo router — XamLens Datastores page and drawer (ROLE_XAMOPS)', () 
     // The tab strip's count, the asset card and the list agree.
     expect(kpis.tabCounts[tab]).toBe(kpis.assetCount.value);
     expect(((await readDemoBody(`${DS}?tab=${tab}`)) as DspmPage<DatastoreRow>).total).toBe(kpis.assetCount.value);
+  });
+});
+
+describe('demo router — XamLens SaaS, Endpoint and Graph View drawers (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+  const DS = '/api/dspm/datastores';
+  const FLOW = '/api/dspm/data-flow';
+  const rowsOf = async (tab: string): Promise<DatastoreRow[]> =>
+    ((await readDemoBody(`${DS}?tab=${tab}&pageSize=100`)) as DspmPage<DatastoreRow>).data;
+  const rowOf = async (tab: string, name: string, subtype?: string) =>
+    (await rowsOf(tab)).find(row => row.name === name && (!subtype || row.subtype === subtype))!;
+  const answerOf = async (url: string) => {
+    const response = resolveDemoResponse(url);
+    expect(response, url).not.toBeNull();
+    return { status: response!.status, body: await response!.json() };
+  };
+  const filesOf = (sourceId: string, query: string) => readDemoBody(`${DS}/${sourceId}/saas/files?${query}`) as Promise<SaasFilePage>;
+  const crmSchemas = async () => {
+    const crm = await rowOf('on_prem', 'crm_production');
+    const databases = await readDemoBody(`${DS}/${crm.sourceId}/data-flow/databases`) as DataFlowDatabases;
+    const schemas = await readDemoBody(`${FLOW}/databases/${databases.items[0].id}/schemas`) as DataFlowSchemas;
+    return { database: databases.items[0].id, schemas: schemas.items };
+  };
+  const tablesOf = async (schemaId: string) =>
+    (await readDemoBody(`${FLOW}/schemas/${schemaId}/tables?page=1&pageSize=100`) as DataFlowTablePage).rows;
+
+  it('answers every new path with its DTO, never the {} catch-all', async () => {
+    const gmail = await rowOf('saas', 'Priya Nair', 'GMAIL');
+    const mac = await rowOf('endpoint', 'Priya’s MacBook Pro');
+    const files = await filesOf(gmail.sourceId!, 'dataElement=PERSON%20NAME&limit=5&skip=0');
+    expect(files).toMatchObject({ skip: 0, limit: 5, total: 6 });
+    const { database, schemas } = await crmSchemas();
+    const [table] = await tablesOf(schemas[0].id!);
+    const urls = [
+      ...['detail', 'records?view=data_elements', 'records?view=document_classes', 'scan-summary']
+        .map(path => `${DS}/${gmail.sourceId}/saas/${path}`),
+      ...['overview', 'activity', 'lineage', 'copies'].map(path => `/api/dspm/saas-files/${files.rows[0].id}/${path}`),
+      ...['overview', 'filter-options', 'summary', 'sensitives?showFalsePositives=false',
+        'occurrences?entityName=EMAIL%20ADDRESS&skip=0&limit=10&showFalsePositives=false', 'files?skip=0&limit=10',
+        'scans?skip=0&limit=10'].map(path => `${DS}/${mac.sourceId}/endpoint/${path}`),
+      `${FLOW}/schemas/${schemas[0].id}/erd`, `${FLOW}/databases/${database}/erd`, `${FLOW}/tables/${table.id}/relations`,
+    ];
+    for (const url of urls) {
+      const { status, body } = await answerOf(url);
+      expect(status, url).toBe(200);
+      expect(body, url).not.toEqual({});
+    }
+  });
+
+  it('answers unknown datastore, file and table ids with 404 ASSET_NOT_FOUND', async () => {
+    const cloud = await rowOf('cloud', 'xammer-prod-customer-exports');
+    for (const url of [
+      `${DS}/ffffffffffffffffffffffff/saas/detail`,
+      // A cloud row is no SaaS row.
+      `${DS}/${cloud.sourceId}/saas/records?view=data_elements`,
+      `${DS}/ffffffffffffffffffffffff/endpoint/overview`,
+      '/api/dspm/saas-files/ffffffffffffffffffffffff/overview',
+      '/api/dspm/saas-files/de5003999999999999999999/lineage',
+      `${FLOW}/schemas/00000000-0000-4000-8000-000000000000/erd`,
+      `${FLOW}/tables/00000000-0000-4000-8000-000000000000/relations`,
+    ]) {
+      const { status, body } = await answerOf(url);
+      expect(status, url).toBe(404);
+      expect(body.code, url).toBe('ASSET_NOT_FOUND');
+    }
+  });
+
+  it('refuses a files filter that is no row of its view with 400 INVALID_REQUEST, as the backend does', async () => {
+    const gmail = (await rowOf('saas', 'Priya Nair', 'GMAIL')).sourceId!;
+    const drive = (await rowOf('saas', 'Priya Nair', 'GOOGLE_WORKSPACE')).sourceId!;
+    for (const [sourceId, query, parameter] of [
+      [gmail, 'dataElement=CREDIT%20CARD%20NUMBERS', 'dataElement'],
+      [gmail, 'documentClass=Budgets', 'documentClass'],
+      [drive, 'documentClass=Invoices%20%26%20Receipts', 'documentClass'],
+      [gmail, 'dataElement=PERSON%20NAME&documentClass=Legal', 'dataElement'],
+      [gmail, 'limit=5', 'dataElement'],
+    ]) {
+      const { status, body } = await answerOf(`${DS}/${sourceId}/saas/files?${query}`);
+      expect(status, query).toBe(400);
+      expect(body, query).toEqual({ code: 'INVALID_REQUEST', message: `${parameter} is not a row of this datastore` });
+    }
+  });
+
+  it('agrees with the list on the record count of every SaaS and endpoint row (FR-DEMO-3)', async () => {
+    for (const row of await rowsOf('saas')) {
+      const records = await readDemoBody(`${DS}/${row.sourceId}/saas/records?view=data_elements`) as SaasRecords;
+      expect(records.rows.reduce((sum, r) => sum + r.count, 0), row.name!).toBe(row.sensitives.recordCount);
+      for (const element of records.rows) {
+        const files = await filesOf(row.sourceId!, `dataElement=${encodeURIComponent(element.name)}&limit=100&skip=0`);
+        expect(files.rows.reduce((sum, file) => sum + file.records, 0), `${row.name} ${element.name}`).toBe(element.count);
+      }
+    }
+    for (const row of await rowsOf('endpoint')) {
+      const metrics = await readDemoBody(`${DS}/${row.sourceId}/endpoint/sensitives?showFalsePositives=false`) as EndpointSensitiveMetrics;
+      const summary = await readDemoBody(`${DS}/${row.sourceId}/endpoint/summary`) as EndpointSummary;
+      const entities = metrics.metrics.filter(metric => metric.kind === 'ENTITY').reduce((sum, metric) => sum + metric.count, 0);
+      expect(entities, row.name!).toBe(row.sensitives.recordCount);
+      expect(summary.totalSensitives ?? 0, row.name!).toBe(row.sensitives.recordCount);
+    }
+  });
+
+  it('draws each Table View foreign key in Graph View, from a column marked foreignKey', async () => {
+    const { schemas } = await crmSchemas();
+    let keys = 0;
+    for (const schema of schemas) {
+      const erd = await readDemoBody(`${FLOW}/schemas/${schema.id}/erd`) as DataFlowErd;
+      const tables = await tablesOf(schema.id!);
+      expect(erd.nodes.map(node => node.id)).toEqual(tables.map(table => table.id));
+      for (const table of tables) {
+        const name = table.name!;
+        const outgoing = erd.edges.filter(edge => edge.sourceTableId === table.id);
+        expect(outgoing, name).toHaveLength(table.foreignKeyCount ?? 0);
+        keys += outgoing.length;
+        const relations = await readDemoBody(`${FLOW}/tables/${table.id}/relations`) as DataFlowRelations;
+        const columns = (await readDemoBody(`${FLOW}/tables/${table.id}/columns?page=1&pageSize=100`) as DataFlowColumnPage).rows;
+        const sources = relations.outgoing.flatMap(relation => relation.columns.map(pair => pair.sourceColumn));
+        expect(sources, name).toHaveLength(table.foreignKeyCount ?? 0);
+        expect(columns.filter(column => column.foreignKey).map(column => column.name).sort(), name).toEqual([...sources].sort());
+        expect(columns.filter(column => column.primaryKey).map(column => column.name), name).toEqual(['id']);
+        const node = erd.nodes.find(n => n.id === table.id)!;
+        expect(node.keyColumns.every(key => columns.some(column => column.name === key)), name).toBe(true);
+      }
+    }
+    expect(keys).toBe(31);
+  });
+
+  it('draws audit.service_accounts as the public diagram’s one external card, with three isolated tables', async () => {
+    const { schemas } = await crmSchemas();
+    const erd = await readDemoBody(`${FLOW}/schemas/${schemas.find(s => s.name === 'public')!.id}/erd`) as DataFlowErd;
+    expect(erd.externalTables).toEqual([{ key: 'ext:audit.service_accounts', schemaName: 'audit', tableName: 'service_accounts' }]);
+    expect(erd.edges.filter(edge => edge.external).map(edge => edge.targetKey)).toEqual(Array(5).fill('ext:audit.service_accounts'));
+    const linked = new Set(erd.edges.flatMap(edge => [edge.sourceTableId, edge.targetKey]));
+    expect(erd.nodes.filter(node => !linked.has(node.id)).map(node => node.name)).toEqual(['email_templates', 'job_queue', 'territories']);
+    // deals.parent_deal_id: the self-reference.
+    expect(erd.edges.filter(edge => edge.sourceTableId === edge.targetKey)).toHaveLength(1);
+  });
+
+  it('lists the relations of contacts: its two keys and the eight that point at it', async () => {
+    const { schemas } = await crmSchemas();
+    const contacts = (await tablesOf(schemas.find(s => s.name === 'public')!.id!)).find(table => table.name === 'contacts')!;
+    const relations = await readDemoBody(`${FLOW}/tables/${contacts.id}/relations`) as DataFlowRelations;
+    expect(relations.outgoing.map(r => `${r.schemaName}.${r.tableName}`)).toEqual(['public.accounts', 'audit.service_accounts']);
+    expect(relations.incoming).toHaveLength(8);
+    expect(relations.incoming.every(r => r.columns[0].sourceColumn === 'contact_id' && r.columns[0].targetColumn === 'id')).toBe(true);
+  });
+
+  it('serves the SaaS file and Endpoint showcases', async () => {
+    const gmail = (await rowOf('saas', 'Priya Nair', 'GMAIL')).sourceId!;
+    const drive = (await rowOf('saas', 'Priya Nair', 'GOOGLE_WORKSPACE')).sourceId!;
+    const idOf = async (sourceId: string, name: string, element: string) =>
+      (await filesOf(sourceId, `dataElement=${encodeURIComponent(element)}&limit=100&skip=0`)).rows.find(f => f.name === name)!.id!;
+    const fileAnswer = (id: string, resource: string) => readDemoBody(`/api/dspm/saas-files/${id}/${resource}`);
+
+    const offerPdf = await idOf(gmail, 'Offer Letter - Priya Nair.pdf', 'PERSON NAME');
+    const lineage = await fileAnswer(offerPdf, 'lineage') as SaasFileLineage;
+    expect(lineage.lanes.map(lane => [lane.channelLabel, lane.self])).toEqual([['Gmail', true], ['Google Drive', false], ['Google Drive', false]]);
+    expect((await fileAnswer(offerPdf, 'copies') as SaasFileCopies).copies.map(copy => copy.ownerEmail))
+      .toEqual(['priya@xammer.in', 'priya@xammer.in']);
+    expect((await fileAnswer(offerPdf, 'activity') as SaasFileActivity).entries).toHaveLength(2);
+
+    const offerDocx = await idOf(drive, 'Offer Letter - Priya Nair.docx', 'ADDRESS');
+    expect((await fileAnswer(offerDocx, 'overview') as SaasFileOverview).sharing)
+      .toMatchObject({ externalShare: true, externalEmails: ['talent.partner@example.com'] });
+    const docxCopies = await fileAnswer(offerDocx, 'copies') as SaasFileCopies;
+    expect(docxCopies.locations).toBe(3);
+    expect(docxCopies.copies.map(copy => copy.locationLabel)).toEqual(['SaaS · Gmail', 'SaaS · Google Drive', 'Endpoint · macOS']);
+    const roster = await fileAnswer(await idOf(drive, 'Team Roster.xlsx', 'PHONE NUMBER'), 'overview') as SaasFileOverview;
+    expect(roster.sharing).toEqual({
+      internalEmails: [], externalEmails: [], internalGroups: [], externalGroups: [],
+      privateShare: true, publicShare: false, orgWide: false, externalShare: false,
+    });
+
+    const desktop = (await rowOf('endpoint', 'HR-DESKTOP-02')).sourceId!;
+    const scans = await readDemoBody(`${DS}/${desktop}/endpoint/scans?skip=0&limit=10`) as EndpointScanPage;
+    expect(scans.rows.map(run => [run.status, run.endTime === null, run.totalFiles])).toEqual([['IN_PROGRESS', true, null], ['TIMED_OUT', false, 1240]]);
+  });
+
+  it('keeps no fixture-derived file name in the demo data', () => {
+    // jsdom gives import.meta.url no file scheme; vitest runs from the app's root folder.
+    const dir = join(process.cwd(), 'src', 'demo');
+    const renamed = ['people', 'list'].join('-');
+    const files = readdirSync(dir).filter(name => /\.tsx?$/.test(name));
+    expect(files.length).toBeGreaterThan(5);
+    for (const name of files) expect(readFileSync(join(dir, name), 'utf8').includes(renamed), name).toBe(false);
   });
 });
 /**

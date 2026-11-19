@@ -21,6 +21,8 @@ import * as billops from './billopsAdminMockData';
 import * as xamsecure from './xamsecureMockData';
 import * as xamlens from './xamlensMockData';
 import * as xamlensDrawer from './xamlensDrawerMockData';
+import * as saasDrawer from './xamlensSaasDrawerMockData';
+import * as endpointDrawer from './xamlensEndpointDrawerMockData';
 import type { DspmSurface } from '../hooks/useDspmData';
 import * as soc2 from './soc2MockData';
 import * as war from './warMockData';
@@ -62,8 +64,15 @@ function makeDspmError(status: number, code: string, message: string): Response 
 /** A cloud or on-prem datastore's drawer resources (design 7.1). */
 const DATASTORE_RESOURCE =
   /^\/api\/dspm\/datastores\/([0-9a-f]{24})\/(overview|scan-status|sensitives|sensitives\/files|sensitives\/occurrences|risks|access-graph|scan-history|data-flow\/databases)$/;
-/** The Data Flow routes below a database, schema or table. */
-const DATA_FLOW_RESOURCE = /^\/api\/dspm\/data-flow\/(databases|schemas|tables)\/([0-9a-f-]{36})\/(schemas|tables|columns)$/;
+/** The Data Flow routes below a database, schema or table, the diagrams and a table's relations among them. */
+const DATA_FLOW_RESOURCE = /^\/api\/dspm\/data-flow\/(databases|schemas|tables)\/([0-9a-f-]{36})\/(schemas|tables|columns|erd|relations)$/;
+/** A SaaS datastore's drawer resources (design 7.1). */
+const SAAS_RESOURCE = /^\/api\/dspm\/datastores\/([0-9a-f]{24})\/saas\/(detail|records|files|scan-summary)$/;
+/** A SaaS file's drawer resources. */
+const SAAS_FILE_RESOURCE = /^\/api\/dspm\/saas-files\/([0-9a-f]{24})\/(overview|activity|lineage|copies)$/;
+/** An endpoint's drawer resources. */
+const ENDPOINT_RESOURCE =
+  /^\/api\/dspm\/datastores\/([0-9a-f]{24})\/endpoint\/(overview|filter-options|summary|sensitives|occurrences|files|scans)$/;
 
 const AUTOSPOTTING_ADMIN_PREFIX = '/api/xamops/autospotting-admin/';
 
@@ -1191,7 +1200,7 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   // XamLens Datastores page and drawer (design 7.1). Ahead of the block below, so neither its
   // /api/dspm/assets/{id} matcher nor the /api/dspm/ catch-all answers these paths: a {} would break
   // every table that reads an array.
-  if (url.includes('/api/dspm/datastores') || url.includes('/api/dspm/data-flow/')) {
+  if (url.includes('/api/dspm/datastores') || url.includes('/api/dspm/data-flow/') || url.includes('/api/dspm/saas-files/')) {
     const path = new URL(url, 'http://localhost').pathname;
     if (path === '/api/dspm/datastores')
       return makeResponse(xamlens.demoDatastores(url));
@@ -1201,11 +1210,23 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
       return makeResponse(xamlens.demoDatastoreKpis(url));
     const resource = path.match(DATASTORE_RESOURCE);
     const flow = path.match(DATA_FLOW_RESOURCE);
+    const saas = path.match(SAAS_RESOURCE);
+    const saasFile = path.match(SAAS_FILE_RESOURCE);
+    const endpoint = path.match(ENDPOINT_RESOURCE);
     const body = resource ? xamlensDrawer.demoDatastoreResource(resource[1], resource[2], url)
       : flow ? xamlensDrawer.demoDataFlowResource(flow[1], flow[2], flow[3], url)
-        : null;
+        : saas ? saasDrawer.demoSaasResource(saas[1], saas[2], url)
+          : saasFile ? saasDrawer.demoSaasFileResource(saasFile[1], saasFile[2])
+            : endpoint ? endpointDrawer.demoEndpointResource(endpoint[1], endpoint[2], url)
+              : null;
+    // A files filter that is no row of its view, refused as the backend refuses it.
+    if (saasDrawer.isDemoInvalidRequest(body))
+      return makeDspmError(400, 'INVALID_REQUEST', `${body.invalidParameter} is not a row of this datastore`);
     if (body) return makeResponse(body);
-    // Any other id under these routes is one the demo does not know, answered as the backend would.
+    // Any other id under these routes is one the demo does not know, answered as the backend would, so
+    // it never reaches the /api/dspm/ catch-all and its {}.
+    if (path.startsWith('/api/dspm/saas-files/'))
+      return makeDspmError(404, 'ASSET_NOT_FOUND', 'That file could not be found.');
     if (path.startsWith('/api/dspm/datastores/') || path.startsWith('/api/dspm/data-flow/'))
       return makeDspmError(404, 'ASSET_NOT_FOUND', 'That datastore could not be found.');
   }

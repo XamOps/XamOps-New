@@ -220,6 +220,9 @@ describe('DataFlowGraph', () => {
     render(<Harness databases={DATABASES} onRootClose={onRootClose} />);
     const graph = await screen.findByRole('button', { name: 'Graph View' });
     expect(graph).not.toHaveAttribute('aria-disabled');
+    // Table View lists the first schema's tables before the toggle is used: count after that request, which
+    // a loaded run can send after the toggle has rendered.
+    await waitFor(() => expect(tableRequests().length).toBeGreaterThan(0));
     const tablesBefore = tableRequests().length;
 
     await user.click(graph);
