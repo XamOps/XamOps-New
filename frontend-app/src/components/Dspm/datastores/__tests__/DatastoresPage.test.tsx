@@ -321,6 +321,7 @@ describe('DatastoresPage', () => {
       '/api/dspm/datastores/0123456789abcdef01234567/overview',
       '/api/dspm/datastores/0123456789abcdef01234567/scan-status',
       '/api/dspm/datastores/0123456789abcdef01234567/sensitives',
+      '/api/dspm/datastores/0123456789abcdef01234567/sync-status',
     ]);
     await user.click(within(cloudDrawer).getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -329,10 +330,11 @@ describe('DatastoresPage', () => {
     expect(onPrem).toHaveAttribute('tabindex', '0');
     await user.click(onPrem);
     expect(await screen.findByRole('dialog', { name: 'ledger_db' })).toBeInTheDocument();
-    expect(drawerRequests().slice(3)).toEqual([
+    expect(drawerRequests().slice(4)).toEqual([
       '/api/dspm/datastores/fedcba9876543210fedcba98/overview',
       '/api/dspm/datastores/fedcba9876543210fedcba98/scan-status',
       '/api/dspm/datastores/fedcba9876543210fedcba98/sensitives',
+      '/api/dspm/datastores/fedcba9876543210fedcba98/sync-status',
     ]);
     expect(assetRequests()).toHaveLength(0);
   });
@@ -346,7 +348,7 @@ describe('DatastoresPage', () => {
     await user.keyboard('{Enter}');
     expect(await screen.findByRole('dialog', { name: 'orders-archive' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
-    expect(drawerRequests()).toHaveLength(3);
+    expect(drawerRequests()).toHaveLength(4);
   });
 
   it('does not open a cloud row whose source id is not 24 hex', async () => {

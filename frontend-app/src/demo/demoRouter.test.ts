@@ -32,8 +32,9 @@ import { DEMO_NOW } from './xamlensEndpointDrawerMockData';
 import { demoEndpointFileTimes } from './xamlensFilesMockData';
 import type { AssistList, DocumentClassList, DspmDashboard, RemediationActivity } from '../types/dspmPages';
 import type {
-  EndpointScanConfiguration, SaasChannel, SaasIntegrationList, SaasScanConfiguration, SaasScanUser, ScanRun,
-  ScanRunDatastore, ScanRunDetail, ScanSchedule, ScanScheduleDetail, ScanScope, ScanScopeDetail,
+  DatastoreDatabases, DatastoreScanSettings, DatastoreSyncStatus, EndpointScanConfiguration, SaasChannel,
+  SaasIntegrationList, SaasScanConfiguration, SaasScanUser, ScanRun, ScanRunDatastore, ScanRunDetail, ScanSchedule,
+  ScanScheduleDetail, ScanScope, ScanScopeDetail,
 } from '../types/dspmScans';
 
 /**
@@ -2331,5 +2332,60 @@ describe('demo router — XamLens Data Lineage page (ROLE_XAMOPS)', () => {
     }
     sessionStorage.setItem(DEMO_LINEAGE_STEPS_KEY, 'off');
     expect((await answerOf(`${LN}/summary`)).status).toBe(404);
+  });
+});
+
+describe('demo router — XamLens datastore sync status and Scan Settings (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+
+  const DS = '/api/dspm/datastores';
+  const S3 = 'de3000000000000000000001';
+  const DYNAMODB = 'de3000000000000000000005';
+  const RDS = 'de3000000000000000000006';
+  const ON_PREM = 'de3000000000000000000011';
+
+  it('answers sync statuses covering a finished, a running, a failed and no sync', async () => {
+    const statuses = await Promise.all([S3, RDS, ON_PREM, DYNAMODB]
+      .map(id => readDemoBody(`${DS}/${id}/sync-status`) as Promise<DatastoreSyncStatus>));
+    expect(statuses.map(s => s.status)).toEqual(['SUCCESS', 'IN_PROGRESS', 'FAILED', null]);
+    expect(statuses[0].updatedAt).toEqual(expect.any(Number));
+    expect(statuses[3].updatedAt).toBeNull();
+  });
+
+  it('answers an RDS-like, an S3-like and an on-prem scan settings answer, with no secret field', async () => {
+    const rds = await readDemoBody(`${DS}/${RDS}/scan-settings`) as DatastoreScanSettings;
+    expect(rds.host).not.toBeNull();
+    expect(rds.port).toBe(5432);
+    expect(rds.exportAssistName).not.toBeNull();
+    const s3 = await readDemoBody(`${DS}/${S3}/scan-settings`) as DatastoreScanSettings;
+    expect(s3.host).toBeNull();
+    expect(s3.inclusionPaths.length).toBeGreaterThan(0);
+    expect(s3.parameters?.timeOutHours).not.toBeNull();
+    const onPrem = await readDemoBody(`${DS}/${ON_PREM}/scan-settings`) as DatastoreScanSettings;
+    const filled = Object.values(onPrem.parameters ?? {}).filter(value => value !== null);
+    expect(filled).toHaveLength(3);
+    for (const body of [rds, s3, onPrem]) {
+      expect(body).not.toHaveProperty('uri');
+      expect(JSON.stringify(body)).not.toMatch(/password|userName|ProxyId/);
+    }
+  });
+
+  it('answers an empty database list for datastores that are not Snowflake or Databricks', async () => {
+    expect(await readDemoBody(`${DS}/${RDS}/scan-settings/databases`) as DatastoreDatabases).toEqual({ databases: [] });
+  });
+
+  it('answers an unknown or non-cloud id with the backend 404', async () => {
+    for (const url of [
+      `${DS}/ffffffffffffffffffffffff/sync-status`,
+      `${DS}/ffffffffffffffffffffffff/scan-settings`,
+      `${DS}/de3100000000000000000001/scan-settings/databases`,
+    ]) {
+      const response = resolveDemoResponse(url);
+      expect(response?.status, url).toBe(404);
+      expect(JSON.parse(await response!.text()).code).toBe('ASSET_NOT_FOUND');
+    }
   });
 });

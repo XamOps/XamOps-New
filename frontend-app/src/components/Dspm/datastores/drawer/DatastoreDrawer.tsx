@@ -1,4 +1,4 @@
-import React, { useId, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
 import type {
   DataFlowDatabases, DatastoreAccessGraph, DatastoreOverview, DatastoreRisks, DatastoreRow, DatastoreScanHistory,
   DatastoreSensitives,
@@ -6,6 +6,8 @@ import type {
 import {
   datastoreDrawerApi, useLazyResource, type DatastoreDrawerApi, type LazyResource,
 } from '../../../../hooks/useDspmDatastoreDrawer';
+import { datastoreScanApi } from '../../../../hooks/useDspmScans';
+import { usePolling } from '../../../../hooks/useServerList';
 import { DEFAULT_DRAWER_TAB, drawerTabsFor, type DrawerTabId } from './drawerTabs';
 import { DrawerShell } from './DrawerShell';
 import { DrawerTabList } from './DrawerTabList';
@@ -17,6 +19,10 @@ import RiskTab from './RiskTab';
 import DataFlowTab from './DataFlowTab';
 import AccessGraphTab from './AccessGraphTab';
 import ScanHistoryTab from './ScanHistoryTab';
+import DrawerActionsMenu from './DrawerActionsMenu';
+import ScanSettingsDrawer from './ScanSettingsDrawer';
+import { SyncStatusBadge } from './SyncStatusBadge';
+import { isSyncing } from './syncStatus';
 
 /** A cloud or on-prem row. The page opens the drawer only for rows whose `sourceId` is 24 hex. */
 export type DrawerRow = DatastoreRow & { sourceId: string };
@@ -70,6 +76,9 @@ interface Props {
  * Each tab has its own loading and error state, so one failing request never blanks another tab, and a
  * failed overview leaves the header on the row's data.
  *
+ * The info card also shows the sync status (polled every minute while a sync runs) and the Actions menu,
+ * whose Scan Settings opens the nested "Datastore Scan Configuration" layer (design 6.9).
+ *
  * The portal, overlay, focus and Escape rules are `DrawerShell`'s: Escape closes the topmost layer on
  * the drawer's Escape stack, else the drawer.
  */
@@ -80,6 +89,14 @@ const DatastoreDrawer: React.FC<Props> = ({ row, onClose }) => {
   const overview = useLazyResource(api.overview, true);
   const scanStatus = useLazyResource(api.scanStatus, true);
   const sensitives = useLazyResource(api.sensitives, true);
+
+  const scanApi = useMemo(() => datastoreScanApi(row.sourceId), [row.sourceId]);
+  const sync = useLazyResource(scanApi.syncStatus, true);
+  usePolling(isSyncing(sync.data), sync.reload);
+  const [scanSettingsOpen, setScanSettingsOpen] = useState(false);
+  const actionsButton = useRef<HTMLButtonElement>(null);
+  const openScanSettings = useCallback(() => setScanSettingsOpen(true), []);
+  const closeScanSettings = useCallback(() => setScanSettingsOpen(false), []);
 
   const tabs = drawerTabsFor(row.category, overview.data?.canDiscoverSchema);
   const active = tabs.some(t => t.id === tab) ? tab : DEFAULT_DRAWER_TAB;
@@ -97,7 +114,13 @@ const DatastoreDrawer: React.FC<Props> = ({ row, onClose }) => {
     <DrawerShell label={row.name ?? undefined} onClose={onClose} initialFocus={closeButton}>
       <DrawerHeader row={row} overview={overview.data} closeRef={closeButton} onClose={onClose} />
       <div className="flex-1 space-y-4 overflow-y-auto px-5 pb-6">
-        <DrawerInfoCard row={row} overview={overview.data} progress={scanStatus.data?.progress ?? null} />
+        <DrawerInfoCard
+          row={row}
+          overview={overview.data}
+          progress={scanStatus.data?.progress ?? null}
+          syncStatus={<SyncStatusBadge resource={sync} />}
+          actions={<DrawerActionsMenu row={row} buttonRef={actionsButton} onScanSettings={openScanSettings} />}
+        />
 
         <DrawerTabList tabs={tabs} active={active} onSelect={setTab} label="Datastore details" idPrefix={ids} />
 
@@ -105,6 +128,9 @@ const DatastoreDrawer: React.FC<Props> = ({ row, onClose }) => {
           {body({ api, row, overview, sensitives, risks, dataFlowDatabases, accessGraph, scanHistory })}
         </div>
       </div>
+      {scanSettingsOpen && (
+        <ScanSettingsDrawer row={row} api={scanApi} returnFocus={actionsButton.current} onClose={closeScanSettings} />
+      )}
     </DrawerShell>
   );
 };

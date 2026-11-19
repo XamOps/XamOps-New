@@ -1,14 +1,17 @@
 /**
  * XamLens Scan Management demo data (ROLE_XAMOPS), design 7: schedules, scan history, a scope, the SaaS
- * integrations with their users and Slack channels, and the endpoint configuration. Every value is
- * invented; none is copied from a capture. Filters and paging are applied as the backend would, so the
- * filters, the empty states and the footers can all be shown.
+ * integrations with their users and Slack channels, the endpoint configuration, and each demo datastore's
+ * sync status and scan settings. Every value is invented; none is copied from a capture. Filters and
+ * paging are applied as the backend would, so the filters, the empty states and the footers can all be
+ * shown.
  */
 import type { DspmPage } from '../types/dspm';
 import type {
-  EndpointScanConfiguration, SaasChannel, SaasIntegrationList, SaasScanConfiguration, SaasScanUser, ScanRun,
-  ScanRunDatastore, ScanRunDetail, ScanSchedule, ScanScheduleDetail, ScanScope, ScanScopeDetail, ScanTarget,
+  DatastoreDatabases, DatastoreScanParameters, DatastoreScanSettings, DatastoreSyncStatus, EndpointScanConfiguration,
+  SaasChannel, SaasIntegrationList, SaasScanConfiguration, SaasScanUser, ScanRun, ScanRunDatastore, ScanRunDetail,
+  ScanSchedule, ScanScheduleDetail, ScanScope, ScanScopeDetail, ScanTarget,
 } from '../types/dspmScans';
+import { demoDatastoreSource, type DemoDatastoreSource } from './xamlensMockData';
 
 const DAY = 86_400;
 const BASE = '/api/dspm/scan-management';
@@ -348,4 +351,95 @@ export function demoScanManagement(path: string, url: string, nowMs: number = Da
     return integrationId === SLACK_INTEGRATION ? saasChannels(params) : paged([], params);
   }
   return null;
+}
+
+// ─── datastore drawer extras (`/api/dspm/datastores/{sourceId}/…`) ─────────────────────────────
+
+export type DemoDatastoreScanKind = 'sync-status' | 'scan-settings' | 'scan-settings/databases';
+
+const NO_PARAMETERS: DatastoreScanParameters = {
+  numFoldersLeafNode: null, parallelism: null, timeOutHours: null, rowSamplingLimit: null, samplingPercentageLimit: null,
+};
+
+const EMPTY_SETTINGS: DatastoreScanSettings = {
+  parameters: null, inclusionPaths: [], exclusionPaths: [], allDatabases: false, selectedDatabases: [],
+  accessible: null, exportAssistName: null, discoveryAssistName: null, host: null, port: null, serviceName: null,
+  credentialsSaved: false,
+};
+
+/** The spec's number: `demo-ds-06` is 6. */
+const specNumber = (source: DemoDatastoreSource) => Number(source.id.replace(/\D/g, ''));
+
+/**
+ * A datastore's saved scan settings, by its kind: file stores get the file parameters and path
+ * conditions, RDS a database connection with an export assist, DynamoDB the sampling limits only, and
+ * on-prem databases three parameters, a connection and both assists. Kinds the console has no settings
+ * for answer the empty shape.
+ */
+function demoScanSettings(source: DemoDatastoreSource): DatastoreScanSettings {
+  const slug = source.name.toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+  switch (source.provider) {
+    case 'S3':
+    case 'GCS':
+      return {
+        ...EMPTY_SETTINGS,
+        parameters: { ...NO_PARAMETERS, numFoldersLeafNode: 50, parallelism: 100, timeOutHours: 2 },
+        inclusionPaths: [`${source.provider === 'S3' ? 's3' : 'gs'}://${slug}/exports/`],
+        exclusionPaths: ['**.tmp'],
+      };
+    case 'EBS':
+      return { ...EMPTY_SETTINGS, parameters: { ...NO_PARAMETERS, numFoldersLeafNode: 40, parallelism: 150, timeOutHours: 3 } };
+    case 'RDS':
+      return {
+        ...EMPTY_SETTINGS,
+        parameters: { ...NO_PARAMETERS, rowSamplingLimit: 5_000, samplingPercentageLimit: 10 },
+        accessible: false,
+        exportAssistName: 'demo-export-assist',
+        host: `${slug}.demo.internal`,
+        port: 5432,
+        credentialsSaved: true,
+      };
+    case 'DYNAMODB':
+      return { ...EMPTY_SETTINGS, parameters: { ...NO_PARAMETERS, rowSamplingLimit: 2_000, samplingPercentageLimit: 15 } };
+    default:
+      if (source.category !== 'on_prem') return EMPTY_SETTINGS;
+      return {
+        ...EMPTY_SETTINGS,
+        parameters: { ...NO_PARAMETERS, parallelism: 150, rowSamplingLimit: 3_000, samplingPercentageLimit: 20 },
+        accessible: true,
+        exportAssistName: 'demo-onprem-export',
+        discoveryAssistName: 'demo-onprem-discovery',
+        host: `${slug.replace(/_/g, '-')}.db.demo.internal`,
+        port: 5432,
+        // The second on-prem database has no saved credentials, so its empty Username and Password show.
+        credentialsSaved: specNumber(source) !== 23,
+      };
+  }
+}
+
+/**
+ * A datastore's sync job: one running (demo-ds-06), one failed (demo-ds-11), none for DynamoDB, Azure
+ * Blob and BigQuery, and a finished one for every other datastore, a few hours to days old.
+ */
+function demoSyncStatus(source: DemoDatastoreSource, now: number): DatastoreSyncStatus {
+  const n = specNumber(source);
+  if (n === 6) return { status: 'IN_PROGRESS', updatedAt: now - 120 };
+  if (n === 11) return { status: 'FAILED', updatedAt: now - 2 * DAY };
+  if (['DYNAMODB', 'AZURE_BLOB', 'BIGQUERY'].includes(source.provider)) return { status: null, updatedAt: null };
+  return { status: 'SUCCESS', updatedAt: now - (n % 5 + 1) * 3 * 3600 };
+}
+
+/**
+ * The sync status, scan settings and databases of a demo cloud or on-prem datastore, or null for an id the
+ * demo does not know (the router answers that with the backend's 404). No demo datastore is Snowflake or
+ * Databricks, so every databases answer is empty.
+ */
+export function demoDatastoreScanResource(
+  sourceId: string, kind: DemoDatastoreScanKind, nowMs: number = Date.now(),
+): DatastoreSyncStatus | DatastoreScanSettings | DatastoreDatabases | null {
+  const source = demoDatastoreSource(sourceId);
+  if (source === null) return null;
+  if (kind === 'sync-status') return demoSyncStatus(source, Math.floor(nowMs / 1000));
+  if (kind === 'scan-settings') return demoScanSettings(source);
+  return { databases: [] };
 }

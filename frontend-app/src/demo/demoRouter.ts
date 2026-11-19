@@ -69,6 +69,9 @@ function makeDspmError(status: number, code: string, message: string): Response 
 /** A cloud or on-prem datastore's drawer resources (design 7.1). */
 const DATASTORE_RESOURCE =
   /^\/api\/dspm\/datastores\/([0-9a-f]{24})\/(overview|scan-status|sensitives|sensitives\/files|sensitives\/occurrences|risks|access-graph|scan-history|data-flow\/databases)$/;
+/** A cloud or on-prem datastore's scan extras: the info card's sync status and the Scan Settings layer (design 7). */
+const DATASTORE_SCAN_RESOURCE =
+  /^\/api\/dspm\/datastores\/([0-9a-f]{24})\/(sync-status|scan-settings|scan-settings\/databases)$/;
 /** The Data Flow routes below a database, schema or table, the diagrams and a table's relations among them. */
 const DATA_FLOW_RESOURCE = /^\/api\/dspm\/data-flow\/(databases|schemas|tables)\/([0-9a-f-]{36})\/(schemas|tables|columns|erd|relations)$/;
 /** A SaaS datastore's drawer resources (design 7.1). */
@@ -1262,6 +1265,12 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
       return makeResponse(files.demoEndpointFiles(url));
     if (path === '/api/dspm/files/endpoint/filter-options')
       return makeResponse(files.demoEndpointFileOptions());
+    const scanResource = path.match(DATASTORE_SCAN_RESOURCE);
+    if (scanResource) {
+      const answer = xamlensScans.demoDatastoreScanResource(
+        scanResource[1], scanResource[2] as xamlensScans.DemoDatastoreScanKind);
+      if (answer) return makeResponse(answer);
+    }
     const resource = path.match(DATASTORE_RESOURCE);
     const flow = path.match(DATA_FLOW_RESOURCE);
     const saas = path.match(SAAS_RESOURCE);

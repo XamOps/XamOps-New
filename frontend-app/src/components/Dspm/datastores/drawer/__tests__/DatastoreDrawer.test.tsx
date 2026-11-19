@@ -13,7 +13,7 @@ vi.mock('../../../../../utils/apiClient', () => ({ default: { get: vi.fn() } }))
 import apiClient from '../../../../../utils/apiClient';
 import { ThemeProvider } from '../../../../../contexts/ThemeContext';
 import DatastoreDrawer, { type DrawerRow } from '../DatastoreDrawer';
-import { formatConsoleDate } from '../../datastoreFormat';
+import { formatConsoleDate, formatListDate } from '../../datastoreFormat';
 
 const get = apiClient.get as unknown as ReturnType<typeof vi.fn>;
 
@@ -403,16 +403,18 @@ async function openFileView(user: ReturnType<typeof userEvent.setup>, drawer: HT
 // ─── tests ───────────────────────────────────────────────────────────────────────────────────────
 
 describe('DatastoreDrawer', () => {
-  it('loads the overview, scan status and sensitives in parallel on open and focuses the close button', () => {
+  it('loads the overview, scan status, sensitives and sync status in parallel on open and focuses the close button', () => {
     answers.overview = pending;
     answers['scan-status'] = pending;
     answers.sensitives = pending;
+    answers['sync-status'] = pending;
     const { drawer } = renderDrawer();
 
     expect(calls().map(url => url.pathname)).toEqual([
       '/api/dspm/datastores/0123456789abcdef01234567/overview',
       '/api/dspm/datastores/0123456789abcdef01234567/scan-status',
       '/api/dspm/datastores/0123456789abcdef01234567/sensitives',
+      '/api/dspm/datastores/0123456789abcdef01234567/sync-status',
     ]);
     expect(within(drawer).getByRole('button', { name: 'Close' })).toHaveFocus();
     expect(within(drawer).getByText('Loading…')).toBeInTheDocument();
@@ -421,7 +423,7 @@ describe('DatastoreDrawer', () => {
     expect(drawer.parentElement).toBe(document.body);
   });
 
-  it('renders the header from the row and the overview, with every console action greyed', async () => {
+  it('renders the header from the row and the overview, with Start Scan greyed and Actions a menu button', async () => {
     const { drawer } = renderDrawer();
     const link = await within(drawer).findByRole('link', { name: /Go to AWS/ });
     expect(link).toHaveAttribute('href', S3_OVERVIEW.consoleUrl);
@@ -430,12 +432,14 @@ describe('DatastoreDrawer', () => {
     expect(within(drawer).getByRole('heading', { name: 'orders-archive' })).toBeInTheDocument();
     expect(within(drawer).getByText('S3')).toBeInTheDocument();
     expect(within(drawer).getByText('example-prod')).toBeInTheDocument();
-    for (const name of ['Start Scan', 'Actions']) {
-      const control = within(drawer).getByRole('button', { name });
-      expect(control).toHaveAttribute('aria-disabled', 'true');
-      expect(document.getElementById(control.getAttribute('aria-describedby') ?? ''))
-        .toHaveTextContent(/^Disabled by admin$/);
-    }
+    const startScan = within(drawer).getByRole('button', { name: 'Start Scan' });
+    expect(startScan).toHaveAttribute('aria-disabled', 'true');
+    expect(document.getElementById(startScan.getAttribute('aria-describedby') ?? ''))
+      .toHaveTextContent(/^Disabled by admin$/);
+    const actions = within(drawer).getByRole('button', { name: 'Actions' });
+    expect(actions).not.toHaveAttribute('aria-disabled');
+    expect(actions).toHaveAttribute('aria-haspopup', 'menu');
+    expect(actions).toHaveAttribute('aria-expanded', 'false');
   });
 
   it.each([
@@ -607,6 +611,79 @@ describe('DatastoreDrawer', () => {
       expect(scanChipElement().textContent).toBe('Scanning Output Processed');
       expect(scanChipDot()).toBe('green');
       expect(within(drawer).queryByRole('alert')).toBeNull();
+    });
+  });
+
+  describe('Sync status and Actions', () => {
+    const syncBadge = () => document.querySelector('[data-sync-status]');
+
+    it('shows nothing when the sync-status request fails (the default mock answers 404)', async () => {
+      const { drawer } = renderDrawer();
+      await within(drawer).findByText('EMAIL ADDRESS');
+      await act(async () => {});
+      expect(requestsTo('sync-status')).toHaveLength(1);
+      expect(syncBadge()).toBeNull();
+      expect(within(drawer).queryByRole('alert')).toBeNull();
+    });
+
+    it('shows a finished sync after the Scan Status chip, with its time as the title', async () => {
+      const finished = Math.floor(Date.now() / 1000) - 3 * 3600;
+      answers['sync-status'] = () => ({ status: 'SUCCESS', updatedAt: finished });
+      renderDrawer();
+      await waitFor(() => expect(syncBadge()).toHaveTextContent('Last sync 3 hours ago'));
+      expect(syncBadge()).toHaveAttribute('title', `Finished ${formatListDate(finished)}`);
+      expect(scanChipElement().nextElementSibling).toBe(syncBadge());
+    });
+
+    it('polls the sync status every minute while it runs, and stops once it finished', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        let status = 'IN_PROGRESS';
+        answers['sync-status'] = () => ({ status, updatedAt: Math.floor(Date.now() / 1000) });
+        renderDrawer();
+        await waitFor(() => expect(syncBadge()).toHaveTextContent('Syncing'));
+        expect(requestsTo('sync-status')).toHaveLength(1);
+        status = 'SUCCESS';
+        await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+        await waitFor(() => expect(syncBadge()).toHaveTextContent('Last sync just now'));
+        expect(requestsTo('sync-status')).toHaveLength(2);
+        await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+        expect(requestsTo('sync-status')).toHaveLength(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('opens Scan Settings from the Actions menu as a nested layer; Escape closes it back to Actions', async () => {
+      const user = userEvent.setup();
+      answers['scan-settings'] = () => ({
+        parameters: { numFoldersLeafNode: 50, parallelism: 100, timeOutHours: 2, rowSamplingLimit: null, samplingPercentageLimit: null },
+        inclusionPaths: [], exclusionPaths: [], allDatabases: false, selectedDatabases: [], accessible: null,
+        exportAssistName: null, discoveryAssistName: null, host: null, port: null, serviceName: null, credentialsSaved: false,
+      });
+      const { drawer, onClose } = renderDrawer();
+      await within(drawer).findByText('EMAIL ADDRESS');
+      const actions = within(drawer).getByRole('button', { name: 'Actions' });
+      await user.click(actions);
+      await user.click(screen.getByRole('menuitem', { name: 'Scan Settings' }));
+      const layer = await screen.findByRole('dialog', { name: 'Datastore Scan Configuration' });
+      expect(await within(layer).findByText('Configuration Parameters')).toBeInTheDocument();
+      expect(within(layer).getByText('orders-archive')).toBeInTheDocument();
+      expect(requestsTo('scan-settings')).toHaveLength(1);
+      expect(requestsTo('scan-settings/databases')).toHaveLength(0);
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('dialog', { name: 'Datastore Scan Configuration' })).toBeNull();
+      expect(actions).toHaveFocus();
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('does not offer Scan Settings for an Azure Blob container', async () => {
+      const user = userEvent.setup();
+      answers.overview = () => AZURE_NOT_SCANNED;
+      const { drawer } = renderDrawer(AZURE_ROW);
+      await user.click(within(drawer).getByRole('button', { name: 'Actions' }));
+      expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map(item => item.textContent))
+        .toEqual(['Sync Datastore', 'Download Sensitives', 'Create Jira Ticket']);
     });
   });
 

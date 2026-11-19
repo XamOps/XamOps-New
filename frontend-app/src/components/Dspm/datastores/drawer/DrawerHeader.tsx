@@ -111,10 +111,14 @@ interface InfoCardProps {
   overview: DatastoreOverview | null;
   /** The scan-status progress, or null while it loads, after it failed or when it is not numeric. */
   progress: number | null;
+  /** The sync status, drawn after the Scan Status chip (`SyncStatusBadge`). */
+  syncStatus?: React.ReactNode;
+  /** The Actions menu at the card's end (`DrawerActionsMenu`). */
+  actions: React.ReactNode;
 }
 
-/** The card under the title: Source/Account (the list's rule), the Scan Status chip and the greyed Actions. */
-export const DrawerInfoCard: React.FC<InfoCardProps> = ({ row, overview, progress }) => {
+/** The card under the title: Source/Account (the list's rule), the Scan Status chip, the sync status and Actions. */
+export const DrawerInfoCard: React.FC<InfoCardProps> = ({ row, overview, progress, syncStatus, actions }) => {
   const chip = scanChip(row, overview, progress);
   return (
     <div className="flex flex-wrap items-center gap-x-8 gap-y-3 rounded-xl border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.015)] px-4 py-3">
@@ -137,13 +141,9 @@ export const DrawerInfoCard: React.FC<InfoCardProps> = ({ row, overview, progres
           {chip.text}
           {chip.percent && <>{' '}<span className="text-sky-600">{chip.percent}</span></>}
         </span>
+        {syncStatus}
       </div>
-      <div className="ml-auto">
-        <ConsoleOnlyButton variant="secondary" placement="left">
-          Actions
-          <Icon icon="mdi:chevron-down" width={14} />
-        </ConsoleOnlyButton>
-      </div>
+      <div className="ml-auto">{actions}</div>
     </div>
   );
 };
