@@ -408,6 +408,40 @@ describe('DataLineagePage, the investigation', () => {
     expect(screen.getByRole('button', { name: 'Full screen' })).toHaveFocus();
   });
 
+  it('opens the event drawer from the popover\'s "View full details →", also above full screen (AC17)', async () => {
+    const user = userEvent.setup();
+    serve({ categories: [ON] });
+    renderAt(`${STEP1}&policy=${P1}&datastore=ds-studio&file=${fileId(1)}`);
+
+    const card = await screen.findByRole('button', { name: /File Modified/ });
+    await user.click(card);
+    const popover = screen.getByRole('dialog', { name: 'Event details' });
+    await user.click(within(popover).getByRole('button', { name: 'View full details →' }));
+    expect(screen.queryByRole('dialog', { name: 'Event details' })).toBeNull();
+    const drawer = screen.getByRole('dialog', { name: 'File Modified' });
+    expect(within(drawer).getByRole('region', { name: 'Summary' })).toHaveTextContent('alex@example.com');
+    expect(within(drawer).getByRole('region', { name: 'Details' })).toHaveTextContent('File Modified');
+    expect(drawer).toHaveClass('z-[60]');
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'File Modified' })).toBeNull();
+    expect(card).toHaveFocus();
+
+    // From full screen: the drawer sits above the modal; Escape closes the drawer, then full screen.
+    await user.click(screen.getByRole('button', { name: 'Full screen' }));
+    const modal = screen.getByRole('dialog', { name: 'File lineage' });
+    const modalCard = within(modal).getByRole('button', { name: /File Modified/ });
+    await user.click(modalCard);
+    await user.click(within(screen.getByRole('dialog', { name: 'Event details' })).getByRole('button', { name: 'View full details →' }));
+    expect(screen.getByRole('dialog', { name: 'File Modified' })).toHaveClass('z-[80]');
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'File Modified' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'File lineage' })).toBeInTheDocument();
+    expect(modalCard).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'File lineage' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Full screen' })).toHaveFocus();
+  });
+
   it('shows the band messages: no lineage, and an event search without a match (AC19)', async () => {
     const user = userEvent.setup();
     serve({ categories: [ON] });

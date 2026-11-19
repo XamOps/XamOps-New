@@ -2,7 +2,9 @@ import React, { useCallback, useRef, useState } from 'react';
 import { Icon } from '@iconify/react';
 import type { LineageCategory } from '../../../types/dspmLineage';
 import type { DatastoreFilterState } from '../datastores/datastoreFilters';
+import type { LineageEventView } from '../datastores/saas/lineageModel';
 import { FullscreenFrame } from '../datastores/ui/FullscreenFrame';
+import LineageEventDrawer from './LineageEventDrawer';
 import LineageEscapeHost from './LineageEscapeHost';
 import LineagePanel from './LineagePanel';
 import {
@@ -28,10 +30,13 @@ const NO_FILTERS: LineageFilters = { policy: {}, datastore: {} };
  * Steps 1 to 4 (build 4 design 6.5): the header with "New Investigation", which goes back to step 0
  * (D1), and the panel with the tree, which full screen shows in a centred modal. The URL holds the
  * choices, pages and searches; the More filters live here and reset when a click clears their level.
+ * "View full details →" in the event popover opens the event drawer, above full screen while it is open.
  */
 const LineageInvestigation: React.FC<Props> = ({ query, category, onQuery, onUnavailable }) => {
   const [filters, setFilters] = useState<LineageFilters>(NO_FILTERS);
   const [fullscreen, setFullscreen] = useState(false);
+  /** The event whose drawer is open, and the card that opened it. */
+  const [openEvent, setOpenEvent] = useState<{ event: LineageEventView; anchor: HTMLElement } | null>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const data = useLineageData(query, filters, onQuery, onUnavailable);
 
@@ -55,6 +60,7 @@ const LineageInvestigation: React.FC<Props> = ({ query, category, onQuery, onUna
   const onSearch = (level: OpenLevel, text: string) => onQuery(setSearch(query, level, text));
 
   const exitFullscreen = useCallback(() => setFullscreen(false), []);
+  const closeEvent = useCallback(() => setOpenEvent(null), []);
   const level = openLevel(query) ?? 'policy';
 
   return (
@@ -93,10 +99,18 @@ const LineageInvestigation: React.FC<Props> = ({ query, category, onQuery, onUna
             onPage={onPage}
             onSearch={onSearch}
             onFilters={onFilters}
-            onViewDetails={() => {}}
+            onViewDetails={(event, anchor) => setOpenEvent({ event, anchor })}
           />
         </FullscreenFrame>
       </div>
+      {openEvent && (
+        <LineageEventDrawer
+          event={openEvent.event}
+          returnFocus={openEvent.anchor}
+          elevated={fullscreen}
+          onClose={closeEvent}
+        />
+      )}
     </LineageEscapeHost>
   );
 };
