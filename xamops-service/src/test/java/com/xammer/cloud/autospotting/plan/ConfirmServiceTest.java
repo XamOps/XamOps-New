@@ -87,7 +87,8 @@ class ConfirmServiceTest {
         providers = new ProviderRegistry(List.of()); // no provider: fingerprint re-read "times out"
         auditWriter = mock(AutoSpottingAuditWriter.class);
         confirm = new ConfirmService(plans, groups, operations, operationStore, preemption, authorization,
-                revertPreconditions, switchService, switchProperties, providers, auditWriter);
+                revertPreconditions, switchService, switchProperties, providers, auditWriter,
+                mock(com.xammer.cloud.service.autospotting.notify.AutoSpottingNotificationService.class));
 
         when(switchService.readUncached()).thenReturn(new SwitchState(Set.of(), Set.of(), false, false));
         when(authorization.authorizeConfirm(any(), any(), any(), any())).thenReturn(allow());

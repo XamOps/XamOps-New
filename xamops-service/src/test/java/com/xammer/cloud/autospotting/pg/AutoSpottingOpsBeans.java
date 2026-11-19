@@ -129,9 +129,21 @@ class AutoSpottingOpsBeans {
     }
 
     @Bean
+    com.xammer.cloud.repository.autospotting.NotificationStore notificationStore(DataSource dataSource) {
+        return new com.xammer.cloud.repository.autospotting.NotificationStore(dataSource);
+    }
+
+    @Bean
+    com.xammer.cloud.service.autospotting.notify.AutoSpottingNotificationService notificationService(
+            com.xammer.cloud.repository.autospotting.NotificationStore store, AuditRedactor redactor) {
+        return new com.xammer.cloud.service.autospotting.notify.AutoSpottingNotificationService(store, redactor);
+    }
+
+    @Bean
     GroupLifecycleService groupLifecycleService(FencedTx fencedTx, SpotGroupLifecycleRepository lifecycle,
-                                                AutoSpottingAuditWriter auditWriter) {
-        return new GroupLifecycleService(fencedTx, lifecycle, auditWriter);
+                                                AutoSpottingAuditWriter auditWriter,
+            com.xammer.cloud.service.autospotting.notify.AutoSpottingNotificationService notifications) {
+        return new GroupLifecycleService(fencedTx, lifecycle, auditWriter, notifications);
     }
 
     @Bean

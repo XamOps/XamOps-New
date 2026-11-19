@@ -54,6 +54,8 @@ public class AutoSpottingMetrics {
     public static final String EVENTS_SECURITY = "autospotting.events.security";
     public static final String LEASE_FAILURES = "autospotting.lease.failures";
     public static final String JOB_SKIPPED = "autospotting.job.skipped";
+    /** Notification outbox deliveries by outcome: sent, failed, skipped (design-ux-ops.md section 7.1). */
+    public static final String NOTIFICATIONS = "autospotting.notifications";
     public static final String RECONCILE_RUNS = "autospotting.reconcile.runs";
     public static final String RECONCILE_ACTIONS = "autospotting.reconcile.actions";
     public static final String RECONCILE_STALENESS_SECONDS = "autospotting.reconcile.staleness_seconds";
@@ -132,6 +134,11 @@ public class AutoSpottingMetrics {
     /** {@code autospotting.events} — the SQS listener (AWS) or preemption tracker (GCP) handled an event. */
     public void event(Provider provider, String outcome) {
         registry.counter(EVENTS, "provider", tag(provider), "outcome", outcome).increment();
+    }
+
+    /** {@code autospotting.notifications} - one outbox row reached an outcome ({@code sent}, {@code failed}, {@code skipped}). */
+    public void notification(String outcome) {
+        registry.counter(NOTIFICATIONS, "outcome", outcome).increment();
     }
 
     /** {@code autospotting.lease.failures} — acquire/heartbeat/fence failures (AC-SPN-02). */

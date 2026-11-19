@@ -10,6 +10,7 @@ import com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter.
 import com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter.AuditRecord;
 import com.xammer.cloud.service.autospotting.core.lease.FencedTx;
 import com.xammer.cloud.service.autospotting.core.lease.LeaseHandle;
+import com.xammer.cloud.service.autospotting.notify.AutoSpottingNotificationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -24,7 +25,8 @@ import java.util.UUID;
  * plan-phase-06.md task 6.1). Providers return outcomes; they never set state (§9). Every lifecycle
  * write is one guarded native UPDATE on {@code state} and {@code version}
  * ({@code version = version + 1}), the matching append-only {@code spot_group_transition} insert
- * with a clamped {@code effective_at}, and the audit record — all in one transaction.
+ * with a clamped {@code effective_at}, the audit record and the customer notification outbox row (if the
+ * transition has one, ux §7.1) — all in one transaction.
  *
  * <p>Two entry points:
  * <ul>
@@ -54,12 +56,15 @@ public class GroupLifecycleService {
     private final FencedTx fencedTx;
     private final SpotGroupLifecycleRepository lifecycle;
     private final AutoSpottingAuditWriter auditWriter;
+    private final AutoSpottingNotificationService notifications;
 
     public GroupLifecycleService(FencedTx fencedTx, SpotGroupLifecycleRepository lifecycle,
-                                 AutoSpottingAuditWriter auditWriter) {
+                                 AutoSpottingAuditWriter auditWriter,
+                                 AutoSpottingNotificationService notifications) {
         this.fencedTx = fencedTx;
         this.lifecycle = lifecycle;
         this.auditWriter = auditWriter;
+        this.notifications = notifications;
     }
 
     /**
@@ -208,6 +213,11 @@ public class GroupLifecycleService {
                 .beforeState(stateJson(from))
                 .afterState(stateJson(to))
                 .build());
+
+        // The customer notice for this transition (if it has one) is an outbox row in the same transaction,
+        // so a rolled-back transition leaves no notice and a retried one can't duplicate it (ux §7.1).
+        notifications.onTransition(group, from, to, request.reason(), request.op(), request.pauseReason(),
+                request.writesDesiredConfig());
 
         if (log.isDebugEnabled()) {
             log.debug("lifecycle {} {} -> {} reason={} op={}", group.getId(), from, to, request.reason(),

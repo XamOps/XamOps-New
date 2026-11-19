@@ -712,12 +712,19 @@ public class AwsAccountService {
     @Autowired private DiskAlertStateRepository diskAlertStateRepository;
     @Autowired private SreInvestigationRepository sreInvestigationRepository;
     @Autowired private RedisCacheService redisCacheService;
+    @Autowired private com.xammer.cloud.service.autospotting.core.AccountDeletionGuard accountDeletionGuard;
 
     @PersistenceContext
     private EntityManager entityManager;
 
     @Transactional
     public void deleteAccountById(Long accountId) {
+        // PO-21: refuse, before anything is deleted, while AutoSpotting still manages a group in this account
+        // (APPLYING, ACTIVE, FALLBACK or REVERTING). The guard only reads spot_group; this method never touches
+        // spot_*, ledger, statement or audit tables, so those stay after a deletion that does go ahead.
+        if (accountDeletionGuard != null) {
+            accountDeletionGuard.assertDeletable(accountId);
+        }
         deleteFinancialDependents(accountId);
 
         resourceLabelAssignmentRepository.deleteByCloudAccountId(accountId);

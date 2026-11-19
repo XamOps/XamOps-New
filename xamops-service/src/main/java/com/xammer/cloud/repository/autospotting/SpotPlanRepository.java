@@ -35,6 +35,16 @@ public interface SpotPlanRepository extends JpaRepository<SpotPlan, UUID> {
     List<SpotPlan> findByBatchId(@Param("batchId") UUID batchId);
 
     /**
+     * Put a plan into a "Revert all" batch (§7.5). Idempotent: a plan already in this batch stays, and a plan in
+     * another batch is never moved. Returns rows updated.
+     */
+    @Modifying
+    @org.springframework.transaction.annotation.Transactional
+    @Query(value = "UPDATE spot_plan SET batch_id = :batchId WHERE id = :id"
+            + " AND (batch_id IS NULL OR batch_id = :batchId)", nativeQuery = true)
+    int assignBatch(@Param("id") UUID id, @Param("batchId") UUID batchId);
+
+    /**
      * Flip a plan OPEN → CONFIRMED, guarded on {@code status='OPEN' AND version=:version} (§7.4). Bumps
      * nothing but the status and the confirm columns; the op insert relies on {@code plan_id UNIQUE},
      * so a second confirm reads the winner's op id back. Returns rows updated (1 on win, 0 when the

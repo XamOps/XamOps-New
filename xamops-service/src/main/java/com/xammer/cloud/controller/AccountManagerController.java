@@ -534,6 +534,14 @@ public class AccountManagerController {
         try {
             awsAccountService.deleteAccountById(id);
             return ResponseEntity.ok(Map.of("message", "Account " + accountName + " removed successfully."));
+        } catch (com.xammer.cloud.service.autospotting.core.AccountHasManagedGroupsException e) {
+            // PO-21: AutoSpotting still manages groups here. Nothing was deleted; the body names the groups
+            // and links to the "Revert all" flow (design-core.md section 7.5).
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "code", com.xammer.cloud.service.autospotting.core.AccountHasManagedGroupsException.CODE,
+                    "message", e.getMessage(),
+                    "groups", e.getGroups(),
+                    "revertAllPath", e.getRevertAllPath()));
         } catch (DataIntegrityViolationException e) {
             // A dependent table we do not clean up yet. Surface the table/constraint the
             // database named so the gap is diagnosable instead of an opaque failure.

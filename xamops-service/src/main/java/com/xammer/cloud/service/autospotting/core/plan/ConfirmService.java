@@ -25,6 +25,7 @@ import com.xammer.cloud.service.autospotting.core.ops.PreemptionService;
 import com.xammer.cloud.service.autospotting.core.switches.AutoSpottingSwitchProperties;
 import com.xammer.cloud.service.autospotting.core.switches.SwitchService;
 import com.xammer.cloud.service.autospotting.core.switches.SwitchState;
+import com.xammer.cloud.service.autospotting.notify.AutoSpottingNotificationService;
 import com.xammer.cloud.service.autospotting.spi.ProviderRegistry;
 import com.xammer.cloud.service.autospotting.spi.ReadOnlyCloudView;
 import com.xammer.cloud.service.autospotting.spi.SpotProvider;
@@ -86,6 +87,7 @@ public class ConfirmService {
     private final AutoSpottingSwitchProperties switchProperties;
     private final ProviderRegistry providers;
     private final AutoSpottingAuditWriter auditWriter;
+    private final AutoSpottingNotificationService notifications;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ConfirmService(SpotPlanRepository plans, SpotGroupRepository groups,
@@ -93,7 +95,7 @@ public class ConfirmService {
                           PreemptionService preemption, AutoSpottingAuthorization authorization,
                           RevertPreconditions revertPreconditions, SwitchService switchService,
                           AutoSpottingSwitchProperties switchProperties, ProviderRegistry providers,
-                          AutoSpottingAuditWriter auditWriter) {
+                          AutoSpottingAuditWriter auditWriter, AutoSpottingNotificationService notifications) {
         this.plans = plans;
         this.groups = groups;
         this.operations = operations;
@@ -105,6 +107,7 @@ public class ConfirmService {
         this.switchProperties = switchProperties;
         this.providers = providers;
         this.auditWriter = auditWriter;
+        this.notifications = notifications;
     }
 
     /** The confirm command (controller-resolved; the account is already tenancy-authorized). */
@@ -245,6 +248,13 @@ public class ConfirmService {
 
         UUID insertedOpId = insertOp(account, plan, group, state, opId, dryRun, cmd);
         auditConfirm(account, plan, group, decision);
+        if (decision.adminEnabled()) {
+            // PO14_RECOMMENDED only: tell the customer an admin enabled this on their behalf (ux §7.2). The
+            // outbox row joins this transaction, so it exists exactly when the confirm does.
+            notifications.recordAdminEnabled(group, account.getId(), null, plan.getId(), actorName(user),
+                    decision.role() == null ? null : decision.role().name(),
+                    decision.actor() == null ? null : decision.actor().impersonatorUserId(), cmd.reason());
+        }
 
         if (log.isDebugEnabled()) {
             log.debug("plan {} CONFIRMED -> op {} kind={} dryRun={}", plan.getId(), insertedOpId,

@@ -98,34 +98,62 @@ public class NotificationRecipientResolver {
      * pass.
      */
     public List<String> emailsForClient(Long clientId) {
+        return emailsForClient(clientId, NotificationCategory.SECURITY);
+    }
+
+    /**
+     * As {@link #emailsForAccount(CloudAccount)}, honouring the opt-out of {@code category} (design-ux-ops.md
+     * section 7.3). {@link NotificationCategory#SECURITY} is exactly the one-argument method.
+     */
+    public List<String> emailsForAccount(CloudAccount account, NotificationCategory category) {
+        if (account == null || account.getClient() == null || account.getClient().getId() == null) {
+            return List.of();
+        }
+        return emailsForClient(account.getClient().getId(), category);
+    }
+
+    /**
+     * As {@link #emailsForClient(Long)}, honouring the opt-out of {@code category}: SECURITY the security
+     * switch, AUTOSPOTTING the AutoSpotting switch, AUTOSPOTTING_MANDATORY neither. Never throws; the same
+     * "empty means nobody to tell" contract as the one-argument method.
+     */
+    public List<String> emailsForClient(Long clientId, NotificationCategory category) {
         if (clientId == null) {
             return List.of();
         }
+        NotificationCategory effective = category == null ? NotificationCategory.SECURITY : category;
         try {
             List<User> users = userRepository.findByClientId(clientId);
             List<String> recipients = users.stream()
-                    .filter(User::isEmailNotificationsEnabled)
+                    .filter(u -> optedIn(u, effective))
                     .map(NotificationRecipientResolver::addressOf)
                     .filter(email -> email != null)
                     .distinct()
                     .collect(Collectors.toList());
-
             // Logged only when it actually happened, because "this client has no addressable
             // users" and "every user opted out" produce the same empty list at the call site and
             // lead to very different conversations with a customer asking why mail stopped.
             if (log.isDebugEnabled()) {
-                long optedOut = users.stream().filter(u -> !u.isEmailNotificationsEnabled()).count();
+                long optedOut = users.stream().filter(u -> !optedIn(u, effective)).count();
                 if (optedOut > 0) {
-                    log.debug("[Recipients] Client {} — {} recipient(s), {} user(s) opted out of security email",
-                            clientId, recipients.size(), optedOut);
+                    log.debug("[Recipients] Client {} - {} recipient(s), {} user(s) opted out of {} email",
+                            clientId, recipients.size(), optedOut, effective);
                 }
             }
             return recipients;
         } catch (Exception e) {
-            log.warn("[Recipients] Could not resolve security email recipients for client {}: {}",
-                    clientId, e.getMessage());
+            log.warn("[Recipients] Could not resolve {} email recipients for client {}: {}",
+                    effective, clientId, e.getMessage());
             return List.of();
         }
+    }
+
+    private static boolean optedIn(User user, NotificationCategory category) {
+        return switch (category) {
+            case SECURITY -> user.isEmailNotificationsEnabled();
+            case AUTOSPOTTING -> user.isAutospottingEmailEnabled();
+            case AUTOSPOTTING_MANDATORY -> true;
+        };
     }
 
     /**

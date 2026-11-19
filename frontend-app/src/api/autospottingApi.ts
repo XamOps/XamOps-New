@@ -746,3 +746,61 @@ export function parseWarningIds(plan: Pick<Plan, 'warningIds'>): string[] {
   const ids = parseJson<unknown>(plan.warningIds, []);
   return Array.isArray(ids) ? ids.filter((i): i is string => typeof i === 'string') : [];
 }
+
+// ---------------------------------------------------------------------------
+// Account deletion check and "Revert all" (design-core.md §7.5, PO-21)
+// ---------------------------------------------------------------------------
+
+export interface ManagedGroupRef {
+  groupId: string;
+  groupKey: string;
+  state: string;
+}
+
+export interface DeletionCheck {
+  /** Groups in a state that blocks account deletion (APPLYING, ACTIVE, FALLBACK, REVERTING). */
+  blocking: ManagedGroupRef[];
+  /** DEGRADED, PAUSED and FAILED groups: still converted, do not block (PO-21a, open). */
+  stillConverted: ManagedGroupRef[];
+  revertAllPath: string;
+  deletable: boolean;
+}
+
+export interface RevertAllItem {
+  groupId: string;
+  groupKey: string | null;
+  groupState: string | null;
+  plan: Plan | null;
+  errorCode: string | null;
+  errorDetail: string | null;
+  operationId: string | null;
+  operationStatus: string | null;
+}
+
+export interface RevertAllBatch {
+  batchId: string;
+  accountId: number;
+  items: RevertAllItem[];
+  total: number;
+  reverted: number;
+  failed: number;
+  alreadyReverting: string[];
+}
+
+export const getDeletionCheck = (accountId: number): Promise<DeletionCheck> =>
+  request('GET', `${V2}/accounts/${accountId}/deletion-check`);
+
+export const createRevertAll = (accountId: number, idempotencyKey: string, retry?: RetryOptions): Promise<RevertAllBatch> =>
+  sendWithRetry('POST', `${V2}/accounts/${accountId}/revert-all`, {}, idempotencyKey, retry);
+
+export const getRevertAll = (accountId: number, batchId: string): Promise<RevertAllBatch> =>
+  request('GET', `${V2}/accounts/${accountId}/revert-all/${batchId}`);
+
+export const confirmRevertAll = (
+  accountId: number,
+  batchId: string,
+  req: { acknowledgedWarningIds: string[]; reason?: string },
+  idempotencyKey: string,
+  retry?: RetryOptions,
+): Promise<RevertAllBatch> =>
+  sendWithRetry('POST', `${V2}/accounts/${accountId}/revert-all/${batchId}/confirm`, req, idempotencyKey, retry);
