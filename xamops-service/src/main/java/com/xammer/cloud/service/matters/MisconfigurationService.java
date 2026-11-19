@@ -39,7 +39,20 @@ import java.util.regex.Pattern;
  * {@value #FAN_OUT} calls at a time (the request thread and up to four helpers on
  * {@code dspmFanOutExecutor}), is cached for {@value #CACHE_MINUTES} minutes per client, and concurrent
  * loads of one client share a single flight. A failure other than not-found fails the whole load and is
- * never cached: partial numbers would be wrong numbers.
+ * never cached: partial numbers would be wrong numbers. The datastore that failed is read first on the
+ * client's next load, so a datastore that keeps failing costs a Retry about {@value #FAN_OUT} issues calls
+ * instead of the whole fan-out; the order of the results does not change.
+ *
+ * <h2>Time budget</h2>
+ * The fan-out stops starting calls at a deadline that scales with the datastore count:
+ * {@value #CALL_ALLOWANCE_MS} ms per call per worker (about twice the 161 ms measured sequentially), at
+ * least {@value #MIN_FAN_OUT_MS} ms, and never later than {@value #LOAD_BUDGET_MS} ms after the load
+ * started. 500 datastores get 30 s; 88 get the 15 s floor. The deadline is checked before each call
+ * starts, so a call already in flight runs to its end: normally well under a second, which keeps the
+ * request inside the browser's 45 s deadline. The worst case is a call that hangs: {@link MattersApiClient}
+ * waits up to its 20 s read timeout and retries once, so the request can end about 40 s after the
+ * deadline. The browser then reports a timeout, and the load still completes and is cached if it
+ * succeeds.
  *
  * <h2>Request state on helpers</h2>
  * Every vendor call goes through {@link MattersApiClient}, which writes the audit rows. Helpers carry the
@@ -55,7 +68,9 @@ public class MisconfigurationService {
     static final int FAN_OUT = 5;
     static final int MAX_DATASTORES = 500;
     static final int ASSET_PAGE_SIZE = 100;
-    static final long DEADLINE_MS = 15_000;
+    static final long MIN_FAN_OUT_MS = 15_000;
+    static final long CALL_ALLOWANCE_MS = 300;
+    static final long LOAD_BUDGET_MS = 35_000;
 
     static final String NOT_FOUND_MESSAGE = "Misconfiguration not found";
     static final String TOO_SLOW_MESSAGE = "Matters took too long to list misconfigurations";
@@ -77,6 +92,9 @@ public class MisconfigurationService {
     /** The load in progress per client; the leader removes its own entry when it ends. */
     private final ConcurrentHashMap<Long, CompletableFuture<MisconfigurationSnapshot>> inFlight =
             new ConcurrentHashMap<>();
+
+    /** The datastore whose issues call failed the client's last load; read first on the next one. */
+    private final ConcurrentHashMap<Long, String> lastFailedSource = new ConcurrentHashMap<>();
 
     public MisconfigurationService(MattersCredentialResolver credentialResolver,
                                    MattersApiClient apiClient,
@@ -201,7 +219,9 @@ public class MisconfigurationService {
             }
         }
 
-        List<List<MisconfigurationMapper.Issue>> issues = fetchIssues(credential, sourceIds);
+        long deadline = Math.min(startedAt + LOAD_BUDGET_MS,
+                System.currentTimeMillis() + fanOutBudgetMs(sourceIds.size()));
+        List<List<MisconfigurationMapper.Issue>> issues = fetchIssues(credential, sourceIds, deadline);
         List<MisconfigurationMapper.Source> sources = new ArrayList<>(rows.size());
         for (int i = 0; i < rows.size(); i++) {
             sources.add(new MisconfigurationMapper.Source(rows.get(i), scanned.get(i), issues.get(i)));
@@ -213,26 +233,39 @@ public class MisconfigurationService {
     }
 
     /**
-     * The issues of every datastore, in the same order, {@value #FAN_OUT} calls at a time. A datastore
-     * answering ASSET_NOT_FOUND (removed since the asset list) has none. The first other failure, or the
-     * {@value #DEADLINE_MS} ms deadline, stops every worker and is thrown once all of them have ended.
+     * How long the fan-out may keep starting calls for {@code datastores} datastores:
+     * {@value #CALL_ALLOWANCE_MS} ms per call per worker, at least {@value #MIN_FAN_OUT_MS} ms.
      */
-    List<List<MisconfigurationMapper.Issue>> fetchIssues(MattersCredential credential, List<String> sourceIds) {
+    static long fanOutBudgetMs(int datastores) {
+        long callsPerWorker = (datastores + FAN_OUT - 1) / FAN_OUT;
+        return Math.max(MIN_FAN_OUT_MS, callsPerWorker * CALL_ALLOWANCE_MS);
+    }
+
+    /**
+     * The issues of every datastore, in the same order, {@value #FAN_OUT} calls at a time. A datastore
+     * answering ASSET_NOT_FOUND (removed since the asset list) has none. The first other failure, or a
+     * call due to start after {@code deadline} (epoch ms), stops every worker and is thrown once all of
+     * them have ended. The datastore that failed the client's last load, if listed, is read first.
+     */
+    List<List<MisconfigurationMapper.Issue>> fetchIssues(MattersCredential credential, List<String> sourceIds,
+                                                         long deadline) {
         int n = sourceIds.size();
         List<List<MisconfigurationMapper.Issue>> results = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
             results.add(null);
         }
+        Long clientId = credential.clientId();
+        int[] order = readOrder(sourceIds, lastFailedSource.get(clientId));
         AtomicInteger next = new AtomicInteger();
         AtomicReference<RuntimeException> failure = new AtomicReference<>();
-        long deadline = System.currentTimeMillis() + DEADLINE_MS;
 
         Runnable worker = () -> {
             while (failure.get() == null) {
-                int i = next.getAndIncrement();
-                if (i >= n) {
+                int position = next.getAndIncrement();
+                if (position >= n) {
                     return;
                 }
+                int i = order[position];
                 if (System.currentTimeMillis() > deadline) {
                     failure.compareAndSet(null, new MattersApiException(
                             MattersApiException.Reason.UPSTREAM_UNAVAILABLE, TOO_SLOW_MESSAGE));
@@ -246,14 +279,18 @@ public class MisconfigurationService {
                     }
                 } catch (MattersApiException e) {
                     if (e.getReason() != MattersApiException.Reason.ASSET_NOT_FOUND) {
-                        failure.compareAndSet(null, e);
+                        if (failure.compareAndSet(null, e)) {
+                            lastFailedSource.put(clientId, sourceIds.get(i));
+                        }
                         return;
                     }
                     synchronized (results) {
                         results.set(i, List.of());
                     }
                 } catch (RuntimeException e) {
-                    failure.compareAndSet(null, e);
+                    if (failure.compareAndSet(null, e)) {
+                        lastFailedSource.put(clientId, sourceIds.get(i));
+                    }
                     return;
                 }
             }
@@ -279,9 +316,27 @@ public class MisconfigurationService {
         if (failure.get() != null) {
             throw failure.get();
         }
+        lastFailedSource.remove(clientId);
         synchronized (results) {
             return new ArrayList<>(results);
         }
+    }
+
+    /** Indexes into {@code sourceIds} in reading order: {@code first}, if listed, then the rest in order. */
+    private static int[] readOrder(List<String> sourceIds, String first) {
+        int n = sourceIds.size();
+        int[] order = new int[n];
+        int lead = first == null ? -1 : sourceIds.indexOf(first);
+        int position = 0;
+        if (lead >= 0) {
+            order[position++] = lead;
+        }
+        for (int i = 0; i < n; i++) {
+            if (i != lead) {
+                order[position++] = i;
+            }
+        }
+        return order;
     }
 
     /**

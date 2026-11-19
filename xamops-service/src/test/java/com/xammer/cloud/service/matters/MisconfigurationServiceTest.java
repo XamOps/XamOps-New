@@ -324,6 +324,88 @@ class MisconfigurationServiceTest {
         assertThat(service.list(CLIENT).capped()).isTrue();
     }
 
+    // ── time budget ──────────────────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("the fan-out budget scales with the datastore count: 15 s floor, 500 datastores fit at twice the measured latency")
+    void budgetScalesWithTheDatastoreCount() {
+        assertThat(MisconfigurationService.fanOutBudgetMs(0)).isEqualTo(15_000);
+        assertThat(MisconfigurationService.fanOutBudgetMs(88)).isEqualTo(15_000);
+        assertThat(MisconfigurationService.fanOutBudgetMs(300)).isEqualTo(18_000);
+        long cap = MisconfigurationService.fanOutBudgetMs(MisconfigurationService.MAX_DATASTORES);
+        assertThat(cap).isEqualTo(30_000);
+        // 100 calls per worker at the measured 161 ms, with a 1.5x margin.
+        assertThat(cap).isGreaterThanOrEqualTo(100L * 161 * 3 / 2);
+        assertThat(cap).isLessThan(MisconfigurationService.LOAD_BUDGET_MS);
+        assertThat(MisconfigurationService.LOAD_BUDGET_MS).isLessThan(45_000);
+    }
+
+    @Test
+    @DisplayName("a deadline already passed fails with UPSTREAM_UNAVAILABLE before any issues call")
+    void passedDeadline() {
+        List<String> ids = List.of(id(1), id(2), id(3));
+
+        assertThatThrownBy(() -> service.fetchIssues(CREDENTIAL, ids, System.currentTimeMillis() - 1))
+                .isInstanceOfSatisfying(MattersApiException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(MattersApiException.Reason.UPSTREAM_UNAVAILABLE);
+                    assertThat(e.getMessage()).isEqualTo(MisconfigurationService.TOO_SLOW_MESSAGE);
+                });
+        assertThat(issuesCalls()).isZero();
+    }
+
+    @Test
+    @DisplayName("a deadline reached mid fan-out stops every worker and fails with UPSTREAM_UNAVAILABLE")
+    void deadlineMidFanOut() {
+        List<String> ids = new ArrayList<>();
+        for (int i = 1; i <= 200; i++) {
+            ids.add(id(i));
+        }
+        doAnswer(inv -> {
+            Thread.sleep(10);
+            return issuesBody(inv.getArgument(1));
+        }).when(apiClient).inventoryIssues(eq(CREDENTIAL), anyString());
+
+        assertThatThrownBy(() -> service.fetchIssues(CREDENTIAL, ids, System.currentTimeMillis() + 60))
+                .isInstanceOfSatisfying(MattersApiException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(MattersApiException.Reason.UPSTREAM_UNAVAILABLE);
+                    assertThat(e.getMessage()).isEqualTo(MisconfigurationService.TOO_SLOW_MESSAGE);
+                });
+        assertThat(issuesCalls()).isBetween(1, 199);
+    }
+
+    @Test
+    @DisplayName("after a failed load the failing datastore is read first, so a Retry costs a few calls; results keep their order")
+    void retryReadsTheFailingDatastoreFirst() {
+        datastores("cloud", 1, 40);
+        MattersApiException down =
+                new MattersApiException(MattersApiException.Reason.UPSTREAM_UNAVAILABLE, "Matters returned 503");
+        doAnswer(inv -> {
+            String sourceId = inv.getArgument(1);
+            if (sourceId.equals(id(30))) {
+                throw down;
+            }
+            Thread.sleep(30);
+            return issuesBody(sourceId);
+        }).when(apiClient).inventoryIssues(eq(CREDENTIAL), anyString());
+
+        assertThatThrownBy(() -> service.list(CLIENT)).isSameAs(down);
+        int firstAttempt = issuesCalls();
+        assertThat(firstAttempt).isGreaterThanOrEqualTo(30);
+
+        assertThatThrownBy(() -> service.list(CLIENT)).isSameAs(down);
+        int retry = issuesCalls() - firstAttempt;
+        assertThat(retry).isBetween(1, 2 * MisconfigurationService.FAN_OUT);
+        verify(apiClient, times(2)).inventoryIssues(CREDENTIAL, id(30));
+
+        doAnswer(inv -> issuesBody(inv.getArgument(1))).when(apiClient).inventoryIssues(eq(CREDENTIAL), anyString());
+        MisconfigurationDetail even = service.detail(CLIENT, "p-even");
+        List<String> expected = new ArrayList<>();
+        for (int i = 2; i <= 40; i += 2) {
+            expected.add(id(i));
+        }
+        assertThat(even.affected()).extracting(a -> a.datastore().sourceId()).containsExactlyElementsOf(expected);
+    }
+
     // ── concurrency ──────────────────────────────────────────────────────────────────────────────
 
     @Test
