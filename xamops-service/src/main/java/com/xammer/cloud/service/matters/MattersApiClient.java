@@ -110,10 +110,25 @@ public class MattersApiClient {
     /** The project's scan runs. Called only by {@link #verifyPlatformScope}; a bare {data[], pagination}. */
     public static final String PATH_SCAN_MANAGEMENT_HISTORY = API_PREFIX + "/scan-management/scan-history";
 
+    // Console routes behind the Data Lineage page. They need the project-id header and answer a project
+    // key they do not accept with 401, which here is not a key problem (build 4 design 4.2).
+    /**
+     * Followed by {@code filters-options}, {@code summary}, {@code policy/{policyId}/exposures} or
+     * {@code {exposureId}/files}.
+     */
+    public static final String PATH_EXPOSURE = API_PREFIX + "/exposure";
+
+    static final String EXPOSURE_REFUSED_MESSAGE = "Matters refused the exposure route for this key";
+
+    /** The datastore types and statuses the console's Data Lineage page always sends. */
+    private static final List<String> EXPOSURE_DATASTORE_TYPES = List.of("ONE_DRIVE", "SHARE_POINT", "ENDPOINT");
+    private static final List<String> EXPOSURE_STATUSES = List.of("OPEN");
+
     private static final Pattern SOURCE_ID = Pattern.compile("^[0-9a-fA-F]{24}$");
     private static final Pattern UUID = Pattern.compile(
             "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
     private static final Pattern DATA_HASH = Pattern.compile("^[0-9a-fA-F]{64}$");
+    private static final Pattern EXPOSURE_ID = Pattern.compile("^[A-Za-z0-9-]{1,64}$");
 
     /** The two views of the SaaS records route. */
     private static final List<String> SAAS_VIEWS = List.of("data_elements", "document_classes");
@@ -320,7 +335,7 @@ public class MattersApiClient {
 
     /** {@code GET /api/v2/hash-lineage/copies?file_id=}: the file's content-hash copies. */
     public JsonNode hashLineageCopies(MattersCredential credential, String fileId) {
-        return get(credential, PATH_HASH_LINEAGE_COPIES, Map.of("file_id", List.of(requireSourceId(fileId))), true);
+        return get(credential, PATH_HASH_LINEAGE_COPIES, Map.of("file_id", List.of(requireFileId(fileId))), true);
     }
 
     /** {@code GET /api/v2/hash-lineage/timeline?data_hash=&limit=}: lanes and events of one content hash. */
@@ -451,6 +466,90 @@ public class MattersApiClient {
         return get(credential, PATH_DATABASE_SCHEMA + "/tables/" + requireUuid(tableId) + "/relations", Map.of());
     }
 
+    // ── console routes (Data Lineage page) ───────────────────────────────────────────────────────
+    //
+    // Each sends the project-id header and maps a 401 to BAD_UPSTREAM_RESPONSE (exposureRoute=true).
+    // The query keys and their order are the console's. Every id and number was validated by the caller.
+
+    /**
+     * Paging, search and the vendor ids of the three filters for {@link #exposureSummary} and
+     * {@link #exposurePolicyExposures}. Empty lists send nothing; a null search sends nothing.
+     */
+    public record ExposureListParams(int skip, int limit, String search, List<String> severities,
+                                     List<String> datastoreNames, List<String> labels) {
+
+        public ExposureListParams {
+            severities = severities == null ? List.of() : List.copyOf(severities);
+            datastoreNames = datastoreNames == null ? List.of() : List.copyOf(datastoreNames);
+            labels = labels == null ? List.of() : List.copyOf(labels);
+        }
+
+        /** One row, no search and no filter: a category's exposure count. */
+        public static ExposureListParams count() {
+            return new ExposureListParams(0, 1, null, List.of(), List.of(), List.of());
+        }
+    }
+
+    /** {@code GET /api/v1/exposure/filters-options}: categories, severities, datastore names and labels. */
+    public JsonNode exposureFilterOptions(MattersCredential credential) {
+        return get(credential, PATH_EXPOSURE + "/filters-options", Map.of(), true, true, true);
+    }
+
+    /**
+     * {@code GET /api/v1/exposure/summary}: one page of a category's policies, each one exposure.
+     *
+     * @param categoryId an {@link ExposureCategory} name
+     */
+    public JsonNode exposureSummary(MattersCredential credential, String categoryId, ExposureListParams params) {
+        Map<String, List<String>> query = new LinkedHashMap<>();
+        query.put("categories", List.of(jsonArray(List.of(requireCategory(categoryId)))));
+        query.put("datastore_types", List.of(jsonArray(EXPOSURE_DATASTORE_TYPES)));
+        query.put("statuses", List.of(jsonArray(EXPOSURE_STATUSES)));
+        putPage(query, params);
+        putSearch(query, params);
+        putArrayIfAny(query, "severities", params.severities());
+        putArrayIfAny(query, "datastore_names", params.datastoreNames());
+        putArrayIfAny(query, "labels", params.labels());
+        return get(credential, PATH_EXPOSURE + "/summary", query, true, true, true);
+    }
+
+    /** {@code GET /api/v1/exposure/policy/{policyId}/exposures}: one page of a policy's affected datastores. */
+    public JsonNode exposurePolicyExposures(MattersCredential credential, String policyId, ExposureListParams params) {
+        String path = PATH_EXPOSURE + "/policy/" + requireUuid(policyId) + "/exposures";
+        Map<String, List<String>> query = new LinkedHashMap<>();
+        putPage(query, params);
+        query.put("statuses", List.of(jsonArray(EXPOSURE_STATUSES)));
+        putSearch(query, params);
+        putArrayIfAny(query, "severities", params.severities());
+        return get(credential, path, query, true, true, true);
+    }
+
+    /** {@code GET /api/v1/exposure/{exposureId}/files?skip=&limit=}: one page of an exposure's files. */
+    public JsonNode exposureFiles(MattersCredential credential, String exposureId, int skip, int limit) {
+        String path = PATH_EXPOSURE + "/" + requireExposureId(exposureId) + "/files";
+        Map<String, List<String>> query = new LinkedHashMap<>();
+        query.put("skip", List.of(String.valueOf(requireOffset("skip", skip))));
+        query.put("limit", List.of(String.valueOf(requireLimit(limit))));
+        return get(credential, path, query, true, true, true);
+    }
+
+    private static void putPage(Map<String, List<String>> query, ExposureListParams params) {
+        query.put("skip", List.of(String.valueOf(requireOffset("skip", params.skip()))));
+        query.put("limit", List.of(String.valueOf(requireLimit(params.limit()))));
+    }
+
+    private static void putSearch(Map<String, List<String>> query, ExposureListParams params) {
+        if (params.search() != null && !params.search().isBlank()) {
+            query.put("search", List.of(params.search()));
+        }
+    }
+
+    private void putArrayIfAny(Map<String, List<String>> query, String name, List<String> values) {
+        if (!values.isEmpty()) {
+            query.put(name, List.of(jsonArray(values)));
+        }
+    }
+
     // ── internals ────────────────────────────────────────────────────────────────────────────────
 
     private JsonNode get(MattersCredential credential, String path, Map<String, List<String>> query) {
@@ -462,18 +561,25 @@ public class MattersApiClient {
         return get(credential, path, query, consoleRoute, true);
     }
 
+    private JsonNode get(MattersCredential credential, String path, Map<String, List<String>> query,
+                         boolean consoleRoute, boolean retryServerErrors) {
+        return get(credential, path, query, consoleRoute, retryServerErrors, false);
+    }
+
     /**
      * @param consoleRoute      the route may answer 200 with {@code success:false}; that is treated as a
      *                          failure inside the audited block, so the failure row is written.
      * @param retryServerErrors false for routes that answer 5xx for an unknown id: a 5xx is then
      *                          {@code BAD_UPSTREAM_RESPONSE} after one request.
+     * @param exposureRoute     a Data Lineage exposure route: sends {@code project-id} and maps a 401 to
+     *                          {@code BAD_UPSTREAM_RESPONSE} rather than a key verdict.
      */
     private JsonNode get(MattersCredential credential, String path, Map<String, List<String>> query,
-                         boolean consoleRoute, boolean retryServerErrors) {
+                         boolean consoleRoute, boolean retryServerErrors, boolean exposureRoute) {
         URI uri = buildUri(credential.baseUrl(), path, query);
         long startedAt = System.currentTimeMillis();
         try {
-            JsonNode body = exchange(uri, credential, path, false, retryServerErrors);
+            JsonNode body = exchange(uri, credential, path, false, retryServerErrors, exposureRoute);
             if (consoleRoute) {
                 requireSuccess(body, path);
             }
@@ -494,12 +600,13 @@ public class MattersApiClient {
      * @param isRetry           guards the single-retry policy — a retried call that fails again
      *                          propagates rather than recursing.
      * @param retryServerErrors false: a 5xx is not retried. 429 and connection failures are unaffected.
+     * @param exposureRoute     sends {@code project-id}; a 401 is {@code BAD_UPSTREAM_RESPONSE}, not a key verdict.
      */
     private JsonNode exchange(URI uri, MattersCredential credential, String path, boolean isRetry,
-                              boolean retryServerErrors) {
+                              boolean retryServerErrors, boolean exposureRoute) {
         try {
             ResponseEntity<String> response = restTemplate.exchange(
-                    uri, HttpMethod.GET, new HttpEntity<>(authHeaders(credential)), String.class);
+                    uri, HttpMethod.GET, new HttpEntity<>(authHeaders(credential, exposureRoute)), String.class);
             return parse(response.getBody(), path);
 
         } catch (RestClientResponseException e) {
@@ -509,7 +616,7 @@ public class MattersApiClient {
                 int retryAfter = retryAfterSeconds(e);
                 if (!isRetry && retryAfter > 0 && retryAfter <= MAX_RETRY_WAIT_SECONDS) {
                     sleep(retryAfter * 1000L);
-                    return exchange(uri, credential, path, true, retryServerErrors);
+                    return exchange(uri, credential, path, true, retryServerErrors, exposureRoute);
                 }
                 throw new MattersApiException(MattersApiException.Reason.RATE_LIMITED,
                         "Matters rate limit exceeded for this organisation's API key",
@@ -517,6 +624,11 @@ public class MattersApiClient {
             }
 
             if (status.value() == 401) {
+                if (exposureRoute) {
+                    // The same key gets 200 elsewhere: the route is closed to it, the key is not bad.
+                    throw new MattersApiException(MattersApiException.Reason.BAD_UPSTREAM_RESPONSE,
+                            EXPOSURE_REFUSED_MESSAGE, e);
+                }
                 throw unauthorized(e);
             }
             if (status.value() == 403) {
@@ -542,7 +654,7 @@ public class MattersApiClient {
                 }
                 if (!isRetry) {
                     sleep(SERVER_ERROR_RETRY_DELAY_MS);
-                    return exchange(uri, credential, path, true, retryServerErrors);
+                    return exchange(uri, credential, path, true, retryServerErrors, exposureRoute);
                 }
                 throw new MattersApiException(MattersApiException.Reason.UPSTREAM_UNAVAILABLE,
                         "Matters returned " + status.value() + " for " + path, e);
@@ -557,7 +669,7 @@ public class MattersApiClient {
             // Connect timeout, read timeout, DNS or TLS failure — the tenant is unreachable.
             if (!isRetry) {
                 sleep(SERVER_ERROR_RETRY_DELAY_MS);
-                return exchange(uri, credential, path, true, retryServerErrors);
+                return exchange(uri, credential, path, true, retryServerErrors, exposureRoute);
             }
             throw new MattersApiException(MattersApiException.Reason.UPSTREAM_UNAVAILABLE,
                     "Could not reach Matters: " + e.getMostSpecificCause().getMessage(), e);
@@ -661,12 +773,20 @@ public class MattersApiClient {
         }
     }
 
-    private HttpHeaders authHeaders(MattersCredential credential) {
+    private HttpHeaders authHeaders(MattersCredential credential, boolean exposureRoute) {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-API-Key", credential.apiKey());
         headers.setAccept(List.of(MediaType.APPLICATION_JSON));
         // Identifies us in the vendor's logs, which matters when diagnosing a rate limit with them.
         headers.set(HttpHeaders.USER_AGENT, "XamOps/1.0");
+        if (exposureRoute) {
+            // The exposure routes answer 400 "project-id header required" without it.
+            String projectId = credential.projectId();
+            if (projectId == null || projectId.isBlank()) {
+                throw new IllegalStateException("credential has no project id");
+            }
+            headers.set("project-id", projectId);
+        }
         return headers;
     }
 
@@ -756,6 +876,29 @@ public class MattersApiClient {
             throw new IllegalArgumentException("sourceId must be 24 hexadecimal characters");
         }
         return sourceId;
+    }
+
+    /** A file id as the lineage routes take it: the SaaS list's 24 hex or the endpoint list's UUID. */
+    private static String requireFileId(String fileId) {
+        if (fileId == null || !(SOURCE_ID.matcher(fileId).matches() || UUID.matcher(fileId).matches())) {
+            throw new IllegalArgumentException("fileId must be 24 hexadecimal characters or a UUID");
+        }
+        return fileId;
+    }
+
+    private static String requireExposureId(String exposureId) {
+        if (exposureId == null || !EXPOSURE_ID.matcher(exposureId).matches()) {
+            throw new IllegalArgumentException("exposureId must be 1 to 64 letters, digits or hyphens");
+        }
+        return exposureId;
+    }
+
+    private static String requireCategory(String categoryId) {
+        if (categoryId == null
+                || Arrays.stream(ExposureCategory.values()).noneMatch(c -> c.name().equals(categoryId))) {
+            throw new IllegalArgumentException("categoryId must be an exposure category");
+        }
+        return categoryId;
     }
 
     private static String requireUuid(String id) {
