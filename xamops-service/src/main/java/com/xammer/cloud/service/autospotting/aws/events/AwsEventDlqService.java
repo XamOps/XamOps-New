@@ -8,6 +8,7 @@ import com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter.
 import com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter.AuditRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.sqs.SqsClient;
@@ -74,7 +75,8 @@ public class AwsEventDlqService {
     private final AutoSpottingAuditWriter audit;
     private final AtomicBoolean resending = new AtomicBoolean(false);
 
-    public AwsEventDlqService(SqsClient sqs, AwsEventProperties properties, ObjectMapper mapper,
+    public AwsEventDlqService(SqsClient sqs, AwsEventProperties properties,
+                              @Qualifier("objectMapper") ObjectMapper mapper,
                               AutoSpottingAuditWriter audit) {
         this.sqs = sqs;
         this.properties = properties;

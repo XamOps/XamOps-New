@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.autospotting.SpotGroup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -30,7 +31,7 @@ public class GroupInstanceIndex {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
 
-    public GroupInstanceIndex(JdbcTemplate jdbc, ObjectMapper mapper) {
+    public GroupInstanceIndex(JdbcTemplate jdbc, @Qualifier("objectMapper") ObjectMapper mapper) {
         this.jdbc = jdbc;
         this.mapper = mapper;
     }

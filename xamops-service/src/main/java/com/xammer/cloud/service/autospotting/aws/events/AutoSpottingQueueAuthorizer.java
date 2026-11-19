@@ -13,6 +13,7 @@ import com.xammer.cloud.service.autospotting.core.JobRunner;
 import com.xammer.cloud.service.autospotting.core.lease.LeaseProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -71,7 +72,7 @@ public class AutoSpottingQueueAuthorizer {
     private final String backendPrincipalArn;
 
     public AutoSpottingQueueAuthorizer(SqsClient sqs, CloudAccountRepository accounts,
-                                       SchedulingEnvironmentConfig environment, ObjectMapper mapper,
+                                       SchedulingEnvironmentConfig environment, @Qualifier("objectMapper") ObjectMapper mapper,
                                        AwsEventProperties properties, JobRunner jobRunner,
                                        LeaseProperties leaseProperties,
                                        @Value("${autospotting.aws.events.backend-principal-arn:}")

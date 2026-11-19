@@ -2,6 +2,7 @@ package com.xammer.cloud.service.autospotting.aws.events;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Qualifier;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.autospotting.Provider;
 import com.xammer.cloud.repository.CloudAccountRepository;
@@ -85,7 +86,7 @@ public class AwsEventProcessor {
     private final AutoSpottingMetrics metrics;
     private final TransactionTemplate tx;
 
-    public AwsEventProcessor(ObjectMapper mapper, CloudAccountRepository accounts, EventSenderVerifier sender,
+    public AwsEventProcessor(@Qualifier("objectMapper") ObjectMapper mapper, CloudAccountRepository accounts, EventSenderVerifier sender,
                              InstanceGroupLookup groupLookup, AwsEventStore store, AwsEventProperties properties,
                              SwitchService switches, AutoSpottingMetrics metrics,
                              PlatformTransactionManager transactionManager) {
