@@ -11,6 +11,12 @@ interface FullscreenFrameProps {
   onExit: () => void;
   /** The toggle that opened full screen; focused again after the exit. */
   toggleRef: RefObject<HTMLElement | null>;
+  /**
+   * `page` (the default) fills the screen; `modal` centres a dialog up to 1280 px wide on a dimmed
+   * backdrop (the Data Lineage page). Focus, the Escape-stack entry and `onExit` are the same; a backdrop
+   * click does nothing.
+   */
+  variant?: 'page' | 'modal';
   children: React.ReactNode;
 }
 
@@ -24,7 +30,9 @@ interface FullscreenFrameProps {
  * when `open` turns false, to `toggleRef.current` as it is then. Callers keep the view state that must
  * survive (search, expanded cards) above the frame.
  */
-export const FullscreenFrame: React.FC<FullscreenFrameProps> = ({ open, title, onExit, toggleRef, children }) => {
+export const FullscreenFrame: React.FC<FullscreenFrameProps> = ({
+  open, title, onExit, toggleRef, variant = 'page', children,
+}) => {
   const stack = useContext(EscapeStackContext);
   const exitButton = useRef<HTMLButtonElement>(null);
   const wasOpen = useRef(open);
@@ -42,8 +50,8 @@ export const FullscreenFrame: React.FC<FullscreenFrameProps> = ({ open, title, o
 
   if (!open) return <>{children}</>;
 
-  return ReactDOM.createPortal(
-    <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-[70] overflow-auto bg-white">
+  const content = (
+    <>
       <div className="flex justify-end px-5 pt-4">
         <button
           ref={exitButton}
@@ -56,6 +64,23 @@ export const FullscreenFrame: React.FC<FullscreenFrameProps> = ({ open, title, o
         </button>
       </div>
       <div className="px-5 pb-5">{children}</div>
+    </>
+  );
+
+  if (variant === 'modal') {
+    return ReactDOM.createPortal(
+      <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-auto bg-black/40 p-6">
+        <div role="dialog" aria-modal="true" aria-label={title} className="w-full max-w-[1280px] rounded-xl bg-white shadow-xl">
+          {content}
+        </div>
+      </div>,
+      document.body,
+    );
+  }
+
+  return ReactDOM.createPortal(
+    <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-[70] overflow-auto bg-white">
+      {content}
     </div>,
     document.body,
   );

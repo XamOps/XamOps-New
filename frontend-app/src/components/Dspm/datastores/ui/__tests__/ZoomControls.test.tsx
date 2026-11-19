@@ -57,3 +57,32 @@ describe('zoomStep', () => {
     expect(zoomStep(1.5, 1)).toBe(1.5);
   });
 });
+
+describe('ZoomControls with bounds', () => {
+  function Bounded({ initial }: { initial: number }) {
+    const [zoom, setZoom] = useState(initial);
+    return <ZoomControls zoom={zoom} onZoom={setZoom} min={0.1} max={1} />;
+  }
+
+  it('steps within min and max and disables each button at its bound', async () => {
+    const user = userEvent.setup();
+    render(<Bounded initial={0.91} />);
+    const zoomIn = screen.getByRole('button', { name: 'Zoom in' });
+    const zoomOut = screen.getByRole('button', { name: 'Zoom out' });
+
+    await user.click(zoomIn);
+    expect(screen.getByText('100%')).toBeInTheDocument();
+    expect(zoomIn).toBeDisabled();
+
+    for (let i = 0; i < 10; i += 1) await user.click(zoomOut);
+    expect(screen.getByText('10%')).toBeInTheDocument();
+    expect(zoomOut).toBeDisabled();
+    expect(zoomIn).toBeEnabled();
+  });
+
+  it('zoomStep clamps to the given bounds', () => {
+    expect(zoomStep(0.15, -1, 0.1, 1)).toBe(0.1);
+    expect(zoomStep(0.95, 1, 0.1, 1)).toBe(1);
+    expect(zoomStep(0.2, -1, 0.1, 1)).toBe(0.1);
+  });
+});

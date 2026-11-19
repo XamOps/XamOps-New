@@ -57,11 +57,15 @@ export const DIMENSION_VALUE_RULES: Readonly<Record<string, DimensionValueRule>>
   serial_number: FREE_TEXT,
   hostname: FREE_TEXT,
   user: FREE_TEXT,
+  // The Data Lineage page's policy filters (build 4).
+  datastoreName: FREE_TEXT,
+  label: FREE_TEXT,
 };
 
 /** Dimensions whose `<dim>_exclude` twin the backend accepts (exclusion verified against the vendor, A6). */
 export const EXCLUDABLE_DIMENSIONS: ReadonlySet<string> = new Set([
   'integration_id', 'provider', 'region', 'scan_status', 'severity', 'sensitive_type', 'data_element', 'agent_status',
+  'datastoreName', 'label',
 ]);
 
 const HEX24_PATTERN = /^[0-9a-fA-F]{24}$/;

@@ -116,3 +116,25 @@ describe('ConsoleOnlyButton link variant', () => {
     expect(link.className).not.toMatch(/\bborder\b|\bp[xy]?-\d/);
   });
 });
+
+describe('ConsoleOnlyButton card variant', () => {
+  it('fills its cell as a card, shows the tooltip and does nothing on click or Enter', async () => {
+    const user = userEvent.setup();
+    const { onClick, onKeyDown } = renderInRow(
+      <ConsoleOnlyButton variant="card"><span>Sensitive Findings</span></ConsoleOnlyButton>,
+    );
+    const card = screen.getByRole('button', { name: 'Sensitive Findings' });
+    expect(card).toHaveAttribute('aria-disabled', 'true');
+    expect(card).toHaveClass('flex', 'w-full', 'flex-col', 'items-start', 'gap-3', 'rounded-xl', 'border', 'bg-white', 'p-5', 'text-left', 'opacity-50');
+    expect(card).not.toHaveClass('inline-flex', 'items-center');
+    expect(card.parentElement).toHaveClass('relative', 'flex');
+    expect(card.parentElement).not.toHaveClass('inline-flex');
+
+    await user.hover(card);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(CONSOLE_ONLY_TOOLTIP);
+    await user.click(card);
+    await user.keyboard('{Enter}');
+    expect(onClick).not.toHaveBeenCalled();
+    expect(onKeyDown).not.toHaveBeenCalled();
+  });
+});

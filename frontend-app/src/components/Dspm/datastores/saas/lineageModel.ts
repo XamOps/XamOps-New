@@ -50,7 +50,13 @@ export interface LineageLaneView {
 
 const GMAIL_LANE_KEY = 'gmail-origin';
 
-export function isGmail(overview: SaasFileOverview): boolean {
+/**
+ * What the lanes need of the opened file: a SaaS file overview, or any file described by these four fields
+ * (the Data Lineage page's file row, with `driveType` null for the non-Gmail path).
+ */
+export type LineageSubject = Pick<SaasFileOverview, 'name' | 'driveType' | 'owner' | 'lastModifiedAt'>;
+
+export function isGmail(overview: LineageSubject): boolean {
   return overview.driveType === 'GMAIL';
 }
 
@@ -66,7 +72,7 @@ export function actorName(actor: string | null): string {
  * A Gmail file's own lane with its "Attached to Email" event (GAP-12: no route returns this event). The
  * mailbox owner of a Workspace Gmail account is a user of the organisation, hence `internal`.
  */
-export function gmailOriginLane(overview: SaasFileOverview): LineageLaneView {
+export function gmailOriginLane(overview: LineageSubject): LineageLaneView {
   return {
     key: GMAIL_LANE_KEY,
     icon: 'GMAIL',
@@ -167,7 +173,7 @@ function apiLane(lane: SaasFileLineageLane, events: LineageEventView[]): Lineage
  * Any other file: the API lanes in API order, the `self` lane in place as the own lane; events that match
  * no lane go on the own lane, else on the first lane, and are not drawn when there is no lane.
  */
-export function buildLineageLanes(overview: SaasFileOverview, lineage: SaasFileLineage | null): LineageLaneView[] {
+export function buildLineageLanes(overview: LineageSubject, lineage: SaasFileLineage | null): LineageLaneView[] {
   const placed = apiEvents(lineage);
   const lanes = lineage?.lanes ?? [];
 

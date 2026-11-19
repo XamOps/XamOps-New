@@ -2,7 +2,8 @@ import React, { useId, useState } from 'react';
 import { Icon } from '@iconify/react';
 
 /**
- * Greyed controls for actions only the Matters console can perform (scan, mark, bulk actions).
+ * Greyed controls for actions only the Matters console can perform (scan, mark, bulk actions), and for a
+ * page entry the API cannot serve yet (the Data Lineage category cards, variant `card`).
  *
  * They are shown so the page reads like the console, but they do nothing and call no API. Each stays
  * focusable with `aria-disabled` rather than `disabled`, so keyboard and screen-reader users can reach it
@@ -78,13 +79,14 @@ const Tooltip: React.FC<{ id: string; visible: boolean; placement: Placement }> 
   </span>
 );
 
-type Variant = 'primary' | 'secondary' | 'icon' | 'link';
+type Variant = 'primary' | 'secondary' | 'icon' | 'link' | 'card';
 
 const VARIANT: Record<Variant, string> = {
   primary: 'gap-1.5 rounded-lg bg-[rgba(0,0,0,0.88)] px-3 py-1.5 text-xs font-semibold text-white',
   secondary: 'gap-1.5 rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-3 py-1.5 text-xs font-semibold text-[rgba(0,0,0,0.7)]',
   icon: 'rounded-md p-1 text-[rgba(0,0,0,0.55)]',
   link: 'gap-1 text-xs font-semibold text-sky-700',
+  card: 'w-full flex-col items-start gap-3 rounded-xl border border-[rgba(0,0,0,0.08)] bg-white p-5 text-left',
 };
 
 interface ConsoleOnlyButtonProps {
@@ -103,15 +105,17 @@ export const ConsoleOnlyButton: React.FC<ConsoleOnlyButtonProps> = ({
   children, variant = 'secondary', icon, label, placement = 'bottom',
 }) => {
   const { tooltipId, visible, handlers } = useConsoleOnly();
+  // A card fills its grid cell and stacks its content, so it is a block flex box without `items-center`.
+  const card = variant === 'card';
   return (
-    <span className="relative inline-flex">
+    <span className={card ? 'relative flex' : 'relative inline-flex'}>
       <button
         type="button"
         aria-disabled="true"
         aria-describedby={tooltipId}
         aria-label={label}
         {...handlers}
-        className={`inline-flex cursor-not-allowed items-center opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.25)] ${VARIANT[variant]}`}
+        className={`${card ? 'flex' : 'inline-flex items-center'} cursor-not-allowed opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.25)] ${VARIANT[variant]}`}
       >
         {icon && <Icon icon={icon} width={variant === 'icon' ? 16 : 14} />}
         {children}

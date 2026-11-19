@@ -8,19 +8,23 @@ interface ZoomControlsProps {
   zoom: number;
   /** Receives the next zoom, already stepped and clamped. */
   onZoom: (zoom: number) => void;
+  /** Lowest zoom; defaults to `ZOOM_MIN`. */
+  min?: number;
+  /** Highest zoom; defaults to `ZOOM_MAX`. */
+  max?: number;
 }
 
 /**
  * The console's zoom control, in its order: "+" (Zoom in), the zoom as a whole percent, "−" (Zoom out).
- * Each button is disabled at its bound (20% and 150%).
+ * Each button is disabled at its bounds (20% and 150% unless given).
  */
-export const ZoomControls: React.FC<ZoomControlsProps> = ({ zoom, onZoom }) => (
+export const ZoomControls: React.FC<ZoomControlsProps> = ({ zoom, onZoom, min = ZOOM_MIN, max = ZOOM_MAX }) => (
   <div className="flex items-center gap-1">
     <button
       type="button"
       aria-label="Zoom in"
-      disabled={zoom >= ZOOM_MAX}
-      onClick={() => onZoom(zoomStep(zoom, 1))}
+      disabled={zoom >= max}
+      onClick={() => onZoom(zoomStep(zoom, 1, min, max))}
       className={ZOOM_BUTTON}
     >
       +
@@ -31,8 +35,8 @@ export const ZoomControls: React.FC<ZoomControlsProps> = ({ zoom, onZoom }) => (
     <button
       type="button"
       aria-label="Zoom out"
-      disabled={zoom <= ZOOM_MIN}
-      onClick={() => onZoom(zoomStep(zoom, -1))}
+      disabled={zoom <= min}
+      onClick={() => onZoom(zoomStep(zoom, -1, min, max))}
       className={ZOOM_BUTTON}
     >
       −

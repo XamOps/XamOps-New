@@ -158,3 +158,16 @@ describe('DIMENSION_VALUE_RULES', () => {
     }
   });
 });
+
+describe('the Data Lineage filter keys', () => {
+  it('accepts datastoreName and label as free text, in both modes', () => {
+    expect(DIMENSION_VALUE_RULES.datastoreName).toEqual({ kind: 'freeText' });
+    expect(DIMENSION_VALUE_RULES.label).toEqual({ kind: 'freeText' });
+    expect(EXCLUDABLE_DIMENSIONS.has('datastoreName')).toBe(true);
+    expect(EXCLUDABLE_DIMENSIONS.has('label')).toBe(true);
+    expect(isSelectable('datastoreName', { value: 'Example Laptop (Gmail)' })).toBe(true);
+    expect(isSelectable('label', { value: 'a,b' })).toBe(false);
+    const state = setMode({ label: { mode: 'include', values: ['PII'] } }, 'label', 'exclude');
+    expect(buildFilterParams(state)).toEqual([['label_exclude', 'PII']]);
+  });
+});

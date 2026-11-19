@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   GMAIL_LINEAGE_NOTE, actorName, buildLineageLanes, firstSeenEvent, gmailOriginLane, isGmail, showsNoRelatedFiles,
-  visibleLanes,
+  visibleLanes, type LineageSubject,
 } from '../lineageModel';
 import { OWNER, driveOverview, event, lane, lineage, local, overview } from './saasTestData';
 
@@ -247,5 +247,24 @@ describe('visibleLanes', () => {
     const own = buildLineageLanes(driveOverview(), lineage({ lanes: [lane('copy-0', { self: true, firstSeenAt: 1 })] }));
     expect(showsNoRelatedFiles(own)).toBe(true);
     expect(visibleLanes(own, 'nothing-like-this')[0].events).toEqual([]);
+  });
+});
+
+describe('LineageSubject', () => {
+  it('builds the lanes from the four fields alone, with driveType null on the non-Gmail path', () => {
+    const subject: LineageSubject = { name: 'quarterly-plan.pdf', driveType: null, owner: 'pat', lastModifiedAt: null };
+    expect(isGmail(subject)).toBe(false);
+    const lanes = buildLineageLanes(subject, lineage({
+      lanes: [lane('copy-a', { self: true })],
+      events: [event({ laneKey: 'copy-a', typeLabel: 'File Created' })],
+    }));
+    expect(lanes.map(l => [l.key, l.own])).toEqual([['copy-a', true]]);
+    expect(types(lanes[0].events)).toEqual(['File Created']);
+  });
+
+  it('takes the Gmail path for a subject with driveType GMAIL', () => {
+    const subject: LineageSubject = { name: 'invite.ics', driveType: 'GMAIL', owner: OWNER, lastModifiedAt: null };
+    expect(gmailOriginLane(subject).fileName).toBe('invite.ics');
+    expect(buildLineageLanes(subject, null).map(l => l.key)).toEqual(['gmail-origin']);
   });
 });

@@ -102,3 +102,53 @@ describe('FullscreenFrame', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('FullscreenFrame variant="modal"', () => {
+  function ModalHarness({ onClose }: { onClose: () => void }) {
+    const close = useRef<HTMLButtonElement>(null);
+    const toggle = useRef<HTMLButtonElement>(null);
+    const [full, setFull] = useState(false);
+    const exit = useCallback(() => setFull(false), []);
+    return (
+      <DrawerShell label="Datastore" onClose={onClose} initialFocus={close}>
+        <button ref={close} type="button" onClick={onClose}>Close</button>
+        <FullscreenFrame variant="modal" open={full} title="Choose a policy" onExit={exit} toggleRef={toggle}>
+          <button ref={toggle} type="button" onClick={() => setFull(f => !f)}>Full screen</button>
+        </FullscreenFrame>
+      </DrawerShell>
+    );
+  }
+
+  const modal = () => screen.queryByRole('dialog', { name: 'Choose a policy' });
+
+  it('opens a centred dialog up to 1280 px on a backdrop, and Escape returns focus to the toggle', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<ModalHarness onClose={onClose} />);
+    await user.click(screen.getByRole('button', { name: 'Full screen' }));
+
+    const dialog = modal() as HTMLElement;
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveClass('w-full', 'max-w-[1280px]', 'rounded-xl', 'bg-white', 'shadow-xl');
+    const backdrop = dialog.parentElement as HTMLElement;
+    expect(backdrop.parentElement).toBe(document.body);
+    expect(backdrop).toHaveClass('fixed', 'inset-0', 'z-[70]', 'flex', 'items-start', 'justify-center', 'overflow-auto', 'bg-black/40', 'p-6');
+    expect(within(dialog).getByRole('button', { name: 'Exit full screen' })).toHaveFocus();
+
+    await user.click(backdrop);
+    expect(modal()).not.toBeNull();
+
+    await user.keyboard('{Escape}');
+    expect(modal()).toBeNull();
+    expect(screen.getByRole('button', { name: 'Full screen' })).toHaveFocus();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('closes on "Exit full screen"', async () => {
+    const user = userEvent.setup();
+    render(<ModalHarness onClose={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'Full screen' }));
+    await user.click(screen.getByRole('button', { name: 'Exit full screen' }));
+    expect(modal()).toBeNull();
+  });
+});
