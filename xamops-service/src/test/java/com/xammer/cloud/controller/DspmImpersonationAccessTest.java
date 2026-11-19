@@ -7,12 +7,15 @@ import com.xammer.cloud.controller.advice.MattersExceptionHandler;
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.dto.matters.DspmStatus;
+import com.xammer.cloud.dto.matters.pages.AssistList;
 import com.xammer.cloud.exception.GlobalExceptionHandler;
 import com.xammer.cloud.repository.GlobalTabRuleReader;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.repository.UserTabAccessRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.XamLensTabGuard;
+import com.xammer.cloud.service.matters.DashboardService;
+import com.xammer.cloud.service.matters.DspmPagesService;
 import com.xammer.cloud.service.matters.MattersDspmService;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
@@ -266,5 +269,37 @@ class DspmImpersonationAccessTest {
         mvc.perform(get(STATUS))
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("TAB_ACCESS_DENIED"));
         verifyNoInteractions(dspmService);
+    }
+
+    // ── build 6: the pages controller behind the same guard ─────────────────────────────────────
+
+    @Test
+    @DisplayName("build 6: a super admin viewing as a restricted ROLE_XAMOPS user reaches the Assists page with the target's client")
+    void superAdminViewingAsRestrictedXamopsUserReachesThePagesController() throws Exception {
+        target("ROLE_XAMOPS");
+        restrictTarget();
+        DspmPagesService pagesService = mock(DspmPagesService.class);
+        when(pagesService.assists(anyLong())).thenReturn(new AssistList(List.of()));
+
+        ImpersonationFilter headerFilter = new ImpersonationFilter();
+        ReflectionTestUtils.setField(headerFilter, "userRepository", userRepository);
+        ImpersonationJwtFilter jwtFilter = new ImpersonationJwtFilter();
+        ReflectionTestUtils.setField(jwtFilter, "secretKey", Base64.getEncoder().encodeToString(jwtKey));
+        ReflectionTestUtils.setField(jwtFilter, "userRepository", userRepository);
+        ReflectionTestUtils.invokeMethod(jwtFilter, "initSigningKey");
+        MockMvc pagesMvc = MockMvcBuilders.standaloneSetup(new DspmPagesController(
+                        new XamLensTabGuard(rules, tabs), mock(DashboardService.class), pagesService))
+                .setControllerAdvice(new GlobalExceptionHandler(), new MattersExceptionHandler())
+                .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter())
+                .addFilters(jwtFilter, headerFilter)
+                .build();
+
+        MockHttpSession session = sessionOf(principal(ADMIN_ID, ADMIN_CLIENT_ID, "ROLE_SUPER_ADMIN"));
+        SecurityContextHolder.setContext((SecurityContext) session.getAttribute("SPRING_SECURITY_CONTEXT"));
+        pagesMvc.perform(get("/api/dspm/assists").session(session)
+                        .header(ImpersonationFilter.IMPERSONATION_HEADER, String.valueOf(TARGET_ID)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.assists").isArray());
+        verify(pagesService).assists(TARGET_CLIENT_ID);
     }
 }

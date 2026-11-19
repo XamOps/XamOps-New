@@ -278,6 +278,102 @@ public final class DatastoreCacheKeys {
         return key("feplin", clientId, fileId);
     }
 
+    // ── build 6 ──────────────────────────────────────────────────────────────────────────────────
+    // Dashboard, Document Classes, Assists, Remediation, Scan Management and the drawer extras
+    // (build 6 design 5.8). Every query fragment that can hold customer text is hashed.
+
+    /** {@code dspm:dsdash:<c>:all}: the whole Dashboard. */
+    public static String dashboard(Long clientId) {
+        return key("dsdash", clientId, "all");
+    }
+
+    /** {@code dspm:dsrows:<c>:<tab slug>}: one tab's collected asset rows (cache only). */
+    public static String assetRows(Long clientId, DatastoreTab tab) {
+        return key("dsrows", clientId, tab.slug());
+    }
+
+    /** {@code dspm:dsdocclass:<c>:all}: the document class catalogue. */
+    public static String documentClasses(Long clientId) {
+        return key("dsdocclass", clientId, "all");
+    }
+
+    /** {@code dspm:dsassists:<c>:all}: the Assists list, also read to name a datastore's assists. */
+    public static String assists(Long clientId) {
+        return key("dsassists", clientId, "all");
+    }
+
+    /** {@code dspm:dsremed:<c>:<sha256 hex>}: one Remediation activity page. */
+    public static String remediation(Long clientId, RemediationQuery query) {
+        return key("dsremed", clientId, sha256Hex(query.canonicalFragment()));
+    }
+
+    /**
+     * {@code dspm:<dssmsched | dssmruns | dssmscopes>:<c>:<sha256 hex>}: one schedules, scan history or
+     * scopes page. A run's datastores have their own factory, {@link #scanRunDatastores}.
+     */
+    public static String scanList(Long clientId, ScanListQuery query) {
+        String kind = switch (query.kind()) {
+            case SCHEDULES -> "dssmsched";
+            case RUNS -> "dssmruns";
+            case SCOPES -> "dssmscopes";
+            case RUN_DATASTORES -> throw new IllegalArgumentException("use scanRunDatastores for a run's datastores");
+        };
+        return key(kind, clientId, sha256Hex(query.canonicalFragment()));
+    }
+
+    /** {@code dspm:dssmrunds:<c>:<runId>:<sha256 hex>}: one page of a run's datastores. */
+    public static String scanRunDatastores(Long clientId, String runId, ScanListQuery query) {
+        return key("dssmrunds", clientId, runId + ":" + sha256Hex(query.canonicalFragment()));
+    }
+
+    public static String scanSchedule(Long clientId, String scheduleId) {
+        return key("dssmschedone", clientId, scheduleId);
+    }
+
+    public static String scanRun(Long clientId, String runId) {
+        return key("dssmrun", clientId, runId);
+    }
+
+    public static String scanScope(Long clientId, String scopeId) {
+        return key("dssmscope", clientId, scopeId);
+    }
+
+    /** {@code dspm:dssaasint:<c>:all}: the SaaS integrations derived from the SaaS rows. */
+    public static String saasIntegrations(Long clientId) {
+        return key("dssaasint", clientId, "all");
+    }
+
+    public static String saasConfiguration(Long clientId, String integrationId) {
+        return key("dssaascfg", clientId, integrationId);
+    }
+
+    /** {@code dspm:dssaasusers:<c>:<integrationId>:<sha256 hex>}: one page of an integration's users. */
+    public static String saasUsers(Long clientId, String integrationId, SaasUserQuery query) {
+        return key("dssaasusers", clientId, integrationId + ":" + sha256Hex(query.canonicalFragment()));
+    }
+
+    /** {@code dspm:dssaaschan:<c>:<integrationId>:<sha256 hex>}: one page of a Slack integration's channels. */
+    public static String saasChannels(Long clientId, String integrationId, SaasChannelQuery query) {
+        return key("dssaaschan", clientId, integrationId + ":" + sha256Hex(query.canonicalFragment()));
+    }
+
+    /** {@code dspm:dsepcfg:<c>:all}: the endpoint agent configuration. */
+    public static String endpointConfiguration(Long clientId) {
+        return key("dsepcfg", clientId, "all");
+    }
+
+    public static String scanSettings(Long clientId, String sourceId) {
+        return key("dsscanset", clientId, sourceId);
+    }
+
+    public static String databases(Long clientId, String sourceId) {
+        return key("dsdbs", clientId, sourceId);
+    }
+
+    public static String syncStatus(Long clientId, String sourceId) {
+        return key("dssync", clientId, sourceId);
+    }
+
     // ── eviction ─────────────────────────────────────────────────────────────────────────────────
 
     /** The glob {@code MattersDspmService.evictClient} sweeps; it matches every key above. */

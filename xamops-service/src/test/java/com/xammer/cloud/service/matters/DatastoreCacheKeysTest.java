@@ -329,6 +329,108 @@ class DatastoreCacheKeysTest {
                 .isFalse();
     }
 
+    // ── build 6: Dashboard, pages, Scan Management and drawer extras (build 6 design 5.8) ───────────
+
+    private static final RemediationQuery REMEDIATION =
+            new RemediationQuery("needle-remediation", "COMPLETED", "MAKE_PRIVATE", 10, 11);
+    private static final ScanListQuery SCHEDULES = ScanListQuery.from(ScanListQuery.Kind.SCHEDULES,
+            params("q", "needle-schedule", "platform", "cloud", "page", "1", "pageSize", "11"));
+    private static final ScanListQuery RUNS = ScanListQuery.from(ScanListQuery.Kind.RUNS,
+            params("q", "needle-run", "trigger", "SCHEDULED", "page", "11", "pageSize", "99"));
+    private static final ScanListQuery SCOPES = ScanListQuery.from(ScanListQuery.Kind.SCOPES,
+            params("q", "needle-scope", "page", "1", "pageSize", "10"));
+    private static final ScanListQuery RUN_DATASTORES = ScanListQuery.from(ScanListQuery.Kind.RUN_DATASTORES,
+            params("q", "needle-ds", "account", "needle-account", "page", "1", "pageSize", "10"));
+    private static final SaasUserQuery USERS =
+            new SaasUserQuery("GMAIL", "needle-user", "ACTIVE", "needle-domain.example", 1, 10);
+    private static final SaasChannelQuery CHANNELS =
+            new SaasChannelQuery("needle-channel", "PUBLIC", "ACTIVE", "ENABLED", true, 1, 10);
+
+    /** One key from every build 6 factory. */
+    private static List<String> everyBuild6Key(Long clientId) {
+        return List.of(
+                DatastoreCacheKeys.dashboard(clientId),
+                DatastoreCacheKeys.assetRows(clientId, DatastoreTab.ALL),
+                DatastoreCacheKeys.assetRows(clientId, DatastoreTab.ON_PREM),
+                DatastoreCacheKeys.documentClasses(clientId),
+                DatastoreCacheKeys.assists(clientId),
+                DatastoreCacheKeys.remediation(clientId, REMEDIATION),
+                DatastoreCacheKeys.scanList(clientId, SCHEDULES),
+                DatastoreCacheKeys.scanList(clientId, RUNS),
+                DatastoreCacheKeys.scanList(clientId, SCOPES),
+                DatastoreCacheKeys.scanRunDatastores(clientId, UUID, RUN_DATASTORES),
+                DatastoreCacheKeys.scanSchedule(clientId, SOURCE_ID),
+                DatastoreCacheKeys.scanRun(clientId, UUID),
+                DatastoreCacheKeys.scanScope(clientId, UUID),
+                DatastoreCacheKeys.saasIntegrations(clientId),
+                DatastoreCacheKeys.saasConfiguration(clientId, FILE_ID),
+                DatastoreCacheKeys.saasUsers(clientId, FILE_ID, USERS),
+                DatastoreCacheKeys.saasChannels(clientId, FILE_ID, CHANNELS),
+                DatastoreCacheKeys.endpointConfiguration(clientId),
+                DatastoreCacheKeys.scanSettings(clientId, SOURCE_ID),
+                DatastoreCacheKeys.databases(clientId, SOURCE_ID),
+                DatastoreCacheKeys.syncStatus(clientId, SOURCE_ID));
+    }
+
+    @Test
+    @DisplayName("build 6: every key matches its client's evictClient glob and no other client's")
+    void build6KeysAreEvictedWithTheirClient() {
+        for (String key : everyBuild6Key(CLIENT)) {
+            assertThat(globMatches(DatastoreCacheKeys.evictionPattern(CLIENT), key)).as(key).isTrue();
+            for (Long other : List.of(1L, 11L, 99L, 110L)) {
+                assertThat(globMatches(DatastoreCacheKeys.evictionPattern(other), key))
+                        .as("%s against client %s", key, other).isFalse();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("build 6: keys have the design 5.8 shape; query keys end in the SHA-256 of their fragment")
+    void build6KeyShapes() {
+        assertThat(DatastoreCacheKeys.dashboard(CLIENT)).isEqualTo("dspm:dsdash:10:all");
+        assertThat(DatastoreCacheKeys.assetRows(CLIENT, DatastoreTab.ON_PREM)).isEqualTo("dspm:dsrows:10:on_prem");
+        assertThat(DatastoreCacheKeys.assetRows(CLIENT, DatastoreTab.ALL)).isEqualTo("dspm:dsrows:10:all");
+        assertThat(DatastoreCacheKeys.documentClasses(CLIENT)).isEqualTo("dspm:dsdocclass:10:all");
+        assertThat(DatastoreCacheKeys.assists(CLIENT)).isEqualTo("dspm:dsassists:10:all");
+        assertThat(DatastoreCacheKeys.scanSchedule(CLIENT, SOURCE_ID)).isEqualTo("dspm:dssmschedone:10:" + SOURCE_ID);
+        assertThat(DatastoreCacheKeys.scanRun(CLIENT, UUID)).isEqualTo("dspm:dssmrun:10:" + UUID);
+        assertThat(DatastoreCacheKeys.scanScope(CLIENT, UUID)).isEqualTo("dspm:dssmscope:10:" + UUID);
+        assertThat(DatastoreCacheKeys.saasIntegrations(CLIENT)).isEqualTo("dspm:dssaasint:10:all");
+        assertThat(DatastoreCacheKeys.saasConfiguration(CLIENT, FILE_ID)).isEqualTo("dspm:dssaascfg:10:" + FILE_ID);
+        assertThat(DatastoreCacheKeys.endpointConfiguration(CLIENT)).isEqualTo("dspm:dsepcfg:10:all");
+        assertThat(DatastoreCacheKeys.scanSettings(CLIENT, SOURCE_ID)).isEqualTo("dspm:dsscanset:10:" + SOURCE_ID);
+        assertThat(DatastoreCacheKeys.databases(CLIENT, SOURCE_ID)).isEqualTo("dspm:dsdbs:10:" + SOURCE_ID);
+        assertThat(DatastoreCacheKeys.syncStatus(CLIENT, SOURCE_ID)).isEqualTo("dspm:dssync:10:" + SOURCE_ID);
+
+        assertThat(DatastoreCacheKeys.remediation(CLIENT, REMEDIATION))
+                .isEqualTo("dspm:dsremed:10:" + DatastoreCacheKeys.sha256Hex(REMEDIATION.canonicalFragment()));
+        assertThat(DatastoreCacheKeys.scanList(CLIENT, SCHEDULES))
+                .isEqualTo("dspm:dssmsched:10:" + DatastoreCacheKeys.sha256Hex(SCHEDULES.canonicalFragment()));
+        assertThat(DatastoreCacheKeys.scanList(CLIENT, RUNS))
+                .isEqualTo("dspm:dssmruns:10:" + DatastoreCacheKeys.sha256Hex(RUNS.canonicalFragment()));
+        assertThat(DatastoreCacheKeys.scanList(CLIENT, SCOPES))
+                .isEqualTo("dspm:dssmscopes:10:" + DatastoreCacheKeys.sha256Hex(SCOPES.canonicalFragment()));
+        assertThat(DatastoreCacheKeys.scanRunDatastores(CLIENT, UUID, RUN_DATASTORES)).isEqualTo(
+                "dspm:dssmrunds:10:" + UUID + ":" + DatastoreCacheKeys.sha256Hex(RUN_DATASTORES.canonicalFragment()));
+        assertThat(DatastoreCacheKeys.saasUsers(CLIENT, FILE_ID, USERS)).isEqualTo(
+                "dspm:dssaasusers:10:" + FILE_ID + ":" + DatastoreCacheKeys.sha256Hex(USERS.canonicalFragment()));
+        assertThat(DatastoreCacheKeys.saasChannels(CLIENT, FILE_ID, CHANNELS)).isEqualTo(
+                "dspm:dssaaschan:10:" + FILE_ID + ":" + DatastoreCacheKeys.sha256Hex(CHANNELS.canonicalFragment()));
+    }
+
+    @Test
+    @DisplayName("build 6: no search term, account, domain or code reaches a key; a run's datastores need their own factory")
+    void noNeedleInABuild6Key() {
+        assertThat(everyBuild6Key(CLIENT)).allSatisfy(key -> assertThat(key)
+                .doesNotContainIgnoringCase("needle")
+                .doesNotContain("MAKE_PRIVATE", "COMPLETED", "SCHEDULED", "GMAIL", "ENABLED"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> DatastoreCacheKeys.scanList(CLIENT, RUN_DATASTORES))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(DatastoreCacheKeys.scanList(CLIENT, SCHEDULES))
+                .isNotEqualTo(DatastoreCacheKeys.scanList(CLIENT, ScanListQuery.from(ScanListQuery.Kind.SCHEDULES,
+                        params("q", "needle-schedule", "platform", "cloud", "page", "2", "pageSize", "11"))));
+    }
+
     @Test
     @DisplayName("the same query for two clients gives two keys")
     void keysCarryTheClientId() {

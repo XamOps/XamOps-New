@@ -9,15 +9,19 @@ import com.xammer.cloud.security.CustomLogoutSuccessHandler;
 import com.xammer.cloud.security.TrialEnforcementFilter;
 import com.xammer.cloud.security.XamLensTabGuard;
 import com.xammer.cloud.service.auth.TrialService;
+import com.xammer.cloud.service.matters.DashboardService;
 import com.xammer.cloud.service.matters.DatastoreDataFlowService;
 import com.xammer.cloud.service.matters.DatastoreDrawerService;
 import com.xammer.cloud.service.matters.DatastoreListService;
+import com.xammer.cloud.service.matters.DspmPagesService;
 import com.xammer.cloud.service.matters.EndpointDrawerService;
 import com.xammer.cloud.service.matters.MisconfigurationService;
 import com.xammer.cloud.service.matters.EndpointFileService;
 import com.xammer.cloud.service.matters.FilesService;
 import com.xammer.cloud.service.matters.SaasDrawerService;
 import com.xammer.cloud.service.matters.SaasFileService;
+import com.xammer.cloud.service.matters.ScanConfigurationService;
+import com.xammer.cloud.service.matters.ScanManagementService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -61,7 +65,7 @@ class DspmDatastoreUnauthenticatedTest {
     @Import({SecurityConfig.class, ImpersonationJwtFilter.class, TrialEnforcementFilter.class,
             DspmDatastoreController.class, DspmSaasController.class, DspmEndpointController.class,
             DspmMisconfigurationController.class,
-            DspmFilesController.class})
+            DspmFilesController.class, DspmPagesController.class, DspmScanController.class})
     static class TestConfig {
     }
 
@@ -85,6 +89,18 @@ class DspmDatastoreUnauthenticatedTest {
     private FilesService filesService;
     @MockitoBean
     private EndpointFileService endpointFileService;
+
+    @MockitoBean
+    private DashboardService dashboardService;
+
+    @MockitoBean
+    private DspmPagesService pagesService;
+
+    @MockitoBean
+    private ScanManagementService scanManagementService;
+
+    @MockitoBean
+    private ScanConfigurationService scanConfigurationService;
 
     @MockitoBean
     private UserRepository userRepository;
@@ -183,5 +199,13 @@ class DspmDatastoreUnauthenticatedTest {
         mvc.perform(get(path)).andExpect(status().isUnauthorized());
 
         verifyNoInteractions(guard, filesService, endpointFileService);
+    }
+
+    @Test
+    @DisplayName("build 6: the Dashboard and a Scan Management endpoint return 401 and the controller is never reached")
+    void build6PagesAreAuthenticated() throws Exception {
+        mvc.perform(get("/api/dspm/dashboard")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/dspm/scan-management/schedules")).andExpect(status().isUnauthorized());
+        verifyNoInteractions(guard, dashboardService, pagesService, scanManagementService, scanConfigurationService);
     }
 }
