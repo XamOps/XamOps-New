@@ -79,7 +79,7 @@ describe('MisconfigurationsPage', () => {
   it('lists the rows in the backend order with the Upwind badge on Upwind policies only', async () => {
     await loaded();
     expect(titles().map(text => text.replace(/powered by.*/, ''))).toEqual([
-      'Bucket allows anonymous public read', 'Server access logging is disabled', 'Backups are not encrypted',
+      'Bucket allows anonymous public read', 'Object access logging is turned off', 'Backups are not encrypted',
     ]);
     expect(bodyRows().map(row => within(row).queryByAltText('Upwind') !== null)).toEqual([true, true, false]);
     const first = within(bodyRows()[0]);
@@ -134,7 +134,7 @@ describe('MisconfigurationsPage', () => {
     await loaded();
     await user.type(screen.getByRole('searchbox', { name: 'Search' }), 'LOGGING');
     expect(titles()).toHaveLength(1);
-    expect(titles()[0]).toContain('Server access logging is disabled');
+    expect(titles()[0]).toContain('Object access logging is turned off');
     await user.clear(screen.getByRole('searchbox', { name: 'Search' }));
 
     await user.click(screen.getByRole('button', { name: /^Severity/ }));
@@ -157,7 +157,7 @@ describe('MisconfigurationsPage', () => {
     await user.click(within(more).getByRole('button', { name: 'Cloud Account' }));
     await user.click(within(more).getByRole('checkbox', { name: /example-stg/ }));
     expect(titles()).toHaveLength(1);
-    expect(titles()[0]).toContain('Server access logging is disabled');
+    expect(titles()[0]).toContain('Object access logging is turned off');
     await user.click(within(more).getByRole('button', { name: 'Source' }));
     await user.click(within(more).getByRole('checkbox', { name: /Matters/ }));
     expect(screen.getByText('No matches')).toBeInTheDocument();
@@ -205,7 +205,7 @@ describe('MisconfigurationsPage', () => {
     await loaded();
     bodyRows()[1].focus();
     await user.keyboard('{Enter}');
-    expect(await screen.findByRole('dialog', { name: 'Server access logging is disabled' })).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: 'Object access logging is turned off' })).toBeInTheDocument();
     expect(get).toHaveBeenLastCalledWith('/api/dspm/misconfigurations/policies/p-00000000000000b2');
   });
 

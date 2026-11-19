@@ -23,6 +23,7 @@ import * as xamlens from './xamlensMockData';
 import * as xamlensDrawer from './xamlensDrawerMockData';
 import * as saasDrawer from './xamlensSaasDrawerMockData';
 import * as endpointDrawer from './xamlensEndpointDrawerMockData';
+import * as xamlensRisks from './xamlensRisksMockData';
 import type { DspmSurface } from '../hooks/useDspmData';
 import * as soc2 from './soc2MockData';
 import * as war from './warMockData';
@@ -70,6 +71,8 @@ const DATA_FLOW_RESOURCE = /^\/api\/dspm\/data-flow\/(databases|schemas|tables)\
 const SAAS_RESOURCE = /^\/api\/dspm\/datastores\/([0-9a-f]{24})\/saas\/(detail|records|files|scan-summary)$/;
 /** A SaaS file's drawer resources. */
 const SAAS_FILE_RESOURCE = /^\/api\/dspm\/saas-files\/([0-9a-f]{24})\/(overview|activity|lineage|copies)$/;
+/** A policy of the XamLens Misconfigurations page, by the backend's policy id pattern. */
+const MISCONFIGURATION_POLICY = /^\/api\/dspm\/misconfigurations\/policies\/([A-Za-z0-9][A-Za-z0-9_.-]{0,127})$/;
 /** An endpoint's drawer resources. */
 const ENDPOINT_RESOURCE =
   /^\/api\/dspm\/datastores\/([0-9a-f]{24})\/endpoint\/(overview|filter-options|summary|sensitives|occurrences|files|scans)$/;
@@ -1196,6 +1199,18 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   // POST action whose response is ignored.
   if (url.includes('/api/xamsecure/'))
     return makeResponse({});
+
+  // XamLens Misconfigurations page and its drawer. Answered here, so the /api/dspm/ catch-all never
+  // gives them {}; any other path under the prefix is a 404, as the backend's unknown policy is.
+  if (url.includes('/api/dspm/misconfigurations')) {
+    const path = new URL(url, 'http://localhost').pathname;
+    if (path === '/api/dspm/misconfigurations')
+      return makeResponse(xamlensRisks.demoMisconfigurationList());
+    const policy = path.match(MISCONFIGURATION_POLICY);
+    const detail = policy ? xamlensRisks.demoMisconfigurationDetail(decodeURIComponent(policy[1])) : null;
+    if (detail) return makeResponse(detail);
+    return makeDspmError(404, 'ASSET_NOT_FOUND', 'That misconfiguration could not be found.');
+  }
 
   // XamLens Datastores page and drawer (design 7.1). Ahead of the block below, so neither its
   // /api/dspm/assets/{id} matcher nor the /api/dspm/ catch-all answers these paths: a {} would break

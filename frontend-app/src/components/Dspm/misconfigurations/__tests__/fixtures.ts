@@ -16,7 +16,7 @@ export const PUBLIC_READ = policy({
   frameworks: ['SOC2', 'NIST', 'GDPR'], cloudAccounts: ['example-prod'],
 });
 export const ACCESS_LOGGING = policy({
-  policyId: 'p-00000000000000b2', title: 'Server access logging is disabled', source: 'UPWIND', affectedResources: 33,
+  policyId: 'p-00000000000000b2', title: 'Object access logging is turned off', source: 'UPWIND', affectedResources: 33,
   sensitiveRecords: 432, labels: ['Personal'], frameworks: ['NIST'], cloudAccounts: ['example-prod', 'example-stg'],
 });
 export const BACKUPS = policy({

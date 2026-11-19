@@ -14,8 +14,9 @@ import { trendBadge } from '../components/Dspm/datastores/datastoreFormat';
 import type { DspmPage } from '../types/dspm';
 import type {
   DataFlowColumnPage, DataFlowDatabases, DataFlowSchemas, DataFlowTablePage, DatastoreFilterOptions, DatastoreKpis,
-  DatastoreOccurrencePage, DatastoreOverview, DatastoreRow, DatastoreSensitives,
+  DatastoreOccurrencePage, DatastoreOverview, DatastoreRisks, DatastoreRow, DatastoreSensitives,
 } from '../types/dspmDatastores';
+import type { MisconfigurationDetail, MisconfigurationList } from '../types/dspmMisconfigurations';
 import type {
   DataFlowErd, DataFlowRelations, EndpointScanPage, EndpointSensitiveMetrics, EndpointSummary, SaasFileActivity,
   SaasFileCopies, SaasFileLineage, SaasFileOverview, SaasFilePage, SaasRecords,
@@ -1300,6 +1301,80 @@ describe('demo router — XamLens Datastores page and drawer (ROLE_XAMOPS)', () 
     // The tab strip's count, the asset card and the list agree.
     expect(kpis.tabCounts[tab]).toBe(kpis.assetCount.value);
     expect(((await readDemoBody(`${DS}?tab=${tab}`)) as DspmPage<DatastoreRow>).total).toBe(kpis.assetCount.value);
+  });
+});
+
+describe('demo router — XamLens Misconfigurations page (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+
+  const MC = '/api/dspm/misconfigurations';
+  const RANK: Record<string, number> = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
+  const datastoresOf = async () => [
+    ...((await readDemoBody('/api/dspm/datastores?tab=cloud&pageSize=100')) as DspmPage<DatastoreRow>).data,
+    ...((await readDemoBody('/api/dspm/datastores?tab=on_prem&pageSize=100')) as DspmPage<DatastoreRow>).data,
+  ];
+
+  it('answers the list with rows in row order and cards that match them, never {}', async () => {
+    const list = await readDemoBody(MC) as MisconfigurationList;
+    expect(list).not.toEqual({});
+    expect(list.capped).toBe(false);
+    expect(list.datastoresRead).toBe(23);
+    expect(list.rows.length).toBeGreaterThanOrEqual(8);
+    for (let i = 1; i < list.rows.length; i++) {
+      const [a, b] = [list.rows[i - 1], list.rows[i]];
+      const order = (RANK[a.severity ?? ''] ?? 0) - (RANK[b.severity ?? ''] ?? 0) || a.affectedResources - b.affectedResources;
+      expect(order, `${a.title} before ${b.title}`).toBeGreaterThanOrEqual(0);
+    }
+    expect(list.rows[0].severity).toBe('HIGH');
+    expect(list.open.total).toBe(list.rows.length);
+    expect(list.open.high + list.open.medium + list.open.critical + list.open.low).toBe(list.rows.length);
+    expect(new Set(list.rows.map(row => row.source))).toEqual(new Set(['UPWIND', 'MATTERS']));
+    const details = await Promise.all(list.rows.map(row =>
+      readDemoBody(`${MC}/policies/${encodeURIComponent(row.policyId)}`) as Promise<MisconfigurationDetail>));
+    expect(list.totalAffectedResources)
+      .toBe(new Set(details.flatMap(detail => detail.affected.map(item => item.datastore.sourceId))).size);
+    expect(details.some(detail => detail.learnMore?.startsWith('https://'))).toBe(true);
+    expect(details.some(detail => detail.cli !== null)).toBe(true);
+  });
+
+  it("agrees with every cloud and on-prem datastore's /risks list", async () => {
+    const list = await readDemoBody(MC) as MisconfigurationList;
+    const datastores = await datastoresOf();
+    const risksOf = new Map<string, string[]>();
+    for (const row of datastores) {
+      const body = await readDemoBody(`/api/dspm/datastores/${row.sourceId}/risks`) as DatastoreRisks;
+      risksOf.set(row.sourceId!, body.items.map(item => item.title!));
+      // A derived datastore reports findings once scanned; the never-scanned Azure showcase keeps its own.
+      if (row.scan.status === 'NOT_SCANNED' && row.name !== 'ledger-exports-weu') expect(body.items, row.name!).toEqual([]);
+    }
+    for (const row of list.rows) {
+      const detail = await readDemoBody(`${MC}/policies/${encodeURIComponent(row.policyId)}`) as MisconfigurationDetail;
+      expect(detail.policyId).toBe(row.policyId);
+      expect(detail.title).toBe(row.title);
+      const expected = datastores.filter(d => risksOf.get(d.sourceId!)!.includes(row.title!)).map(d => d.sourceId);
+      expect(detail.affected.map(item => item.datastore.sourceId), row.title!).toEqual(expected);
+      expect(row.affectedResources).toBe(expected.length);
+      expect(row.sensitiveRecords).toBe(detail.affected.reduce((sum, item) => sum + item.datastore.sensitives.recordCount, 0));
+    }
+    // Every finding on every datastore belongs to one row.
+    const titles = new Set(list.rows.map(row => row.title));
+    for (const found of risksOf.values()) for (const title of found) expect(titles.has(title), title).toBe(true);
+  });
+
+  it('answers an unknown or malformed policy with 404 ASSET_NOT_FOUND, never {}', async () => {
+    for (const url of [
+      `${MC}/policies/p-ffffffffffffffff`,
+      `${MC}/policies/-leading-dash`,
+      `${MC}/policies/a%2Fb`,
+      `${MC}/somewhere-else`,
+    ]) {
+      const response = resolveDemoResponse(url);
+      expect(response?.status, url).toBe(404);
+      expect((await response!.json()).code, url).toBe('ASSET_NOT_FOUND');
+    }
   });
 });
 

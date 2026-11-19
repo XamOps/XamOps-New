@@ -31,6 +31,7 @@ import type { DataFlowErd, DataFlowErdEdge, DataFlowErdExternalTable, DataFlowRe
 // Circular: `xamlensMockData.ts` reads `SHOWCASE_SENSITIVES` from here. Each side reads the other only
 // inside functions, never while the modules load, so either may load first.
 import { demoDatastoreSource, type DemoDatastoreSource } from './xamlensMockData';
+import { demoCatalogueRisks } from './xamlensRiskCatalogue';
 
 // ─── Vocabulary ──────────────────────────────────────────────────────────────
 
@@ -787,7 +788,8 @@ function derivedFileRow(object: DspmObject): DatastoreFileRow {
 /**
  * Drawer data from a row's spec (design 7.3, last row): entities, file rows and one occurrence per file
  * from its files, the overview total equal to the list's record count, groups in the row's type order,
- * no misconfigurations, no principals, and one run once classified.
+ * the catalogue's misconfigurations for its provider once scanned (`xamlensRiskCatalogue.ts`, which the
+ * Misconfigurations page groups too), no principals, and one run once classified.
  */
 function derivedData(source: DemoDatastoreSource): DrawerData {
   const scanning = SCANNING[source.status] ?? null;
@@ -824,7 +826,7 @@ function derivedData(source: DemoDatastoreSource): DrawerData {
     occurrences: entityName => source.objects
       .filter(object => object.findings.some(finding => finding.entityType === entityName))
       .map((object, i) => fileOccurrence(locationOf(object), samples(entityName, i, 2))),
-    risks: [],
+    risks: demoCatalogueRisks(source),
     accessGraph: accessGraph(source.name, source.provider, []),
     runs: source.status === 'CLASSIFIED'
       ? [scanRun(source.lastScannedAt, source.recordCount, source.sensitivityLevel, 'SCAN_COMPLETED', 'Scan Completed')]
