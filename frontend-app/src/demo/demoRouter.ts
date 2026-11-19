@@ -24,6 +24,7 @@ import * as xamlensDrawer from './xamlensDrawerMockData';
 import * as saasDrawer from './xamlensSaasDrawerMockData';
 import * as endpointDrawer from './xamlensEndpointDrawerMockData';
 import * as xamlensRisks from './xamlensRisksMockData';
+import * as lineage from './xamlensLineageMockData';
 import type { DspmSurface } from '../hooks/useDspmData';
 import * as soc2 from './soc2MockData';
 import * as war from './warMockData';
@@ -76,6 +77,10 @@ const MISCONFIGURATION_POLICY = /^\/api\/dspm\/misconfigurations\/policies\/([A-
 /** An endpoint's drawer resources. */
 const ENDPOINT_RESOURCE =
   /^\/api\/dspm\/datastores\/([0-9a-f]{24})\/endpoint\/(overview|filter-options|summary|sensitives|occurrences|files|scans)$/;
+/** The Data Lineage page's id routes (build 4 design 7.1). */
+const LINEAGE_POLICY_DATASTORES = /^\/api\/dspm\/lineage\/policies\/([0-9a-f-]{36})\/datastores$/;
+const LINEAGE_DATASTORE_FILES = /^\/api\/dspm\/lineage\/datastores\/([A-Za-z0-9-]{1,64})\/files$/;
+const LINEAGE_FILE_LINEAGE = /^\/api\/dspm\/lineage\/files\/([0-9a-f-]{24,36})\/lineage$/;
 
 const AUTOSPOTTING_ADMIN_PREFIX = '/api/xamops/autospotting-admin/';
 
@@ -1210,6 +1215,25 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     const detail = policy ? xamlensRisks.demoMisconfigurationDetail(decodeURIComponent(policy[1])) : null;
     if (detail) return makeResponse(detail);
     return makeDspmError(404, 'ASSET_NOT_FOUND', 'That misconfiguration could not be found.');
+  }
+
+  // XamLens Data Lineage page (build 4 design 7.1). Every path under /api/dspm/lineage/ is answered
+  // here: a body, a 400 for a refused parameter, or a 404, never the /api/dspm/ catch-all and its {}.
+  if (url.includes('/api/dspm/lineage/')) {
+    const path = new URL(url, 'http://localhost').pathname;
+    const datastores = path.match(LINEAGE_POLICY_DATASTORES);
+    const files = path.match(LINEAGE_DATASTORE_FILES);
+    const fileLineage = path.match(LINEAGE_FILE_LINEAGE);
+    const body = path === '/api/dspm/lineage/categories' ? lineage.demoLineageCategories()
+      : path === '/api/dspm/lineage/filter-options' ? lineage.demoLineageFilterOptions(url)
+        : path === '/api/dspm/lineage/policies' ? lineage.demoLineagePolicies(url)
+          : datastores ? lineage.demoLineageDatastores(datastores[1], url)
+            : files ? lineage.demoLineageFiles(files[1], url)
+              : fileLineage ? lineage.demoLineageFileLineage(fileLineage[1])
+                : null;
+    if (lineage.isDemoLineageInvalid(body)) return makeDspmError(400, 'INVALID_REQUEST', body.message);
+    if (body) return makeResponse(body);
+    return makeDspmError(404, 'ASSET_NOT_FOUND', 'That lineage item could not be found.');
   }
 
   // XamLens Datastores page and drawer (design 7.1). Ahead of the block below, so neither its

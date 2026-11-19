@@ -127,7 +127,7 @@ describe('ConsoleOnlyButton card variant', () => {
     expect(card).toHaveAttribute('aria-disabled', 'true');
     expect(card).toHaveClass('flex', 'w-full', 'flex-col', 'items-start', 'gap-3', 'rounded-xl', 'border', 'bg-white', 'p-5', 'text-left', 'opacity-50');
     expect(card).not.toHaveClass('inline-flex', 'items-center');
-    expect(card.parentElement).toHaveClass('relative', 'flex');
+    expect(card.parentElement).toHaveClass('relative', 'flex', 'w-full');
     expect(card.parentElement).not.toHaveClass('inline-flex');
 
     await user.hover(card);

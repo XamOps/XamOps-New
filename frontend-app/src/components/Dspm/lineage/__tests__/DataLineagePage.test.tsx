@@ -15,6 +15,7 @@ vi.mock('../../../../utils/apiClient', () => ({ default: { get: vi.fn() } }));
 import apiClient from '../../../../utils/apiClient';
 import DataLineagePage from '../DataLineagePage';
 import { formatNodeDay } from '../lineageText';
+import { pageKeyOf } from '../../../../utils/inPageNavigation';
 
 const get = apiClient.get as unknown as ReturnType<typeof vi.fn>;
 
@@ -198,6 +199,27 @@ describe('DataLineagePage, switched on', () => {
     expect(await screen.findByText('No exposures found for this category.')).toBeInTheDocument();
   });
 
+  it('keeps the layout\'s page key across its steps, so the page is not remounted', async () => {
+    const user = userEvent.setup();
+    serve({ categories: [ON] });
+    const keys: string[] = [];
+    const KeyProbe: React.FC = () => {
+      keys.push(pageKeyOf(useLocation()));
+      return null;
+    };
+    render(
+      <MemoryRouter initialEntries={['/xamlens/data-lineage']}>
+        <Routes>
+          <Route path="/xamlens/data-lineage" element={<DataLineagePage status={READY} onRetry={vi.fn()} />} />
+        </Routes>
+        <KeyProbe />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: /Sensitive Findings/ }));
+    await waitFor(() => expect(policyNodes().length).toBeGreaterThan(0));
+    await user.click(policyNodes()[0]);
+    expect(new Set(keys).size).toBe(1);
+  });
   it('goes back to step 0 with no query on "New Investigation" (AC14)', async () => {
     const user = userEvent.setup();
     serve({ categories: [ON] });

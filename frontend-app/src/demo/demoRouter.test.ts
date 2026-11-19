@@ -21,6 +21,10 @@ import type {
   DataFlowErd, DataFlowRelations, EndpointScanPage, EndpointSensitiveMetrics, EndpointSummary, SaasFileActivity,
   SaasFileCopies, SaasFileLineage, SaasFileOverview, SaasFilePage, SaasRecords,
 } from '../types/dspmDrawers';
+import type {
+  LineageCategories, LineageDatastorePage, LineageFilePage, LineagePolicyPage,
+} from '../types/dspmLineage';
+import { DEMO_LINEAGE_STEPS_DEFAULT, DEMO_LINEAGE_STEPS_KEY } from './xamlensLineageMockData';
 
 /**
  * The generic `/api/xamops/*` fallback answers `{}`, which is wrong for any
@@ -1676,5 +1680,169 @@ describe.each(['ROLE_XAMOPS', 'ROLE_BILLOPS_ADMIN'])('demo router — AutoSpotti
     expect(changed.version).toBe(1);
     const paused = JSON.parse(await resolveDemoResponse(`${PREFIX}/groups/g-1/pause`, 'POST', JSON.stringify({ reason: 'x' }))!.text());
     expect(paused.state).toBe('PAUSED');
+  });
+});
+
+/** Build 4 design 7 and AC22: every Data Lineage path is answered in the browser, off and on. */
+describe('demo router — XamLens Data Lineage page (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+  afterEach(() => {
+    sessionStorage.removeItem(DEMO_LINEAGE_STEPS_KEY);
+  });
+  const LN = '/api/dspm/lineage';
+  const POLICY = '5e1f0c00-0000-4000-8000-000000000001';
+  const answerOf = async (url: string) => {
+    const response = resolveDemoResponse(url);
+    expect(response, url).not.toBeNull();
+    return { status: response!.status, body: await response!.json() };
+  };
+  const stepsOn = () => sessionStorage.setItem(DEMO_LINEAGE_STEPS_KEY, 'on');
+  const policies = (query: string) => readDemoBody(`${LN}/policies?category=SENSITIVE_FINDINGS&${query}`) as Promise<LineagePolicyPage>;
+  const datastores = (query = '') => readDemoBody(`${LN}/policies/${POLICY}/datastores?${query}`) as Promise<LineageDatastorePage>;
+  const filesOf = (id: string, query = '') => readDemoBody(`${LN}/datastores/${id}/files?${query}`) as Promise<LineageFilePage>;
+
+  it('answers as the switch-off backend by default', async () => {
+    expect(DEMO_LINEAGE_STEPS_DEFAULT).toBe(false);
+    const categories = await readDemoBody(`${LN}/categories`) as LineageCategories;
+    expect(categories.available).toBe(false);
+    expect(categories.categories.map(c => c.name)).toEqual([
+      'Sensitive Findings', 'Excessive Exposure', 'High Volume Access', 'Stale Data', 'Risky User', 'Public Exposure',
+    ]);
+    expect(categories.categories.every(c => c.exposures === null)).toBe(true);
+    expect(await readDemoBody(`${LN}/filter-options?level=policy`)).toEqual({ dimensions: [] });
+    const off = { available: false, rows: [], total: 0, skip: 0, limit: 7 };
+    expect(await policies('skip=0&limit=7')).toEqual(off);
+    expect(await datastores('skip=0&limit=7')).toEqual(off);
+    expect(await filesOf('exp-01-studiomac', 'skip=0&limit=7')).toEqual(off);
+    expect(await readDemoBody(`${LN}/files/f11e0000-0000-4000-8000-000000000001/lineage`))
+      .toEqual({ available: false, coverageNote: null, lanes: [], events: [] });
+  });
+
+  it('answers every pattern off and on with its DTO, never the {} catch-all', async () => {
+    for (const steps of ['off', 'on']) {
+      sessionStorage.setItem(DEMO_LINEAGE_STEPS_KEY, steps);
+      for (const url of [
+        `${LN}/categories`, `${LN}/filter-options?level=policy`, `${LN}/filter-options?level=datastore`,
+        `${LN}/policies?category=SENSITIVE_FINDINGS&skip=0&limit=7`, `${LN}/policies/${POLICY}/datastores?skip=0&limit=7`,
+        `${LN}/datastores/exp-01-studiomac/files?skip=0&limit=7`, `${LN}/files/f11e0000-0000-4000-8000-000000000001/lineage`,
+      ]) {
+        const { status, body } = await answerOf(url);
+        expect(status, `${steps} ${url}`).toBe(200);
+        expect(body, `${steps} ${url}`).not.toEqual({});
+      }
+    }
+  });
+
+  it('switched on: counts agree with the lists, 9 policies page as 7 + 2, one datastore has 9 files', async () => {
+    stepsOn();
+    const categories = await readDemoBody(`${LN}/categories`) as LineageCategories;
+    expect(categories.available).toBe(true);
+    expect(categories.categories.map(c => c.exposures)).toEqual([9, 1, 0, 2, 0, 0]);
+    for (const category of categories.categories) {
+      const rows = await readDemoBody(`${LN}/policies?category=${category.id}&limit=50`) as LineagePolicyPage;
+      expect(rows.total, category.id).toBe(category.exposures);
+      expect(rows.rows).toHaveLength(category.exposures!);
+    }
+    const first = await policies('skip=0&limit=7');
+    expect(first).toMatchObject({ available: true, total: 9, skip: 0, limit: 7 });
+    expect(first.rows).toHaveLength(7);
+    expect((await policies('skip=7&limit=7')).rows).toHaveLength(2);
+    for (const policy of first.rows) {
+      const page = await readDemoBody(`${LN}/policies/${policy.id}/datastores?limit=50`) as LineageDatastorePage;
+      expect(page.total, policy.name!).toBe(policy.datastores);
+      for (const datastore of page.rows) {
+        const files = await filesOf(datastore.id!, 'limit=100');
+        expect(files.total, datastore.name!).toBe(datastore.files);
+        expect(files.rows).toHaveLength(datastore.files!);
+      }
+    }
+    const studio = (await datastores()).rows.find(row => row.files === 9)!;
+    expect(studio).toBeDefined();
+    const pageOne = await filesOf(studio.id!, 'skip=0&limit=7');
+    expect(pageOne).toMatchObject({ total: 9, skip: 0, limit: 7 });
+    expect(pageOne.rows).toHaveLength(7);
+    expect((await filesOf(studio.id!, 'skip=7&limit=7')).rows).toHaveLength(2);
+  });
+
+  it('switched on: filter options, search, Include and Exclude as the backend applies them', async () => {
+    stepsOn();
+    const options = await readDemoBody(`${LN}/filter-options?level=policy`) as DatastoreFilterOptions;
+    expect(options.dimensions.map(d => d.key)).toEqual(['severity', 'datastoreName', 'label']);
+    expect(options.dimensions[0].options.map(o => o.label)).toEqual(['Critical', 'High', 'Medium']);
+    const names = options.dimensions[1].options.map(o => o.label);
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+    expect(options.dimensions[2].options.map(o => o.value)).toEqual(['PII', 'PCI', 'PHI', 'SECRETS']);
+    const datastoreOptions = await readDemoBody(`${LN}/filter-options?level=datastore`) as DatastoreFilterOptions;
+    expect(datastoreOptions.dimensions.map(d => d.key)).toEqual(['severity']);
+
+    const all = (await policies('limit=50')).rows;
+    const critical = await policies('limit=50&severity=CRITICAL');
+    expect(critical.rows.length).toBeGreaterThan(0);
+    expect(critical.rows.every(row => row.severity === 'CRITICAL')).toBe(true);
+    const notCritical = await policies('limit=50&severity_exclude=CRITICAL');
+    expect(notCritical.total + critical.total).toBe(all.length);
+    expect(notCritical.rows.some(row => row.severity === 'CRITICAL')).toBe(false);
+    expect(await policies('limit=50&severity_exclude=CRITICAL,HIGH,MEDIUM'))
+      .toEqual({ available: true, rows: [], total: 0, skip: 0, limit: 50 });
+    const secrets = await policies('limit=50&label=SECRETS');
+    expect(secrets.total).toBeGreaterThan(0);
+    expect(secrets.total).toBeLessThan(all.length);
+    const legal = await policies('limit=50&datastoreName=Legal%20SharePoint');
+    expect(legal.rows.every(row => row.service === 'SHARE_POINT')).toBe(true);
+    const searched = await policies('limit=50&q=ONEDRIVE');
+    expect(searched.total).toBeGreaterThan(0);
+    expect(searched.rows.every(row => row.name!.toLowerCase().includes('onedrive'))).toBe(true);
+
+    const policyDatastores = await datastores();
+    const high = await datastores('severity=HIGH');
+    const notHigh = await datastores('severity_exclude=HIGH');
+    expect(high.total + notHigh.total).toBe(policyDatastores.total);
+    expect((await datastores('q=ops')).rows.map(row => row.name)).toEqual(['Ops MacBook Air']);
+  });
+
+  it('switched on: lineage for most files, available:false for one', async () => {
+    stepsOn();
+    const files = (await Promise.all((await datastores()).rows.map(row => filesOf(row.id!, 'limit=100')))).flatMap(p => p.rows);
+    const answers = await Promise.all(files.map(file => readDemoBody(`${LN}/files/${file.id}/lineage`) as Promise<SaasFileLineage>));
+    expect(answers.filter(a => !a.available)).toHaveLength(1);
+    const lineage = answers.find(a => a.available)!;
+    expect(lineage.lanes.filter(lane => lane.self)).toHaveLength(1);
+    expect(lineage.events.map(e => e.typeLabel)).toEqual(['File Created', 'File Modified', 'File Copied']);
+  });
+
+  it('refuses a value that is no option, a bad category and a bad level with 400 INVALID_REQUEST', async () => {
+    stepsOn();
+    for (const [url, message] of [
+      [`${LN}/policies?category=SENSITIVE_FINDINGS&severity=LOW`, 'severity is not an option of this project'],
+      [`${LN}/policies?category=SENSITIVE_FINDINGS&label_exclude=OTHER`, 'label_exclude is not an option of this project'],
+      [`${LN}/policies/${POLICY}/datastores?severity_exclude=LOW`, 'severity_exclude is not an option of this project'],
+      [`${LN}/policies?category=NOT_A_CATEGORY`, 'category must be one of the exposure categories'],
+      [`${LN}/filter-options?level=file`, 'level must be policy or datastore'],
+    ]) {
+      const { status, body } = await answerOf(url);
+      expect(status, url).toBe(400);
+      expect(body, url).toEqual({ code: 'INVALID_REQUEST', message });
+    }
+  });
+
+  it('answers unknown ids and other lineage paths with 404 ASSET_NOT_FOUND', async () => {
+    stepsOn();
+    for (const url of [
+      `${LN}/policies/00000000-0000-4000-8000-000000000000/datastores`,
+      `${LN}/datastores/exp-unknown/files`,
+      `${LN}/files/ffffffffffffffffffffffff/lineage`,
+      `${LN}/policies/not-a-uuid/datastores`,
+      `${LN}/summary`,
+      `${LN}/`,
+    ]) {
+      const { status, body } = await answerOf(url);
+      expect(status, url).toBe(404);
+      expect(body.code, url).toBe('ASSET_NOT_FOUND');
+    }
+    sessionStorage.setItem(DEMO_LINEAGE_STEPS_KEY, 'off');
+    expect((await answerOf(`${LN}/summary`)).status).toBe(404);
   });
 });

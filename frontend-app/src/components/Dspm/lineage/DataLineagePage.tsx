@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
+import { inPageState } from '../../../utils/inPageNavigation';
 import type { DspmStatus } from '../../../types/dspm';
 import { lineageApi, useKeyedResource } from '../../../hooks/useDspmLineage';
 import DspmNotReady from '../DspmNotReady';
@@ -28,9 +29,13 @@ const DataLineagePage: React.FC<Props> = ({ status, onRetry }) => {
   const [params, setParams] = useSearchParams();
   const query = parseLineageQuery(params);
 
+  // In-page navigations keep the layout's page key (utils/inPageNavigation), so a step change re-renders
+  // the page in place: without it App.tsx remounts the page and drops the filters, the open More filters
+  // panel and full screen on every click.
+  const location = useLocation();
   const go = useCallback(
-    (next: LineageQuery) => setParams(toSearchParams(next), { replace: true }),
-    [setParams],
+    (next: LineageQuery) => setParams(toSearchParams(next), { replace: true, state: inPageState(location) }),
+    [setParams, location],
   );
 
   const data = categories.data;

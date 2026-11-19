@@ -108,7 +108,7 @@ export const ConsoleOnlyButton: React.FC<ConsoleOnlyButtonProps> = ({
   // A card fills its grid cell and stacks its content, so it is a block flex box without `items-center`.
   const card = variant === 'card';
   return (
-    <span className={card ? 'relative flex' : 'relative inline-flex'}>
+    <span className={card ? 'relative flex w-full' : 'relative inline-flex'}>
       <button
         type="button"
         aria-disabled="true"
