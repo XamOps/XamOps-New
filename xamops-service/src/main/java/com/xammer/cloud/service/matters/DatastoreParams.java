@@ -47,6 +47,8 @@ public final class DatastoreParams {
             "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
     /** A misconfiguration policy id: {@code p-} plus 16 hex today, snake_case words on some rules. */
     private static final Pattern POLICY_ID = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$");
+    /** A keyset cursor: base64 or base64url, 1..1,024 characters, at most two {@code =} of padding. */
+    private static final Pattern CURSOR = Pattern.compile("^[A-Za-z0-9+/_-]{1,1024}={0,2}$");
 
     private DatastoreParams() {
     }
@@ -285,6 +287,43 @@ public final class DatastoreParams {
     public static String dataFlowSearch(String raw) {
         String value = search(raw);
         return value == null || value.length() < MIN_DATA_FLOW_SEARCH_LENGTH ? null : value;
+    }
+
+    // ── Files page ───────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * {@code cursor}: absent is the first page (null); present, it must be base64 or base64url text of 1 to
+     * 1,024 characters with at most two {@code =} of padding. It is checked for format only and never
+     * decoded: the vendor's keyset cursor is opaque.
+     */
+    public static String cursor(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        if (!isCursor(raw)) {
+            throw new DspmBadRequestException("cursor", "cursor must be a cursor returned by the previous page");
+        }
+        return raw;
+    }
+
+    /** True when {@code value} passes {@link #cursor}'s format rule. The mapper drops a next cursor that fails it. */
+    public static boolean isCursor(String value) {
+        return value != null && CURSOR.matcher(value).matches();
+    }
+
+    /**
+     * A single-choice parameter such as {@code sharing} or {@code lastModified}: null when absent, else one
+     * of {@code allowed}, compared exactly (case-sensitive).
+     */
+    public static String choice(String parameter, String raw, List<String> allowed) {
+        if (raw == null) {
+            return null;
+        }
+        if (!allowed.contains(raw)) {
+            throw new DspmBadRequestException(parameter,
+                    parameter + " must be one of " + String.join(", ", allowed));
+        }
+        return raw;
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────────────────────────

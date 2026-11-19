@@ -606,4 +606,155 @@ class MattersApiClientTest {
         calls.forEach(call -> assertThatThrownBy(call::run).isInstanceOf(IllegalArgumentException.class));
         server.verify();
     }
+
+    // ── Files page and Endpoint file drawer routes (build 3) ─────────────────────────────────────
+
+    private static final String OWNER_A = "0a0b0c0d0e0f101112131415";
+    private static final String OWNER_B = "1a1b1c1d1e1f202122232425";
+
+    private static String endpointFileUrl(String route) {
+        return BASE + "/api/v1/endpoint-agent/files/" + UUID + route;
+    }
+
+    private static SaasFileListQuery firstSaasPage() {
+        return new SaasFileListQuery(10, null, null, List.of(), null, null, List.of(), List.of(), List.of(),
+                List.of(), List.of());
+    }
+
+    private static EndpointFileListQuery firstEndpointPage() {
+        return new EndpointFileListQuery(0, 10, null, EndpointFilters.NONE, List.of(), List.of(), List.of(), null);
+    }
+
+    @Test
+    @DisplayName("each Files route hits its path and query with GET; subcategory is plain, lists are JSON arrays; "
+            + "the audit path has no query")
+    void everyFilesRouteHitsItsRoute() {
+        SaasFileListQuery saas = new SaasFileListQuery(25, "ab+c/d_e-f==", "q4 plan", List.of("PII"),
+                "Travel Receipts", "external", List.of("financial"), List.of("GMAIL"), List.of(OWNER_A, OWNER_B),
+                List.of("ana@example.com"), List.of());
+        EndpointFilters oneClass = new EndpointFilters(List.of(), List.of("Travel Receipts"), List.of(), List.of());
+        EndpointFileListQuery endpoint = new EndpointFileListQuery(10, 10, "notes", oneClass, List.of("Reviewed"),
+                List.of("UID-01", "UID-02"), List.of("Team-Laptop-02"), "7d");
+
+        Map<String, Function<MattersApiClient, JsonNode>> calls = new LinkedHashMap<>();
+        calls.put(BASE + "/api/v2/data/security/saas/sensitivities?limit=10", c -> c.saasSensitivities(credential,
+                firstSaasPage()));
+        calls.put(BASE + "/api/v2/data/security/saas/sensitivities?limit=25&cursor=ab%2Bc%2Fd_e-f%3D%3D"
+                        + "&name_search_str=q4%20plan&label=%5B%22PII%22%5D&subcategory=Travel%20Receipts"
+                        + "&category=%5B%22financial%22%5D&source=%5B%22GMAIL%22%5D"
+                        + "&owners=%5B%22" + OWNER_A + "%22,%22" + OWNER_B + "%22%5D"
+                        + "&internal_users=%5B%22ana%40example.com%22%5D&external_share=true",
+                c -> c.saasSensitivities(credential, saas));
+        calls.put(BASE + "/api/v1/data/security/saas/categories", c -> c.saasCategories(credential));
+        calls.put(BASE + "/api/v1/data/security/saas/sensitivities/users", c -> c.saasSensitivityUsers(credential));
+        calls.put(BASE + "/api/v1/endpoint-agent/agent/files?skip=0&limit=10",
+                c -> c.endpointFiles(credential, firstEndpointPage()));
+        calls.put(BASE + "/api/v1/endpoint-agent/agent/files?skip=10&limit=10&search=notes"
+                        + "&subcategory=%5B%22Travel%20Receipts%22%5D&tags=%5B%22Reviewed%22%5D"
+                        + "&uids=%5B%22UID-01%22,%22UID-02%22%5D&hostname=%5B%22Team-Laptop-02%22%5D&last_modified=7d",
+                c -> c.endpointFiles(credential, endpoint));
+        calls.put(BASE + "/api/v1/endpoint-agent/agents/filter-options",
+                c -> c.endpointAgentsFilterOptions(credential));
+        calls.put(endpointFileUrl("/overview"), c -> c.endpointFileOverview(credential, UUID));
+        calls.put(BASE + "/api/v2/endpoint-lineage/asset?file_id=" + UUID, c -> c.endpointLineageAsset(credential, UUID));
+        calls.put(BASE + "/api/v1/admin/mip/file-audit-logs/" + UUID, c -> c.mipFileAuditLogs(credential, UUID));
+        calls.put(BASE + "/api/v2/hash-lineage/copies?file_id=" + UUID, c -> c.hashLineageCopies(credential, UUID));
+
+        calls.keySet().forEach(url -> expectGet(url).andRespond(withSuccess(OK, MediaType.APPLICATION_JSON)));
+        calls.values().forEach(call -> assertThat(call.apply(client).path("success").asBoolean()).isTrue());
+        server.verify();
+
+        ArgumentCaptor<String> paths = ArgumentCaptor.forClass(String.class);
+        verify(audit, atLeastOnce()).recordCredentialUse(eq(10L), eq("k1"), eq("p1"), paths.capture(), anyLong());
+        assertThat(paths.getAllValues()).hasSize(calls.size()).allSatisfy(p -> assertThat(p).doesNotContain("?"));
+        assertThat(paths.getAllValues()).contains(
+                "/api/v2/data/security/saas/sensitivities",
+                "/api/v1/endpoint-agent/agent/files",
+                "/api/v2/endpoint-lineage/asset",
+                "/api/v1/admin/mip/file-audit-logs/" + UUID);
+    }
+
+    @Test
+    @DisplayName("a 500 from /agent/files, /agents/filter-options or /files/{id}/overview is BAD_UPSTREAM_RESPONSE "
+            + "after exactly one request")
+    void endpointFilesServerErrorNotRetried() {
+        Map<String, Runnable> calls = new LinkedHashMap<>();
+        calls.put(BASE + "/api/v1/endpoint-agent/agent/files?skip=0&limit=10",
+                () -> client.endpointFiles(credential, firstEndpointPage()));
+        calls.put(BASE + "/api/v1/endpoint-agent/agents/filter-options",
+                () -> client.endpointAgentsFilterOptions(credential));
+        calls.put(endpointFileUrl("/overview"), () -> client.endpointFileOverview(credential, UUID));
+
+        calls.forEach((url, call) -> {
+            server.reset();
+            expectGet(url).andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+            assertThatThrownBy(call::run).isInstanceOfSatisfying(MattersApiException.class, e -> {
+                assertThat(e.getReason()).isEqualTo(MattersApiException.Reason.BAD_UPSTREAM_RESPONSE);
+                assertThat(e.getMessage()).doesNotContain("?");
+            });
+            server.verify();
+        });
+    }
+
+    @Test
+    @DisplayName("a 500 from the SaaS Files, endpoint-lineage, MIP and UUID hash-lineage routes is retried once")
+    void filesRetriedRoutes() {
+        Map<String, Runnable> calls = new LinkedHashMap<>();
+        calls.put(BASE + "/api/v2/data/security/saas/sensitivities?limit=10",
+                () -> client.saasSensitivities(credential, firstSaasPage()));
+        calls.put(BASE + "/api/v1/data/security/saas/categories", () -> client.saasCategories(credential));
+        calls.put(BASE + "/api/v1/data/security/saas/sensitivities/users",
+                () -> client.saasSensitivityUsers(credential));
+        calls.put(BASE + "/api/v2/endpoint-lineage/asset?file_id=" + UUID,
+                () -> client.endpointLineageAsset(credential, UUID));
+        calls.put(BASE + "/api/v1/admin/mip/file-audit-logs/" + UUID, () -> client.mipFileAuditLogs(credential, UUID));
+        calls.put(BASE + "/api/v2/hash-lineage/copies?file_id=" + UUID, () -> client.hashLineageCopies(credential, UUID));
+
+        calls.forEach((url, call) -> {
+            server.reset();
+            expectGet(2, url).andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+            assertReason(call, MattersApiException.Reason.UPSTREAM_UNAVAILABLE);
+            server.verify();
+        });
+
+        server.reset();
+        expectGet(BASE + "/api/v1/admin/mip/file-audit-logs/" + UUID)
+                .andRespond(withStatus(HttpStatus.BAD_GATEWAY));
+        expectGet(BASE + "/api/v1/admin/mip/file-audit-logs/" + UUID)
+                .andRespond(withSuccess("{\"success\":true,\"audit_logs\":[]}", MediaType.APPLICATION_JSON));
+        assertThat(client.mipFileAuditLogs(credential, UUID).path("audit_logs").isArray()).isTrue();
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("400 'No file found with ID x' on the endpoint file overview is ASSET_NOT_FOUND after one request")
+    void endpointFileNotFound() {
+        expectGet(endpointFileUrl("/overview")).andRespond(withStatus(HttpStatus.BAD_REQUEST)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"success\":false,\"message\":\"No file found with ID x\"}"));
+        assertReason(() -> client.endpointFileOverview(credential, UUID), MattersApiException.Reason.ASSET_NOT_FOUND);
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("hashLineageCopies takes a 24-hex id or a UUID; remediationLogs still takes 24 hex only; the new "
+            + "routes assert their arguments before any request")
+    void filesArgumentAssertions() {
+        List<Runnable> calls = List.of(
+                () -> client.hashLineageCopies(credential, "not-an-id"),
+                () -> client.hashLineageCopies(credential, UUID + "/../x"),
+                () -> client.remediationLogs(credential, UUID),
+                () -> client.endpointFileOverview(credential, FILE_ID),
+                () -> client.endpointFileOverview(credential, null),
+                () -> client.endpointLineageAsset(credential, FILE_ID),
+                () -> client.mipFileAuditLogs(credential, UUID + "/../x"),
+                () -> client.saasSensitivities(credential, new SaasFileListQuery(0, null, null, List.of(), null, null,
+                        List.of(), List.of(), List.of(), List.of(), List.of())),
+                () -> client.endpointFiles(credential, new EndpointFileListQuery(10_001, 10, null,
+                        EndpointFilters.NONE, List.of(), List.of(), List.of(), null)),
+                () -> client.endpointFiles(credential, new EndpointFileListQuery(0, 101, null,
+                        EndpointFilters.NONE, List.of(), List.of(), List.of(), null)));
+        calls.forEach(call -> assertThatThrownBy(call::run).isInstanceOf(IllegalArgumentException.class));
+        server.verify();
+    }
 }

@@ -6,6 +6,7 @@ import org.junit.jupiter.api.function.Executable;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
+import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -197,5 +198,39 @@ class DatastoreParamsTest {
         assertRejected(() -> DatastoreParams.single(repeated, "skip"), "skip");
         assertThat(DatastoreParams.single(repeated, "limit")).isNull();
         DatastoreParams.requireAllowed(repeated, Set.of("skip"));
+    }
+
+    @Test
+    @DisplayName("cursor: absent is null; base64url and base64 with +, / and == pass unchanged; anything else is a 400")
+    void cursor() {
+        assertThat(DatastoreParams.cursor(null)).isNull();
+        assertThat(DatastoreParams.cursor("eyJpZCI6IjEyMyJ9")).isEqualTo("eyJpZCI6IjEyMyJ9");
+        assertThat(DatastoreParams.cursor("ab_c-d")).isEqualTo("ab_c-d");
+        assertThat(DatastoreParams.cursor("ab+c/d==")).isEqualTo("ab+c/d==");
+        assertThat(DatastoreParams.cursor("c".repeat(1024))).hasSize(1024);
+        assertRejected(() -> DatastoreParams.cursor(""), "cursor");
+        assertRejected(() -> DatastoreParams.cursor("c".repeat(1025)), "cursor");
+        assertRejected(() -> DatastoreParams.cursor("ab cd"), "cursor");
+        assertRejected(() -> DatastoreParams.cursor("ab%2Bcd"), "cursor");
+        assertRejected(() -> DatastoreParams.cursor("abcd==="), "cursor");
+        assertRejected(() -> DatastoreParams.cursor("=="), "cursor");
+        assertThatThrownBy(() -> DatastoreParams.cursor("ab cd"))
+                .hasMessage("cursor must be a cursor returned by the previous page");
+        assertThat(DatastoreParams.isCursor("ab+c/d==")).isTrue();
+        assertThat(DatastoreParams.isCursor("ab cd")).isFalse();
+        assertThat(DatastoreParams.isCursor(null)).isFalse();
+    }
+
+    @Test
+    @DisplayName("choice: absent is null; exact values only, case-sensitive; the error names the parameter")
+    void choice() {
+        List<String> sharing = List.of("internal", "external", "public");
+        assertThat(DatastoreParams.choice("sharing", null, sharing)).isNull();
+        assertThat(DatastoreParams.choice("sharing", "public", sharing)).isEqualTo("public");
+        assertRejected(() -> DatastoreParams.choice("sharing", "Public", sharing), "sharing");
+        assertRejected(() -> DatastoreParams.choice("sharing", " public", sharing), "sharing");
+        assertRejected(() -> DatastoreParams.choice("lastModified", "", List.of("48h", "7d", "30d")), "lastModified");
+        assertThatThrownBy(() -> DatastoreParams.choice("lastModified", "1d", List.of("48h", "7d", "30d")))
+                .hasMessage("lastModified must be one of 48h, 7d, 30d");
     }
 }

@@ -9,8 +9,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeSet;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -32,9 +30,6 @@ public record EndpointFilters(List<String> sensitives, List<String> documentClas
     /** Longest single value. */
     public static final int MAX_VALUE_LENGTH = 128;
 
-    /** A sensitive-category code such as {@code PII} or {@code FINANCIAL_DATA}. */
-    private static final Pattern SENSITIVE_CODE = Pattern.compile("^[A-Z][A-Z0-9_]{0,63}$");
-
     /**
      * Reads the four filters from the request. Every occurrence of a parameter is split on {@code ','},
      * each value trimmed, empties dropped, the rest de-duplicated and sorted. A parameter that is present
@@ -51,43 +46,10 @@ public record EndpointFilters(List<String> sensitives, List<String> documentClas
                 values(params, "dataElement"));
     }
 
+    /** The sensitives are upper-case codes; the other three any text (FilterValues, build 2's rule unchanged). */
     private static List<String> values(MultiValueMap<String, String> params, String name) {
-        List<String> raw = params.get(name);
-        if (raw == null) {
-            return List.of();
-        }
-        TreeSet<String> values = new TreeSet<>();
-        for (String joined : raw) {
-            if (joined == null) {
-                continue;
-            }
-            for (String part : joined.split(",", -1)) {
-                String value = part.trim();
-                if (value.isEmpty()) {
-                    continue;
-                }
-                if (value.length() > MAX_VALUE_LENGTH || DatastoreParams.hasControlCharacter(value)) {
-                    throw new DspmBadRequestException(name,
-                            name + " values must be 1 to 128 characters without control characters");
-                }
-                if ("sensitives".equals(name) && !SENSITIVE_CODE.matcher(value).matches()) {
-                    throw new DspmBadRequestException(name,
-                            name + " values must be upper-case codes of letters, digits and underscores");
-                }
-                values.add(value);
-                if (values.size() > MAX_VALUES) {
-                    throw tooManyOrNone(name);
-                }
-            }
-        }
-        if (values.isEmpty()) {
-            throw tooManyOrNone(name);
-        }
-        return List.copyOf(values);
-    }
-
-    private static DspmBadRequestException tooManyOrNone(String name) {
-        return new DspmBadRequestException(name, name + " needs 1 to 50 values");
+        return FilterValues.parse(params, name,
+                "sensitives".equals(name) ? FilterValues.Rule.CODE : FilterValues.Rule.TEXT);
     }
 
     /**
@@ -104,7 +66,8 @@ public record EndpointFilters(List<String> sensitives, List<String> documentClas
         return params;
     }
 
-    private static void putArray(Map<String, List<String>> params, String name, List<String> values,
+    /** Puts {@code values} as one JSON array text under {@code name}, unless empty. The Files queries use it too. */
+    static void putArray(Map<String, List<String>> params, String name, List<String> values,
                                  ObjectMapper objectMapper) {
         if (values.isEmpty()) {
             return;
@@ -128,7 +91,8 @@ public record EndpointFilters(List<String> sensitives, List<String> documentClas
                 + "&dataElement=" + join(dataElement);
     }
 
-    private static String join(List<String> values) {
+    /** The values URL-encoded and comma-joined, for canonical fragments. The Files queries use it too. */
+    static String join(List<String> values) {
         return values.stream()
                 .map(value -> URLEncoder.encode(value, StandardCharsets.UTF_8))
                 .collect(Collectors.joining(","));

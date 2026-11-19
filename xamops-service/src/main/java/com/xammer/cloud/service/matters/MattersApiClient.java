@@ -66,7 +66,7 @@ public class MattersApiClient {
     /** API version prefix. Every path below is relative to this, except the hash-lineage routes. */
     private static final String API_PREFIX = "/api/v1";
 
-    /** Prefix of the hash-lineage routes, the only v2 routes used. */
+    /** Prefix of the v2 routes: hash lineage, endpoint lineage and the SaaS Files list. */
     private static final String API_V2_PREFIX = "/api/v2";
 
     public static final String PATH_ASSETS = API_PREFIX + "/assets";
@@ -102,6 +102,19 @@ public class MattersApiClient {
      * {@code /entity}, {@code /files} or {@code /scans}.
      */
     public static final String PATH_ENDPOINT_AGENT_PREFIX = API_PREFIX + "/endpoint-agent/agent/";
+
+    // Console routes behind the Files page and its Endpoint file drawer (build 3). The SaaS list pages by
+    // keyset cursor; the endpoint list by skip and limit. Endpoint files are keyed by their UUID.
+    public static final String PATH_SAAS_SENSITIVITIES = API_V2_PREFIX + "/data/security/saas/sensitivities";
+    public static final String PATH_SAAS_CATEGORIES = API_PREFIX + "/data/security/saas/categories";
+    public static final String PATH_SAAS_SENSITIVITY_USERS = API_PREFIX + "/data/security/saas/sensitivities/users";
+    public static final String PATH_ENDPOINT_FILES = API_PREFIX + "/endpoint-agent/agent/files";
+    public static final String PATH_ENDPOINT_AGENTS_FILTER_OPTIONS = API_PREFIX + "/endpoint-agent/agents/filter-options";
+    /** Followed by {@code {fileId}/overview}. */
+    public static final String PATH_ENDPOINT_FILE_PREFIX = API_PREFIX + "/endpoint-agent/files/";
+    public static final String PATH_ENDPOINT_LINEAGE_ASSET = API_V2_PREFIX + "/endpoint-lineage/asset";
+    /** Followed by {@code {fileId}}. */
+    public static final String PATH_MIP_FILE_AUDIT_LOGS_PREFIX = API_PREFIX + "/admin/mip/file-audit-logs/";
 
     // Data Flow routes. They answer bare objects ({data[], pagination}) without a success flag. The
     // diagram routes ({schemas|databases}/{id}/erd) and tables/{id}/relations sit under the same prefix.
@@ -333,7 +346,10 @@ public class MattersApiClient {
         return get(credential, PATH_REMEDIATION_OBJECTS_PREFIX + requireSourceId(fileId) + "/logs", Map.of(), true);
     }
 
-    /** {@code GET /api/v2/hash-lineage/copies?file_id=}: the file's content-hash copies. */
+    /**
+     * {@code GET /api/v2/hash-lineage/copies?file_id=}: the file's content-hash copies. The id is a SaaS
+     * file's 24-hex id or an endpoint file's UUID.
+     */
     public JsonNode hashLineageCopies(MattersCredential credential, String fileId) {
         return get(credential, PATH_HASH_LINEAGE_COPIES, Map.of("file_id", List.of(requireFileId(fileId))), true);
     }
@@ -417,6 +433,57 @@ public class MattersApiClient {
         query.put("skip", List.of(String.valueOf(requireOffset("skip", skip))));
         query.put("limit", List.of(String.valueOf(requireLimit(limit))));
         return get(credential, path, query, true, false);
+    }
+
+    // ── console routes (Files page and Endpoint file drawer) ─────────────────────────────────────
+    //
+    // The SaaS, endpoint-lineage and MIP routes keep the single 5xx retry; the endpoint-agent routes pass
+    // retryServerErrors=false, as the Endpoint drawer's do (design 4.8).
+
+    /**
+     * {@code GET /api/v2/data/security/saas/sensitivities}: one keyset page of the SaaS Files list. Filters
+     * go as JSON arrays, the document class as a plain {@code subcategory} string.
+     */
+    public JsonNode saasSensitivities(MattersCredential credential, SaasFileListQuery query) {
+        requireLimit(query.limit());
+        return get(credential, PATH_SAAS_SENSITIVITIES, query.toVendorParams(objectMapper), true);
+    }
+
+    /** {@code GET /api/v1/data/security/saas/categories}: every category with its document classes. */
+    public JsonNode saasCategories(MattersCredential credential) {
+        return get(credential, PATH_SAAS_CATEGORIES, Map.of(), true);
+    }
+
+    /** {@code GET /api/v1/data/security/saas/sensitivities/users}: owners, internal and external users. */
+    public JsonNode saasSensitivityUsers(MattersCredential credential) {
+        return get(credential, PATH_SAAS_SENSITIVITY_USERS, Map.of(), true);
+    }
+
+    /** {@code GET /api/v1/endpoint-agent/agent/files}: one page of every agent's files. */
+    public JsonNode endpointFiles(MattersCredential credential, EndpointFileListQuery query) {
+        requireOffset("skip", query.skip());
+        requireLimit(query.limit());
+        return get(credential, PATH_ENDPOINT_FILES, query.toVendorParams(objectMapper), true, false);
+    }
+
+    /** {@code GET /api/v1/endpoint-agent/agents/filter-options}: the filter values across every agent. */
+    public JsonNode endpointAgentsFilterOptions(MattersCredential credential) {
+        return get(credential, PATH_ENDPOINT_AGENTS_FILTER_OPTIONS, Map.of(), true, false);
+    }
+
+    /** {@code GET /api/v1/endpoint-agent/files/{fileId}/overview}. Carries raw samples: whitelist downstream. */
+    public JsonNode endpointFileOverview(MattersCredential credential, String fileId) {
+        return get(credential, PATH_ENDPOINT_FILE_PREFIX + requireUuid(fileId) + "/overview", Map.of(), true, false);
+    }
+
+    /** {@code GET /api/v2/endpoint-lineage/asset?file_id=}: the endpoint file's recorded activity. */
+    public JsonNode endpointLineageAsset(MattersCredential credential, String fileId) {
+        return get(credential, PATH_ENDPOINT_LINEAGE_ASSET, Map.of("file_id", List.of(requireUuid(fileId))), true);
+    }
+
+    /** {@code GET /api/v1/admin/mip/file-audit-logs/{fileId}}: the endpoint file's MIP tag history. */
+    public JsonNode mipFileAuditLogs(MattersCredential credential, String fileId) {
+        return get(credential, PATH_MIP_FILE_AUDIT_LOGS_PREFIX + requireUuid(fileId), Map.of(), true);
     }
 
     // ── Data Flow routes ─────────────────────────────────────────────────────────────────────────
