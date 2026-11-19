@@ -30,7 +30,7 @@ import type {
 } from '../types/dspmFiles';
 import { DEMO_NOW } from './xamlensEndpointDrawerMockData';
 import { demoEndpointFileTimes } from './xamlensFilesMockData';
-import type { DspmDashboard } from '../types/dspmPages';
+import type { AssistList, DocumentClassList, DspmDashboard, RemediationActivity } from '../types/dspmPages';
 
 /**
  * The generic `/api/xamops/*` fallback answers `{}`, which is wrong for any
@@ -2000,6 +2000,54 @@ describe('demo router — AutoSpotting shell for GCP (ROLE_XAMOPS)', () => {
     const audit = (await call(`${G}/audit?from=2026-10-22&to=2026-11-20&limit=100`)).body;
     expect(audit.every((e: { groupKey: string | null }) => e.groupKey === null || e.groupKey.startsWith('gcp-analytics-demo/'))).toBe(true);
     expect((await call(`${G}/commitments/settings`)).status).toBe(200);
+  });
+});
+
+describe('demo router — XamLens Document Classes, Assists and Remediation (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+
+  it('answers /api/dspm/document-classes with 33 classes in 11 categories', async () => {
+    const list = await readDemoBody('/api/dspm/document-classes') as DocumentClassList;
+    expect(list.categories).toHaveLength(11);
+    expect(list.rows).toHaveLength(33);
+    for (const row of list.rows) expect(list.categories).toContain(row.category);
+  });
+
+  it('answers /api/dspm/assists with an active, a disabled, an expiring and an expired assist', async () => {
+    const { assists } = await readDemoBody('/api/dspm/assists') as AssistList;
+    const now = Date.now() / 1000;
+    expect(assists).toHaveLength(4);
+    expect(assists.map(a => a.statusLabel)).toContain('Disabled');
+    expect(assists.some(a => a.version === null)).toBe(true);
+    expect(assists.some(a => a.secretExpiresAt !== null && a.secretExpiresAt < now)).toBe(true);
+    expect(assists.some(a => a.secretExpiresAt !== null && a.secretExpiresAt > now && a.secretExpiresAt - now <= 12 * 86_400)).toBe(true);
+    for (const a of assists) expect(a.clientId).toMatch(/^[A-Za-z0-9+/]+=*$/);
+  });
+
+  it('answers /api/dspm/remediation/activity applying status, actionType, q, skip and limit', async () => {
+    const url = (query: string) => `/api/dspm/remediation/activity?${query}`;
+    const all = await readDemoBody(url('skip=0&limit=10')) as RemediationActivity;
+    expect(all.items).toHaveLength(6);
+    expect(all.total).toBe(6);
+    expect(all.summary.total).toBe(6);
+    expect(new Set(all.items.map(i => i.status)).size).toBeGreaterThanOrEqual(5);
+    const completed = await readDemoBody(url('status=COMPLETED&skip=0&limit=10')) as RemediationActivity;
+    expect(completed.items.every(i => i.status === 'COMPLETED')).toBe(true);
+    expect(completed.total).toBe(completed.items.length);
+    expect(completed.summary.total).toBe(6);   // the cards cover every status
+    const action = await readDemoBody(url('actionType=DELETE_FILE&skip=0&limit=10')) as RemediationActivity;
+    expect(action.items.map(i => i.actionType)).toEqual(['DELETE_FILE']);
+    const searched = await readDemoBody(url('q=ROSTER&skip=0&limit=10')) as RemediationActivity;
+    expect(searched.items).toHaveLength(1);
+    const paged = await readDemoBody(url('skip=4&limit=10')) as RemediationActivity;
+    expect(paged.items).toHaveLength(2);
+    expect(paged.total).toBe(6);
+    const none = await readDemoBody(url('q=no-such-object&skip=0&limit=10')) as RemediationActivity;
+    expect(none.items).toEqual([]);
+    expect(none.summary.total).toBe(0);
   });
 });
 

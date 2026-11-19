@@ -1308,6 +1308,12 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     const path = new URL(url, 'http://localhost').pathname;
     if (path === '/api/dspm/dashboard')
       return makeResponse(xamlensPages.demoDashboard());
+    if (path === '/api/dspm/document-classes')
+      return makeResponse(xamlensPages.demoDocumentClasses());
+    if (path === '/api/dspm/assists')
+      return makeResponse(xamlensPages.demoAssists());
+    if (path === '/api/dspm/remediation/activity')
+      return makeResponse(xamlensPages.demoRemediation(url));
   }
   // Summary and anything else: {} is safe, nothing on screen reads it yet. Never the real API, which
   // would read a customer's Matters project from a sales demo.

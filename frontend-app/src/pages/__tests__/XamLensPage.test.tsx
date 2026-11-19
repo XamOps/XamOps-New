@@ -147,6 +147,45 @@ describe('XamLensPage routing', () => {
     expect(get).not.toHaveBeenCalledWith('/api/dspm/dashboard');
   });
 
+  // Build 6's other pages: each route renders its page, reading only its own endpoint.
+  const PAGES = [
+    {
+      url: '/xamlens/document-classes', heading: 'Document Classes', endpoint: '/api/dspm/document-classes',
+      body: { categories: ['Group A'], rows: [{ name: 'Class A1', category: 'Group A' }] }, shows: 'Class A1',
+    },
+    { url: '/xamlens/assists', heading: 'Assists', endpoint: '/api/dspm/assists', body: { assists: [] }, shows: 'No assists found' },
+    {
+      url: '/xamlens/remediation', heading: 'Remediation', endpoint: '/api/dspm/remediation/activity?skip=0&limit=10',
+      body: {
+        summary: { total: 0, waitingApproval: 0, inProgressScheduled: 0, completed: 0, failed: 0 },
+        statusCounts: {}, total: 0, skip: 0, limit: 10, items: [],
+      },
+      shows: 'No remediation activity yet',
+    },
+  ] as const;
+
+  it.each(PAGES)('renders its page on $url', async ({ url, heading, endpoint, body, shows }) => {
+    get.mockImplementation(async (requested: string) => {
+      if (requested === '/api/dspm/status') return READY;
+      if (requested === endpoint) return body;
+      throw new Error(`HTTP 404: unexpected ${requested}`);
+    });
+    renderAt(url);
+    expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeInTheDocument();
+    expect(await screen.findByText(shows)).toBeInTheDocument();
+    expect(screen.queryByTestId('datastores-page')).toBeNull();
+    expect(screen.getByTestId('location')).toHaveTextContent(url);
+    expect(get).toHaveBeenCalledWith(endpoint);
+  });
+
+  it.each(PAGES)('explains a not-ready workspace on $url and loads nothing else', async ({ url, heading, endpoint }) => {
+    get.mockResolvedValue(NOT_READY);
+    renderAt(url);
+    expect(await screen.findByText('Your data security workspace is being set up')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1, name: heading })).toBeNull();
+    expect(get).not.toHaveBeenCalledWith(endpoint);
+  });
+
   it('renders the status page on /xamlens/connection', async () => {
     renderAt('/xamlens/connection');
     expect(await screen.findByText('Connected')).toBeInTheDocument();

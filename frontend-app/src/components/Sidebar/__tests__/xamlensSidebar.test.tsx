@@ -54,6 +54,19 @@ const xamLensDashboard = () => {
   return links[0];
 };
 
+/** The one XamLens link to `href`; other sections may have links with the same name. */
+const xamLensLink = (name: string, href: string, hidden = false) => {
+  const links = screen.queryAllByRole('link', { name, hidden }).filter(link => link.getAttribute('href') === href);
+  return links;
+};
+const before = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+/** Build 6's page entries below Datastores, in the console's order. */
+const PAGE_ENTRIES = [
+  ['Document Classes', '/xamlens/document-classes'],
+  ['Assists', '/xamlens/assists'],
+  ['Remediation', '/xamlens/remediation'],
+] as const;
+
 beforeEach(() => {
   allowedTabs = [];
   vi.spyOn(window, 'fetch').mockImplementation(async () =>
@@ -161,6 +174,36 @@ describe('Sidebar XamLens entries', () => {
     expect(datastores.className).not.toContain('font-semibold');
   });
 
+  it('lists Dashboard; DATA INVENTORY Datastores; DATA CATALOGUE Document Classes; MANAGEMENT Assists, Remediation', async () => {
+    renderAt('/xamlens/datastores/all');
+    const datastores = await screen.findByRole('link', { name: 'Datastores' });
+    const [documentClasses, assists, remediation] = PAGE_ENTRIES.map(([name, href]) => {
+      const links = xamLensLink(name, href);
+      expect(links, name).toHaveLength(1);
+      return links[0];
+    });
+    const catalogue = screen.getByText('Data Catalogue');
+    const management = screen.getByText('Management');
+    const order = [xamLensDashboard(), label(), datastores, catalogue, documentClasses, management, assists, remediation];
+    for (let i = 1; i < order.length; i++) expect(before(order[i - 1], order[i]), `entry ${i}`).toBe(true);
+    for (const text of ['Data Inventory', 'Data Catalogue', 'Management']) expect(screen.getAllByText(text), text).toHaveLength(1);
+    expect(catalogue).toHaveClass('uppercase');
+    expect(management).toHaveClass('uppercase');
+    expect(screen.queryByRole('link', { name: 'Project Settings', hidden: true })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Scan Management', hidden: true })).toBeNull();
+  });
+
+  it.each(PAGE_ENTRIES)('marks %s active on its own path, and Datastores and Dashboard not', async (name, href) => {
+    renderAt(href);
+    const datastores = await screen.findByRole('link', { name: 'Datastores' });
+    expect(xamLensLink(name, href)[0].className).toContain('font-semibold');
+    for (const [other, otherHref] of PAGE_ENTRIES) {
+      if (other !== name) expect(xamLensLink(other, otherHref)[0].className, other).not.toContain('font-semibold');
+    }
+    expect(datastores.className).not.toContain('font-semibold');
+    expect(xamLensDashboard().className).not.toContain('font-semibold');
+  });
+
   it('folds the label and Datastores away off the XamLens routes', async () => {
     renderAt('/xamsecure/overview');
     await screen.findByRole('link', { name: 'XamLens' });
@@ -204,5 +247,7 @@ describe('Sidebar XamLens entries', () => {
     expect(screen.queryByText('Risks', { selector: 'p' })).toBeNull();
     expect(screen.queryAllByRole('link', { name: 'Dashboard', hidden: true })
       .filter(link => link.getAttribute('href') === '/xamlens/dashboard')).toHaveLength(0);
+    for (const [name, href] of PAGE_ENTRIES) expect(xamLensLink(name, href, true), name).toHaveLength(0);
+    expect(screen.queryByText('Data Catalogue')).toBeNull();
   });
 });
