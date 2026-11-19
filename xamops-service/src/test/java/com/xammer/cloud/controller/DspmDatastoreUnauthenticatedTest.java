@@ -14,11 +14,15 @@ import com.xammer.cloud.service.matters.DatastoreDrawerService;
 import com.xammer.cloud.service.matters.DatastoreListService;
 import com.xammer.cloud.service.matters.EndpointDrawerService;
 import com.xammer.cloud.service.matters.MisconfigurationService;
+import com.xammer.cloud.service.matters.EndpointFileService;
+import com.xammer.cloud.service.matters.FilesService;
 import com.xammer.cloud.service.matters.SaasDrawerService;
 import com.xammer.cloud.service.matters.SaasFileService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -56,7 +60,8 @@ class DspmDatastoreUnauthenticatedTest {
     @EnableWebMvc
     @Import({SecurityConfig.class, ImpersonationJwtFilter.class, TrialEnforcementFilter.class,
             DspmDatastoreController.class, DspmSaasController.class, DspmEndpointController.class,
-            DspmMisconfigurationController.class})
+            DspmMisconfigurationController.class,
+            DspmFilesController.class})
     static class TestConfig {
     }
 
@@ -76,6 +81,10 @@ class DspmDatastoreUnauthenticatedTest {
     private EndpointDrawerService endpointDrawerService;
     @MockitoBean
     private MisconfigurationService misconfigurationService;
+    @MockitoBean
+    private FilesService filesService;
+    @MockitoBean
+    private EndpointFileService endpointFileService;
 
     @MockitoBean
     private UserRepository userRepository;
@@ -157,5 +166,22 @@ class DspmDatastoreUnauthenticatedTest {
                 .andExpect(status().isUnauthorized());
 
         verifyNoInteractions(guard, misconfigurationService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "/api/dspm/files/saas",
+            "/api/dspm/files/saas/filter-options",
+            "/api/dspm/files/endpoint",
+            "/api/dspm/files/endpoint/filter-options",
+            "/api/dspm/endpoint-files/0000aaaa-0000-4000-8000-00000000000c/overview",
+            "/api/dspm/endpoint-files/0000aaaa-0000-4000-8000-00000000000c/activity",
+            "/api/dspm/endpoint-files/0000aaaa-0000-4000-8000-00000000000c/lineage",
+            "/api/dspm/endpoint-files/0000aaaa-0000-4000-8000-00000000000c/copies"})
+    @DisplayName("each Files page endpoint (F1 to F8) returns 401 and the controller is never reached")
+    void filesAreAuthenticated(String path) throws Exception {
+        mvc.perform(get(path)).andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(guard, filesService, endpointFileService);
     }
 }

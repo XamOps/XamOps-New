@@ -83,7 +83,14 @@ class DatastoreCacheKeysTest {
                 DatastoreCacheKeys.lineageDatastores(clientId, UUID,
                         new LineageRowQuery(null, 110, 7, LineageFilters.NONE)),
                 DatastoreCacheKeys.lineageFiles(clientId, EXPOSURE_ID, 1, 11),
-                DatastoreCacheKeys.lineageFiles(clientId, EXPOSURE_ID, 110, 99));
+                DatastoreCacheKeys.lineageFiles(clientId, EXPOSURE_ID, 110, 99),
+                DatastoreCacheKeys.filesSaas(clientId, SaasFileListQuery.parse(params("limit", "11", "cursor", "abc"))),
+                DatastoreCacheKeys.filesSaasOptions(clientId),
+                DatastoreCacheKeys.filesEndpoint(clientId, EndpointFileListQuery.parse(params("skip", "1", "limit", "11"))),
+                DatastoreCacheKeys.filesEndpointOptions(clientId),
+                DatastoreCacheKeys.endpointFileOverview(clientId, UUID),
+                DatastoreCacheKeys.endpointFileActivity(clientId, UUID),
+                DatastoreCacheKeys.endpointFileLineage(clientId, UUID));
     }
 
     @Test
@@ -328,5 +335,34 @@ class DatastoreCacheKeysTest {
         DatastoreListQuery query = DatastoreListQuery.forList(params("tab", "cloud"));
         assertThat(DatastoreCacheKeys.list(CLIENT, query)).startsWith("dspm:dslist:10:");
         assertThat(DatastoreCacheKeys.list(11L, query)).startsWith("dspm:dslist:11:");
+    }
+
+    @Test
+    @DisplayName("Files keys: fixed shapes, hashed lists, no search, filter value or cursor in clear, order-free")
+    void filesKeys() {
+        assertThat(DatastoreCacheKeys.filesSaasOptions(CLIENT)).isEqualTo("dspm:fsaasopts:10:all");
+        assertThat(DatastoreCacheKeys.filesEndpointOptions(CLIENT)).isEqualTo("dspm:fepopts:10:all");
+        assertThat(DatastoreCacheKeys.endpointFileOverview(CLIENT, UUID)).isEqualTo("dspm:fepfile:10:" + UUID);
+        assertThat(DatastoreCacheKeys.endpointFileActivity(CLIENT, UUID)).isEqualTo("dspm:fepact:10:" + UUID);
+        assertThat(DatastoreCacheKeys.endpointFileLineage(CLIENT, UUID)).isEqualTo("dspm:feplin:10:" + UUID);
+
+        SaasFileListQuery saas = SaasFileListQuery.parse(params("q", "needle-search", "cursor", "needlecursor",
+                "sensitives", "NEEDLE_CODE", "documentClass", "needle-class", "category", "needle-category",
+                "appType", "NEEDLE_APP", "internalUser", "needle@example.test", "externalUser", "needle@example.org"));
+        EndpointFileListQuery endpoint = EndpointFileListQuery.parse(params("q", "needle-q", "tag", "needle-tag",
+                "uid", "needle-uid", "hostname", "needle-host", "dataElement", "needle-element"));
+        assertThat(DatastoreCacheKeys.filesSaas(CLIENT, saas)).matches("^dspm:fsaas:10:[0-9a-f]{64}$")
+                .endsWith(DatastoreCacheKeys.sha256Hex(saas.canonicalFragment()))
+                .doesNotContainIgnoringCase("needle");
+        assertThat(DatastoreCacheKeys.filesEndpoint(CLIENT, endpoint)).matches("^dspm:fep:10:[0-9a-f]{64}$")
+                .doesNotContainIgnoringCase("needle");
+
+        assertThat(DatastoreCacheKeys.filesSaas(CLIENT, SaasFileListQuery.parse(params("category", "b,a"))))
+                .isEqualTo(DatastoreCacheKeys.filesSaas(CLIENT,
+                        SaasFileListQuery.parse(params("category", "a", "category", "b"))));
+        assertThat(DatastoreCacheKeys.filesEndpoint(CLIENT, EndpointFileListQuery.parse(params("uid", "b,a"))))
+                .isEqualTo(DatastoreCacheKeys.filesEndpoint(CLIENT, EndpointFileListQuery.parse(params("uid", "a,b"))));
+        assertThat(DatastoreCacheKeys.filesSaas(CLIENT, SaasFileListQuery.parse(params("cursor", "abc"))))
+                .isNotEqualTo(DatastoreCacheKeys.filesSaas(CLIENT, SaasFileListQuery.parse(params())));
     }
 }

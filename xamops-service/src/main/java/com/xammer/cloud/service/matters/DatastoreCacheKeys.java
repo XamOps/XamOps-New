@@ -20,7 +20,9 @@ import java.util.HexFormat;
  * fragment ({@link DatastoreListQuery#canonicalListFragment()}), never the fragment itself, so no search
  * term or filter value reaches the log. The SaaS files, endpoint metrics and endpoint files keys do the
  * same with {@link SaasFileQuery#canonicalFragment()}, {@link EndpointFilters#canonicalFragment()} and
- * {@link EndpointFileQuery#canonicalFragment()} (build 2, design 5.8). Every other key holds only the
+ * {@link EndpointFileQuery#canonicalFragment()} (build 2, design 5.8), and the Files page lists with
+ * {@link SaasFileListQuery#canonicalFragment()} and {@link EndpointFileListQuery#canonicalFragment()}, whose
+ * SaaS fragment holds the vendor cursor too (build 3). Every other key holds only the
  * client id, a validated 24-hex source or file id or UUID, a vendor page number, a validated skip and
  * limit, or a fixed word.
  *
@@ -237,6 +239,43 @@ public final class DatastoreCacheKeys {
      */
     public static String lineageFiles(Long clientId, String exposureId, int skip, int limit) {
         return key("lnfiles", clientId, exposureId + ":" + skip + "-" + limit);
+    }
+
+    // ── Files page and Endpoint file drawer (build 3) ────────────────────────────────────────────
+
+    /** {@code dspm:fsaas:<c>:<sha256 hex>}: one SaaS tab page; the hash covers the search, filters and cursor. */
+    public static String filesSaas(Long clientId, SaasFileListQuery query) {
+        return key("fsaas", clientId, sha256Hex(query.canonicalFragment()));
+    }
+
+    /** {@code dspm:fsaasopts:<c>:all}: the SaaS tab's filter options and classes per category. */
+    public static String filesSaasOptions(Long clientId) {
+        return key("fsaasopts", clientId, "all");
+    }
+
+    /** {@code dspm:fep:<c>:<sha256 hex>}: one Endpoint tab page. */
+    public static String filesEndpoint(Long clientId, EndpointFileListQuery query) {
+        return key("fep", clientId, sha256Hex(query.canonicalFragment()));
+    }
+
+    /** {@code dspm:fepopts:<c>:all}: the Endpoint tab's filter options. */
+    public static String filesEndpointOptions(Long clientId) {
+        return key("fepopts", clientId, "all");
+    }
+
+    /** {@code dspm:fepfile:<c>:<fileId>}: the Endpoint file drawer's overview, keyed by the validated UUID. */
+    public static String endpointFileOverview(Long clientId, String fileId) {
+        return key("fepfile", clientId, fileId);
+    }
+
+    /** {@code dspm:fepact:<c>:<fileId>}: the Endpoint file drawer's File Activity. */
+    public static String endpointFileActivity(Long clientId, String fileId) {
+        return key("fepact", clientId, fileId);
+    }
+
+    /** {@code dspm:feplin:<c>:<fileId>}: the Endpoint file drawer's Lineage (own lane plus copies). */
+    public static String endpointFileLineage(Long clientId, String fileId) {
+        return key("feplin", clientId, fileId);
     }
 
     // ── eviction ─────────────────────────────────────────────────────────────────────────────────
