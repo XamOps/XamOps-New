@@ -7,6 +7,7 @@ import PoweredByProvider from '../components/XamSecure/PoweredByProvider';
 import DatastoresPage from '../components/Dspm/datastores/DatastoresPage';
 import MisconfigurationsPage from '../components/Dspm/misconfigurations/MisconfigurationsPage';
 import DspmStatusTab from '../components/Dspm/DspmStatusTab';
+import DataLineagePage from '../components/Dspm/lineage/DataLineagePage';
 
 /**
  * XamLens: where sensitive data lives across cloud datastores, SaaS accounts, endpoints and on-prem
@@ -18,8 +19,9 @@ import DspmStatusTab from '../components/Dspm/DspmStatusTab';
  * reason, which also means a customer without cloud accounts can still use it.
  *
  * Routes: `/xamlens/datastores/:datastoreTab` is the Datastores page; `/xamlens/misconfigurations` the
- * Misconfigurations page; `/xamlens/connection` the connection status. The old `/xamlens/cloud`, `/saas`
- * and `/endpoint` links land on the matching Datastores tab, and any other segment on All.
+ * Misconfigurations page; `/xamlens/data-lineage` the Data Lineage page; `/xamlens/connection` the
+ * connection status. The old `/xamlens/cloud`, `/saas` and `/endpoint` links land on the matching
+ * Datastores tab, and any other segment on All.
  */
 const XamLensPage: React.FC = () => {
   const { tab, datastoreTab: datastoreSlug } = useParams<{ tab?: string; datastoreTab?: string }>();
@@ -39,7 +41,8 @@ const XamLensPage: React.FC = () => {
 
   const connection = datastoreSlug === undefined && tab === 'connection';
   const misconfigurations = datastoreSlug === undefined && tab === 'misconfigurations';
-  if (datastoreSlug === undefined && !connection && !misconfigurations) {
+  const lineage = datastoreSlug === undefined && tab === 'data-lineage';
+  if (datastoreSlug === undefined && !connection && !misconfigurations && !lineage) {
     const legacy = tab !== undefined && Object.prototype.hasOwnProperty.call(LEGACY_XAMLENS_SEGMENTS, tab)
       ? LEGACY_XAMLENS_SEGMENTS[tab]
       : undefined;
@@ -61,6 +64,9 @@ const XamLensPage: React.FC = () => {
         )}
         {!statusLoading && status && connection && (
           <DspmStatusTab status={status} onRetry={reloadStatus} />
+        )}
+        {!statusLoading && status && lineage && (
+          <DataLineagePage status={status} onRetry={reloadStatus} />
         )}
       </div>
     </main>

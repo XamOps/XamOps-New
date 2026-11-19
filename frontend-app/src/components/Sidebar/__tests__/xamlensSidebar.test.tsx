@@ -21,7 +21,7 @@ vi.mock('../AccountSelector', () => ({ default: () => <div>Account selector</div
 import Sidebar from '../Sidebar';
 import { ThemeProvider, useTheme } from '../../../contexts/ThemeContext';
 import { XamTabAccessProvider } from '../../../contexts/XamTabAccessContext';
-import { DATASTORE_TABS, XAMLENS_HOME } from '../../../constants/xamlensTabs';
+import { DATASTORE_TABS, XAMLENS_HOME, XAMLENS_LINEAGE_HOME } from '../../../constants/xamlensTabs';
 
 let allowedTabs: string[] = [];
 
@@ -117,6 +117,26 @@ describe('Sidebar XamLens entries', () => {
     expect(risksLabel().closest('[aria-hidden="true"]')).not.toBeNull();
   });
 
+  it('puts an active Data Lineage entry directly after Datastores under the one DATA INVENTORY label', async () => {
+    renderAt(XAMLENS_LINEAGE_HOME);
+    const lineage = await screen.findByRole('link', { name: 'Data Lineage' });
+    const datastores = screen.getByRole('link', { name: 'Datastores' });
+    expect(lineage).toHaveAttribute('href', '/xamlens/data-lineage');
+    expect(lineage.className).toContain('font-semibold');
+    expect(datastores.className).not.toContain('font-semibold');
+    expect(screen.getAllByText('Data Inventory')).toHaveLength(1);
+    expect(label().compareDocumentPosition(datastores) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(datastores.compareDocumentPosition(lineage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const links = screen.getAllByRole('link');
+    expect(links[links.indexOf(datastores) + 1]).toBe(lineage);
+  });
+
+  it('folds Data Lineage away off the XamLens routes', async () => {
+    renderAt('/xamsecure/overview');
+    await screen.findByRole('link', { name: 'XamLens' });
+    expect(screen.queryByRole('link', { name: 'Data Lineage' })).toBeNull();
+  });
+
   it('shows none of them to a user whose tab rules hide XamLens', async () => {
     allowedTabs = ['secops-xamsecure'];
     renderAt('/xamsecure/overview');
@@ -124,6 +144,7 @@ describe('Sidebar XamLens entries', () => {
     expect(screen.queryByRole('link', { name: 'XamLens', hidden: true })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Datastores', hidden: true })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Misconfigurations', hidden: true })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Data Lineage', hidden: true })).toBeNull();
     expect(screen.queryByText('Data Inventory')).toBeNull();
     expect(screen.queryByText('Risks', { selector: 'p' })).toBeNull();
   });

@@ -11,7 +11,7 @@
  * only that entry: the console's Alerts, Exposure and DAM pages have no API data.
  */
 
-export type XamLensTab = 'misconfigurations' | 'datastores' | 'connection';
+export type XamLensTab = 'misconfigurations' | 'datastores' | 'data-lineage' | 'connection';
 
 export interface XamLensTabDef {
   id: XamLensTab;
@@ -29,9 +29,13 @@ export interface XamLensTabDef {
 
 export const XAMLENS_HOME = '/xamlens/datastores/all';
 
+/** The Data Lineage page; its steps live in the query (`lineageQuery.ts`). */
+export const XAMLENS_LINEAGE_HOME = '/xamlens/data-lineage';
+
 export const XAMLENS_TABS: XamLensTabDef[] = [
   { id: 'misconfigurations', label: 'Misconfigurations', icon: 'fas fa-shield-alt', href: '/xamlens/misconfigurations', activePrefix: '/xamlens/misconfigurations', section: 'Risks' },
   { id: 'datastores', label: 'Datastores', icon: 'fas fa-database', href: XAMLENS_HOME, activePrefix: '/xamlens/datastores', section: 'Data Inventory' },
+  { id: 'data-lineage', label: 'Data Lineage', icon: 'fas fa-diagram-project', href: XAMLENS_LINEAGE_HOME, activePrefix: XAMLENS_LINEAGE_HOME, section: 'Data Inventory' },
   // Connection state. Deep-link only: it matters when something is wrong, not in the healthy path.
   { id: 'connection', label: 'Connection', icon: 'fas fa-circle-nodes', href: '/xamlens/connection', activePrefix: '/xamlens/connection', sidebar: false },
 ];

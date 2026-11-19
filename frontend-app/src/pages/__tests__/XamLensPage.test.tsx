@@ -13,6 +13,10 @@ vi.mock('../../components/Dspm/datastores/DatastoresPage', () => ({
 vi.mock('../../components/Dspm/misconfigurations/MisconfigurationsPage', () => ({
   default: ({ status }: { status: { ready: boolean } }) => <div data-testid="misconfigurations-page">{String(status.ready)}</div>,
 }));
+// DataLineagePage.test.tsx covers the page; here only that the route reaches it.
+vi.mock('../../components/Dspm/lineage/DataLineagePage', () => ({
+  default: () => <div data-testid="data-lineage-page" />,
+}));
 
 import apiClient from '../../utils/apiClient';
 import { TopbarProvider } from '../../contexts/TopbarContext';
@@ -92,6 +96,14 @@ describe('XamLensPage routing', () => {
     expect(await screen.findByText('Connected')).toBeInTheDocument();
     expect(screen.queryByTestId('datastores-page')).toBeNull();
     expect(screen.getByTestId('location')).toHaveTextContent('/xamlens/connection');
+    expect(get).toHaveBeenCalledWith('/api/dspm/status');
+  });
+
+  it('renders the Data Lineage page on /xamlens/data-lineage, keeping its query', async () => {
+    renderAt('/xamlens/data-lineage?category=SENSITIVE_FINDINGS');
+    expect(await screen.findByTestId('data-lineage-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('datastores-page')).toBeNull();
+    expect(screen.getByTestId('location')).toHaveTextContent('/xamlens/data-lineage');
     expect(get).toHaveBeenCalledWith('/api/dspm/status');
   });
 
