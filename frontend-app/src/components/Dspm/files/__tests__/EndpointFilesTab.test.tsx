@@ -8,6 +8,7 @@ vi.mock('../../../../utils/apiClient', () => ({ default: { get: vi.fn() } }));
 import apiClient from '../../../../utils/apiClient';
 import type { DatastoreFilterOptions } from '../../../../types/dspmDatastores';
 import type { EndpointFilePage, EndpointFileRow } from '../../../../types/dspmDrawers';
+import type { EndpointFileOverview } from '../../../../types/dspmFiles';
 import EndpointFilesTab from '../EndpointFilesTab';
 
 const get = apiClient.get as unknown as ReturnType<typeof vi.fn>;
@@ -67,15 +68,33 @@ const OPTIONS: DatastoreFilterOptions = {
   ],
 };
 
+/** The opened file's overview, named after the row it was opened from. */
+function overviewOf(url: URL): EndpointFileOverview {
+  const name = url.pathname.includes(uuidOf(2)) ? 'empty.log' : 'contacts.json';
+  return {
+    name, extension: name.split('.')[1], owner: 'priya', categoryLabel: 'Other', documentClassLabel: 'other',
+    sensitiveRecords: 3, path: `/Users/priya/Documents/${name}`, sizeBytes: 412, device: 'build-laptop-07',
+    modifiedAt: local(2026, 9, 1, 17, 30), fileCreatedAt: null, accessedAt: null, tags: [], sensitives: [],
+  };
+}
+
 type Answer = (url: URL) => unknown;
 let listAnswer: Answer;
 let optionsAnswer: Answer;
+
+const FILE_ANSWERS: Record<string, Answer> = {
+  overview: overviewOf,
+  activity: () => ({ entries: [] }),
+  lineage: () => ({ asset: null, copies: { available: true, coverageNote: null, lanes: [], events: [] } }),
+  copies: () => ({ available: true, copies: [], locations: 1 }),
+};
 
 const httpError = (status: number, code: string) =>
   new Error(`HTTP ${status}: ${JSON.stringify({ code, message: 'synthetic failure' })}`);
 
 const LIST_PATH = '/api/dspm/files/endpoint';
 const OPTIONS_PATH = '/api/dspm/files/endpoint/filter-options';
+const FILE_PATH = /^\/api\/dspm\/endpoint-files\/([0-9a-f-]{36})\/([a-z]+)$/;
 
 const urls = () => get.mock.calls.map(([raw]) => new URL(String(raw), 'http://localhost'));
 const listRequests = () => urls().filter(url => url.pathname === LIST_PATH);
@@ -90,6 +109,8 @@ beforeEach(() => {
     const url = new URL(raw, 'http://localhost');
     if (url.pathname === LIST_PATH) return listAnswer(url);
     if (url.pathname === OPTIONS_PATH) return optionsAnswer(url);
+    const match = FILE_PATH.exec(url.pathname);
+    if (match && FILE_ANSWERS[match[2]]) return FILE_ANSWERS[match[2]](url);
     throw new Error(`HTTP 404: unexpected ${raw}`);
   });
 });
@@ -178,6 +199,64 @@ describe('EndpointFilesTab list', () => {
     await user.click(screen.getByRole('checkbox', { name: /Users/ }));
     expect(screen.getByRole('button', { name: 'Columns 8' })).toBeInTheDocument();
     expect(within(table()).queryByRole('columnheader', { name: 'Users' })).toBeNull();
+  });
+});
+
+describe('EndpointFilesTab file drawer', () => {
+  const fileRequests = (endpoint: string) =>
+    urls().filter(url => FILE_PATH.exec(url.pathname)?.[2] === endpoint).map(url => FILE_PATH.exec(url.pathname)?.[1]);
+
+  it('opens the Endpoint file drawer from a row on Sensitives, and Escape returns focus to the row', async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await screen.findByText('contacts.json');
+    const row = tableRow('contacts.json');
+    expect(row).toHaveAttribute('tabindex', '0');
+    await user.click(row);
+    const drawer = await screen.findByRole('dialog', { name: 'contacts.json' });
+    expect(within(drawer).getByRole('tab', { name: 'Sensitives' })).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(fileRequests('overview')).toEqual([uuidOf(1)]));
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'contacts.json' })).toBeNull());
+    expect(tableRow('contacts.json')).toHaveFocus();
+  });
+
+  it('opens it on Lineage from the lineage icon, and on Sensitives with Enter on a focused row', async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await screen.findByText('contacts.json');
+    const button = within(tableRow('contacts.json')).getByRole('button', { name: 'View lineage for contacts.json' });
+    expect(button).toHaveAttribute('title', 'View lineage');
+    await user.click(button);
+    const drawer = await screen.findByRole('dialog', { name: 'contacts.json' });
+    expect(within(drawer).getByRole('tab', { name: 'Lineage' })).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(fileRequests('lineage')).toEqual([uuidOf(1)]));
+    await user.click(within(drawer).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: 'contacts.json' })).toBeNull();
+    expect(tableRow('contacts.json')).toHaveFocus();
+
+    tableRow('empty.log').focus();
+    await user.keyboard('{Enter}');
+    const next = await screen.findByRole('dialog', { name: 'empty.log' });
+    expect(within(next).getByRole('tab', { name: 'Sensitives' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('leaves a row without a UUID id inert, with no lineage icon', async () => {
+    const user = userEvent.setup();
+    listAnswer = () => ({
+      rows: [fileRow(1, { id: 'not-a-uuid', name: 'orphan.txt' }), fileRow(2, { id: null, name: 'no-id.txt' })],
+      skip: 0, limit: 10, total: 2,
+    });
+    renderTab();
+    await screen.findByText('orphan.txt');
+    for (const name of ['orphan.txt', 'no-id.txt']) {
+      const row = tableRow(name);
+      expect(row).not.toHaveAttribute('tabindex');
+      expect(within(row).queryByRole('button', { name: /lineage/i })).toBeNull();
+      await user.click(row);
+    }
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(fileRequests('overview')).toEqual([]);
   });
 });
 

@@ -5,7 +5,7 @@ import type { LineageEventView, LineageLaneView } from './lineageModel';
 import {
   EVENT_H, EVENT_W, LANE_H, LINEAGE_PAD, eventSlotX, layoutLineage, lineageFitZoom,
 } from './lineageLayout';
-import { EventCard, EventDetails, LaneLabel } from './LineageParts';
+import { EventCard, EventDetails, LaneLabel, type LineageVariant } from './LineageParts';
 
 interface Props {
   /** The lanes to draw, already searched (`visibleLanes`). */
@@ -14,6 +14,8 @@ interface Props {
   zoomable: boolean;
   /** Inside the full-screen frame: the viewport takes the screen's height. */
   fullscreen: boolean;
+  /** See `LineageVariant`. */
+  variant?: LineageVariant;
 }
 
 /**
@@ -22,7 +24,7 @@ interface Props {
  * so they keep their size at any zoom. The popover opens under its card and closes on any zoom change and
  * any scroll of the viewport, so it never drifts from the card.
  */
-const LineageCanvas: React.FC<Props> = ({ lanes, zoomable, fullscreen }) => {
+const LineageCanvas: React.FC<Props> = ({ lanes, zoomable, fullscreen, variant = 'saas' }) => {
   const container = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const layout = useMemo(() => layoutLineage(lanes), [lanes]);
@@ -74,7 +76,7 @@ const LineageCanvas: React.FC<Props> = ({ lanes, zoomable, fullscreen }) => {
                   className={`absolute rounded-lg border ${lane.own ? 'border-rose-100 bg-rose-50' : 'border-[rgba(0,0,0,0.06)] bg-white'}`}
                   style={{ left: LINEAGE_PAD, top: y, width: layout.width - 2 * LINEAGE_PAD, height: LANE_H }}
                 >
-                  <LaneLabel lane={lane} />
+                  <LaneLabel lane={lane} variant={variant} />
                   {lane.events.length === 0 && (
                     <span
                       className="absolute flex items-center text-[11px] text-[rgba(0,0,0,0.4)]"
@@ -101,6 +103,7 @@ const LineageCanvas: React.FC<Props> = ({ lanes, zoomable, fullscreen }) => {
                     setOpenEvent(prev => (prev?.event.key === event.key ? null : { event, anchor }));
                   }}
                   style={{ left: card.x, top: card.y, width: EVENT_W, height: EVENT_H }}
+                  variant={variant}
                 />
               );
             }))}

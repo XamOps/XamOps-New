@@ -571,18 +571,26 @@ describe('SaasFileDrawer File Copies and Related Files', () => {
     expect(within(table).getByText('No matches')).toBeInTheDocument();
   });
 
-  it.each([
-    ['no copies', copies([], 0)],
-    ['lineage unavailable', copies([], 0, false)],
-  ])('reads 0 and "No copies found" with %s', async (_case, answer) => {
+  it('reads 0 and "No other files with this content were found." without copies', async () => {
     const user = userEvent.setup();
-    answers.copies = () => answer;
+    answers.copies = () => copies([], 1);
     const { drawer } = await renderDrive();
     await openTab(user, drawer, 'File Copies');
     const panel = panelOf(drawer);
-    expect(await within(panel).findByText('No copies found')).toBeInTheDocument();
+    expect(await within(panel).findByText('No other files with this content were found.')).toBeInTheDocument();
     expect(within(panel).getByText('Copies Found').nextElementSibling).toHaveTextContent(/^0$/);
-    expect(within(panel).getByText('Locations').nextElementSibling).toHaveTextContent(/^0$/);
+    expect(within(panel).getByText('Locations').nextElementSibling).toHaveTextContent(/^1$/);
+  });
+  it('reads only "No copies found for this file." when lineage is unavailable', async () => {
+    const user = userEvent.setup();
+    answers.copies = () => copies([], 0, false);
+    const { drawer } = await renderDrive();
+    await openTab(user, drawer, 'File Copies');
+    const panel = panelOf(drawer);
+    expect(await within(panel).findByText('No copies found for this file.')).toBeInTheDocument();
+    expect(within(panel).queryByText('Copies Found')).toBeNull();
+    expect(within(panel).queryByRole('searchbox')).toBeNull();
+    expect(within(panel).queryByRole('table')).toBeNull();
   });
 
   it('shares one copies request between File Copies and Related Files', async () => {

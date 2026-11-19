@@ -216,6 +216,21 @@ describe('buildLineageLanes on a Drive file', () => {
   });
 });
 
+describe('buildLineageLanes on a subject without a drive type', () => {
+  // What the Endpoint file drawer passes: no overview of a SaaS file, `driveType` null.
+  const subject: LineageSubject = { name: 'contacts.json', driveType: null, owner: 'priya', lastModifiedAt: null };
+
+  it('draws the non-Gmail lanes: the copy lanes in API order, the self lane as the own lane', () => {
+    expect(isGmail(subject)).toBe(false);
+    expect(buildLineageLanes(subject, null)).toEqual([]);
+    const lanes = buildLineageLanes(subject, lineage({
+      lanes: [lane('copy-0', { self: true, firstSeenAt: 100 }), lane('copy-1', { firstSeenAt: 200 })],
+    }));
+    expect(lanes.map(l => [l.key, l.own])).toEqual([['copy-0', true], ['copy-1', false]]);
+    expect(types(lanes[0].events)).toEqual(['First Seen']);
+  });
+});
+
 describe('visibleLanes', () => {
   const lanes = buildLineageLanes(overview(), lineage({
     lanes: [lane('copy-0', { firstSeenAt: 100, fileName: 'offer.docx', ownerEmail: 'sam@example.com' })],

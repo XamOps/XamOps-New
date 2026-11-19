@@ -1,4 +1,5 @@
 import React from 'react';
+import { Icon } from '@iconify/react';
 import { DspmProviderIcon } from '../../DspmIcons';
 import { ConsoleOnlyButton } from '../ui/ConsoleOnly';
 import { CopyButton } from '../ui/CopyButton';
@@ -12,10 +13,18 @@ import { GreyTag } from './SaasParts';
  * page's band (build 4 design 6.9): a lane's label, an event card and the event popover's body.
  */
 
+/**
+ * `endpoint` (the Endpoint file drawer): own lanes draw a file icon instead of their source's, and each
+ * card a violet circle (red for a deletion, by the event's tone) and "Actor: <actor> · <time>".
+ */
+export type LineageVariant = 'saas' | 'endpoint';
+
 /** A lane's label: the provider icon, the bold file name with its copy button, and the muted owner. */
-export const LaneLabel: React.FC<{ lane: LineageLaneView }> = ({ lane }) => (
+export const LaneLabel: React.FC<{ lane: LineageLaneView; variant?: LineageVariant }> = ({ lane, variant = 'saas' }) => (
   <div className="flex h-full min-w-0 items-center gap-2 px-3" style={{ width: LANE_LABEL_W }}>
-    <DspmProviderIcon provider={lane.icon} size={18} />
+    {variant === 'endpoint' && lane.own
+      ? <Icon icon="mdi:file-outline" width={18} className="flex-shrink-0 text-[rgba(0,0,0,0.55)]" />
+      : <DspmProviderIcon provider={lane.icon} size={18} />}
     <div className="min-w-0">
       <div className="flex min-w-0 items-center gap-0.5">
         <span className="truncate text-xs font-semibold text-[rgba(0,0,0,0.85)]" title={lane.fileName}>{lane.fileName}</span>
@@ -35,10 +44,11 @@ interface EventCardProps {
   /** The card's absolute position and size. */
   style: React.CSSProperties;
   onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  variant?: LineageVariant;
 }
 
-/** An event card: the event type, then "actor · time". */
-export const EventCard: React.FC<EventCardProps> = ({ event, laneKey, open, style, onClick }) => (
+/** An event card: the event type, then "actor · time" (endpoint: a toned file circle, then "Actor: actor · time"). */
+export const EventCard: React.FC<EventCardProps> = ({ event, laneKey, open, style, onClick, variant = 'saas' }) => (
   <button
     type="button"
     data-event-lane={laneKey}
@@ -50,10 +60,31 @@ export const EventCard: React.FC<EventCardProps> = ({ event, laneKey, open, styl
     }`}
     style={style}
   >
-    <span className="truncate text-[11px] font-semibold text-[rgba(0,0,0,0.85)]">{event.type}</span>
-    <span className="truncate text-[10px] text-[rgba(0,0,0,0.5)]">
-      {event.actor} · {event.at === null ? '-' : formatLineageTime(event.at)}
-    </span>
+    {variant === 'endpoint' ? (
+      <span className="flex min-w-0 items-center gap-2">
+        <span
+          data-tone={event.tone ?? 'purple'}
+          className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full ${
+            event.tone === 'red' ? 'bg-rose-100 text-rose-600' : 'bg-violet-100 text-violet-600'
+          }`}
+        >
+          <Icon icon="mdi:file-outline" width={13} />
+        </span>
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate text-[11px] font-semibold text-[rgba(0,0,0,0.85)]">{event.type}</span>
+          <span className="truncate text-[10px] text-[rgba(0,0,0,0.5)]">
+            Actor: {event.actor} · {event.at === null ? '-' : formatLineageTime(event.at)}
+          </span>
+        </span>
+      </span>
+    ) : (
+      <>
+        <span className="truncate text-[11px] font-semibold text-[rgba(0,0,0,0.85)]">{event.type}</span>
+        <span className="truncate text-[10px] text-[rgba(0,0,0,0.5)]">
+          {event.actor} · {event.at === null ? '-' : formatLineageTime(event.at)}
+        </span>
+      </>
+    )}
   </button>
 );
 

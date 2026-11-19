@@ -34,6 +34,8 @@ export interface LineageEventView {
   at: number | null;
   fileName: string | null;
   channel: string | null;
+  /** The card's circle in the Endpoint file drawer (`endpointLineageModel.ts`); unset in the SaaS drawers. */
+  tone?: 'red' | 'purple';
 }
 
 /** One lane: its label (icon, file name, owner) and its events in drawing order. */
@@ -52,7 +54,7 @@ const GMAIL_LANE_KEY = 'gmail-origin';
 
 /**
  * What the lanes need of the opened file: a SaaS file overview, or any file described by these four fields
- * (the Data Lineage page's file row, with `driveType` null for the non-Gmail path).
+ * (the Data Lineage page's file row, or an endpoint file, with `driveType` null for the non-Gmail path).
  */
 export type LineageSubject = Pick<SaasFileOverview, 'name' | 'driveType' | 'owner' | 'lastModifiedAt'>;
 
@@ -108,7 +110,7 @@ export function firstSeenEvent(lane: SaasFileLineageLane): LineageEventView | nu
 }
 
 /** Oldest first, events without a time last; `Array.prototype.sort` is stable, so ties keep their order. */
-function byTime(events: LineageEventView[]): LineageEventView[] {
+export function byTime(events: LineageEventView[]): LineageEventView[] {
   return [...events].sort((a, b) => {
     if (a.at === null || b.at === null) return a.at === null ? (b.at === null ? 0 : 1) : -1;
     return a.at - b.at;

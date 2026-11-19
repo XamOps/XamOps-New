@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { Icon } from '@iconify/react';
 import type { SaasFileCopies } from '../../../../types/dspmDrawers';
 import type { LazyResource } from '../../../../hooks/useDspmDatastoreDrawer';
 import { DspmProviderIcon } from '../../DspmIcons';
@@ -74,28 +75,56 @@ interface Props {
   overview: { owner: string | null } | null;
   /** The SaaS datastore's name; null when the drawer opens from the Files page. */
   datastoreName: string | null;
+  /**
+   * An endpoint file (the Endpoint file drawer): the header names the person and the device, matched by
+   * device, with the info line under it; a null part is left out. `datastoreName` is then not shown.
+   */
+  endpoint?: { person: string | null; device: string | null };
 }
+
+/** "Related files for <person> · device <device> (matched by device)" and the endpoint info line. */
+const EndpointHeading: React.FC<{ person: string | null; device: string | null }> = ({ person, device }) => (
+  <div className="space-y-1">
+    <p className="text-xs text-[rgba(0,0,0,0.7)]">
+      {person !== null || device !== null ? 'Related files for' : 'Related files'}
+      {person !== null && (
+        <>
+          {' '}
+          <Icon icon="mdi:account-outline" width={14} className="mr-0.5 inline-block align-text-bottom text-[rgba(0,0,0,0.45)]" />
+          <strong className="font-semibold text-[rgba(0,0,0,0.88)]">{person}</strong>
+        </>
+      )}
+      {device !== null && <>{person !== null ? ' · device ' : ' device '}{device}</>}
+      <span className="text-[rgba(0,0,0,0.45)]"> (matched by device)</span>
+    </p>
+    <p className="text-[11px] text-[rgba(0,0,0,0.45)]">
+      Endpoint events carry no user today; endpoint activity is matched by the person&apos;s devices.
+    </p>
+  </div>
+);
 
 /**
  * The Related Files tab (FR-SFILE-11, D7): the file's content-hash copies, from the copies answer File
  * Copies also reads, as Source | File | Where | Confidence | Why. Matters returns no confidence or match
  * reason (GAP-61), so every row reads "Content hash verified" and the reason is derived (`relatedFiles.ts`).
  */
-const SaasRelatedFilesTab: React.FC<Props> = ({ copies, overview, datastoreName }) => {
+const SaasRelatedFilesTab: React.FC<Props> = ({ copies, overview, datastoreName, endpoint }) => {
   const owner = overview?.owner ?? null;
   const heading = relatedFilesHeading(datastoreName, owner);
   const rows = useMemo(() => (copies.data ? relatedFileRows(copies.data, owner) : []), [copies.data, owner]);
   return (
     <div className="space-y-3">
-      <p className="text-xs text-[rgba(0,0,0,0.7)]">
-        {heading.name === null ? 'Related files' : (
-          <>
-            Related files for <strong className="font-semibold text-[rgba(0,0,0,0.88)]">{heading.name}</strong>
-            {heading.email && <> — {heading.email}</>}
-          </>
-        )}
-        <span className="text-[rgba(0,0,0,0.45)]"> (matched by file owner)</span>
-      </p>
+      {endpoint ? <EndpointHeading person={endpoint.person} device={endpoint.device} /> : (
+        <p className="text-xs text-[rgba(0,0,0,0.7)]">
+          {heading.name === null ? 'Related files' : (
+            <>
+              Related files for <strong className="font-semibold text-[rgba(0,0,0,0.88)]">{heading.name}</strong>
+              {heading.email && <> — {heading.email}</>}
+            </>
+          )}
+          <span className="text-[rgba(0,0,0,0.45)]"> (matched by file owner)</span>
+        </p>
+      )}
       <ResourceView resource={copies} subject="file">
         {() => <RelatedTable rows={rows} />}
       </ResourceView>

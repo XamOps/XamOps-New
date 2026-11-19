@@ -134,7 +134,7 @@ const CopiesView: React.FC<ViewProps> = ({
                 <tr>
                   <td colSpan={columns.length}>
                     {data.copies.length === 0
-                      ? <EmptyState title="No copies found" />
+                      ? <EmptyState title="No other files with this content were found." />
                       : <EmptyState title="No matches" body="Try a different search." />}
                   </td>
                 </tr>
@@ -160,10 +160,11 @@ const CopiesView: React.FC<ViewProps> = ({
 };
 
 /**
- * The File Copies tab of a Google Drive file (FR-SFILE-10, D11): the copies of the file's content other
- * than the file itself, with the Copies Found and Locations cards, a search over file name, path, owner
- * and user, the greyed "+ More filters" (A27) and a full-screen view. The search and the hidden columns
- * live above the full-screen frame, so they survive it.
+ * The File Copies tab of a Google Drive file (FR-SFILE-10, D11) and of an endpoint file: the copies of
+ * the file's content other than the file itself, with the Copies Found and Locations cards, a search over
+ * file name, path, owner and user, the greyed "+ More filters" (A27) and a full-screen view. When lineage
+ * is off for the file (`available` false) the tab reads "No copies found for this file." alone. The
+ * search and the hidden columns live above the full-screen frame, so they survive it.
  */
 const SaasFileCopiesTab: React.FC<{ copies: LazyResource<SaasFileCopies> }> = ({ copies }) => {
   const [search, setSearch] = useState('');
@@ -174,7 +175,11 @@ const SaasFileCopiesTab: React.FC<{ copies: LazyResource<SaasFileCopies> }> = ({
 
   return (
     <ResourceView resource={copies} subject="file">
-      {data => (
+      {data => (data.available === false ? (
+        <div className="rounded-xl border border-[rgba(0,0,0,0.08)]">
+          <EmptyState title="No copies found for this file." />
+        </div>
+      ) : (
         <FullscreenFrame open={fullscreen} title="File copies" onExit={exitFullscreen} toggleRef={toggle}>
           <CopiesView
             data={data}
@@ -187,7 +192,7 @@ const SaasFileCopiesTab: React.FC<{ copies: LazyResource<SaasFileCopies> }> = ({
             toggleRef={toggle}
           />
         </FullscreenFrame>
-      )}
+      ))}
     </ResourceView>
   );
 };
