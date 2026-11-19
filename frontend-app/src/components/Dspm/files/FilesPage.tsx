@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import type { DspmStatus } from '../../../types/dspm';
 import type { FilesTabSlug } from '../../../constants/xamlensTabs';
 import DspmNotReady from '../DspmNotReady';
+import EndpointFilesTab from './EndpointFilesTab';
 import FilesTabStrip from './FilesTabStrip';
 import SaasFilesTab from './SaasFilesTab';
 
@@ -27,8 +28,7 @@ const FilesPage: React.FC<Props> = ({ tab, status, onRetry }) => {
         <p className="mt-0.5 text-xs text-[rgba(0,0,0,0.5)]">Files discovered across your connected sources</p>
       </div>
       <FilesTabStrip active={tab} onSelect={slug => navigate(`/xamlens/files/${slug}`)} />
-      {/* The Endpoint tab body follows in plan item 8. */}
-      {tab === 'saas' ? <SaasFilesTab key="saas" /> : <div key="endpoint" data-files-tab="endpoint" />}
+      {tab === 'saas' ? <SaasFilesTab key="saas" /> : <EndpointFilesTab key="endpoint" />}
     </div>
   );
 };

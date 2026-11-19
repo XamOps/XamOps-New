@@ -12,13 +12,28 @@ import { GreyTag } from '../saas/SaasParts';
 /** Body cell style of the endpoint tables. */
 export const TD = 'px-3 py-2 align-middle text-xs text-[rgba(0,0,0,0.75)]';
 
-/** The file icon by extension (the row's, else the name's), then the name in bold, truncated. */
-export const FileNameCell: React.FC<{ name: string | null; extension?: string | null }> = ({ name, extension }) => (
+/**
+ * The file icon by extension (the row's, else the name's), then the name in bold, truncated. Its tooltip
+ * is `title` when given (File View and the Files page pass the path), else the name.
+ */
+export const FileNameCell: React.FC<{ name: string | null; extension?: string | null; title?: string | null }> = ({
+  name, extension, title,
+}) => (
   <span className="flex min-w-0 items-center gap-2">
     <DspmObjectIcon objectType={null} extension={extension ?? extensionOf(name)} />
-    <span className="max-w-[11rem] truncate font-semibold text-[rgba(0,0,0,0.85)]" title={name ?? undefined}>
+    <span className="max-w-[11rem] truncate font-semibold text-[rgba(0,0,0,0.85)]" title={title ?? name ?? undefined}>
       {name ?? '-'}
     </span>
+  </span>
+);
+
+/** The "New" tag after the name of a file modified in the last 48 hours (`isRecentlyModified`). */
+export const NewBadge: React.FC = () => (
+  <span
+    title="Modified in the last 48 hours"
+    className="flex-shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-px text-[10px] font-semibold text-emerald-700"
+  >
+    New
   </span>
 );
 

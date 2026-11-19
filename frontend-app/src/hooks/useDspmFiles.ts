@@ -16,6 +16,7 @@ import {
 import {
   KEYSET_START, currentCursor, keysetRange, nextPage, previousPage, type KeysetState,
 } from '../components/Dspm/files/keysetPager';
+import { listPageLimit } from '../components/Dspm/datastores/ui/TableFooter';
 
 /*
  * The Files page's fetchers and hooks (design 6.4 to 6.6). All are GET: the page reads Matters and never
@@ -245,6 +246,108 @@ export function useSaasFileList() {
     filters, updateFilters,
     pageSize, setPageSize,
     shown, range, canPrevious, canNext, next, previous,
+    loading, error, reload,
+  };
+}
+
+/** The URL parameter that keeps the Endpoint tab's page (1-based). */
+export const PAGE_PARAM = 'page';
+
+/** The page in the URL when it is a whole number from 1 to the last page the server serves at `pageSize`, else 1. */
+export function readPage(params: URLSearchParams, pageSize: number): number {
+  const page = Number(params.get(PAGE_PARAM));
+  return Number.isInteger(page) && page >= 1 && page <= listPageLimit(pageSize) ? page : 1;
+}
+
+/**
+ * The Endpoint Files tab's list (design 6.6): search, filters, page size and offset paging.
+ *
+ * `request` is the requested page and `shown` the page on screen, kept while another page loads or after
+ * it failed, so the footer always describes the rows on screen. `goToPage` and `reload` set a new request
+ * object, so a page is sent again even when its number has not changed (a Retry, or a click on the page
+ * that failed). One sequence-numbered effect requests it; only the latest answer is applied. A success
+ * past the end (the total shrank since the pager was drawn) requests page 1 instead and keeps `shown`.
+ *
+ * The search is sent 300 ms after typing stops. A new search, filters or page size start again at page 1
+ * with nothing on screen. The page and the page size are read from the URL on mount and follow it with
+ * `replace`, left out at page 1 and size 10.
+ */
+export function useEndpointFileList() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchInput, setSearchInput] = useState('');
+  const [q, setQ] = useState<string | null>(null);
+  const [filters, setFilters] = useState<DatastoreFilterState>({});
+  const [pageSize, setPageSizeState] = useState<number>(() => readPageSize(searchParams));
+  const [request, setRequest] = useState<{ page: number }>(() => ({ page: readPage(searchParams, readPageSize(searchParams)) }));
+  const [shown, setShown] = useState<EndpointFilePage | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<DspmError | null>(null);
+  const seq = useRef(0);
+
+  /** Back to page 1 with nothing on screen; a new object, so it is sent even when the query is unchanged. */
+  const restart = useCallback(() => {
+    setRequest({ page: 1 });
+    setShown(null);
+    setError(null);
+  }, []);
+
+  useEffect(() => {
+    const next = normalizeSearch(searchInput);
+    if (next === q) return;
+    const timer = window.setTimeout(() => {
+      setQ(next);
+      restart();
+    }, SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [searchInput, q, restart]);
+
+  const filterParams = useMemo(() => buildFilterParams(filters), [filters]);
+
+  useEffect(() => {
+    const current = ++seq.current;
+    setLoading(true);
+    filesApi.endpoint({ skip: (request.page - 1) * pageSize, limit: pageSize, q, filters: filterParams })
+      .then(body => {
+        if (current !== seq.current) return;
+        if (body.skip > 0 && body.skip >= body.total) {
+          setRequest({ page: 1 });
+          return;
+        }
+        setShown(body);
+        setError(null);
+      })
+      .catch(err => { if (current === seq.current) setError(toDspmError(err)); })
+      .finally(() => { if (current === seq.current) setLoading(false); });
+  }, [request, pageSize, q, filterParams]);
+
+  // The URL follows the requested page and the page size; it is rewritten only when it differs.
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams);
+    if (request.page === 1) params.delete(PAGE_PARAM);
+    else params.set(PAGE_PARAM, String(request.page));
+    if (pageSize === DEFAULT_PAGE_SIZE) params.delete(PAGE_SIZE_PARAM);
+    else params.set(PAGE_SIZE_PARAM, String(pageSize));
+    if (params.toString() !== searchParams.toString()) setSearchParams(params, { replace: true });
+  }, [request.page, pageSize, searchParams, setSearchParams]);
+
+  const updateFilters = useCallback((next: DatastoreFilterState) => {
+    setFilters(next);
+    restart();
+  }, [restart]);
+
+  const setPageSize = useCallback((size: number) => {
+    setPageSizeState(size);
+    restart();
+  }, [restart]);
+
+  const goToPage = useCallback((page: number) => setRequest({ page }), []);
+  const reload = useCallback(() => setRequest(current => ({ page: current.page })), []);
+
+  return {
+    searchInput, setSearchInput, q,
+    filters, updateFilters,
+    pageSize, setPageSize,
+    shown, goToPage,
     loading, error, reload,
   };
 }

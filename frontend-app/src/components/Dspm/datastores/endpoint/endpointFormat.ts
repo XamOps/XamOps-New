@@ -14,6 +14,19 @@ export type EndpointFilterDimension = (typeof ENDPOINT_FILTER_DIMENSIONS)[number
 /** No filter: what a document class's file list sends besides its own class. */
 export const EMPTY_FILTER_PARAMS: EndpointFilterParams = { sensitives: [], documentClass: [], category: [], dataElement: [] };
 
+/** How recent a file's last modification is for its "New" tag. */
+export const NEW_FILE_HOURS = 48;
+
+/**
+ * The console's "New" rule: the file was last modified 0 to 48 hours before `nowMs`. `modifiedAt` is in
+ * epoch seconds; a missing time, or one in the future, is not new.
+ */
+export function isRecentlyModified(modifiedAt: number | null, nowMs: number): boolean {
+  if (modifiedAt === null) return false;
+  const ageMs = nowMs - modifiedAt * 1000;
+  return ageMs >= 0 && ageMs <= NEW_FILE_HOURS * 3_600_000;
+}
+
 /** "EMAIL ADDRESS" → "Email address": the first letter upper case, the rest lower case. */
 export function sentenceCase(text: string): string {
   const lower = text.toLowerCase();
