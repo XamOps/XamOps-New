@@ -10,8 +10,8 @@ import org.springframework.stereotype.Component;
  * Defense in depth for the GCP mutating programs (design-core.md §6.3 switch (p)). Both
  * {@code autospotting.gcp.v2-mutations-enabled} and {@code autospotting.gcp.conversions-enabled} stay
  * false in every environment; while either is false {@code executeConversion} and {@code restore}
- * refuse with {@code AS_PROVIDER_NOT_READY}. Even when both are on, no GCP program exists before
- * Phase 27, so the provider still refuses and {@link GcpMigClient.Mutating} is never obtained.
+ * refuse with {@code AS_PROVIDER_NOT_READY}. The conversion programs exist from Phase 27 and are
+ * built only while {@link #open()}; MIG_POLICY_UPDATE is not a conversion and is not gated by (p).
  */
 @Component
 public class GcpProviderGate {
@@ -28,7 +28,15 @@ public class GcpProviderGate {
         return switches.v2MutationsEnabled(false) && flags.isGcpConversionsEnabled();
     }
 
-    /** @throws AutoSpottingApiException 409 {@code AS_PROVIDER_NOT_READY}: the gate is closed or no program exists yet. */
+    /** @throws AutoSpottingApiException 409 {@code AS_PROVIDER_NOT_READY} while the gate is closed. */
+    public void requireOpen() {
+        if (!open()) {
+            throw new AutoSpottingApiException(HttpStatus.CONFLICT, "AS_PROVIDER_NOT_READY",
+                    "AutoSpotting is not ready to change GCP groups yet.");
+        }
+    }
+
+    /** @throws AutoSpottingApiException 409 {@code AS_PROVIDER_NOT_READY} unconditionally (kept for callers that have no program). */
     public void requireProgram() {
         throw new AutoSpottingApiException(HttpStatus.CONFLICT, "AS_PROVIDER_NOT_READY",
                 "AutoSpotting is not ready to change GCP groups yet.");

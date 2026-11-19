@@ -17,6 +17,8 @@ export interface PlanFlowOptions {
   kind: string;
   /** Whether the kind takes a profile (ENABLE, PROFILE_CHANGE). */
   usesProfile: boolean;
+  /** GCP only: the edited rolling-update fields, sent with a MIG_POLICY_UPDATE or CONFIG_APPLY request. */
+  policyEdit?: Record<string, unknown>;
   /** Test hook: no delay between network retries. */
   retryDelayMs?: number;
 }
@@ -26,7 +28,7 @@ export interface PlanFlowOptions {
  * One idempotency key per user action: a retry of the same request reuses it, a changed request gets
  * a new one.
  */
-export function usePlanFlow({ accountId, row, kind, usesProfile, retryDelayMs }: PlanFlowOptions) {
+export function usePlanFlow({ accountId, row, kind, usesProfile, policyEdit, retryDelayMs }: PlanFlowOptions) {
   const create = useCreatePlan(accountId);
   const confirmMutation = useConfirmPlan(accountId);
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -56,6 +58,7 @@ export function usePlanFlow({ accountId, row, kind, usesProfile, retryDelayMs }:
         kind,
         ...(row.id ? { groupId: row.id } : { groupRef: row.groupKey }),
         ...(profileId ? { profileId } : {}),
+        ...(policyEdit ? { policyEdit } : {}),
       };
       const sig = JSON.stringify(request);
       if (!createKey.current || createKey.current.sig !== sig) {
@@ -71,7 +74,7 @@ export function usePlanFlow({ accountId, row, kind, usesProfile, retryDelayMs }:
         setCreating(false);
       }
     },
-    [create, kind, row.id, row.groupKey, retryDelayMs],
+    [create, kind, row.id, row.groupKey, policyEdit, retryDelayMs],
   );
 
   useEffect(() => {

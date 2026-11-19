@@ -102,7 +102,12 @@ public class PlanService {
     /** The command a plan request carries (controller-resolved; the account is already authorized). */
     public record CreateCommand(OperationKind kind, UUID groupId, String groupRef, String profileId,
                                 boolean dryRunRequested, String idempotencyKey, String requestSha256,
-                                String createdBy) {
+                                String createdBy, String policyEditJson) {
+        /** A command without a policy edit. */
+        public CreateCommand(OperationKind kind, UUID groupId, String groupRef, String profileId,
+                             boolean dryRunRequested, String idempotencyKey, String requestSha256, String createdBy) {
+            this(kind, groupId, groupRef, profileId, dryRunRequested, idempotencyKey, requestSha256, createdBy, null);
+        }
     }
 
     /**
@@ -113,6 +118,12 @@ public class PlanService {
     public SpotPlan createPlan(CloudAccount account, ClientUserDetails user, CreateCommand cmd) {
         Provider provider = providerOf(account);
 
+        // 0. A MIG policy update (or a policy edit riding on CONFIG_APPLY) is GCP-only: refuse before any row or cloud read.
+        if (provider != Provider.GCP
+                && (cmd.kind() == OperationKind.MIG_POLICY_UPDATE || cmd.policyEditJson() != null)) {
+            throw new AutoSpottingApiException(HttpStatus.CONFLICT, "AS_KIND_NOT_SUPPORTED",
+                    "This plan kind is not supported for this cloud.");
+        }
         // 1. Resolve the group and its state (null = no row yet).
         SpotGroup group = resolveGroup(account, provider, cmd);
         GroupState state = group == null ? null : group.getState();
@@ -143,15 +154,31 @@ public class PlanService {
         GroupRef ref = refFor(account, provider, group, cmd);
         ReadOnlyCloudView view = readOnlyView(spotProvider);
         Profile profile = new Profile(cmd.profileId() == null || cmd.profileId().isBlank()
-                ? "conservative" : cmd.profileId(), null);
+                ? "conservative" : cmd.profileId(), cmd.policyEditJson());
+        boolean policyChange = cmd.kind() == OperationKind.MIG_POLICY_UPDATE
+                || (cmd.kind() == OperationKind.CONFIG_APPLY && cmd.policyEditJson() != null);
 
         // A revert is never blocked by the conversion-only eligibility checks (DR-03): it takes the warnings of
         // its own plan, and the provider's restore-permission pre-check (design-core.md §7.4) is part of it.
-        EligibilityResult eligibility = cmd.kind() == OperationKind.REVERT ? null
+        EligibilityResult eligibility = cmd.kind() == OperationKind.REVERT || policyChange ? null
                 : spotProvider.checkEligibility(ref, view, profile, EvalMode.PLAN);
         com.xammer.cloud.service.autospotting.spi.PlanRequest planRequest =
                 new com.xammer.cloud.service.autospotting.spi.PlanRequest(ref, cmd.kind(), profile);
         PlanBody body = spotProvider.createPlan(planRequest, view);
+        if (group == null && cmd.kind() == OperationKind.MIG_POLICY_UPDATE) {
+            // The MIG must exist before a row does: a missing MIG or a failed read creates nothing.
+            if (body.eligibility() != null && body.eligibility().blockers().stream().anyMatch(c ->
+                    "GCP_MIG_NOT_FOUND".equals(c.code()) || c.errorKind() != null)) {
+                boolean missing = body.eligibility().blockers().stream().anyMatch(c -> "GCP_MIG_NOT_FOUND".equals(c.code()));
+                throw missing
+                        ? new AutoSpottingApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Instance group not found.")
+                        : new AutoSpottingApiException(HttpStatus.CONFLICT, "CHECK_FAILED",
+                                "Could not read the instance group. Try again.");
+            }
+            // §2.1, §7.4: a MIG with no row gets an UNMANAGED row once its existence is confirmed, so the plan,
+            // the op and the group lease have a home. Its state never changes and UNMANAGED stays non-billable.
+            group = insertUnmanaged(account, provider, ref);
+        }
         if (eligibility == null) {
             eligibility = body.eligibility() != null ? body.eligibility() : EligibilityResult.eligible(List.of(), List.of());
         }
@@ -284,6 +311,26 @@ public class PlanService {
         // the plan, op and lease have a home. For AWS ENABLE the group row is created by discovery
         // before enable, so group is non-null in practice.
         return group != null ? group.getId() : UUID.randomUUID();
+    }
+
+    private SpotGroup insertUnmanaged(CloudAccount account, Provider provider, GroupRef ref) {
+        Instant now = Instant.now();
+        SpotGroup row = new SpotGroup();
+        row.setId(UUID.randomUUID());
+        row.setProvider(provider);
+        row.setCloudAccountId(account.getId());
+        row.setClientId(account.getClient() == null ? null : account.getClient().getId());
+        row.setGroupKey(ref.groupKey());
+        row.setProviderStableId(ref.providerStableId());
+        row.setState(GroupState.UNMANAGED);
+        row.setDriftStatus(com.xammer.cloud.domain.autospotting.DriftStatus.NONE);
+        row.setConfigMode(com.xammer.cloud.domain.autospotting.ConfigMode.MANAGED);
+        row.setOwnedArtifacts("{}");
+        row.setStateChangedAt(now);
+        row.setCreatedBy("plan");
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return groups.saveAndFlush(row);
     }
 
     private void moveToPlanned(SpotGroup group, ClientUserDetails user) {

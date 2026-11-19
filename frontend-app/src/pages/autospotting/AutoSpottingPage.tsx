@@ -44,7 +44,10 @@ import { reasonForError } from './components/reasons';
 
 const ADAPTERS: Record<string, ProviderAdapter> = { AWS: awsAdapter, GCP: gcpAdapter };
 
-type DialogState = { type: 'plan'; kind: string; row: GroupRow } | { type: 'revert'; row: GroupRow } | null;
+type DialogState =
+  | { type: 'plan'; kind: string; row: GroupRow; policyEdit?: Record<string, unknown> }
+  | { type: 'revert'; row: GroupRow }
+  | null;
 
 /** `preselect` opens the shell on a cloud (`/gcp-autospotting`): the selected account if it is one, else the first. */
 const AutoSpottingPage: React.FC<{ preselect?: 'AWS' | 'GCP' }> = ({ preselect }) => {
@@ -220,6 +223,7 @@ const AutoSpottingPage: React.FC<{ preselect?: 'AWS' | 'GCP' }> = ({ preselect }
               tab={tab}
               onTab={setTab}
               onAction={a => void onAction(a)}
+              onEditPolicy={(kind, policyEdit) => setDialog({ type: 'plan', kind, row: selectedRow, policyEdit })}
               onClose={closePanel}
             />
           </div>
@@ -293,6 +297,7 @@ const AutoSpottingPage: React.FC<{ preselect?: 'AWS' | 'GCP' }> = ({ preselect }
           accountId={accountId}
           row={dialog.row}
           kind={dialog.kind}
+          policyEdit={dialog.policyEdit}
           adapter={adapter}
           dryRun={config?.dryRun}
           onClose={() => setDialog(null)}

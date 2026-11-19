@@ -53,9 +53,12 @@ import java.util.Optional;
  *       on a pre-GA {@code provisioningModelMix}. {@code autospotting.gcp.native-mix-enabled} is read
  *       and recorded in the plan but changes nothing here.</li>
  *   <li>{@code reconcile} is a pure decision and returns no fallback action until Phase 28.</li>
- *   <li>{@code executeConversion} and {@code restore} refuse with {@code AS_PROVIDER_NOT_READY}:
- *       {@code autospotting.gcp.v2-mutations-enabled} and {@code autospotting.gcp.conversions-enabled}
- *       stay false and the programs arrive in Phase 27.</li>
+ *   <li>{@code executeConversion} builds the {@link GcpStepLibrary} programs (Phase 27) but only while
+ *       {@link GcpProviderGate} is open: {@code autospotting.gcp.v2-mutations-enabled} and
+ *       {@code autospotting.gcp.conversions-enabled} stay false, so each refuses with
+ *       {@code AS_PROVIDER_NOT_READY}. MIG_POLICY_UPDATE is not a conversion and is not gated by (p).
+ *       {@code restore} builds the ENABLE compensation (SNAPSHOT) from the saved original; the REVERT program
+ *       arrives in Phase 28.</li>
  * </ul>
  * Two {@code CloudAccount} rows on one {@code gcp_project_id}: the lowest id owns the project and a
  * plan for any other is refused with 409 {@code DUPLICATE_PROVIDER_ACCOUNT} (AC-SPN-14).
@@ -74,19 +77,22 @@ public class GcpMigSpotProvider implements SpotProvider {
     private final boolean nativeMixEnabled;
     private final boolean autoscaledFloorAllowed;
     private final Clock clock;
+    private final GcpStepLibrary library;
 
     @Autowired
     public GcpMigSpotProvider(CloudAccountRepository accounts, GcpViewSource views, GcpEligibilityEvaluator evaluator,
                               GcpMigStatusReader statusReader, GcpEstimatePriceService prices, GcpProviderGate gate,
                               @Value("${autospotting.gcp.native-mix-enabled:false}") boolean nativeMixEnabled,
-                              @Value("${autospotting.gcp.floor.autoscaled-n-allowed:false}") boolean autoscaledFloorAllowed) {
+                              @Value("${autospotting.gcp.floor.autoscaled-n-allowed:false}") boolean autoscaledFloorAllowed,
+                              GcpStepLibrary library) {
         this(accounts, views, evaluator, statusReader, prices, gate, nativeMixEnabled, autoscaledFloorAllowed,
-                Clock.systemUTC());
+                Clock.systemUTC(), library);
     }
 
     GcpMigSpotProvider(CloudAccountRepository accounts, GcpViewSource views, GcpEligibilityEvaluator evaluator,
                        GcpMigStatusReader statusReader, GcpEstimatePriceService prices, GcpProviderGate gate,
-                       boolean nativeMixEnabled, boolean autoscaledFloorAllowed, Clock clock) {
+                       boolean nativeMixEnabled, boolean autoscaledFloorAllowed, Clock clock, GcpStepLibrary library) {
+        this.library = library;
         this.accounts = accounts;
         this.views = views;
         this.evaluator = evaluator;
@@ -138,6 +144,10 @@ public class GcpMigSpotProvider implements SpotProvider {
             return new PlanBody(null, null, null, null, new EligibilityResult(List.of(), List.of(), List.of()), null,
                     List.of(), null, null, write(revert));
         }
+        if (req.kind() == OperationKind.MIG_POLICY_UPDATE
+                || (req.kind() == OperationKind.CONFIG_APPLY && GcpPolicyPlans.isPolicyEdit(req.profile()))) {
+            return policyPlan(req, account, view);
+        }
         Profile profile = req.profile() == null ? new Profile("conservative", null) : req.profile();
         GcpReadOnlyView v;
         GcpEligibilityEvaluator.Evaluation ev;
@@ -174,6 +184,33 @@ public class GcpMigSpotProvider implements SpotProvider {
                 .put("exact", snapshot.exact()));
         return new PlanBody(write(current), write(target), diff, snapshot, ev.result(), rollout, estimates, floor, null,
                 revert);
+    }
+
+    /** A policy-only plan (MIG_POLICY_UPDATE, or a CONFIG_APPLY that changes only the update policy): no template, no rollout. */
+    private PlanBody policyPlan(PlanRequest req, CloudAccount account, ReadOnlyCloudView view) {
+        GcpReadOnlyView v = viewFor(account, view);
+        GcpEligibilityEvaluator.Key key = GcpEligibilityEvaluator.split(req.ref().groupKey());
+        Optional<JsonNode> raw;
+        try {
+            raw = statusReader.describeGroup(v, key);
+        } catch (GcpReadException e) {
+            return new PlanBody(null, null, null, null, new EligibilityResult(List.of(EligibilityResult.Check.failed(
+                    "b-CHECK_FAILED-MIG_READ", "Could not read the instance group.", e.kind())), List.of(), List.of()),
+                    null, List.of(), null, null, null);
+        }
+        if (raw.isEmpty()) {
+            return new PlanBody(null, null, null, null, new EligibilityResult(List.of(EligibilityResult.Check.of(
+                    "b-GCP_MIG_NOT_FOUND", "GCP_MIG_NOT_FOUND", "The instance group no longer exists.")), List.of(), List.of()),
+                    null, List.of(), null, null, null);
+        }
+        GcpMigFacts g = GcpMigFacts.from(key.project(), raw.get());
+        GcpPolicyPlans.Built built = GcpPolicyPlans.build(req.kind(), req.profile(), g);
+        EligibilityResult result = built.problem() == null ? new EligibilityResult(List.of(), List.of(), List.of())
+                : new EligibilityResult(List.of(EligibilityResult.Check.of("b-" + built.problem(), built.problem(),
+                "These rolling-update settings are not valid for this instance group.")), List.of(), List.of());
+        String revert = write(JSON.createObjectNode().put("program", "POLICY_RESTORE"));
+        return new PlanBody(write(built.current()), write(built.target()), write(built.diff()), null, result, null,
+                List.of(), null, null, revert);
     }
 
     private static Integer autoscalerBound(JsonNode autoscaler, String field) {
@@ -225,6 +262,7 @@ public class GcpMigSpotProvider implements SpotProvider {
         policy.putObject("maxSurge").put("fixed", surge(g));
         policy.putObject("maxUnavailable").put("fixed", 0);
         n.put("restoreCustomerUpdatePolicy", true);
+        n.set("customerUpdatePolicy", g.updatePolicy().deepCopy());
         // PO-20: the single attribution label on XamOps templates, removed on revert.
         n.putObject("templateLabels").put("xamops-autospotting", "<group id assigned at enable>");
         return n;
@@ -400,14 +438,21 @@ public class GcpMigSpotProvider implements SpotProvider {
 
     @Override
     public StepProgram executeConversion(OperationContext op) {
-        gate.requireProgram();
-        return null;
+        if (op.kind() != OperationKind.MIG_POLICY_UPDATE) {
+            gate.requireOpen();
+        }
+        return library.program(op);
     }
 
     @Override
     public StepProgram restore(OperationContext op, SnapshotPayload snapshot) {
-        gate.requireProgram();
-        return null;
+        gate.requireOpen();
+        if (op.kind() == OperationKind.REVERT) {
+            // The GCP revert program (and its permission pre-check) is Phase 28; refuse rather than guess.
+            throw new AutoSpottingApiException(HttpStatus.CONFLICT, "AS_PROVIDER_NOT_READY",
+                    "The GCP revert is not available yet.");
+        }
+        return library.restoreFromSaved(op);
     }
 
     // ---- helpers ----

@@ -63,7 +63,7 @@ class GcpMigSpotProviderPlanTest {
         GcpEstimatePriceService prices = new GcpEstimatePriceService(views, shapes, Clock.systemUTC());
         GcpProviderGate gate = new GcpProviderGate(switches(false), DefaultAutoSpottingFlags.load());
         return new GcpMigSpotProvider(accounts, views, evaluator, new GcpMigStatusReader(), prices, gate, false, false,
-                Clock.systemUTC());
+                Clock.systemUTC(), null);
     }
 
     private static PlanRequest enable(CloudAccount a, String profile) {

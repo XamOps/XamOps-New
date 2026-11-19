@@ -95,6 +95,8 @@ interface DetailPanelProps {
   tab: TabId;
   onTab: (tab: TabId) => void;
   onAction: (action: PanelAction) => void;
+  /** GCP: review a rolling-update policy edit as a plan. */
+  onEditPolicy?: (kind: string, policyEdit: Record<string, unknown>) => void;
   onClose: () => void;
   /** The current plan's `current` block, when a plan has been read. */
   current?: Record<string, unknown> | null;
@@ -111,6 +113,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
   tab,
   onTab,
   onAction,
+  onEditPolicy,
   onClose,
   current,
 }) => {
@@ -204,7 +207,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
             />
           </div>
         )}
-        {tab === 'config' && <ConfigTab detail={effective} adapter={adapter} current={current} />}
+        {tab === 'config' && <ConfigTab detail={effective} adapter={adapter} current={current} onEditPolicy={onEditPolicy} />}
         {tab === 'progress' && (
           <ProgressTab
             accountId={accountId}

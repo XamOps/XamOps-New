@@ -14,6 +14,7 @@ const KIND_TITLE: Record<string, string> = {
   ADOPT: 'Adopt',
   CONFIG_APPLY: 'Re-apply',
   ACCEPT_BASELINE: 'Accept as baseline',
+  MIG_POLICY_UPDATE: 'Review settings',
 };
 
 export const FEE_NONE = 'No AutoSpotting fee applies to this group.';
@@ -58,6 +59,8 @@ interface PlanDialogProps {
   accountId: number | null;
   row: GroupRow;
   kind: string;
+  /** GCP only: the edited rolling-update fields of the plan being reviewed. */
+  policyEdit?: Record<string, unknown>;
   adapter: ProviderAdapter;
   /** Config `dryRun`; a plan flagged dry run also shows the banner. */
   dryRun?: boolean;
@@ -71,6 +74,7 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
   accountId,
   row,
   kind,
+  policyEdit,
   adapter,
   dryRun,
   onClose,
@@ -79,7 +83,7 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
   retryDelayMs,
 }) => {
   const usesProfile = kind === 'ENABLE' || kind === 'PROFILE_CHANGE';
-  const flow = usePlanFlow({ accountId, row, kind, usesProfile, retryDelayMs });
+  const flow = usePlanFlow({ accountId, row, kind, usesProfile, policyEdit, retryDelayMs });
   const { plan, body } = flow;
   const remaining = useCountdown(plan?.expiresAt);
   const expired = remaining !== null && remaining <= 0;

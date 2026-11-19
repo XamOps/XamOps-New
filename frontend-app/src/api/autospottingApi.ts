@@ -135,6 +135,8 @@ export interface PlanRequest {
   groupId?: string | null;
   groupRef?: string | null;
   profileId?: string | null;
+  /** GCP only: the edited rolling-update fields of a MIG_POLICY_UPDATE or policy-only CONFIG_APPLY plan. */
+  policyEdit?: Record<string, unknown> | null;
 }
 
 export interface ConfirmRequest {

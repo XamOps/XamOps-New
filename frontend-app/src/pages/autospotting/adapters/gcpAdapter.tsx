@@ -108,6 +108,17 @@ export const gcpAdapter: ProviderAdapter = {
   PlanTargetFields: ({ body }) => {
     const t = body.target ?? {};
     const floor = body.onDemandFloor ?? {};
+    if (t.policyOnly) {
+      const edit = (t.edit ?? {}) as Record<string, unknown>;
+      const prior = (t.prior ?? {}) as Record<string, unknown>;
+      return (
+        <dl>
+          <Field label="New rolling-update settings" value={updatePolicyText(edit.updatePolicy)} />
+          <Field label="Current settings" value={updatePolicyText(prior.updatePolicy)} />
+          <Field label="Template, size and instances" value="Not changed" />
+        </dl>
+      );
+    }
     return (
       <dl>
         <Field label="Floor mechanism" value={floorMechanismText(t.floorMechanism)} />
