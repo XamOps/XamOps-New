@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '@iconify/react';
 import type { DatastoreFilterOptions } from '../../../types/dspmDatastores';
 import type { DatastoreFilterState } from './datastoreFilters';
@@ -30,7 +30,14 @@ const NO_LABELS: ReadonlyMap<string, string> = new Map();
  *
  * Closes on an outside click and on Escape, read by a React `onKeyDown` and stopped there. Inside a
  * drawer the open panel is also on the drawer's Escape stack, as the other popovers are.
+ *
+ * The panel opens under the button, left-aligned. When that runs past the viewport's right edge (the Endpoint
+ * drawer's filter row sits near it), it moves left until `VIEWPORT_MARGIN` is free on that side; a panel that
+ * fits stays where it is.
  */
+/** The space kept between a shifted panel and the viewport's edges. */
+const VIEWPORT_MARGIN = 16;
+
 const MoreFiltersPanel: React.FC<Props> = ({
   dimensions, labelFor, options, optionsLoading, optionsError, filters, labelMemory, onChange, local, canSelectValue,
 }) => {
@@ -38,6 +45,9 @@ const MoreFiltersPanel: React.FC<Props> = ({
   const [active, setActive] = useState<string | null>(null);
   const wrapper = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  /** How far left of the button the open panel starts, in px (0 when it fits). */
+  const [shift, setShift] = useState(0);
   const close = useCallback(() => setOpen(false), []);
   usePopoverEscape(open, close, trigger);
 
@@ -51,6 +61,18 @@ const MoreFiltersPanel: React.FC<Props> = ({
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  // Before paint, so a shifted panel never shows at its first place.
+  useLayoutEffect(() => {
+    const viewport = document.documentElement.clientWidth;
+    if (!open || !panel.current || !wrapper.current || viewport === 0) {
+      setShift(0);
+      return;
+    }
+    const left = wrapper.current.getBoundingClientRect().left;
+    const right = left + panel.current.offsetWidth;
+    setShift(right <= viewport ? 0 : Math.max(VIEWPORT_MARGIN - left, viewport - VIEWPORT_MARGIN - right));
   }, [open]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -80,8 +102,10 @@ const MoreFiltersPanel: React.FC<Props> = ({
       </button>
       {open && (
         <div
+          ref={panel}
           role="dialog"
           aria-label="More filters"
+          style={shift === 0 ? undefined : { left: shift }}
           className="absolute left-0 top-full z-30 mt-1 flex w-[34rem] max-w-[90vw] rounded-xl border border-[rgba(0,0,0,0.1)] bg-white shadow-lg"
         >
           <ul className="w-44 flex-shrink-0 space-y-0.5 border-r border-[rgba(0,0,0,0.06)] p-1" aria-label="Filters">
