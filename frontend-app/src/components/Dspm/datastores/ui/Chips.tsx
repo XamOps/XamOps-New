@@ -41,6 +41,19 @@ export const DotChip: React.FC<{ label: string; dot: string }> = ({ label, dot }
   </span>
 );
 
+/**
+ * The neutral `CategoryChip` with a coloured left border (`bar`, a full `border-l-[…]` colour class), for
+ * the Files page's Document Class.
+ */
+export const BarChip: React.FC<{ label: string; bar: string }> = ({ label, bar }) => (
+  <span
+    title={label}
+    className={`inline-block max-w-full truncate whitespace-nowrap rounded border border-l-[3px] px-1.5 py-0.5 align-middle text-[10px] font-semibold ${categoryAccent(null).chip} ${bar}`}
+  >
+    {label}
+  </span>
+);
+
 /** The first category chip, then "+N" for the rest (named in the badge's title). */
 export const LabelChips: React.FC<{ labels: string[] }> = ({ labels }) => {
   if (labels.length === 0) return null;

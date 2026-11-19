@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import type { SaasFileCopies, SaasFileOverview } from '../../../../types/dspmDrawers';
+import type { SaasFileCopies } from '../../../../types/dspmDrawers';
 import type { LazyResource } from '../../../../hooks/useDspmDatastoreDrawer';
 import { DspmProviderIcon } from '../../DspmIcons';
 import { usePaged } from '../../dspmShared';
@@ -71,8 +71,9 @@ const RelatedTable: React.FC<{ rows: RelatedFileRow[] }> = ({ rows }) => {
 interface Props {
   copies: LazyResource<SaasFileCopies>;
   /** Null while the overview loads or after it failed: no e-mail in the header, no "Same person". */
-  overview: SaasFileOverview | null;
-  datastoreName: string;
+  overview: { owner: string | null } | null;
+  /** The SaaS datastore's name; null when the drawer opens from the Files page. */
+  datastoreName: string | null;
 }
 
 /**
@@ -87,8 +88,12 @@ const SaasRelatedFilesTab: React.FC<Props> = ({ copies, overview, datastoreName 
   return (
     <div className="space-y-3">
       <p className="text-xs text-[rgba(0,0,0,0.7)]">
-        Related files for <strong className="font-semibold text-[rgba(0,0,0,0.88)]">{heading.name}</strong>
-        {heading.email && <> — {heading.email}</>}
+        {heading.name === null ? 'Related files' : (
+          <>
+            Related files for <strong className="font-semibold text-[rgba(0,0,0,0.88)]">{heading.name}</strong>
+            {heading.email && <> — {heading.email}</>}
+          </>
+        )}
         <span className="text-[rgba(0,0,0,0.45)]"> (matched by file owner)</span>
       </p>
       <ResourceView resource={copies} subject="file">

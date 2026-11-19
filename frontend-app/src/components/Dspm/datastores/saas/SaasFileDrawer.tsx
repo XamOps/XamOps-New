@@ -26,8 +26,8 @@ export interface SaasFileDrawerProps {
   fileId: string;
   /** The list row's name: the title until the overview loads, and after it failed. */
   fileName: string | null;
-  /** The SaaS datastore's name, which heads Related Files. */
-  datastoreName: string;
+  /** The SaaS datastore's name, which heads Related Files; null when opened from the Files page. */
+  datastoreName: string | null;
   /** The SaaS datastore's drive type (the row's subtype): decides the tabs before the overview loads. */
   driveType: string | null;
   /** `sensitives`, or `lineage` when opened from the lineage icon. */
@@ -71,23 +71,24 @@ function cardItems(overview: SaasFileOverview | null): InfoStripItem[] {
   ];
 }
 
-const SHARING_LISTS: ReadonlyArray<[keyof SaasFileSharing, string]> = [
-  ['internalEmails', 'Internal Emails'],
-  ['externalEmails', 'External Emails'],
-  ['internalGroups', 'Internal Groups'],
-  ['externalGroups', 'External Groups'],
+/** Each list with its title's colour class: External Emails first, in red. */
+const SHARING_LISTS: ReadonlyArray<[keyof SaasFileSharing, string, string]> = [
+  ['externalEmails', 'External Emails', 'text-rose-600'],
+  ['internalEmails', 'Internal Emails', 'text-[rgba(0,0,0,0.45)]'],
+  ['internalGroups', 'Internal Groups', 'text-[rgba(0,0,0,0.45)]'],
+  ['externalGroups', 'External Groups', 'text-[rgba(0,0,0,0.45)]'],
 ];
 
 const SHARING_FLAGS: ReadonlyArray<[keyof SaasFileSharing, string]> = [
   ['privateShare', 'Private'],
   ['publicShare', 'Public'],
   ['orgWide', 'Org-wide'],
-  ['externalShare', 'Shared externally'],
 ];
 
 /**
- * The Sharing card (FR-SFILE-4): each non-empty list as its chips, then a grey tag per true flag; "-"
- * when there is neither, or when the overview failed (`sharing` null).
+ * The Sharing card (FR-SFILE-4): each non-empty list as its chips, External Emails first with a red title,
+ * then a grey tag per true flag; "-" when there is neither, or when the overview failed (`sharing` null).
+ * `externalShare` draws no tag: the captures show External and Internal Emails for that file, not a tag.
  */
 const SharingCard: React.FC<{ sharing: SaasFileSharing | null }> = ({ sharing }) => {
   const lists = sharing ? SHARING_LISTS.filter(([key]) => (sharing[key] as string[]).length > 0) : [];
@@ -98,9 +99,9 @@ const SharingCard: React.FC<{ sharing: SaasFileSharing | null }> = ({ sharing })
         <p className="text-xs text-[rgba(0,0,0,0.45)]">{DASH}</p>
       ) : (
         <div className="space-y-3">
-          {lists.map(([key, title]) => (
+          {lists.map(([key, title, titleClass]) => (
             <div key={key}>
-              <div className="mb-1.5 text-[10px] text-[rgba(0,0,0,0.45)]">{title}</div>
+              <div className={`mb-1.5 text-[10px] ${titleClass}`}>{title}</div>
               <div className="flex flex-wrap gap-1.5">
                 {(sharing![key] as string[]).map((value, index) => <GreyTag key={`${index}:${value}`}>{value}</GreyTag>)}
               </div>

@@ -32,10 +32,17 @@ export function relatedFileRows(copies: SaasFileCopies, owner: string | null): R
 }
 
 /**
- * The header "Related files for <name> — <e-mail> (matched by file owner)": the datastore's name (A28)
- * and the file's owner, or no e-mail without one.
+ * The header "Related files for <name> — <e-mail> (matched by file owner)". With a datastore name (the
+ * Datastores page's drawers, A28) the name is the datastore's and the e-mail the file's owner, or none
+ * without one. Without a datastore name (the Files page) the name is the owner and there is no e-mail;
+ * with neither, both are null and the header reads "Related files (matched by file owner)".
  */
-export function relatedFilesHeading(datastoreName: string, owner: string | null): { name: string; email: string | null } {
+export function relatedFilesHeading(
+  datastoreName: string | null,
+  owner: string | null,
+): { name: string | null; email: string | null } {
   const email = owner?.trim() ?? '';
-  return { name: datastoreName, email: email === '' ? null : email };
+  const ownerText = email === '' ? null : email;
+  if (datastoreName !== null) return { name: datastoreName, email: ownerText };
+  return { name: ownerText, email: null };
 }

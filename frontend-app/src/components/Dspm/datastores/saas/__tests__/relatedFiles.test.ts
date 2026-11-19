@@ -43,4 +43,14 @@ describe('relatedFilesHeading', () => {
     expect(relatedFilesHeading('Pat Example', null)).toEqual({ name: 'Pat Example', email: null });
     expect(relatedFilesHeading('Pat Example', '  ')).toEqual({ name: 'Pat Example', email: null });
   });
+
+  it("names the file owner's e-mail without a datastore name (the Files page)", () => {
+    expect(relatedFilesHeading(null, OWNER)).toEqual({ name: OWNER, email: null });
+    expect(relatedFilesHeading(null, `  ${OWNER} `)).toEqual({ name: OWNER, email: null });
+  });
+
+  it('has neither without a datastore name or an owner', () => {
+    expect(relatedFilesHeading(null, null)).toEqual({ name: null, email: null });
+    expect(relatedFilesHeading(null, ' ')).toEqual({ name: null, email: null });
+  });
 });

@@ -177,7 +177,7 @@ describe('SaasFileDrawer header, card and Sharing', () => {
     expect(within(sharing).queryByText('Private')).toBeNull();
   });
 
-  it('shows every list and flag in order, or "-" without any', async () => {
+  it('shows every list and flag in order, External Emails first in red and no "Shared externally" tag, or "-" without any', async () => {
     const all: SaasFileOverview['sharing'] = {
       internalEmails: ['sam@example.com'], externalEmails: ['guest@example.org'], internalGroups: ['finance@example.com'],
       externalGroups: ['partners@example.org'], privateShare: true, publicShare: true, orgWide: true, externalShare: true,
@@ -185,9 +185,13 @@ describe('SaasFileDrawer header, card and Sharing', () => {
     answers.overview = () => overview({ sharing: all });
     const first = await renderFileDrawer();
     await within(first.drawer).findByText('guest@example.org');
-    expect(within(first.drawer).getByRole('region', { name: 'Sharing' })).toHaveTextContent(
-      /^SharingInternal Emailssam@example\.comExternal Emailsguest@example\.orgInternal Groupsfinance@example\.comExternal Groupspartners@example\.orgPrivatePublicOrg-wideShared externally$/,
+    const sharing = within(first.drawer).getByRole('region', { name: 'Sharing' });
+    expect(sharing).toHaveTextContent(
+      /^SharingExternal Emailsguest@example\.orgInternal Emailssam@example\.comInternal Groupsfinance@example\.comExternal Groupspartners@example\.orgPrivatePublicOrg-wide$/,
     );
+    expect(within(sharing).getByText('External Emails')).toHaveClass('text-rose-600');
+    expect(within(sharing).getByText('Internal Emails')).not.toHaveClass('text-rose-600');
+    expect(within(sharing).queryByText('Shared externally')).toBeNull();
     first.unmount();
 
     answers.overview = () => overview({
