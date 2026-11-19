@@ -127,6 +127,8 @@ beforeEach(() => {
     // (DatastoreDrawer.test.tsx covers the cloud / on-prem drawer).
     if (url.pathname.startsWith('/api/dspm/assets/')) return new Promise(() => {});
     if (DRAWER_PATH.test(url.pathname)) return new Promise(() => {});
+    // Scan Management stays loading too (scans/__tests__ cover its content).
+    if (url.pathname.startsWith('/api/dspm/scan-management/')) return new Promise(() => {});
     throw new Error(`HTTP 404: unexpected ${raw}`);
   });
 });
@@ -286,12 +288,13 @@ describe('DatastoresPage', () => {
     await screen.findByText('build-laptop-07');
     const controls = [
       screen.getByRole('button', { name: 'Run Scan Now' }),
-      screen.getByRole('button', { name: 'Manage Scans' }),
       screen.getByRole('button', { name: 'More actions' }),
       ...screen.getAllByRole('button', { name: 'Row actions' }),
       ...screen.getAllByRole('checkbox', { name: /^Select / }),
     ];
-    expect(controls).toHaveLength(6);
+    expect(controls).toHaveLength(5);
+    // "Manage Scans" opens Scan Management: a real button (design 6.11).
+    expect(screen.getByRole('button', { name: 'Manage Scans' })).not.toHaveAttribute('aria-disabled');
     for (const control of controls) {
       expect(control).toHaveAttribute('aria-disabled', 'true');
       const tooltip = document.getElementById(control.getAttribute('aria-describedby') ?? '') as HTMLElement;
@@ -537,6 +540,42 @@ describe('DatastoresPage', () => {
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('orders-archive')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('DatastoresPage Manage Scans (design 6.8)', () => {
+  const scanPaths = () => get.mock.calls
+    .map(([url]) => new URL(String(url), 'http://localhost').pathname)
+    .filter(path => path.startsWith('/api/dspm/scan-management/'));
+
+  it('opens Scan Management on SaaS from the Cloud tab; Escape closes it and focus returns to the button', async () => {
+    const user = userEvent.setup();
+    listAnswer = () => page([CLOUD]);
+    renderPage('/xamlens/datastores/cloud');
+    await screen.findByText('orders-archive');
+    const button = screen.getByRole('button', { name: 'Manage Scans' });
+    await user.click(button);
+    const drawer = screen.getByRole('dialog', { name: 'Scan Management' });
+    expect(within(drawer).getByRole('tab', { name: 'Scan Configurations' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(drawer).getByRole('button', { name: 'SaaS', pressed: true })).toBeInTheDocument();
+    expect(scanPaths()).toEqual(['/api/dspm/scan-management/saas-integrations']);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Scan Management' })).toBeNull();
+    expect(button).toHaveFocus();
+  });
+
+  it('opens Scan Management on Endpoint from the Endpoint tab', async () => {
+    const user = userEvent.setup();
+    listAnswer = () => page([ENDPOINT]);
+    renderPage('/xamlens/datastores/endpoint');
+    await screen.findByText('build-laptop-07');
+    await user.click(screen.getByRole('button', { name: 'Manage Scans' }));
+    const drawer = screen.getByRole('dialog', { name: 'Scan Management' });
+    expect(within(drawer).getByRole('button', { name: 'Endpoint', pressed: true })).toBeInTheDocument();
+    expect(scanPaths()).toEqual(['/api/dspm/scan-management/endpoint-configuration']);
+    const [, footerClose] = within(drawer).getAllByRole('button', { name: 'Close' });
+    await user.click(footerClose);
+    expect(screen.queryByRole('dialog', { name: 'Scan Management' })).toBeNull();
   });
 });
 

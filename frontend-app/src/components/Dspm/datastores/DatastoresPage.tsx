@@ -18,6 +18,7 @@ import DatastoreTable from './DatastoreTable';
 import type { DrawerRow } from './drawer/DatastoreDrawer';
 import { DatastoreDrawerHost, canOpenDrawer, hasSourceId } from './DatastoreDrawerHost';
 import { TableFooter, listPageLimit } from './ui/TableFooter';
+import ScanManagementDrawer from '../scans/ScanManagementDrawer';
 
 /**
  * XamLens Datastores: one page over every Matters datastore, with the console's tabs (All, Cloud, SaaS,
@@ -194,9 +195,25 @@ const ReadyDatastoresPage: React.FC<{ tab: DatastoreTabSlug }> = ({ tab }) => {
     }, { replace: true });
   }, [hasSeedParams, setSearchParams]);
 
+  // Scan Management (design 6.8), opened by "Manage Scans": on the Endpoint configuration from the
+  // Endpoint tab, else on SaaS. "Manage Scans" takes focus again when it closes.
+  const [scanManagement, setScanManagement] = useState<{ platform: 'saas' | 'endpoint' } | null>(null);
+  const manageScans = useRef<HTMLButtonElement>(null);
+  const openScanManagement = useCallback(() => {
+    setScanManagement({ platform: apiTab === 'endpoint' ? 'endpoint' : 'saas' });
+  }, [apiTab]);
+  const closeScanManagement = useCallback(() => {
+    setScanManagement(null);
+    manageScans.current?.focus();
+  }, []);
+
   return (
     <div className="space-y-5">
-      <DatastoreHeader headerOverflow={config.headerOverflow} />
+      <DatastoreHeader
+        headerOverflow={config.headerOverflow}
+        onManageScans={openScanManagement}
+        manageScansRef={manageScans}
+      />
       <DatastoreTabStrip
         active={tab}
         tabCounts={kpis?.tabCounts ?? null}
@@ -210,6 +227,9 @@ const ReadyDatastoresPage: React.FC<{ tab: DatastoreTabSlug }> = ({ tab }) => {
         config={config}
         initialFilters={seed.tab === tab ? seed.filters : undefined}
       />
+      {scanManagement && (
+        <ScanManagementDrawer initialPlatform={scanManagement.platform} onClose={closeScanManagement} />
+      )}
     </div>
   );
 };

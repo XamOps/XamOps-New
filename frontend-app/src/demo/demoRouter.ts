@@ -27,6 +27,7 @@ import * as xamlensRisks from './xamlensRisksMockData';
 import * as lineage from './xamlensLineageMockData';
 import * as files from './xamlensFilesMockData';
 import * as xamlensPages from './xamlensPagesMockData';
+import * as xamlensScans from './xamlensScansMockData';
 import type { DspmSurface } from '../hooks/useDspmData';
 import * as soc2 from './soc2MockData';
 import * as war from './warMockData';
@@ -1314,6 +1315,10 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
       return makeResponse(xamlensPages.demoAssists());
     if (path === '/api/dspm/remediation/activity')
       return makeResponse(xamlensPages.demoRemediation(url));
+    if (path.startsWith('/api/dspm/scan-management/')) {
+      const answer = xamlensScans.demoScanManagement(path, url);
+      return answer !== null ? makeResponse(answer) : makeDspmError(404, 'ASSET_NOT_FOUND', 'That item could not be found.');
+    }
   }
   // Summary and anything else: {} is safe, nothing on screen reads it yet. Never the real API, which
   // would read a customer's Matters project from a sales demo.

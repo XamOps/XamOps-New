@@ -31,6 +31,10 @@ import type {
 import { DEMO_NOW } from './xamlensEndpointDrawerMockData';
 import { demoEndpointFileTimes } from './xamlensFilesMockData';
 import type { AssistList, DocumentClassList, DspmDashboard, RemediationActivity } from '../types/dspmPages';
+import type {
+  EndpointScanConfiguration, SaasChannel, SaasIntegrationList, SaasScanConfiguration, SaasScanUser, ScanRun,
+  ScanRunDatastore, ScanRunDetail, ScanSchedule, ScanScheduleDetail, ScanScope, ScanScopeDetail,
+} from '../types/dspmScans';
 
 /**
  * The generic `/api/xamops/*` fallback answers `{}`, which is wrong for any
@@ -2048,6 +2052,98 @@ describe('demo router — XamLens Document Classes, Assists and Remediation (ROL
     const none = await readDemoBody(url('q=no-such-object&skip=0&limit=10')) as RemediationActivity;
     expect(none.items).toEqual([]);
     expect(none.summary.total).toBe(0);
+  });
+});
+
+describe('demo router — XamLens Scan Management (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+  const SM = '/api/dspm/scan-management';
+  const expectNotFound = async (url: string) => {
+    const response = resolveDemoResponse(url);
+    expect(response?.status, url).toBe(404);
+    expect(JSON.parse(await response!.text()).code).toBe('ASSET_NOT_FOUND');
+  };
+
+  it('answers the schedules, a legacy one-time and a weekly one, with their details', async () => {
+    const list = await readDemoBody(`${SM}/schedules?page=1&pageSize=10`) as DspmPage<ScanSchedule>;
+    expect(list.total).toBe(2);
+    const legacy = list.data.find(s => s.legacy) as ScanSchedule;
+    expect(legacy.name).toBeNull();
+    expect(legacy.timing?.type).toBe('once');
+    expect(legacy.lastRunAt).toBeNull();
+    const weekly = list.data.find(s => !s.legacy) as ScanSchedule;
+    expect(weekly.timing?.recurrenceType).toBe('WEEKLY');
+    expect(weekly.timing?.repeatOn.length).toBeGreaterThan(0);
+    const detail = await readDemoBody(`${SM}/schedules/${legacy.id}`) as ScanScheduleDetail;
+    expect(detail.targets.length).toBeLessThan(detail.targetsTotal);
+    const endpointOnly = await readDemoBody(`${SM}/schedules?platform=endpoint&page=1&pageSize=10`) as DspmPage<ScanSchedule>;
+    expect(endpointOnly.data.map(s => s.id)).toEqual([weekly.id]);
+    await expectNotFound(`${SM}/schedules/ffffffffffffffffffffffff`);
+  });
+
+  it('answers 8 runs (one in progress, one failed) with filters, details and datastores', async () => {
+    const list = await readDemoBody(`${SM}/scan-history?page=1&pageSize=10`) as DspmPage<ScanRun>;
+    expect(list.total).toBe(8);
+    expect(list.data.filter(r => r.status === 'IN_PROGRESS')).toHaveLength(1);
+    expect(list.data.filter(r => r.status === 'FAILED')).toHaveLength(1);
+    expect(list.data.filter(r => r.status === 'SUCCESS')).toHaveLength(6);
+    const cloud = await readDemoBody(`${SM}/scan-history?platform=cloud&page=1&pageSize=10`) as DspmPage<ScanRun>;
+    expect(cloud.data.length).toBeGreaterThan(0);
+    expect(cloud.data.every(r => r.platform === 'cloud')).toBe(true);
+    const paged = await readDemoBody(`${SM}/scan-history?page=2&pageSize=5`) as DspmPage<ScanRun>;
+    expect(paged.data).toHaveLength(3);
+
+    const failed = list.data.find(r => r.status === 'FAILED') as ScanRun;
+    const detail = await readDemoBody(`${SM}/scan-history/${failed.id}`) as ScanRunDetail;
+    expect(detail.run.id).toBe(failed.id);
+    expect(detail.accounts.length).toBeGreaterThan(0);
+    const datastores = await readDemoBody(`${SM}/scan-history/${failed.id}/datastores?page=1&pageSize=10`) as DspmPage<ScanRunDatastore>;
+    expect(datastores.data.some(d => d.status === 'FAILED' && d.failureReason !== null)).toBe(true);
+    const byAccount = await readDemoBody(`${SM}/scan-history/${failed.id}/datastores?account=${encodeURIComponent(detail.accounts[0].value ?? '')}&page=1&pageSize=10`) as DspmPage<ScanRunDatastore>;
+    expect(byAccount.data.every(d => d.accountName === detail.accounts[0].value)).toBe(true);
+    await expectNotFound(`${SM}/scan-history/00000000-0000-4000-8000-000000000000`);
+    await expectNotFound(`${SM}/scan-history/00000000-0000-4000-8000-000000000000/datastores`);
+  });
+
+  it('answers one scope with its targets', async () => {
+    const list = await readDemoBody(`${SM}/scan-scopes?page=1&pageSize=10`) as DspmPage<ScanScope>;
+    expect(list.data).toHaveLength(1);
+    const detail = await readDemoBody(`${SM}/scan-scopes/${list.data[0].id}`) as ScanScopeDetail;
+    expect(detail.targets.length).toBeGreaterThan(0);
+    const none = await readDemoBody(`${SM}/scan-scopes?platform=endpoint&page=1&pageSize=10`) as DspmPage<ScanScope>;
+    expect(none.data).toEqual([]);
+    await expectNotFound(`${SM}/scan-scopes/ffffffffffffffffffffffff`);
+  });
+
+  it('answers Google Workspace with 23 users and Slack with 3 channels', async () => {
+    const { integrations } = await readDemoBody(`${SM}/saas-integrations`) as SaasIntegrationList;
+    expect(integrations.map(i => i.provider)).toEqual(['GOOGLE_WORKSPACE', 'SLACK']);
+    const [google, slack] = integrations;
+    const config = await readDemoBody(`${SM}/saas-integrations/${google.id}/configuration`) as SaasScanConfiguration;
+    expect(config.scopes.map(s => s.driveType)).toEqual(['GOOGLE_WORKSPACE', 'GMAIL']);
+    const users = await readDemoBody(`${SM}/saas-integrations/${google.id}/users?driveType=GOOGLE_WORKSPACE&page=3&pageSize=10`) as DspmPage<SaasScanUser>;
+    expect(users.total).toBe(23);
+    expect(users.data).toHaveLength(3);
+    const org = await readDemoBody(`${SM}/saas-integrations/${google.id}/users?driveType=GOOGLE_WORKSPACE&domain=example.org&page=1&pageSize=50`) as DspmPage<SaasScanUser>;
+    expect(org.data.length).toBeGreaterThan(0);
+    expect(org.data.every(u => u.email?.endsWith('@example.org'))).toBe(true);
+    const channels = await readDemoBody(`${SM}/saas-integrations/${slack.id}/channels?page=1&pageSize=10`) as DspmPage<SaasChannel>;
+    expect(channels.total).toBe(3);
+    const fresh = await readDemoBody(`${SM}/saas-integrations/${slack.id}/channels?isNew=true&page=1&pageSize=10`) as DspmPage<SaasChannel>;
+    expect(fresh.data.every(c => c.isNew)).toBe(true);
+    const enabled = await readDemoBody(`${SM}/saas-integrations/${slack.id}/channels?scanState=ENABLED&page=1&pageSize=10`) as DspmPage<SaasChannel>;
+    expect(enabled.data.every(c => c.selected)).toBe(true);
+    await expectNotFound(`${SM}/saas-integrations/ffffffffffffffffffffffff/configuration`);
+  });
+
+  it('answers the endpoint configuration, and 404 for an unknown path', async () => {
+    const config = await readDemoBody(`${SM}/endpoint-configuration`) as EndpointScanConfiguration;
+    expect(config.configured).toBe(true);
+    expect(config.fileTypes.every(t => config.allFileTypes.includes(t))).toBe(true);
+    await expectNotFound(`${SM}/no-such-view`);
   });
 });
 
