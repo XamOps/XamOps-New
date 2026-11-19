@@ -38,11 +38,18 @@ describe('datastoreErrorCopy', () => {
     expect(datastoreErrorCopy(outage, 'misconfiguration')).toEqual(datastoreErrorCopy(outage));
   });
 
+  it("says an item could not be found with the 'item' subject, without Retry", () => {
+    expect(datastoreErrorCopy(notFound, 'item')).toEqual({
+      text: 'This item could not be found. It may have been removed.', retry: false,
+    });
+  });
+
   it.each(OTHER_CODES)('gives %s the same copy for both subjects', code => {
     const error = { code, retryAfterSeconds: code === 'RATE_LIMITED' ? 7 : undefined };
     const copy = datastoreErrorCopy(error);
     expect(datastoreErrorCopy(error, 'datastore')).toEqual(copy);
     expect(datastoreErrorCopy(error, 'file')).toEqual(copy);
+    expect(datastoreErrorCopy(error, 'item')).toEqual(copy);
     expect(copy.text).not.toMatch(/could not be found/);
   });
 

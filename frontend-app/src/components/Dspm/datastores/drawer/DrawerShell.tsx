@@ -8,6 +8,8 @@ interface DrawerShellProps {
   onClose: () => void;
   /** Focused when the drawer opens: the header's close X. */
   initialFocus: RefObject<HTMLElement | null>;
+  /** The aside's width from `lg` up; full width below. A full literal, so Tailwind generates it. */
+  widthClass?: string;
   children: React.ReactNode;
 }
 
@@ -20,7 +22,9 @@ interface DrawerShellProps {
  * Controls that must win (an open popover, a visible console-only tooltip) stop the key before it gets
  * there. The stack is provided to everything inside, nested drawers included.
  */
-export const DrawerShell: React.FC<DrawerShellProps> = ({ label, onClose, initialFocus, children }) => {
+export const DrawerShell: React.FC<DrawerShellProps> = ({
+  label, onClose, initialFocus, widthClass = 'lg:w-[55vw]', children,
+}) => {
   const aside = useRef<HTMLElement>(null);
   const escapeStack = useEscapeStack(aside);
 
@@ -44,7 +48,7 @@ export const DrawerShell: React.FC<DrawerShellProps> = ({ label, onClose, initia
         aria-modal="true"
         aria-label={label}
         tabIndex={-1}
-        className="fixed inset-y-0 right-0 z-50 flex w-full flex-col bg-white shadow-2xl focus:outline-none lg:w-[55vw]"
+        className={`fixed inset-y-0 right-0 z-50 flex w-full flex-col bg-white shadow-2xl focus:outline-none ${widthClass}`}
       >
         <EscapeStack stack={escapeStack}>{children}</EscapeStack>
       </aside>

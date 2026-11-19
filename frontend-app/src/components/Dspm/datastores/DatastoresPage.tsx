@@ -1,5 +1,5 @@
-import React, { useCallback, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import type { DspmStatus } from '../../../types/dspm';
 import type { DatastoreRow } from '../../../types/dspmDatastores';
@@ -8,16 +8,15 @@ import { useDatastoreKpis, useDatastoreList } from '../../../hooks/useDspmDatast
 import { useDatastoreExport, type DatastoreExportRequest } from '../../../hooks/useDatastoreExport';
 import DspmNotReady from '../DspmNotReady';
 import { DATASTORE_TAB_CONFIG, type ColumnDef, type DatastoreTabConfig } from './datastoreTabConfig';
-import { buildFilterParams } from './datastoreFilters';
+import { buildFilterParams, isSelectable, type DatastoreFilterState } from './datastoreFilters';
 import { datastoreErrorCopy } from './datastoreErrors';
 import DatastoreHeader from './DatastoreHeader';
 import DatastoreTabStrip from './DatastoreTabStrip';
 import DatastoreKpiStrip from './DatastoreKpiStrip';
 import DatastoreFilterBar from './DatastoreFilterBar';
 import DatastoreTable from './DatastoreTable';
-import DatastoreDrawer, { type DrawerRow } from './drawer/DatastoreDrawer';
-import EndpointDrawer from './endpoint/EndpointDrawer';
-import SaasDrawer from './saas/SaasDrawer';
+import type { DrawerRow } from './drawer/DatastoreDrawer';
+import { DatastoreDrawerHost, canOpenDrawer, hasSourceId } from './DatastoreDrawerHost';
 import { TableFooter, listPageLimit } from './ui/TableFooter';
 
 /**
@@ -28,23 +27,24 @@ import { TableFooter, listPageLimit } from './ui/TableFooter';
  * console action (scans, row menus, bulk selection) is greyed and calls nothing.
  */
 
-const SOURCE_ID = /^[0-9a-fA-F]{24}$/;
-
-const hasSourceId = (row: DatastoreRow): row is DrawerRow => row.sourceId !== null && SOURCE_ID.test(row.sourceId);
+/** The filters a link may seed (design 4.7): a Dashboard bar opens `?provider=` or, on Endpoint, `?os=`. */
+const URL_SEED_DIMENSIONS = ['provider', 'os'] as const;
 
 /**
- * The drawer a row opens (design 6.3), each loading everything by the row's 24-hex source id: cloud and
- * on-prem rows the datastore drawer, SaaS rows the SaaS drawer, endpoint rows the Endpoint drawer. Any
- * other row (an unknown category, a missing or malformed source id) opens nothing and is not focusable.
+ * The URL's `provider` and `os` as Include filters, keeping a value only when it passes its dimension's
+ * rule (`DIMENSION_VALUE_RULES`, through `isSelectable`) and `os` only on the Endpoint tab. Undefined when
+ * nothing is seeded.
  */
-const drawerKind = (row: DatastoreRow): 'datastore' | 'saas' | 'endpoint' | null =>
-  !hasSourceId(row) ? null
-    : row.category === 'cloud' || row.category === 'on_prem' ? 'datastore'
-    : row.category === 'saas' ? 'saas'
-    : row.category === 'endpoint' ? 'endpoint'
-    : null;
-
-const canOpen = (row: DatastoreRow) => drawerKind(row) !== null;
+function urlSeedFilters(params: URLSearchParams, apiTab: DatastoreApiTab): DatastoreFilterState | undefined {
+  const seed: DatastoreFilterState = {};
+  for (const dimension of URL_SEED_DIMENSIONS) {
+    if (dimension === 'os' && apiTab !== 'endpoint') continue;
+    const value = params.get(dimension);
+    if (value === null || !isSelectable(dimension, { value })) continue;
+    seed[dimension] = { mode: 'include', values: [value] };
+  }
+  return Object.keys(seed).length > 0 ? seed : undefined;
+}
 
 /** The Dismiss button of the export's banner and note (review fix R12). */
 const DismissButton: React.FC<{ onDismiss: () => void }> = ({ onDismiss }) => (
@@ -58,11 +58,16 @@ const DismissButton: React.FC<{ onDismiss: () => void }> = ({ onDismiss }) => (
   </button>
 );
 
-const DatastoreTabBody: React.FC<{ apiTab: DatastoreApiTab; config: DatastoreTabConfig }> = ({ apiTab, config }) => {
+const DatastoreTabBody: React.FC<{
+  apiTab: DatastoreApiTab;
+  config: DatastoreTabConfig;
+  /** The first filter state (a link's seed); read on mount only. */
+  initialFilters?: DatastoreFilterState;
+}> = ({ apiTab, config, initialFilters }) => {
   const {
     searchInput, setSearchInput, search, filters, updateFilters, sort, toggleSort, page, setPage, pageSize, setPageSize,
     list, listLoading, listError, reloadList, options, optionsLoading, optionsError, labelMemory,
-  } = useDatastoreList(apiTab, true);
+  } = useDatastoreList(apiTab, true, initialFilters);
 
   const exporter = useDatastoreExport();
   // The last export's request, which Retry runs again.
@@ -85,7 +90,6 @@ const DatastoreTabBody: React.FC<{ apiTab: DatastoreApiTab; config: DatastoreTab
   }, []);
   // Stable, because the drawers put it in a keydown effect's dependencies.
   const close = useCallback(() => setOpenRow(null), []);
-  const openKind = openRow ? drawerKind(openRow) : null;
 
   const errorCopy = listError ? datastoreErrorCopy(listError) : null;
   const exportErrorCopy = exporter.error ? datastoreErrorCopy(exporter.error) : null;
@@ -111,7 +115,7 @@ const DatastoreTabBody: React.FC<{ apiTab: DatastoreApiTab; config: DatastoreTab
           loading={listLoading}
           sort={sort}
           onSort={toggleSort}
-          canOpen={canOpen}
+          canOpen={canOpenDrawer}
           onOpen={open}
           onExport={startExport}
           exporting={exporter.exporting}
@@ -162,15 +166,7 @@ const DatastoreTabBody: React.FC<{ apiTab: DatastoreApiTab; config: DatastoreTab
         )}
       </section>
 
-      {openRow && openKind === 'datastore' && (
-        <DatastoreDrawer key={openRow.sourceId} row={openRow} onClose={close} />
-      )}
-      {openRow && openKind === 'saas' && (
-        <SaasDrawer key={openRow.sourceId} row={openRow} onClose={close} />
-      )}
-      {openRow && openKind === 'endpoint' && (
-        <EndpointDrawer key={openRow.sourceId} row={openRow} onClose={close} />
-      )}
+      {openRow && <DatastoreDrawerHost row={openRow} onClose={close} />}
     </div>
   );
 };
@@ -182,6 +178,22 @@ const ReadyDatastoresPage: React.FC<{ tab: DatastoreTabSlug }> = ({ tab }) => {
   const config = DATASTORE_TAB_CONFIG[tab];
   const { kpis } = useDatastoreKpis(apiTab);
 
+  // A link's provider / OS filter (design 4.7), read once on arrival and applied to the tab it arrived
+  // on; a later tab switch drops it, so coming back to that tab starts unfiltered. The parameters are then
+  // removed from the URL, so a later filter change never leaves a stale one.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [seed, setSeed] = useState(() => ({ tab, filters: urlSeedFilters(searchParams, apiTab) }));
+  if (seed.tab !== tab && seed.filters) setSeed({ tab, filters: undefined });
+  const hasSeedParams = URL_SEED_DIMENSIONS.some(dimension => searchParams.has(dimension));
+  useEffect(() => {
+    if (!hasSeedParams) return;
+    setSearchParams(previous => {
+      const next = new URLSearchParams(previous);
+      for (const dimension of URL_SEED_DIMENSIONS) next.delete(dimension);
+      return next;
+    }, { replace: true });
+  }, [hasSeedParams, setSearchParams]);
+
   return (
     <div className="space-y-5">
       <DatastoreHeader headerOverflow={config.headerOverflow} />
@@ -192,7 +204,12 @@ const ReadyDatastoresPage: React.FC<{ tab: DatastoreTabSlug }> = ({ tab }) => {
       />
       <DatastoreKpiStrip cards={config.kpis} kpis={kpis?.tab === apiTab ? kpis : null} />
       {/* Keyed by tab: switching tabs resets search, filters, sort, page and hidden columns. */}
-      <DatastoreTabBody key={tab} apiTab={apiTab} config={config} />
+      <DatastoreTabBody
+        key={tab}
+        apiTab={apiTab}
+        config={config}
+        initialFilters={seed.tab === tab ? seed.filters : undefined}
+      />
     </div>
   );
 };

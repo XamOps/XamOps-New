@@ -28,15 +28,16 @@ const CONNECTION_CODES: ReadonlySet<string> = new Set([
 
 /**
  * What a failed request was about: a datastore (the page and every datastore drawer), a file (the
- * SaaS file drawer) or a misconfiguration (the Misconfiguration drawer). Only the not-found text depends
- * on it.
+ * SaaS file drawer), a misconfiguration (the Misconfiguration drawer), or any other item (a schedule,
+ * run, scope or integration). Only the not-found text depends on it.
  */
-export type ErrorSubject = 'datastore' | 'file' | 'misconfiguration';
+export type ErrorSubject = 'datastore' | 'file' | 'misconfiguration' | 'item';
 
 const NOT_FOUND_TEXT: Readonly<Record<ErrorSubject, string>> = {
   datastore: 'This datastore could not be found. It may have been removed.',
   file: 'This file could not be found. It may have been removed.',
   misconfiguration: 'This misconfiguration is no longer reported.',
+  item: 'This item could not be found. It may have been removed.',
 };
 
 export function datastoreErrorCopy(

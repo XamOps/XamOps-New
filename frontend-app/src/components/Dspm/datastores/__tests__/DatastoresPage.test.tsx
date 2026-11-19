@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import type { DspmPage, DspmStatus } from '../../../../types/dspm';
 import type { DatastoreFilterOptions, DatastoreKpis, DatastoreRow } from '../../../../types/dspmDatastores';
 import type { DatastoreTabSlug } from '../../../../constants/xamlensTabs';
@@ -678,5 +678,69 @@ describe('DatastoresPage export', () => {
 
     await user.click(within(note).getByRole('button', { name: 'Dismiss' }));
     expect(screen.queryByRole('status')).toBeNull();
+  });
+});
+
+describe('DatastoresPage filter seed from the URL (design 4.7)', () => {
+  const SearchProbe = () => <div data-testid="search">{useLocation().search}</div>;
+
+  function renderSeeded(path: string) {
+    return render(
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/xamlens/datastores/:datastoreTab" element={<><Harness /><SearchProbe /></>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  it('seeds ?provider=S3 as an Include filter on the first requests, then removes the parameter', async () => {
+    const user = userEvent.setup();
+    renderSeeded('/xamlens/datastores/cloud?provider=S3');
+    await screen.findByText('orders-archive');
+    expect(listRequests()[0].searchParams.get('provider')).toBe('S3');
+    expect(optionRequests()[0].searchParams.get('provider')).toBe('S3');
+    expect(listRequests().some(url => url.searchParams.has('provider_exclude'))).toBe(false);
+    await waitFor(() => expect(screen.getByTestId('search')).toBeEmptyDOMElement());
+    expect(screen.getByRole('button', { name: /^Provider/ })).toHaveTextContent(/^Provider\s*1$/);
+    const dropdown = await openProviderDropdown(user);
+    expect(await within(dropdown).findByRole('checkbox', { name: /^S3/ })).toBeChecked();
+    expect(within(dropdown).getByRole('combobox', { name: 'Include or exclude' })).toHaveValue('include');
+    // Removing the parameter does not reset the filter.
+    expect(last(listRequests()).searchParams.get('provider')).toBe('S3');
+  });
+
+  it('ignores a provider that fails the code rule, and still removes it', async () => {
+    renderSeeded('/xamlens/datastores/cloud?provider=s3%2Cebs');
+    await screen.findByText('orders-archive');
+    expect(listRequests().some(url => url.searchParams.has('provider'))).toBe(false);
+    await waitFor(() => expect(screen.getByTestId('search')).toBeEmptyDOMElement());
+    expect(screen.getByRole('button', { name: /^Provider/ })).toHaveTextContent(/^Provider\s*$/);
+  });
+
+  it('ignores os off the Endpoint tab and removes it, keeping other parameters', async () => {
+    renderSeeded('/xamlens/datastores/cloud?os=MAC&view=x');
+    await screen.findByText('orders-archive');
+    expect(listRequests().some(url => url.searchParams.has('os'))).toBe(false);
+    await waitFor(() => expect(screen.getByTestId('search')).toHaveTextContent(/^\?view=x$/));
+  });
+
+  it('seeds os on the Endpoint tab', async () => {
+    renderSeeded('/xamlens/datastores/endpoint?os=MAC');
+    await screen.findByText('orders-archive');
+    expect(listRequests()[0].searchParams.get('os')).toBe('MAC');
+    await waitFor(() => expect(screen.getByTestId('search')).toBeEmptyDOMElement());
+  });
+
+  it('applies the seed once: back on its tab after a switch, the list is unfiltered', async () => {
+    const user = userEvent.setup();
+    renderSeeded('/xamlens/datastores/cloud?provider=S3');
+    await screen.findByText('orders-archive');
+    await user.click(screen.getByRole('tab', { name: /^SaaS/ }));
+    await waitFor(() => expect(last(listRequests()).searchParams.get('tab')).toBe('saas'));
+    expect(last(listRequests()).searchParams.has('provider')).toBe(false);
+    await user.click(screen.getByRole('tab', { name: /^Cloud/ }));
+    await waitFor(() => expect(last(listRequests()).searchParams.get('tab')).toBe('cloud'));
+    expect(last(listRequests()).searchParams.has('provider')).toBe(false);
   });
 });

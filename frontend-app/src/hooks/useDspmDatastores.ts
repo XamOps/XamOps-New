@@ -76,10 +76,11 @@ function rememberLabels(memory: Map<string, Map<string, string>>, options: Datas
  * search, the filters, the sort or the page size returns to page 1. The caller keys the component by
  * tab, so a tab switch starts from fresh state.
  */
-export function useDatastoreList(apiTab: DatastoreApiTab, enabled: boolean) {
+export function useDatastoreList(apiTab: DatastoreApiTab, enabled: boolean, initialFilters?: DatastoreFilterState) {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState<string | null>(null);
-  const [filters, setFilters] = useState<DatastoreFilterState>({});
+  // A link's seed (the Dashboard's bars, design 4.7) is the first state; read on mount only.
+  const [filters, setFilters] = useState<DatastoreFilterState>(initialFilters ?? {});
   const [sort, setSort] = useState<string>(DEFAULT_DATASTORE_SORT);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSizeState] = useState<number>(DSPM_PAGE_SIZES[0]);

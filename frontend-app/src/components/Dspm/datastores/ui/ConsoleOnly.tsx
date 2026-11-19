@@ -79,7 +79,7 @@ const Tooltip: React.FC<{ id: string; visible: boolean; placement: Placement }> 
   </span>
 );
 
-type Variant = 'primary' | 'secondary' | 'icon' | 'link' | 'card' | 'menu';
+type Variant = 'primary' | 'secondary' | 'icon' | 'link' | 'card' | 'menu' | 'segment';
 
 const VARIANT: Record<Variant, string> = {
   primary: 'gap-1.5 rounded-lg bg-[rgba(0,0,0,0.88)] px-3 py-1.5 text-xs font-semibold text-white',
@@ -89,6 +89,8 @@ const VARIANT: Record<Variant, string> = {
   card: 'w-full flex-col items-start gap-3 rounded-xl border border-[rgba(0,0,0,0.08)] bg-white p-5 text-left',
   // An entry of a popover list (the More filters dimensions).
   menu: 'w-full gap-2 rounded px-2 py-1.5 text-left text-xs text-[rgba(0,0,0,0.65)]',
+  // An unpressed option of a segmented switch (the Dashboard's "DAM").
+  segment: 'gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold text-[rgba(0,0,0,0.55)]',
 };
 
 interface ConsoleOnlyButtonProps {
@@ -132,17 +134,19 @@ export const ConsoleOnlyButton: React.FC<ConsoleOnlyButtonProps> = ({
 interface ConsoleOnlyCheckboxProps {
   /** Accessible name, e.g. "Select all rows". */
   label: string;
+  /** The state the console reports; drawn with a tick. Defaults to unchecked. */
+  checked?: boolean;
   placement?: Placement;
 }
 
-/** An unchecked, greyed checkbox for the console's bulk selection. */
-export const ConsoleOnlyCheckbox: React.FC<ConsoleOnlyCheckboxProps> = ({ label, placement = 'top' }) => {
+/** A greyed checkbox for the console's bulk selection and settings, unchecked unless `checked`. */
+export const ConsoleOnlyCheckbox: React.FC<ConsoleOnlyCheckboxProps> = ({ label, checked = false, placement = 'top' }) => {
   const { tooltipId, visible, handlers } = useConsoleOnly();
   return (
     <span className="relative inline-flex">
       <span
         role="checkbox"
-        aria-checked="false"
+        aria-checked={checked ? 'true' : 'false'}
         aria-disabled="true"
         aria-label={label}
         aria-describedby={tooltipId}
@@ -150,9 +154,153 @@ export const ConsoleOnlyCheckbox: React.FC<ConsoleOnlyCheckboxProps> = ({ label,
         {...handlers}
         className="inline-flex cursor-not-allowed rounded opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.25)]"
       >
-        <span className="h-3.5 w-3.5 rounded-[3px] border border-[rgba(0,0,0,0.3)] bg-[rgba(0,0,0,0.03)]" />
+        {checked ? (
+          <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-[3px] bg-[rgba(0,0,0,0.88)] text-white">
+            <Icon icon="mdi:check" width={11} />
+          </span>
+        ) : (
+          <span className="h-3.5 w-3.5 rounded-[3px] border border-[rgba(0,0,0,0.3)] bg-[rgba(0,0,0,0.03)]" />
+        )}
       </span>
       <Tooltip id={tooltipId} visible={visible} placement={placement} />
+    </span>
+  );
+};
+
+/** Classes every control below shares: greyed, not-allowed, with a focus ring. */
+const GREYED = 'cursor-not-allowed opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.25)]';
+
+interface ConsoleOnlyMenuItemProps {
+  children: React.ReactNode;
+  /** Iconify id rendered before the text. */
+  icon?: string;
+  placement?: Placement;
+}
+
+/** A greyed row of a `role="menu"` list (the drawer's Actions menu). */
+export const ConsoleOnlyMenuItem: React.FC<ConsoleOnlyMenuItemProps> = ({ children, icon, placement = 'left' }) => {
+  const { tooltipId, visible, handlers } = useConsoleOnly();
+  return (
+    <span className="relative flex">
+      <button
+        type="button"
+        role="menuitem"
+        aria-disabled="true"
+        aria-describedby={tooltipId}
+        {...handlers}
+        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[rgba(0,0,0,0.75)] ${GREYED}`}
+      >
+        {icon && <Icon icon={icon} width={14} className="flex-shrink-0" />}
+        {children}
+      </button>
+      <Tooltip id={tooltipId} visible={visible} placement={placement} />
+    </span>
+  );
+};
+
+interface ConsoleOnlySwitchProps {
+  /** Accessible name, e.g. "Real-time scanning". */
+  label: string;
+  /** The state the console reports. */
+  checked: boolean;
+  placement?: Placement;
+}
+
+/** A greyed on/off switch, drawn as `ToggleSwitch` in the state the console reports. */
+export const ConsoleOnlySwitch: React.FC<ConsoleOnlySwitchProps> = ({ label, checked, placement = 'top' }) => {
+  const { tooltipId, visible, handlers } = useConsoleOnly();
+  return (
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-disabled="true"
+        aria-label={label}
+        aria-describedby={tooltipId}
+        {...handlers}
+        className={`relative inline-flex h-4 w-7 flex-shrink-0 items-center rounded-full ${GREYED} ${
+          checked ? 'bg-[rgba(0,0,0,0.88)]' : 'bg-[rgba(0,0,0,0.15)]'
+        }`}
+      >
+        <span className={`inline-block h-3 w-3 rounded-full bg-white shadow ${checked ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+      </button>
+      <Tooltip id={tooltipId} visible={visible} placement={placement} />
+    </span>
+  );
+};
+
+interface ConsoleOnlyRadioProps {
+  /** Visible text, also the accessible name. */
+  label: string;
+  checked: boolean;
+  placement?: Placement;
+}
+
+/** A greyed radio option with its visible label, in the state the console reports. */
+export const ConsoleOnlyRadio: React.FC<ConsoleOnlyRadioProps> = ({ label, checked, placement = 'top' }) => {
+  const { tooltipId, visible, handlers } = useConsoleOnly();
+  return (
+    <span className="relative inline-flex">
+      <span
+        role="radio"
+        aria-checked={checked ? 'true' : 'false'}
+        aria-disabled="true"
+        aria-describedby={tooltipId}
+        tabIndex={0}
+        {...handlers}
+        className={`inline-flex items-center gap-1.5 rounded text-xs text-[rgba(0,0,0,0.75)] ${GREYED}`}
+      >
+        <span
+          aria-hidden="true"
+          className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border ${
+            checked ? 'border-[rgba(0,0,0,0.88)]' : 'border-[rgba(0,0,0,0.3)]'
+          }`}
+        >
+          {checked && <span className="h-1.5 w-1.5 rounded-full bg-[rgba(0,0,0,0.88)]" />}
+        </span>
+        {label}
+      </span>
+      <Tooltip id={tooltipId} visible={visible} placement={placement} />
+    </span>
+  );
+};
+
+interface ConsoleOnlyFieldProps {
+  /** The field's visible label and accessible name. */
+  label: string;
+  /** What the console shows in it; null or empty draws an empty box. */
+  value: string | null;
+  /** A taller box that wraps (paths, lists). */
+  multiline?: boolean;
+  placement?: Placement;
+}
+
+/** A greyed, read-only input showing the console's value: every Scan Settings and Endpoint configuration input. */
+export const ConsoleOnlyField: React.FC<ConsoleOnlyFieldProps> = ({ label, value, multiline = false, placement = 'top' }) => {
+  const { tooltipId, visible, handlers } = useConsoleOnly();
+  const labelId = useId();
+  return (
+    <span className="flex flex-col gap-1">
+      <span id={labelId} className="text-[11px] font-semibold text-[rgba(0,0,0,0.6)]">{label}</span>
+      <span className="relative flex">
+        <span
+          role="textbox"
+          aria-readonly="true"
+          aria-disabled="true"
+          aria-multiline={multiline ? 'true' : undefined}
+          aria-labelledby={labelId}
+          aria-describedby={tooltipId}
+          tabIndex={0}
+          {...handlers}
+          className={`block w-full rounded-lg border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.03)] px-2.5 py-1.5 text-xs text-[rgba(0,0,0,0.75)] ${GREYED} ${
+            multiline ? 'min-h-[4rem] whitespace-pre-wrap break-words' : 'min-h-[1.875rem] truncate'
+          }`}
+        >
+          {value ?? ''}
+        </span>
+        <Tooltip id={tooltipId} visible={visible} placement={placement} />
+      </span>
     </span>
   );
 };

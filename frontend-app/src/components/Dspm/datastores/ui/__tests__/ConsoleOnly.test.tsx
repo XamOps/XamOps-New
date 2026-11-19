@@ -2,7 +2,10 @@ import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { CONSOLE_ONLY_TOOLTIP, ConsoleOnlyButton, ConsoleOnlyCheckbox } from '../ConsoleOnly';
+import {
+  CONSOLE_ONLY_TOOLTIP, ConsoleOnlyButton, ConsoleOnlyCheckbox, ConsoleOnlyField, ConsoleOnlyMenuItem, ConsoleOnlyRadio,
+  ConsoleOnlySwitch,
+} from '../ConsoleOnly';
 
 /** Renders the control inside a "row" with its own click and keydown handlers, like a list row. */
 function renderInRow(control: React.ReactElement) {
@@ -31,6 +34,26 @@ const cases = [
     name: 'ConsoleOnlyCheckbox',
     element: <ConsoleOnlyCheckbox label="Select row" />,
     get: () => screen.getByRole('checkbox', { name: 'Select row' }),
+  },
+  {
+    name: 'ConsoleOnlyMenuItem',
+    element: <ConsoleOnlyMenuItem icon="mdi:sync">Sync Datastore</ConsoleOnlyMenuItem>,
+    get: () => screen.getByRole('menuitem', { name: 'Sync Datastore' }),
+  },
+  {
+    name: 'ConsoleOnlySwitch',
+    element: <ConsoleOnlySwitch label="Real-time scanning" checked />,
+    get: () => screen.getByRole('switch', { name: 'Real-time scanning' }),
+  },
+  {
+    name: 'ConsoleOnlyRadio',
+    element: <ConsoleOnlyRadio label="All users" checked={false} />,
+    get: () => screen.getByRole('radio', { name: 'All users' }),
+  },
+  {
+    name: 'ConsoleOnlyField',
+    element: <ConsoleOnlyField label="Host" value="db.example.internal" />,
+    get: () => screen.getByRole('textbox', { name: 'Host' }),
   },
 ];
 
@@ -136,5 +159,66 @@ describe('ConsoleOnlyButton card variant', () => {
     await user.keyboard('{Enter}');
     expect(onClick).not.toHaveBeenCalled();
     expect(onKeyDown).not.toHaveBeenCalled();
+  });
+});
+
+describe('the state the console reports', () => {
+  it('ConsoleOnlyCheckbox is unchecked by default and draws checked when told', () => {
+    render(
+      <>
+        <ConsoleOnlyCheckbox label="Unset" />
+        <ConsoleOnlyCheckbox label="Set" checked />
+      </>,
+    );
+    expect(screen.getByRole('checkbox', { name: 'Unset' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('checkbox', { name: 'Set' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('ConsoleOnlySwitch and ConsoleOnlyRadio carry aria-checked; the radio shows its label', () => {
+    render(
+      <>
+        <ConsoleOnlySwitch label="On" checked />
+        <ConsoleOnlySwitch label="Off" checked={false} />
+        <ConsoleOnlyRadio label="Selected users" checked />
+      </>,
+    );
+    expect(screen.getByRole('switch', { name: 'On' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: 'Off' })).toHaveAttribute('aria-checked', 'false');
+    const radio = screen.getByRole('radio', { name: 'Selected users' });
+    expect(radio).toHaveAttribute('aria-checked', 'true');
+    expect(radio).toHaveTextContent('Selected users');
+  });
+
+  it('ConsoleOnlyField is a read-only textbox showing its value, or an empty box', () => {
+    render(
+      <>
+        <ConsoleOnlyField label="Paths" value={'/data/a\n/data/b'} multiline />
+        <ConsoleOnlyField label="Username" value={null} />
+      </>,
+    );
+    const paths = screen.getByRole('textbox', { name: 'Paths' });
+    expect(paths).toHaveAttribute('aria-readonly', 'true');
+    expect(paths).toHaveAttribute('aria-multiline', 'true');
+    expect(paths).toHaveAttribute('tabindex', '0');
+    expect(paths).toHaveTextContent('/data/a');
+    expect(screen.getByText('Username')).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Username' })).toBeEmptyDOMElement();
+  });
+
+  it('every new control is greyed', () => {
+    render(
+      <>
+        <ConsoleOnlyMenuItem>Download Sensitives</ConsoleOnlyMenuItem>
+        <ConsoleOnlySwitch label="Scan" checked={false} />
+        <ConsoleOnlyRadio label="All users" checked />
+        <ConsoleOnlyField label="Port" value="5432" />
+      </>,
+    );
+    for (const control of [
+      screen.getByRole('menuitem'), screen.getByRole('switch'), screen.getByRole('radio'), screen.getByRole('textbox'),
+    ]) {
+      expect(control).toHaveClass('opacity-50', 'cursor-not-allowed');
+      expect(control).toHaveAttribute('aria-disabled', 'true');
+    }
   });
 });

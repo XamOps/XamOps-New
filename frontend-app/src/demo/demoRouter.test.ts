@@ -30,6 +30,7 @@ import type {
 } from '../types/dspmFiles';
 import { DEMO_NOW } from './xamlensEndpointDrawerMockData';
 import { demoEndpointFileTimes } from './xamlensFilesMockData';
+import type { DspmDashboard } from '../types/dspmPages';
 
 /**
  * The generic `/api/xamops/*` fallback answers `{}`, which is wrong for any
@@ -1813,6 +1814,42 @@ describe('demo router — XamLens Files page and Endpoint file drawer (ROLE_XAMO
     expect(others.every(row => DEMO_NOW - row.modifiedAt! >= 48 * 3600)).toBe(true);
     const summary = await readDemoBody(`${DS}/${mac.sourceId}/endpoint/summary`) as EndpointSummary;
     expect(summary.extensions.find(chip => chip.extension === 'docx')).toMatchObject({ label: 'DOCX', count: 1 });
+  });
+  });
+});
+
+describe('demo router — XamLens Dashboard (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+
+  it('answers /api/dspm/dashboard with four environments whose Top Risky rows are demo datastores', async () => {
+    const dashboard = await readDemoBody('/api/dspm/dashboard') as DspmDashboard;
+    expect(dashboard.environments.map(e => e.id)).toEqual(['cloud', 'saas', 'endpoint', 'on_prem']);
+    const all = (await readDemoBody('/api/dspm/datastores?tab=all&pageSize=100') as DspmPage<DatastoreRow>).data;
+    const known = new Set(all.map(row => row.sourceId));
+    for (const [tab, rows] of Object.entries(dashboard.topRisky)) {
+      expect(rows.length, tab).toBeLessThanOrEqual(5);
+      for (const row of rows) {
+        expect(known.has(row.sourceId), `${tab}: ${row.name}`).toBe(true);
+        expect(row.sensitives.recordCount).toBeGreaterThan(0);
+        // Its drawer answers with data, never a 404.
+        expect(resolveDemoResponse(`/api/dspm/datastores/${row.sourceId}/${
+          row.category === 'saas' ? 'saas/detail' : row.category === 'endpoint' ? 'endpoint/overview' : 'overview'
+        }`)!.status, row.name ?? '').toBe(200);
+      }
+    }
+    expect(dashboard.topRisky.all.length).toBeGreaterThan(0);
+    for (const environment of dashboard.environments) {
+      const rows = (await readDemoBody(
+        `/api/dspm/datastores?tab=${environment.id}&pageSize=100`,
+      ) as DspmPage<DatastoreRow>).data;
+      expect(environment.sensitiveRecords).toBe(rows.reduce((sum, row) => sum + row.sensitives.recordCount, 0));
+      expect(environment.connected).toBe(rows.length > 0);
+      expect(environment.subCategories.reduce((sum, bar) => sum + bar.sensitiveRecords, 0))
+        .toBe(environment.sensitiveRecords);
+    }
   });
 });
 /**

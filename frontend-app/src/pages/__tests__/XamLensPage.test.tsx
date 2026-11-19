@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import type { DspmStatus } from '../../types/dspm';
+import type { DashboardEnvironment, DashboardEnvironmentId, DspmDashboard } from '../../types/dspmPages';
 
 vi.mock('../../utils/apiClient', () => ({ default: { get: vi.fn() } }));
 // The page's own behaviour is covered by DatastoresPage.test.tsx; here only the tab it receives matters.
@@ -30,6 +31,21 @@ const get = apiClient.get as unknown as ReturnType<typeof vi.fn>;
 const READY: DspmStatus = {
   ready: true, entitled: true, configured: true, reason: null, message: null,
   projectName: 'Example workspace', lastVerifiedAt: null,
+};
+
+const NOT_READY: DspmStatus = {
+  ready: false, entitled: true, configured: false, reason: 'NOT_CONFIGURED', message: null,
+  projectName: null, lastVerifiedAt: null,
+};
+
+const emptyEnvironment = (id: DashboardEnvironmentId): DashboardEnvironment => ({
+  id, datastores: 0, sensitiveRecords: 0, recordsTrend: [], connected: false,
+  filter: id === 'saas' ? null : id === 'endpoint' ? 'os' : 'provider', subCategories: [], partial: false,
+});
+
+const EMPTY_DASHBOARD: DspmDashboard = {
+  environments: (['cloud', 'saas', 'endpoint', 'on_prem'] as const).map(emptyEnvironment),
+  topRisky: { all: [], cloud: [], saas: [], endpoint: [], on_prem: [] },
 };
 
 const LocationProbe: React.FC = () => <div data-testid="location">{useLocation().pathname}</div>;
@@ -107,6 +123,28 @@ describe('XamLensPage routing', () => {
     expect(await screen.findByTestId('files-page')).toHaveTextContent(tab);
     expect(screen.getByTestId('location')).toHaveTextContent(`/xamlens/files/${tab}`);
     expect(screen.queryByTestId('datastores-page')).toBeNull();
+  });
+
+  it('renders the Dashboard on /xamlens/dashboard', async () => {
+    get.mockImplementation(async (url: string) => {
+      if (url === '/api/dspm/status') return READY;
+      if (url === '/api/dspm/dashboard') return EMPTY_DASHBOARD;
+      throw new Error(`HTTP 404: unexpected ${url}`);
+    });
+    renderAt('/xamlens/dashboard');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Dashboard' })).toBeInTheDocument();
+    expect(await screen.findByText('Cloud Not Connected')).toBeInTheDocument();
+    expect(screen.queryByTestId('datastores-page')).toBeNull();
+    expect(screen.getByTestId('location')).toHaveTextContent('/xamlens/dashboard');
+    expect(get).toHaveBeenCalledWith('/api/dspm/dashboard');
+  });
+
+  it('explains a not-ready workspace on the Dashboard and loads nothing else', async () => {
+    get.mockResolvedValue(NOT_READY);
+    renderAt('/xamlens/dashboard');
+    expect(await screen.findByText('Your data security workspace is being set up')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1, name: 'Dashboard' })).toBeNull();
+    expect(get).not.toHaveBeenCalledWith('/api/dspm/dashboard');
   });
 
   it('renders the status page on /xamlens/connection', async () => {

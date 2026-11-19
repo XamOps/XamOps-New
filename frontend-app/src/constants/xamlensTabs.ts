@@ -12,7 +12,7 @@
  * The Files page (`/xamlens/files/:tab`) lists files by source.
  */
 
-export type XamLensTab = 'misconfigurations' | 'datastores' | 'files' | 'data-lineage' | 'connection';
+export type XamLensTab = 'dashboard' | 'misconfigurations' | 'datastores' | 'files' | 'data-lineage' | 'connection';
 
 export interface XamLensTabDef {
   id: XamLensTab;
@@ -35,6 +35,8 @@ export const XAMLENS_FILES_HOME = '/xamlens/files/saas';
 export const XAMLENS_LINEAGE_HOME = '/xamlens/data-lineage';
 
 export const XAMLENS_TABS: XamLensTabDef[] = [
+  // The console's first entry, above every section: no section label.
+  { id: 'dashboard', label: 'Dashboard', icon: 'fas fa-tachometer-alt', href: '/xamlens/dashboard', activePrefix: '/xamlens/dashboard' },
   { id: 'misconfigurations', label: 'Misconfigurations', icon: 'fas fa-shield-alt', href: '/xamlens/misconfigurations', activePrefix: '/xamlens/misconfigurations', section: 'Risks' },
   { id: 'datastores', label: 'Datastores', icon: 'fas fa-database', href: XAMLENS_HOME, activePrefix: '/xamlens/datastores', section: 'Data Inventory' },
   { id: 'files', label: 'Files', icon: 'fas fa-file', href: XAMLENS_FILES_HOME, activePrefix: '/xamlens/files', section: 'Data Inventory' },
@@ -42,6 +44,10 @@ export const XAMLENS_TABS: XamLensTabDef[] = [
   // Connection state. Deep-link only: it matters when something is wrong, not in the healthy path.
   { id: 'connection', label: 'Connection', icon: 'fas fa-circle-nodes', href: '/xamlens/connection', activePrefix: '/xamlens/connection', sidebar: false },
 ];
+
+/** The tabs `XamLensPage` renders as pages of their own (`/xamlens/<id>`). */
+export const XAMLENS_PAGE_TABS = ['dashboard'] as const;
+export type XamLensPageTab = typeof XAMLENS_PAGE_TABS[number];
 
 /** Nav entries, in declared order. */
 export const XAMLENS_SIDEBAR_TABS = XAMLENS_TABS.filter(t => t.sidebar !== false);

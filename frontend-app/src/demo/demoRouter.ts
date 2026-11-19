@@ -26,6 +26,7 @@ import * as endpointDrawer from './xamlensEndpointDrawerMockData';
 import * as xamlensRisks from './xamlensRisksMockData';
 import * as lineage from './xamlensLineageMockData';
 import * as files from './xamlensFilesMockData';
+import * as xamlensPages from './xamlensPagesMockData';
 import type { DspmSurface } from '../hooks/useDspmData';
 import * as soc2 from './soc2MockData';
 import * as war from './warMockData';
@@ -1302,6 +1303,12 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   }
   if (url.includes('/api/dspm/status'))
     return makeResponse(xamlens.demoDspmStatus());
+  // XamLens build 6 pages (design 7), ahead of the catch-all below.
+  if (url.includes('/api/dspm/')) {
+    const path = new URL(url, 'http://localhost').pathname;
+    if (path === '/api/dspm/dashboard')
+      return makeResponse(xamlensPages.demoDashboard());
+  }
   // Summary and anything else: {} is safe, nothing on screen reads it yet. Never the real API, which
   // would read a customer's Matters project from a sales demo.
   if (url.includes('/api/dspm/'))

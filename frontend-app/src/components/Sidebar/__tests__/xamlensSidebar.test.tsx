@@ -47,6 +47,12 @@ const label = () => screen.getByText('Data Inventory');
 // A section label is a <p>; SOC 2's own "Risks" entry, also in the sidebar, is not.
 const risksLabel = () => screen.getByText('Risks', { selector: 'p' });
 const follows = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+/** XamLens's Dashboard entry; other sections have Dashboard links of their own. */
+const xamLensDashboard = () => {
+  const links = screen.getAllByRole('link', { name: 'Dashboard' }).filter(link => link.getAttribute('href') === '/xamlens/dashboard');
+  expect(links).toHaveLength(1);
+  return links[0];
+};
 
 beforeEach(() => {
   allowedTabs = [];
@@ -131,6 +137,30 @@ describe('Sidebar XamLens entries', () => {
     expect(risksLabel()).toBeInTheDocument();
   });
 
+  it('puts Dashboard first under XamLens with no section label, then DATA INVENTORY once', async () => {
+    renderAt('/xamlens/datastores/all');
+    const datastores = await screen.findByRole('link', { name: 'Datastores' });
+    const dashboard = xamLensDashboard();
+    expect(dashboard).toHaveAttribute('href', '/xamlens/dashboard');
+    const xamLens = screen.getByRole('link', { name: 'XamLens' });
+    expect(xamLens.compareDocumentPosition(dashboard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(dashboard.compareDocumentPosition(label()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(label().compareDocumentPosition(datastores) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByText('Data Inventory')).toHaveLength(1);
+    // No section label between XamLens and Dashboard: Dashboard sits right after the XamLens entry's list item.
+    const subNav = dashboard.closest('a')!.parentElement!;
+    expect(subNav.firstElementChild).toBe(dashboard.closest('a'));
+    expect(dashboard.className).not.toContain('font-semibold');
+  });
+
+  it('marks Dashboard active on /xamlens/dashboard, and Datastores not', async () => {
+    renderAt('/xamlens/dashboard');
+    const datastores = await screen.findByRole('link', { name: 'Datastores' });
+    expect(screen.getByRole('button', { name: 'SecOps' })).toHaveAttribute('aria-expanded', 'true');
+    expect(xamLensDashboard().className).toContain('font-semibold');
+    expect(datastores.className).not.toContain('font-semibold');
+  });
+
   it('folds the label and Datastores away off the XamLens routes', async () => {
     renderAt('/xamsecure/overview');
     await screen.findByRole('link', { name: 'XamLens' });
@@ -172,5 +202,7 @@ describe('Sidebar XamLens entries', () => {
     expect(screen.queryByRole('link', { name: 'Files', hidden: true })).toBeNull();
     expect(screen.queryByText('Data Inventory')).toBeNull();
     expect(screen.queryByText('Risks', { selector: 'p' })).toBeNull();
+    expect(screen.queryAllByRole('link', { name: 'Dashboard', hidden: true })
+      .filter(link => link.getAttribute('href') === '/xamlens/dashboard')).toHaveLength(0);
   });
 });
