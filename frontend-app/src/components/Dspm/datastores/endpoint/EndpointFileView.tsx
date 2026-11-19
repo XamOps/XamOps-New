@@ -9,7 +9,7 @@ import { ErrorNote, LoadingNote, useHiddenColumns } from '../drawer/TabParts';
 import { ColumnsMenu } from '../ui/ColumnsMenu';
 import { TableFooter, listPageLimit } from '../ui/TableFooter';
 import { ENDPOINT_FILE_COLUMNS, type EndpointFileColumnId } from './endpointFileColumns';
-import EndpointFileTable from './EndpointFileTable';
+import EndpointFileTable, { type EndpointFileOpenTab, type OpenableEndpointFileRow } from './EndpointFileTable';
 import { NoEntitiesState, NoMatchesState } from './EndpointParts';
 
 interface Props {
@@ -17,20 +17,22 @@ interface Props {
   /** Memoised by the caller: a new object means new filters, page 1 and a new request. */
   filters: EndpointFilterParams;
   search: string;
+  /** Opens the Endpoint file drawer over the Endpoint drawer (O6). */
+  onOpenFile: (row: OpenableEndpointFileRow, tab: EndpointFileOpenTab, opener: HTMLElement) => void;
 }
 
 /**
  * File View (FR-EP-8): every file of the agent's last scan with "Columns 9", paged and searched on the
  * server (`/endpoint/files`, Rows Per Page 10). The search is sent 300 ms after typing stops; a filter,
  * search or page-size change returns to page 1, and answers that arrive after a newer request started
- * are ignored. Rows open nothing.
+ * are ignored. A row with a file id opens the Endpoint file drawer on Sensitives (O6).
  *
  * Show False Positives does not reach this view: the files route takes no such parameter.
  *
- * After File Name comes an unlabelled column with the greyed "Open lineage" icon (D3): the endpoint
- * lineage is not built. It is not one of the nine columns, so the menu neither counts nor lists it.
+ * After File Name comes an unlabelled column with the "View lineage" icon, which opens the drawer on
+ * Lineage. It is not one of the nine columns, so the menu neither counts nor lists it.
  */
-const EndpointFileView: React.FC<Props> = ({ api, filters, search }) => {
+const EndpointFileView: React.FC<Props> = ({ api, filters, search, onOpenFile }) => {
   const [q, setQ] = useState<string | null>(null);
   // The page belongs to the filters it was chosen under: new filters read page 1.
   const [paging, setPaging] = useState({ filters, page: 1 });
@@ -85,6 +87,7 @@ const EndpointFileView: React.FC<Props> = ({ api, filters, search }) => {
             loading={false}
             hidden={hidden}
             emptyState={q !== null ? <NoMatchesState /> : <NoEntitiesState />}
+            onOpen={onOpenFile}
           />
           <TableFooter
             page={page}

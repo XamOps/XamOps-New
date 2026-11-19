@@ -10,6 +10,7 @@ import { SearchInput } from '../ui/SearchInput';
 import { SegmentedToggle, type SegmentedOption } from '../ui/SegmentedToggle';
 import { ToggleSwitch } from '../ui/ToggleSwitch';
 import EndpointEntityView from './EndpointEntityView';
+import type { EndpointFileOpenTab, OpenableEndpointFileRow } from './EndpointFileTable';
 import EndpointFileView from './EndpointFileView';
 import {
   ENDPOINT_FILTER_DIMENSIONS, endpointFilterValueAllowed, filterParamsOf, type EndpointFilterDimension,
@@ -54,6 +55,8 @@ interface Props {
   api: EndpointDrawerApi;
   /** The drawer's filter options, requested on open. */
   filterOptions: LazyResource<DatastoreFilterOptions>;
+  /** Opens the Endpoint file drawer from a File View row (O6). */
+  onOpenFile: (row: OpenableEndpointFileRow, tab: EndpointFileOpenTab, opener: HTMLElement) => void;
 }
 
 /**
@@ -66,7 +69,7 @@ interface Props {
  * and its occurrences read it: the files route takes no such parameter, so toggling it there sends
  * nothing. Its state is kept, so it applies again back in Entity View.
  */
-const EndpointSensitivesTab: React.FC<Props> = ({ api, filterOptions }) => {
+const EndpointSensitivesTab: React.FC<Props> = ({ api, filterOptions, onOpenFile }) => {
   const [view, setView] = useState<EndpointView>('entity');
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<DatastoreFilterState>({});
@@ -144,7 +147,7 @@ const EndpointSensitivesTab: React.FC<Props> = ({ api, filterOptions }) => {
       {view === 'entity' ? (
         <EndpointEntityView api={api} filters={params} showFalsePositives={showFalsePositives} search={search} />
       ) : (
-        <EndpointFileView api={api} filters={params} search={search} />
+        <EndpointFileView api={api} filters={params} search={search} onOpenFile={onOpenFile} />
       )}
     </div>
   );

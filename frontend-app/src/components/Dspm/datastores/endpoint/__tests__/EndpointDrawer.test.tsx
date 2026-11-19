@@ -130,9 +130,12 @@ function occurrencePage(url: URL): EndpointOccurrencePage {
   return { entityName: url.searchParams.get('entityName') ?? '', total, skip, limit, rows };
 }
 
+/** The vendor's file UUID of the air4-shaped row; the other File View rows carry none. */
+const AIR4_ID = '0a1b2c3d-0000-4000-8000-00000000a4a4';
+
 /** The air4 shape: user as returned, size base 1024, title-cased category and class, no tags. */
 const AIR4_SHAPED: EndpointFileRow = {
-  id: null, name: 'deploy-checklist.md', extension: 'md', path: '/Users/tester/projects/demo/deploy-checklist.md', user: 'APPLE',
+  id: AIR4_ID, name: 'deploy-checklist.md', extension: 'md', path: '/Users/tester/projects/demo/deploy-checklist.md', user: 'APPLE',
   sizeBytes: 327_062, sensitiveCount: 1, labels: ['Personal'], categoryLabel: 'It & Technical',
   documentClassLabel: 'System Documentation', tags: [], modifiedAt: local(2026, 10, 26, 11, 36), scannedAt: null,
 };
@@ -163,9 +166,25 @@ const httpError = (status: number, code: string) =>
   new Error(`HTTP ${status}: ${JSON.stringify({ code, message: 'synthetic failure' })}`);
 const fail = (status: number, code: string): Answer => () => { throw httpError(status, code); };
 
+/** The Endpoint file drawer's answers for the air4-shaped file (O6). */
+const FILE_ANSWERS: Record<string, Answer> = {
+  overview: () => ({
+    name: 'deploy-checklist.md', extension: 'md', owner: 'tester', categoryLabel: 'It & Technical',
+    documentClassLabel: 'system documentation', sensitiveRecords: 1, path: AIR4_SHAPED.path, sizeBytes: 327_062,
+    device: 'build-laptop-07', modifiedAt: AIR4_SHAPED.modifiedAt, fileCreatedAt: null, accessedAt: null, tags: [],
+    sensitives: [{ dataElement: 'EMAIL ADDRESS', categoryLabel: 'Personal', count: 1 }],
+  }),
+  activity: () => ({ entries: [] }),
+  lineage: () => ({ asset: null, copies: { available: true, coverageNote: null, lanes: [], events: [] } }),
+  copies: () => ({ available: true, copies: [], locations: 1 }),
+};
+
 const ENDPOINT_PATH = /^\/api\/dspm\/datastores\/([0-9a-f]{24})\/endpoint\/([a-z-]+)$/;
+const FILE_PATH = /^\/api\/dspm\/endpoint-files\/([0-9a-f-]{36})\/([a-z]+)$/;
 const urls = () => get.mock.calls.map(([raw]) => new URL(String(raw), 'http://localhost'));
 const requests = (endpoint: string) => urls().filter(url => ENDPOINT_PATH.exec(url.pathname)?.[2] === endpoint);
+const fileRequests = (endpoint: string) =>
+  urls().filter(url => FILE_PATH.exec(url.pathname)?.[2] === endpoint).map(url => FILE_PATH.exec(url.pathname)?.[1]);
 const last = (list: URL[]) => list[list.length - 1];
 const params = (url: URL) => [...url.searchParams.entries()];
 
@@ -181,6 +200,8 @@ beforeEach(() => {
   };
   get.mockImplementation(async (raw: string) => {
     const url = new URL(raw, 'http://localhost');
+    const file = FILE_PATH.exec(url.pathname);
+    if (file && file[1] === AIR4_ID && FILE_ANSWERS[file[2]]) return FILE_ANSWERS[file[2]](url);
     const match = ENDPOINT_PATH.exec(url.pathname);
     const answer = match && match[1] === SOURCE_ID ? answers[match[2]] : undefined;
     if (!answer) throw new Error(`HTTP 404: unexpected ${raw}`);
@@ -484,11 +505,11 @@ describe('EndpointDrawer filters', () => {
 describe('EndpointDrawer File View', () => {
   async function openFileView() {
     const user = userEvent.setup();
-    const { drawer } = await renderDrawer();
+    const { drawer, onClose } = await renderDrawer();
     await entityTable(drawer);
     await user.click(within(drawer).getByRole('button', { name: 'File View' }));
     const table = (await within(drawer).findByText('deploy-checklist.md')).closest('table') as HTMLTableElement;
-    return { user, drawer, table };
+    return { user, drawer, table, onClose };
   }
 
   it('shows "Columns 9", the unlabelled lineage column after File Name and two sticky cells', async () => {
@@ -507,11 +528,13 @@ describe('EndpointDrawer File View', () => {
     expect(cells[0]).toHaveClass('sticky', 'left-0', 'z-10', 'bg-white');
     expect(cells[1]).toHaveClass('sticky', 'left-56', 'z-10', 'bg-white');
     expect(cells[2]).not.toHaveClass('sticky');
-    const lineage = within(cells[1]).getByRole('button', { name: 'Open lineage' });
-    expect(lineage).toHaveAttribute('aria-disabled', 'true');
-    fireEvent.mouseEnter(lineage);
-    expect(document.getElementById(lineage.getAttribute('aria-describedby') ?? '')).toHaveTextContent(CONSOLE_ONLY_TOOLTIP);
-    expect(within(table).getAllByRole('button', { name: 'Open lineage' })).toHaveLength(10);
+    // O6: the row with a file id has the lineage icon and opens; the rows without one have an empty cell.
+    const lineage = within(cells[1]).getByRole('button', { name: 'View lineage for deploy-checklist.md' });
+    expect(lineage).toHaveAttribute('title', 'View lineage');
+    expect(lineage).not.toHaveAttribute('aria-disabled');
+    expect(within(table).getAllByRole('button', { name: /lineage/i })).toHaveLength(1);
+    expect(row).toHaveAttribute('tabindex', '0');
+    expect(rowOf(table, 'report-2.txt')).not.toHaveAttribute('tabindex');
 
     // The air4 shape.
     expect(cells[2]).toHaveTextContent('/Users/tester/projects/demo/deploy-checklist.md');
@@ -539,12 +562,38 @@ describe('EndpointDrawer File View', () => {
     expect(columns).toHaveTextContent('8');
     expect(within(table).queryByText('APPLE')).toBeNull();
 
-    // Rows open nothing; paging is the server's.
+    // A row without a file id opens nothing; paging is the server's.
     await user.click(rowOf(table, 'report-2.txt'));
     expect(screen.getAllByRole('dialog')).toHaveLength(1);
     expect(within(drawer).getByText('Showing 1 - 10 of 23')).toBeInTheDocument();
     await user.click(within(drawer).getByRole('button', { name: '3' }));
     await waitFor(() => expect(last(requests('files')).searchParams.get('skip')).toBe('20'));
+  });
+
+  it('opens the Endpoint file drawer over it from a row and the lineage icon; Escape closes it first, then the drawer', async () => {
+    const { user, table, onClose } = await openFileView();
+    await user.click(rowOf(table, 'deploy-checklist.md'));
+    const fileDrawer = await screen.findByRole('dialog', { name: 'deploy-checklist.md' });
+    expect(screen.getAllByRole('dialog')).toHaveLength(2);
+    expect(within(fileDrawer).getByRole('tab', { name: 'Sensitives' })).toHaveAttribute('aria-selected', 'true');
+    expect(await within(fileDrawer).findByText('EMAIL ADDRESS')).toBeInTheDocument();
+    expect(fileRequests('overview')).toEqual([AIR4_ID]);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'deploy-checklist.md' })).toBeNull();
+    expect(rowOf(table, 'deploy-checklist.md')).toHaveFocus();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(within(table).getByRole('button', { name: 'View lineage for deploy-checklist.md' }));
+    const onLineage = await screen.findByRole('dialog', { name: 'deploy-checklist.md' });
+    expect(within(onLineage).getByRole('tab', { name: 'Lineage' })).toHaveAttribute('aria-selected', 'true');
+    expect(await within(onLineage).findByText('No lineage recorded for this file.')).toBeInTheDocument();
+    expect(fileRequests('lineage')).toEqual([AIR4_ID]);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'deploy-checklist.md' })).toBeNull();
+    expect(rowOf(table, 'deploy-checklist.md')).toHaveFocus();
+    expect(onClose).not.toHaveBeenCalled();
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('sends the search debounced and returns to page 1', async () => {
