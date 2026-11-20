@@ -356,7 +356,10 @@ Resources:
         ZipFile: |
           """
           Creates (and on stack delete, removes) the AutoSpotting event rules in every
-          enabled region, each with a retry policy and a dead-letter queue.
+          enabled region, each with a dead-letter queue. The target is the hub event bus, and
+          EventBridge rejects a RetryPolicy on an event-bus target ("Retry policy is not
+          supported for Event bus targets"), so none is set; bus-to-bus delivery uses
+          EventBridge's own retries.
 
           Failure policy: a per-region failure is recorded and skipped, never fatal. One
           opted-in region with an unusual restriction must not fail onboarding for the whole
@@ -372,8 +375,6 @@ Resources:
           SUFFIX = os.environ.get('RESOURCE_SUFFIX', '')
           DLQ_NAME = f'xamops-as-events-dlq{SUFFIX}'
           TARGET_ID = 'HubTarget'
-          # Rules older than this age are dropped by EventBridge rather than retried.
-          MAX_EVENT_AGE_SECONDS = 3600
 
 
           def rule_name(key):
@@ -426,17 +427,19 @@ Resources:
                       EventPattern=json.dumps(pattern),
                       State='ENABLED',
                   )
-                  events.put_targets(
+                  resp = events.put_targets(
                       Rule=name,
                       Targets=[{
                           'Id': TARGET_ID,
                           'Arn': hub_arn,
                           'RoleArn': role_arn,
-                          'RetryPolicy': {'MaximumEventAgeInSeconds': MAX_EVENT_AGE_SECONDS,
-                                          'MaximumRetryAttempts': 185},
                           'DeadLetterConfig': {'Arn': dlq_arn},
                       }],
                   )
+                  # PutTargets reports a rejected target in the response rather than raising.
+                  # Raise so the region is reported in RegionsSkipped instead of looking configured.
+                  if resp.get('FailedEntryCount'):
+                      raise RuntimeError(f"PutTargets {name}: {resp.get('FailedEntries')}")
 
 
           def remove_rules(region, keys):

@@ -12,6 +12,9 @@ Three checks, all offline:
    MessageDeduplicationId and MessageGroupId it sends must be accepted by SQS FIFO (allowed
    characters only, 128 characters at most, no whitespace). The validator is first shown to
    reject the legacy forwarder's id, so the check cannot pass vacuously.
+4. The RegionFanOut Lambda's apply_region is run against a stub EventBridge/SQS client. No
+   put_targets target on an event bus may carry a RetryPolicy (EventBridge rejects it, D-23-02).
+   The validator is first shown to reject the rw-2026.11.1 target.
 
 Needs PyYAML (installed with cfn-lint). Usage:
   python3 scripts/autospotting/check_event_patterns.py [template] [fixtures-dir]
@@ -144,6 +147,58 @@ def run_forwarder(code, event, account='111122223333', region='ap-south-1'):
     return sent[0] if sent else None
 
 
+# --------------------------------------------------------------------------- fan-out targets
+def target_problems(targets):
+    """PutTargets constraints EventBridge enforces for the targets the fan-out creates.
+
+    An event-bus target may not carry a RetryPolicy: EventBridge rejects the whole call with
+    "Retry policy is not supported for Event bus targets" (phase 23 defect D-23-02).
+    """
+    problems = []
+    for t in targets:
+        if ':event-bus/' in str(t.get('Arn', '')) and 'RetryPolicy' in t:
+            problems.append(f"target {t.get('Id')} on event bus {t['Arn']} sets RetryPolicy, "
+                            'which EventBridge rejects for event-bus targets')
+    return problems
+
+
+def run_fanout_targets(code, patterns, region='us-east-1', account='111122223333'):
+    """Runs the fan-out's apply_region with a stub boto3; returns every put_targets Targets list."""
+    calls = []
+
+    class Stub:
+        def create_queue(self, **kwargs):
+            return {'QueueUrl': f"https://sqs.{region}.amazonaws.com/{account}/{kwargs['QueueName']}"}
+
+        def set_queue_attributes(self, **kwargs):
+            return {}
+
+        def put_rule(self, **kwargs):
+            return {'RuleArn': f"arn:aws:events:{region}:{account}:rule/{kwargs['Name']}"}
+
+        def put_targets(self, **kwargs):
+            calls.append(kwargs['Targets'])
+            return {'FailedEntryCount': 0, 'FailedEntries': []}
+
+    boto3 = types.ModuleType('boto3')
+    boto3.client = lambda *a, **k: Stub()
+    previous = sys.modules.get('boto3')
+    sys.modules['boto3'] = boto3
+    try:
+        namespace = {'__name__': 'fanout'}
+        exec(compile(code, 'RegionFanOutFunction', 'exec'), namespace)
+        with contextlib.redirect_stdout(io.StringIO()):
+            namespace['apply_region'](region, account,
+                                      f'arn:aws:events:{region}:{account}:event-bus/xamops-autospotting-hub',
+                                      f'arn:aws:iam::{account}:role/XamOpsAutoSpottingForwardRole', patterns)
+    finally:
+        if previous is None:
+            sys.modules.pop('boto3', None)
+        else:
+            sys.modules['boto3'] = previous
+    return calls
+
+
 def main(argv):
     template_path = argv[1] if len(argv) > 1 else DEFAULT_TEMPLATE
     fixtures_dir = argv[2] if len(argv) > 2 else DEFAULT_FIXTURES
@@ -164,6 +219,20 @@ def main(argv):
     legacy = 'i-0123456789abcdef0-EC2 Spot Instance Interruption Warning-2026-10-12T09:41:07Z'
     if SQS_ID.match(legacy):
         problems.append('internal: the SQS id validator accepted the legacy deduplication id')
+
+    # 4. The fan-out's PutTargets calls. The validator must first reject the rw-2026.11.1 target
+    #    (RetryPolicy on the hub bus), or the check proves nothing.
+    defective = [{'Id': 'HubTarget', 'Arn': 'arn:aws:events:us-east-1:111122223333:event-bus/xamops-autospotting-hub',
+                  'RoleArn': 'arn:aws:iam::111122223333:role/r',
+                  'RetryPolicy': {'MaximumEventAgeInSeconds': 3600, 'MaximumRetryAttempts': 185}}]
+    if not target_problems(defective):
+        problems.append('internal: the target validator accepted a RetryPolicy on an event-bus target')
+    fanout_code = resources['RegionFanOutFunction']['Properties']['Code']['ZipFile']
+    target_calls = run_fanout_targets(fanout_code, patterns)
+    if len(target_calls) != len(patterns):
+        problems.append(f'fan-out made {len(target_calls)} put_targets calls for {len(patterns)} rules')
+    for targets in target_calls:
+        problems.extend(target_problems(targets))
 
     names = sorted(f for f in os.listdir(fixtures_dir) if f.endswith('.json'))
     if not names:
@@ -200,7 +269,8 @@ def main(argv):
         for p in problems:
             print('  ' + p)
         return 1
-    print(f'ok  {len(patterns)} rule patterns, {checked} sample events, forwarder ids valid')
+    print(f'ok  {len(patterns)} rule patterns, {checked} sample events, forwarder ids valid, '
+          f'{len(target_calls)} fan-out targets valid')
     return 0
 
 
