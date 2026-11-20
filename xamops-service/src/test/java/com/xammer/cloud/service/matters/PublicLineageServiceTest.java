@@ -22,6 +22,11 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -279,7 +284,7 @@ class PublicLineageServiceTest {
     }
 
     @Test
-    @DisplayName("P1: people 404 gives none for the integration; people 500 propagates and nothing is cached")
+    @DisplayName("P1: people 404 gives none for the integration; people 500 leaves it out and caches the rest for 1 minute")
     void peopleFailures() {
         expect(ENDPOINTS_URL).andRespond(json(endpoints(AGENT_A, "Lab Laptop")));
         expect(countUrl(AGENT_A)).andRespond(json(countBody(2)));
@@ -293,16 +298,115 @@ class PublicLineageServiceTest {
         server.reset();
         cache = new InMemoryRedisCache(new ArrayList<>());
         setUpServiceWithCache();
-        expect(ENDPOINTS_URL).andRespond(json(endpoints()));
+        expect(ENDPOINTS_URL).andRespond(json(endpoints(AGENT_A, "Lab Laptop")));
+        expect(countUrl(AGENT_A)).andRespond(json(countBody(2)));
         expect(FILTERS_URL).andRespond(json(ONE_INTEGRATION));
         expect(SAMPLE_URL).andRespond(json(GOOGLE_SAMPLE));
         server.expect(ExpectedCount.twice(), requestTo(USERS_URL)).andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
 
+        assertThat(service.datastores(CLIENT, null, 0, 7).rows()).containsExactly(endpointNode(AGENT_A, "Lab Laptop", 2L));
+        server.verify();
+        assertThat(cache.putsFor(SNAPSHOT_KEY)).singleElement()
+                .extracting(InMemoryRedisCache.Put::minutes).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("P1 (R1): a non-drive integration's 400 leaves it out; the endpoints and the other integration's people stay")
+    void oneFailingIntegrationKeepsTheRest() {
+        String failing = "00000000000000000000002e";
+        String twoIntegrations = "{\"integration_id\": [{\"value\": \"" + failing + "\"}, {\"value\": \"" + INTEGRATION
+                + "\"}]}";
+        expect(ENDPOINTS_URL).andRespond(json(endpoints(AGENT_A, "Lab Laptop")));
+        expect(countUrl(AGENT_A)).andRespond(json(countBody(2)));
+        expect(FILTERS_URL).andRespond(json(twoIntegrations));
+        expect(BASE + "/api/v1/assets?integration_id=" + failing + "&page_size=1").andRespond(json(
+                "{\"data\": [{\"source\": {\"provider\": \"SLACK\"}}]}"));
+        expect(BASE + "/api/v2/drive-lineage/users?integration_id=" + failing).andRespond(withStatus(HttpStatus.BAD_REQUEST)
+                .contentType(MediaType.APPLICATION_JSON).body("{\"message\": \"unsupported integration\"}"));
+        expect(SAMPLE_URL).andRespond(json(GOOGLE_SAMPLE));
+        expect(USERS_URL).andRespond(json(PEOPLE));
+
+        PublicLineageDatastorePage page = service.datastores(CLIENT, null, 0, 7);
+
+        server.verify();
+        assertThat(page.rows()).containsExactly(
+                endpointNode(AGENT_A, "Lab Laptop", 2L),
+                person(RESOURCE_A, "Person A", "GOOGLE_DRIVE", 3),
+                person(RESOURCE_B, "b@example.com", "GOOGLE_DRIVE", 6));
+        assertThat(page.total()).isEqualTo(3);
+        assertThat(cache.putsFor(SNAPSHOT_KEY)).singleElement()
+                .extracting(InMemoryRedisCache.Put::minutes).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("P1 (R1): a people 429 still fails the list, as it applies to every call; nothing is cached")
+    void peopleRateLimitPropagates() {
+        expect(ENDPOINTS_URL).andRespond(json(endpoints()));
+        expect(FILTERS_URL).andRespond(json(ONE_INTEGRATION));
+        expect(SAMPLE_URL).andRespond(json(GOOGLE_SAMPLE));
+        server.expect(ExpectedCount.manyTimes(), requestTo(USERS_URL)).andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+
         assertThatThrownBy(() -> service.datastores(CLIENT, null, 0, 7))
                 .isInstanceOfSatisfying(MattersApiException.class, e ->
-                        assertThat(e.getReason()).isEqualTo(MattersApiException.Reason.UPSTREAM_UNAVAILABLE));
-        server.verify();
+                        assertThat(e.getReason()).isEqualTo(MattersApiException.Reason.RATE_LIMITED));
         assertThat(cache.puts).isEmpty();
+    }
+
+    @Test
+    @DisplayName("P1 (R3): two concurrent cold loads share one build: one set of vendor calls, one cache write, same page")
+    void concurrentColdLoadsShareOneBuild() throws Exception {
+        cache = new SynchronizedCache();
+        setUpServiceWithCache();
+        CountDownLatch buildStarted = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ResponseCreator slowEndpoints = request -> {
+            buildStarted.countDown();
+            try {
+                release.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return json(endpoints(AGENT_A, "Lab Laptop")).createResponse(request);
+        };
+        expect(ENDPOINTS_URL).andRespond(slowEndpoints);
+        expect(countUrl(AGENT_A)).andRespond(json(countBody(9)));
+        expect(FILTERS_URL).andRespond(json(ONE_INTEGRATION));
+        expect(SAMPLE_URL).andRespond(json(GOOGLE_SAMPLE));
+        expect(USERS_URL).andRespond(json(PEOPLE));
+
+        ExecutorService callers = Executors.newFixedThreadPool(2);
+        try {
+            Future<PublicLineageDatastorePage> first = callers.submit(() -> service.datastores(CLIENT, null, 0, 7));
+            assertThat(buildStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            Future<PublicLineageDatastorePage> second = callers.submit(() -> service.datastores(CLIENT, "lab", 0, 7));
+            Thread.sleep(150);
+            assertThat(second.isDone()).isFalse();
+            release.countDown();
+
+            PublicLineageDatastorePage a = first.get(10, TimeUnit.SECONDS);
+            PublicLineageDatastorePage b = second.get(10, TimeUnit.SECONDS);
+
+            server.verify();
+            assertThat(a.rows()).hasSize(3);
+            assertThat(b.rows()).containsExactly(endpointNode(AGENT_A, "Lab Laptop", 9L));
+            assertThat(cache.putsFor(SNAPSHOT_KEY)).hasSize(1);
+        } finally {
+            callers.shutdownNow();
+        }
+    }
+
+    /** The in-memory cache, safe for the concurrent callers of the single-flight test. */
+    private static final class SynchronizedCache extends InMemoryRedisCache {
+        @Override
+        public synchronized <T> java.util.Optional<T> get(String key,
+                                                          com.fasterxml.jackson.core.type.TypeReference<T> type) {
+            return super.get(key, type);
+        }
+
+        @Override
+        public synchronized <T> void put(String key, T value, int minutes) {
+            super.put(key, value, minutes);
+        }
     }
 
     @Test

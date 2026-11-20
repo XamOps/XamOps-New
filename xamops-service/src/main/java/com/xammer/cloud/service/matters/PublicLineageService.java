@@ -21,6 +21,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 /**
@@ -31,7 +34,9 @@ import java.util.function.Supplier;
  * No route lists "datastores with lineage", so the whole list is built once per client and cached, then
  * searched and paged in memory: the project's endpoints (at most {@value #MAX_ENDPOINTS}) that have files,
  * then, per SaaS integration (at most {@value #MAX_INTEGRATIONS}), its drive-lineage people with files.
- * List-level failures propagate; one endpoint's or one integration's failure degrades that item (4.5).
+ * List-level failures propagate; one endpoint's or one integration's failure degrades that item (4.5) and
+ * shortens the list's life to {@value #PARTIAL_CACHE_MINUTES} minute. Concurrent callers of a client share one
+ * build.
  *
  * <h2>Logging</h2>
  * Debug lines carry only 24-hex agent or integration ids and failure reasons: no name, e-mail, title, doc id,
@@ -95,6 +100,10 @@ public class PublicLineageService {
     private final EndpointFileService endpointFileService;
     private final RedisCacheService cache;
 
+    /** The datastore build in progress per client; the leader removes its own entry when it ends. */
+    private final ConcurrentHashMap<Long, CompletableFuture<PublicDatastoreSnapshot>> inFlight =
+            new ConcurrentHashMap<>();
+
     /**
      * P1: one page of the datastores whose name contains {@code q} (case-insensitive), {@code total} counted
      * after the search.
@@ -106,9 +115,7 @@ public class PublicLineageService {
         String key = DatastoreCacheKeys.lineagePublicDatastores(clientId);
         PublicDatastoreSnapshot snapshot = cache.get(key, SNAPSHOT).orElse(null);
         if (snapshot == null) {
-            Snapshot built = buildSnapshot(credential);
-            snapshot = new PublicDatastoreSnapshot(built.rows());
-            cache.put(key, snapshot, built.partial() ? PARTIAL_CACHE_MINUTES : DATASTORES_CACHE_MINUTES);
+            snapshot = sharedBuild(credential, clientId, key);
         }
         List<Datastore> matching = q == null
                 ? snapshot.rows()
@@ -178,6 +185,45 @@ public class PublicLineageService {
     private record Snapshot(List<Datastore> rows, boolean partial) {
     }
 
+    /**
+     * One datastore build shared by every concurrent caller of the client, as {@link MisconfigurationService}
+     * does: the first caller builds and caches the list, the others wait for its answer or its failure.
+     */
+    private PublicDatastoreSnapshot sharedBuild(MattersCredential credential, Long clientId, String key) {
+        CompletableFuture<PublicDatastoreSnapshot> mine = new CompletableFuture<>();
+        CompletableFuture<PublicDatastoreSnapshot> leader = inFlight.putIfAbsent(clientId, mine);
+        if (leader != null) {
+            return await(leader);
+        }
+        try {
+            Snapshot built = buildSnapshot(credential);
+            PublicDatastoreSnapshot snapshot = new PublicDatastoreSnapshot(built.rows());
+            cache.put(key, snapshot, built.partial() ? PARTIAL_CACHE_MINUTES : DATASTORES_CACHE_MINUTES);
+            mine.complete(snapshot);
+            return snapshot;
+        } catch (RuntimeException | Error e) {
+            mine.completeExceptionally(e);
+            throw e;
+        } finally {
+            inFlight.remove(clientId, mine);
+        }
+    }
+
+    private static PublicDatastoreSnapshot await(CompletableFuture<PublicDatastoreSnapshot> leader) {
+        try {
+            return leader.join();
+        } catch (CompletionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw e;
+        }
+    }
+
     private Snapshot buildSnapshot(MattersCredential credential) {
         List<Datastore> rows = new ArrayList<>();
         boolean partial = false;
@@ -227,10 +273,16 @@ public class PublicLineageService {
             try {
                 rows.addAll(mapper.people(apiClient.driveLineageUsers(credential, integrationId), integrationId, service));
             } catch (MattersApiException e) {
-                if (e.getReason() != MattersApiException.Reason.ASSET_NOT_FOUND) {
-                    throw e;
+                switch (e.getReason()) {
+                    case ASSET_NOT_FOUND -> log.debug("[DSPM] public lineage: integration {} has no drive lineage: {}",
+                            integrationId, e.getReason());
+                    case UPSTREAM_UNAVAILABLE, BAD_UPSTREAM_RESPONSE -> {
+                        // As an endpoint's unknown count: the other datastores stay, the list lives 1 minute.
+                        log.debug("[DSPM] public lineage: integration {} left out: {}", integrationId, e.getReason());
+                        partial = true;
+                    }
+                    default -> throw e;
                 }
-                log.debug("[DSPM] public lineage: integration {} has no drive lineage: {}", integrationId, e.getReason());
             }
         }
         return new Snapshot(rows, partial);
