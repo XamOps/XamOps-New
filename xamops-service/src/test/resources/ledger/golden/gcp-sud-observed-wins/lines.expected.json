@@ -1,0 +1,17 @@
+[
+  {
+    "billable" : true,
+    "billableAmount" : "86.36",
+    "commitmentDeduction" : "0.0000000000",
+    "counterfactualCost" : "120.6904809600",
+    "currency" : "USD",
+    "entryCount" : 10,
+    "groupId" : "33333333-3333-4333-8333-333333333333",
+    "instanceHours" : "720.000000",
+    "nonBillableReason" : null,
+    "rawNet" : "86.3608809600",
+    "spotCost" : "34.3296000000",
+    "statementMonth" : "2026-09-01",
+    "tier" : "BILL_VERIFIED"
+  }
+]

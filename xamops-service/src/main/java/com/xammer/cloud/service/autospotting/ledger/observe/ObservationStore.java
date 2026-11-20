@@ -39,10 +39,16 @@ public class ObservationStore {
 
     /** AWS groups in a measured state (design-ledger.md §6.4 and plan 17.2). */
     public List<ObservedGroup> measuredGroups(List<String> states) {
+        return measuredGroups("AWS", states);
+    }
+
+    /** Groups of {@code provider} ({@code AWS} or {@code GCP}) in a measured state. */
+    public List<ObservedGroup> measuredGroups(String provider, List<String> states) {
         String in = states.stream().map(s -> "?").collect(Collectors.joining(","));
         return jdbc.query("SELECT g.id, g.cloud_account_id, g.group_key, g.state, CAST(s.payload AS text)"
                         + " FROM spot_group g LEFT JOIN spot_group_snapshot s ON s.id = g.snapshot_id"
-                        + " WHERE g.provider = 'AWS' AND g.state IN (" + in + ") ORDER BY g.cloud_account_id, g.group_key",
+                        + " WHERE g.provider = '" + ("GCP".equals(provider) ? "GCP" : "AWS")
+                        + "' AND g.state IN (" + in + ") ORDER BY g.cloud_account_id, g.group_key",
                 (rs, i) -> new ObservedGroup(rs.getObject(1, UUID.class), rs.getLong(2), rs.getString(3),
                         rs.getString(4), rs.getString(5)),
                 states.toArray());
@@ -77,10 +83,17 @@ public class ObservationStore {
     @Transactional
     public int apply(UUID groupId, long cloudAccountId, Instant now, List<IntervalTracker.Action> actions,
                      Sample newSample) {
+        return apply("AWS", groupId, cloudAccountId, now, actions, newSample);
+    }
+
+    /** As {@link #apply(UUID, long, Instant, List, Sample)} for the intervals of {@code provider}. */
+    @Transactional
+    public int apply(String provider, UUID groupId, long cloudAccountId, Instant now,
+                     List<IntervalTracker.Action> actions, Sample newSample) {
         int opened = 0;
         for (IntervalTracker.Action a : actions) {
             if (a instanceof IntervalTracker.OpenNew o) {
-                opened += insert(groupId, cloudAccountId, now, o);
+                opened += insert(provider, groupId, cloudAccountId, now, o);
             } else if (a instanceof IntervalTracker.Seen s) {
                 jdbc.update("UPDATE spot_usage_interval SET last_seen_at = ?, first_absent_at = NULL, updated_at = ?"
                         + " WHERE id = ? AND closed = false", ts(s.at()), ts(now), s.id());
@@ -104,16 +117,17 @@ public class ObservationStore {
         return opened;
     }
 
-    private int insert(UUID groupId, long cloudAccountId, Instant now, IntervalTracker.OpenNew o) {
+    private int insert(String provider, UUID groupId, long cloudAccountId, Instant now, IntervalTracker.OpenNew o) {
         IntervalTracker.Present p = o.instance();
         IntervalTracker.Ending end = o.closedBy();
         return jdbc.update("INSERT INTO spot_usage_interval (id, provider, cloud_account_id, group_id, instance_id,"
-                        + " instance_type, zone, platform, purchase_option, capacity_weight, start_at, start_source,"
+                        + " instance_name, instance_type, zone, platform, purchase_option, capacity_weight, start_at, start_source,"
                         + " last_seen_at, first_absent_at, end_at, end_source, end_cause, end_cause_source,"
                         + " provider_interrupted, closed, created_at, updated_at)"
-                        + " VALUES (?, 'AWS', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)"
+                        + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)"
                         + " ON CONFLICT (provider, instance_id, start_at) DO NOTHING",
-                o.id(), cloudAccountId, groupId, p.instanceId(), p.instanceType(), p.zone(), p.platform(),
+                o.id(), provider, cloudAccountId, groupId, p.instanceId(), "GCP".equals(provider) ? p.instanceId() : null,
+                p.instanceType(), p.zone(), p.platform(),
                 p.purchaseOption(), p.capacityWeight(), ts(o.startAt()), o.startSource(),
                 ts(end == null ? now : end.endAt()),
                 end == null ? null : ts(end.endAt()), end == null ? null : "ASG_ACTIVITY",

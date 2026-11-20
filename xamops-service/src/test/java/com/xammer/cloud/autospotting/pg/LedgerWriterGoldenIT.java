@@ -9,6 +9,7 @@ import com.xammer.cloud.service.autospotting.ledger.calc.CalcInputs;
 import com.xammer.cloud.service.autospotting.ledger.calc.EntryCalc;
 import com.xammer.cloud.service.autospotting.ledger.calc.SavingsCalculator;
 import com.xammer.cloud.service.autospotting.ledger.writer.LedgerRunChain;
+import com.xammer.cloud.service.autospotting.ledger.writer.GcpLedgerWriter;
 import com.xammer.cloud.service.autospotting.ledger.writer.LedgerWriter;
 import com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -45,21 +46,30 @@ class LedgerWriterGoldenIT {
             LedgerRecomputeCommand recompute = new LedgerRecomputeCommand(null, null);
             SavingsCalculator calculator = new SavingsCalculator();
             int checked = 0;
+            Ledger17Support.setLease(jdbc, "ledger-writer:gcp", "holder-A", 1L);
+            var gcpHandle = Ledger17Support.handle("ledger-writer:gcp", "holder-A", 1L);
             for (String name : Ledger17Support.goldenNames()) {
                 var inputs = Ledger17Support.golden(name);
-                LedgerWriter writer = new LedgerWriter(Ledger17Support.source(inputs),
+                boolean gcp = inputs.days().stream().anyMatch(d -> "GCP".equals(d.provider()));
+                String provider = gcp ? "GCP" : "AWS";
+                var lease = gcp ? gcpHandle : handle;
+                LedgerWriter writer = gcp ? new GcpLedgerWriter(Ledger17Support.source(inputs),
+                        new LedgerRunChain(ds, Ledger17Support.txManager(ds)), mock(JobRunner.class),
+                        mock(LedgerGate.class), new AutoSpottingMetrics(new SimpleMeterRegistry()),
+                        mock(AutoSpottingAuditWriter.class))
+                        : new LedgerWriter(Ledger17Support.source(inputs),
                         new LedgerRunChain(ds, Ledger17Support.txManager(ds)), mock(JobRunner.class),
                         mock(LedgerGate.class), new AutoSpottingMetrics(new SimpleMeterRegistry()),
                         mock(AutoSpottingAuditWriter.class));
                 for (CalcInputs day : inputs.days()) {
                     java.time.LocalDate d = day.windowStart().atZone(ZoneOffset.UTC).toLocalDate();
-                    writer.writeDay(handle, day.group().cloudAccountId(), d, "DAILY");
+                    writer.writeDay(lease, day.group().cloudAccountId(), d, "DAILY");
                     EntryCalc expected = calculator.calculate(day).orElse(null);
                     // The entry of the head run of this window for this group.
                     List<Map<String, Object>> rows = jdbc.queryForList("SELECT e.* FROM savings_ledger_entry e"
-                            + " JOIN savings_ledger_run r ON r.id = e.run_id WHERE r.provider = 'AWS' AND r.cloud_account_id = ?"
+                            + " JOIN savings_ledger_run r ON r.id = e.run_id WHERE r.provider = ? AND r.cloud_account_id = ?"
                             + " AND r.window_start = ? AND e.group_id = CAST(? AS uuid) AND NOT EXISTS (SELECT 1 FROM"
-                            + " savings_ledger_run s WHERE s.supersedes_run_id = r.id)", day.group().cloudAccountId(),
+                            + " savings_ledger_run s WHERE s.supersedes_run_id = r.id)", provider, day.group().cloudAccountId(),
                             java.sql.Timestamp.from(day.windowStart()), day.group().groupId());
                     if (expected == null) {
                         continue; // no entry earned that day; the window got an empty or unchanged run
@@ -106,7 +116,9 @@ class LedgerWriterGoldenIT {
                     checked++;
                 }
             }
-            assertThat(checked).isGreaterThan(40);
+            assertThat(checked).isGreaterThan(50);
+            assertThat(jdbc.queryForList("SELECT DISTINCT calc_version FROM savings_ledger_entry WHERE provider = 'GCP'",
+                    String.class)).containsExactly("gcp-1");
             // Every statement the writer opened is OPEN, USD, with no billing content.
             assertThat(jdbc.queryForList("SELECT DISTINCT status || '/' || currency || '/' || coalesce(invoiceable::text,'null')"
                     + " || '/' || coalesce(total_billable::text,'null') FROM savings_statement", String.class))

@@ -132,7 +132,7 @@ public class LedgerRecomputeCommand {
 
     /** Runs the entry's own calc version; a version this build does not know is refused, never guessed. */
     private static Optional<EntryCalc> run(String calcVersion, CalcInputs inputs) {
-        if (!SavingsCalculator.VERSION.equals(calcVersion)) {
+        if (!SavingsCalculator.VERSION.equals(calcVersion) && !SavingsCalculator.GCP_VERSION.equals(calcVersion)) {
             throw new AutoSpottingApiException(HttpStatus.UNPROCESSABLE_ENTITY, "CALC_VERSION_UNKNOWN",
                     "No calculator for calc version " + calcVersion + " in this build.");
         }

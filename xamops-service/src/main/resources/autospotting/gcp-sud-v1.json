@@ -1,0 +1,12 @@
+{
+  "version": "gcp-sud-v1",
+  "source": "https://cloud.google.com/compute/docs/sustained-use-discounts",
+  "note": "Maximum sustained use discount and the price multiplier of each quarter of the month, per machine series (design-ledger.md 3.9, PO-08). A series with no entry here is MISSING_SUD_RATE (UNKNOWN), never assumed to earn none. E2 earns no SUD (maxRate 0). V-LED-11 confirms the pooling scope; V-GCP verifies the series list against current Compute pricing.",
+  "series": {
+    "n1": {"maxRate": "0.30", "tiers": ["1", "0.8", "0.6", "0.4"]},
+    "n2": {"maxRate": "0.20", "tiers": ["1", "0.866667", "0.733333", "0.6"]},
+    "n2d": {"maxRate": "0.20", "tiers": ["1", "0.866667", "0.733333", "0.6"]},
+    "c2": {"maxRate": "0.20", "tiers": ["1", "0.866667", "0.733333", "0.6"]},
+    "e2": {"maxRate": "0", "tiers": []}
+  }
+}

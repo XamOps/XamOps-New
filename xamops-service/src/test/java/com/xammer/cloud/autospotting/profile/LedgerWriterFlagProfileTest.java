@@ -17,9 +17,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 class LedgerWriterFlagProfileTest {
 
     private static final String AWS_WRITER = "autospotting.ledger.aws.writer-enabled";
+    private static final String GCP_WRITER = "autospotting.ledger.gcp.writer-enabled";
     private static final List<String> ALL_PROFILES = List.of("base", "local", "uat", "preprod", "prod");
     private static final List<String> OTHER_FLAGS = List.of(
-            "autospotting.ledger.gcp.writer-enabled",
             "autospotting.ledger.billing-enabled",
             "autospotting.aws.savings-ledger.enabled",
             "autospotting.gcp.savings-ledger.enabled",
@@ -47,6 +47,15 @@ class LedgerWriterFlagProfileTest {
             assertThat(load(profile).getProperty(AWS_WRITER))
                     .as("profile %s declares the AWS writer explicitly false", profile)
                     .isEqualTo("false");
+        }
+    }
+
+    @Test
+    void gcpWriterIsTrueInProdOnly_andExplicitlyFalseEverywhereElse() throws Exception {
+        assertThat(load("prod").getProperty(GCP_WRITER)).as("prod lifts the GCP writer").isEqualTo("true");
+        for (String profile : List.of("base", "local", "uat", "preprod")) {
+            assertThat(load(profile).getProperty(GCP_WRITER))
+                    .as("profile %s declares the GCP writer explicitly false", profile).isEqualTo("false");
         }
     }
 

@@ -65,7 +65,7 @@ import java.util.stream.Collectors;
  *       unreadable one never bills.</li>
  * </ul>
  */
-@Repository
+@Repository("awsLedgerInputs")
 public class JdbcLedgerInputsSource implements LedgerInputsSource {
 
     static final List<String> MEASURED_TO_STATES = List.of("ACTIVE", "DEGRADED", "FALLBACK", "PAUSED", "APPLYING",
@@ -73,11 +73,19 @@ public class JdbcLedgerInputsSource implements LedgerInputsSource {
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100L);
     private static final int RATE_SCALE = 12;
 
-    private final JdbcTemplate jdbc;
+    protected final JdbcTemplate jdbc;
     private final ObjectMapper mapper = new ObjectMapper();
+    /** {@code AWS} or {@code GCP}: one source per provider, over the same working tables. */
+    protected final String provider;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public JdbcLedgerInputsSource(DataSource dataSource) {
+        this(dataSource, "AWS");
+    }
+
+    protected JdbcLedgerInputsSource(DataSource dataSource, String provider) {
         this.jdbc = new JdbcTemplate(dataSource);
+        this.provider = provider;
     }
 
     private static String measuredList() {
@@ -88,7 +96,7 @@ public class JdbcLedgerInputsSource implements LedgerInputsSource {
 
     @Override
     public List<Long> candidateAccounts() {
-        return jdbc.queryForList("SELECT DISTINCT g.cloud_account_id FROM spot_group g WHERE g.provider = 'AWS'"
+        return jdbc.queryForList("SELECT DISTINCT g.cloud_account_id FROM spot_group g WHERE g.provider = '" + provider + "'"
                 + " AND (g.state = 'LEGACY_UNCONFIRMED' OR EXISTS (SELECT 1 FROM spot_group_transition t"
                 + " WHERE t.group_id = g.id AND t.to_state IN (" + measuredList() + "))) ORDER BY 1", Long.class);
     }
@@ -97,9 +105,9 @@ public class JdbcLedgerInputsSource implements LedgerInputsSource {
     public Optional<LocalDate> firstRelevantDay(long cloudAccountId) {
         List<Timestamp> rows = jdbc.query("SELECT min(d) FROM ("
                         + " SELECT min(t.effective_at) AS d FROM spot_group g JOIN spot_group_transition t"
-                        + "   ON t.group_id = g.id WHERE g.provider = 'AWS' AND g.cloud_account_id = ?"
+                        + "   ON t.group_id = g.id WHERE g.provider = '" + provider + "' AND g.cloud_account_id = ?"
                         + "   AND t.to_state IN (" + measuredList() + ") GROUP BY g.id"
-                        + " UNION ALL SELECT g.created_at FROM spot_group g WHERE g.provider = 'AWS'"
+                        + " UNION ALL SELECT g.created_at FROM spot_group g WHERE g.provider = '" + provider + "'"
                         + "   AND g.cloud_account_id = ? AND g.state = 'LEGACY_UNCONFIRMED') x",
                 (rs, i) -> rs.getTimestamp(1), cloudAccountId, cloudAccountId);
         return rows.stream().filter(java.util.Objects::nonNull).findFirst()
@@ -108,7 +116,7 @@ public class JdbcLedgerInputsSource implements LedgerInputsSource {
 
     // ------------------------------------------------------------------ inputs
 
-    private record GroupRow(UUID id, long clientId, String groupKey, String state, Instant createdAt,
+    protected record GroupRow(UUID id, long clientId, String groupKey, String state, Instant createdAt,
                             String snapshotPayload) {
     }
 
@@ -118,13 +126,13 @@ public class JdbcLedgerInputsSource implements LedgerInputsSource {
         Instant end = day.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
         LocalDate month = day.withDayOfMonth(1);
         Instant monthStart = month.atStartOfDay().toInstant(ZoneOffset.UTC);
-        Instant goLive = jdbc.query("SELECT go_live_at FROM savings_ledger_golive WHERE provider = 'AWS'",
+        Instant goLive = jdbc.query("SELECT go_live_at FROM savings_ledger_golive WHERE provider = '" + provider + "'",
                 (rs, i) -> rs.getTimestamp(1).toInstant().truncatedTo(ChronoUnit.SECONDS)).stream().findFirst()
                 .orElse(null);
 
         List<GroupRow> groups = jdbc.query("SELECT g.id, g.client_id, g.group_key, g.state, g.created_at,"
                         + " CAST(s.payload AS text) FROM spot_group g LEFT JOIN spot_group_snapshot s"
-                        + " ON s.id = g.snapshot_id WHERE g.provider = 'AWS' AND g.cloud_account_id = ?"
+                        + " ON s.id = g.snapshot_id WHERE g.provider = '" + provider + "' AND g.cloud_account_id = ?"
                         + " AND (g.state = 'LEGACY_UNCONFIRMED' OR EXISTS (SELECT 1 FROM spot_group_transition t"
                         + " WHERE t.group_id = g.id AND t.to_state IN (" + measuredList() + ")))"
                         + " ORDER BY g.id",
@@ -138,9 +146,19 @@ public class JdbcLedgerInputsSource implements LedgerInputsSource {
         return out;
     }
 
+    /** The region of a group key: AWS keys start with it ({@code region/asg}); the GCP source overrides this. */
+    protected String regionOf(String groupKey) {
+        return groupKey.contains("/") ? groupKey.substring(0, groupKey.indexOf('/')) : null;
+    }
+
+    /** The pre-enable configuration of the group; the GCP source overrides this (templates, not an ASG). */
+    protected Original originalOf(String snapshotPayload, JsonNode plan) {
+        return original(snapshotPayload, plan);
+    }
+
     private CalcInputs inputsOf(long accountId, GroupRow g, Instant start, Instant end, Instant monthStart,
                                 Instant goLive) {
-        String region = g.groupKey().contains("/") ? g.groupKey().substring(0, g.groupKey().indexOf('/')) : null;
+        String region = regionOf(g.groupKey());
 
         List<Transition> transitions = jdbc.query("SELECT id, from_state, to_state, effective_at, occurred_at"
                         + " FROM spot_group_transition WHERE group_id = ? AND effective_at < ? ORDER BY id",
@@ -176,7 +194,7 @@ public class JdbcLedgerInputsSource implements LedgerInputsSource {
                 Timestamp.from(end), g.id(), Timestamp.from(start), Timestamp.from(start)));
 
         JsonNode plan = confirmedStartPlan(g.id(), end);
-        Original original = original(g.snapshotPayload(), plan);
+        Original original = originalOf(g.snapshotPayload(), plan);
         Contract contract = null;
         BigDecimal declaredDiscount = null;
         List<java.util.Map<String, Object>> contracts = jdbc.queryForList(
@@ -189,14 +207,25 @@ public class JdbcLedgerInputsSource implements LedgerInputsSource {
             declaredDiscount = (BigDecimal) c.get("declared_discount_pct");
         }
         FeeBasis feeBasis = feeBasis(plan);
+        return assemble(new Parts(accountId, g, region, start, end, goLive, contract, declaredDiscount, feeBasis,
+                transitions, revertOps, intervals, samples, original, plan));
+    }
 
-        List<SpotPrice> spotPrices = spotPrices(accountId, region, intervals, start, end);
-        List<OdPrice> odPrices = odPrices(region, intervals, original, start, declaredDiscount);
+    /** Everything read for one group-day that does not depend on the provider's prices. */
+    protected record Parts(long accountId, GroupRow g, String region, Instant start, Instant end, Instant goLive,
+                           Contract contract, BigDecimal declaredDiscount, FeeBasis feeBasis,
+                           List<Transition> transitions, List<RevertOp> revertOps, List<Interval> intervals,
+                           List<CapacitySample> samples, Original original, JsonNode plan) {
+    }
 
-        return new CalcInputs(SavingsCalculator.VERSION, SavingsCalculator.PROVIDER, "USD", start, end,
-                new Group(g.id().toString(), accountId, g.clientId(), region), goLive, contract, feeBasis,
-                Tier.MEASURED_ONLY, transitions, revertOps, intervals, samples, spotPrices, odPrices, original,
-                CommitmentsStatus.UNAVAILABLE, List.of());
+    /** The AWS prices and the {@code aws-1} inputs; the GCP source overrides this with its own. */
+    protected CalcInputs assemble(Parts p) {
+        List<SpotPrice> spotPrices = spotPrices(p.accountId(), p.region(), p.intervals(), p.start(), p.end());
+        List<OdPrice> odPrices = odPrices(p.region(), p.intervals(), p.original(), p.start(), p.declaredDiscount());
+        return new CalcInputs(SavingsCalculator.VERSION, SavingsCalculator.PROVIDER, "USD", p.start(), p.end(),
+                new Group(p.g().id().toString(), p.accountId(), p.g().clientId(), p.region()), p.goLive(),
+                p.contract(), p.feeBasis(), Tier.MEASURED_ONLY, p.transitions(), p.revertOps(), p.intervals(),
+                p.samples(), spotPrices, odPrices, p.original(), CommitmentsStatus.UNAVAILABLE, List.of());
     }
 
     // ------------------------------------------------------------------ plan, fee basis, original

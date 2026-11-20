@@ -99,9 +99,62 @@ public final class GcpSkuMatcher {
         return Optional.of(new Rate(vcpu, gib));
     }
 
+    /**
+     * The newest {@code pricingInfo.effectiveTime} of the core and RAM SKUs {@link #match} prices a shape from, or
+     * empty when a SKU states none (the caller then records the price as observed, not as effective).
+     */
+    public static Optional<String> effectiveTime(List<JsonNode> skus, String series, String region, boolean custom,
+                                                 boolean spot) {
+        Row row = ROWS.get(series);
+        if (row == null) {
+            return Optional.empty();
+        }
+        String coreStart = custom ? row.customCore() : row.core();
+        String ramStart = custom ? row.customRam() : row.ram();
+        if (coreStart == null || ramStart == null) {
+            return Optional.empty();
+        }
+        List<JsonNode> all = new ArrayList<>(matching(skus, coreStart, region, spot, "h"));
+        all.addAll(matching(skus, ramStart, region, spot, "GiBy.h"));
+        if (row.premiumCore() != null && !custom) {
+            all.addAll(matching(skus, row.premiumCore(), region, spot, "h"));
+            all.addAll(matching(skus, row.premiumRam(), region, spot, "GiBy.h"));
+        }
+        String newest = null;
+        for (JsonNode sku : all) {
+            String t = sku.path("pricingInfo").path(0).path("effectiveTime").asText(null);
+            if (t == null || t.isBlank()) {
+                return Optional.empty();
+            }
+            if (newest == null || java.time.Instant.parse(t).isAfter(java.time.Instant.parse(newest))) {
+                newest = t;
+            }
+        }
+        return Optional.ofNullable(newest);
+    }
+
     private static Optional<BigDecimal> price(List<JsonNode> skus, String descriptionStart, String region,
                                               boolean spot, String usageUnit) {
         List<BigDecimal> found = new ArrayList<>();
+        for (JsonNode sku : matching(skus, descriptionStart, region, spot, usageUnit)) {
+            found.add(unitPrice(sku.path("pricingInfo").path(0).path("pricingExpression").path("tieredRates")
+                    .path(0).path("unitPrice")));
+        }
+        if (found.isEmpty()) {
+            return Optional.empty();
+        }
+        BigDecimal first = found.get(0);
+        for (BigDecimal p : found) {
+            if (p.compareTo(first) != 0) {
+                return Optional.empty(); // ambiguous: never pick one
+            }
+        }
+        return Optional.of(first);
+    }
+
+    private static List<JsonNode> matching(List<JsonNode> skus, String descriptionStart, String region, boolean spot,
+                                           String usageUnit) {
+        List<JsonNode> found = new ArrayList<>();
         String usageType = spot ? "Preemptible" : "OnDemand";
         for (JsonNode sku : skus) {
             JsonNode cat = sku.path("category");
@@ -128,18 +181,9 @@ public final class GcpSkuMatcher {
             if (!"USD".equals(unit.path("currencyCode").asText())) {
                 continue;
             }
-            found.add(unitPrice(unit));
+            found.add(sku);
         }
-        if (found.isEmpty()) {
-            return Optional.empty();
-        }
-        BigDecimal first = found.get(0);
-        for (BigDecimal p : found) {
-            if (p.compareTo(first) != 0) {
-                return Optional.empty(); // ambiguous: never pick one
-            }
-        }
-        return Optional.of(first);
+        return found;
     }
 
     private static boolean regionMatches(JsonNode regions, String region) {

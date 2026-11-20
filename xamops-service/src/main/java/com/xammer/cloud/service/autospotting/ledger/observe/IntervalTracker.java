@@ -76,6 +76,12 @@ public final class IntervalTracker {
      */
     public static List<Action> plan(Instant now, List<Open> open, java.util.Set<String> knownInstanceIds,
                                     Map<String, Present> present, Map<String, Ending> endings) {
+        return plan(now, open, knownInstanceIds, present, endings, "ASG_ACTIVITY");
+    }
+
+    /** As {@link #plan} for a provider whose authoritative end is {@code endSource} (GCP: {@code GCE_OPERATION}). */
+    public static List<Action> plan(Instant now, List<Open> open, java.util.Set<String> knownInstanceIds,
+                                    Map<String, Present> present, Map<String, Ending> endings, String endSource) {
         List<Action> out = new ArrayList<>();
         for (Open o : open) {
             Present p = present.get(o.instanceId());
@@ -85,7 +91,7 @@ public final class IntervalTracker {
             }
             Ending end = endings.get(o.instanceId());
             if (end != null && end.endAt() != null) {
-                out.add(new Close(o.id(), end.endAt(), "ASG_ACTIVITY", end.cause()));
+                out.add(new Close(o.id(), end.endAt(), endSource, end.cause()));
             } else if (o.firstAbsentAt() == null) {
                 out.add(new Absent(o.id(), now));
             } else if (!now.isBefore(o.firstAbsentAt().plus(ABSENT_GRACE))) {
