@@ -827,6 +827,11 @@ describe('DatastoresPage filter seed from the URL (design 4.7)', () => {
     await waitFor(() => expect(screen.getByTestId('search')).toBeEmptyDOMElement());
     expect(last(listRequests()).searchParams.get('region')).toBe('eu-west-3');
   });
+  it('seeds every region of a merged region tab from a comma-separated ?region=', async () => {
+    renderSeeded('/xamlens/datastores/cloud?region=eu-west-3%2Ceurope-west9');
+    await screen.findByText('orders-archive');
+    expect(listRequests()[0].searchParams.get('region')).toBe('eu-west-3,europe-west9');
+  });
 
   it('seeds os on the Endpoint tab', async () => {
     renderSeeded('/xamlens/datastores/endpoint?os=MAC');

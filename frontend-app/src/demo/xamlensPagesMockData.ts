@@ -66,39 +66,42 @@ function environment(id: DashboardEnvironmentId): DashboardEnvironment {
   };
 }
 
+/** As `DashboardMapper.cloudRank`: AWS, GCP (or a GCP multi-region), Azure, anything else. */
+function cloudRank(code: string): number {
+  if (/^[a-z]{2}(-[a-z]+)+-\d+$/.test(code)) return 0;
+  if (/^[a-z]+(-[a-z]+)+\d+$/.test(code) || ['us', 'eu', 'asia', 'europe'].includes(code)) return 1;
+  return /^[a-z]+\d*$/.test(code) ? 2 : 3;
+}
+
 /**
- * Active Sensitive Regions, as `DashboardMapper.regions`: the demo cloud rows per `source.region`, listed
- * when one has records or is CLASSIFIED; most records first, then datastores, then the code.
+ * Active Sensitive Regions, as `DashboardMapper.regions`: the demo cloud rows per `source.region`, EBS
+ * volumes left out; AWS, then GCP, then Azure regions, each cloud's by its oldest `sourceId`, then the code.
  */
 function regions(): DashboardRegion[] {
-  const byRegion = new Map<string, { region: DashboardRegion; active: boolean; labels: Map<string, number> }>();
+  const byRegion = new Map<string, { region: DashboardRegion; oldest: string | null; labels: Map<string, number> }>();
   for (const row of tabRows('cloud')) {
     const code = row.source.region;
-    if (!code || code.trim() === '') continue;
+    if (!code || code.trim() === '' || row.source.provider === 'EBS') continue;
     let entry = byRegion.get(code);
     if (!entry) {
-      entry = {
-        region: { region: code, datastores: 0, scannedDatastores: 0, sensitiveRecords: 0, sensitiveLabels: [] },
-        active: false,
-        labels: new Map(),
-      };
+      entry = { region: { region: code, datastores: 0, scannedDatastores: 0, sensitiveLabels: [] }, oldest: null, labels: new Map() };
       byRegion.set(code, entry);
     }
-    const classified = row.scan.status === 'CLASSIFIED';
     entry.region.datastores += 1;
-    entry.region.sensitiveRecords += records(row);
-    if (classified) entry.region.scannedDatastores += 1;
-    entry.active ||= records(row) > 0 || classified;
+    if (row.scan.status === 'CLASSIFIED') entry.region.scannedDatastores += 1;
+    if (/^[0-9a-f]{24}$/.test(row.sourceId ?? '') && (entry.oldest === null || row.sourceId! < entry.oldest)) {
+      entry.oldest = row.sourceId;
+    }
     for (const label of row.sensitives.typeLabels) entry.labels.set(label, (entry.labels.get(label) ?? 0) + 1);
   }
+  const order = (a: string | null, b: string | null) => (a === b ? 0 : a === null ? 1 : b === null ? -1 : a < b ? -1 : 1);
   return [...byRegion.values()]
-    .filter(entry => entry.active)
+    .sort((a, b) => cloudRank(a.region.region) - cloudRank(b.region.region) || order(a.oldest, b.oldest)
+      || order(a.region.region, b.region.region))
     .map(entry => ({
       ...entry.region,
       sensitiveLabels: [...entry.labels.entries()].sort((a, b) => b[1] - a[1]).map(([label]) => label),
-    }))
-    .sort((a, b) => b.sensitiveRecords - a.sensitiveRecords || b.datastores - a.datastores
-      || (a.region < b.region ? -1 : a.region > b.region ? 1 : 0));
+    }));
 }
 
 /** `GET /api/dspm/dashboard`. */

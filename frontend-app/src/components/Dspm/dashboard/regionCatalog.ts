@@ -1,15 +1,22 @@
+import type { DashboardRegion } from '../../../types/dspmPages';
+
 /**
- * Region names and map positions for the Dashboard's Active Sensitive Regions (brief 11).
+ * Region names and map positions for the Dashboard's Active Sensitive Regions (brief 11, checked in build 8).
  *
- * The console reads both from `/data/security/regions/overview`, which our key cannot call. Names come from
- * the region lists of the console's public bundle (`index-20241445.js`, read 2026-11-20): the AWS and Azure
- * labels without their parenthesised code ("N. Virginia (us-east-1)" → "N. Virginia"). The bundle's GCP
- * labels start with the code itself, so a GCP region shows its raw code, as does any code the lists lack.
- * Positions are the public locations of the providers' regions (latitude, longitude); a region without
- * one (the GCP multi-regions `us`, `asia`, `europe`, or an unknown code) gets a tab but no map dot.
+ * The console reads both from `/data/security/regions/overview`, which our key cannot call (401). That route
+ * keys its regions by a place name and lists the cloud region codes behind each (`region_cloud_mapping`), so
+ * codes of different clouds in one place share a tab. The console names AWS `ap-south-1` and GCP
+ * `asia-south1` both "Mumbai", GCP `us-east1` "South Carolina", GCP `us` "USA" and Azure `westeurope`
+ * "Amsterdam" (checked in build 8). The names here follow that pattern:
+ * - AWS: the console bundle's labels (`index-20241445.js`, `sG`) without the code ("N. Virginia (us-east-1)").
+ * - GCP: the place in the bundle's labels (`aG`, "us-east1 (Moncks Corner, South Carolina, North America)"):
+ *   the state for a US region, otherwise the city; the AWS name where both clouds share a metro.
+ * - Azure: the city of the region's published location, the state for a US region; the AWS name where both
+ *   clouds share a metro.
+ * Any other code shows as itself. Positions are the regions' public locations (latitude, longitude); a GCP
+ * multi-region sits at the middle of its area. An unknown code gets a tab but no map dot.
  */
 
-/** AWS (`sG`) and Azure (`EG`) bundle labels, without the parenthesised code. */
 const REGION_NAMES: Readonly<Record<string, string>> = {
   // AWS
   'ap-south-1': 'Mumbai',
@@ -40,50 +47,91 @@ const REGION_NAMES: Readonly<Record<string, string>> = {
   'me-south-1': 'Bahrain',
   'me-central-1': 'UAE',
   'il-central-1': 'Israel',
+  // GCP
+  'us-east1': 'South Carolina',
+  'us-east4': 'N. Virginia',
+  'us-central1': 'Iowa',
+  'us-west1': 'Oregon',
+  'europe-west4': 'Eemshaven',
+  'europe-west1': 'St. Ghislain',
+  'europe-west3': 'Frankfurt',
+  'europe-west2': 'London',
+  'asia-east1': 'Changhua County',
+  'asia-southeast1': 'Singapore',
+  'asia-northeast1': 'Tokyo',
+  'asia-south1': 'Mumbai',
+  'australia-southeast1': 'Sydney',
+  'southamerica-east1': 'São Paulo',
+  'asia-east2': 'Hong Kong',
+  'asia-northeast2': 'Osaka',
+  'asia-northeast3': 'Seoul',
+  'asia-south2': 'Delhi',
+  'asia-southeast2': 'Jakarta',
+  'australia-southeast2': 'Melbourne',
+  'europe-central2': 'Warsaw',
+  'europe-north1': 'Hamina',
+  'europe-southwest1': 'Madrid',
+  'europe-west12': 'Turin',
+  'europe-west6': 'Zurich',
+  'europe-west8': 'Milan',
+  'europe-west9': 'Paris',
+  'me-central1': 'Doha',
+  'me-west1': 'Tel Aviv',
+  'northamerica-northeast1': 'Montréal',
+  'northamerica-northeast2': 'Toronto',
+  'southamerica-west1': 'Santiago',
+  'us-east5': 'Ohio',
+  'us-south1': 'Texas',
+  'us-west2': 'California',
+  'us-west3': 'Utah',
+  'us-west4': 'Nevada',
+  us: 'USA',
+  asia: 'Asia Pacific',
+  europe: 'Europe',
   // Azure
-  centralindia: 'Central India',
-  southindia: 'South India',
-  westindia: 'West India',
-  australiaeast: 'Australia East',
-  australiasoutheast: 'Australia Southeast',
-  eastus: 'East US',
-  eastus2: 'East US 2',
-  westus: 'West US',
-  westus2: 'West US 2',
-  northcentralus: 'North Central US',
-  southcentralus: 'South Central US',
-  canadacentral: 'Canada Central',
-  canadaeast: 'Canada East',
-  westeurope: 'West Europe',
-  northeurope: 'North Europe',
-  uksouth: 'UK South',
-  ukwest: 'UK West',
-  germanywestcentral: 'Germany West Central',
-  germanynorth: 'Germany North',
-  francecentral: 'France Central',
-  francesouth: 'France South',
-  norwayeast: 'Norway East',
-  norwaywest: 'Norway West',
-  swedencentral: 'Sweden Central',
-  swedensouth: 'Sweden South',
-  switzerlandnorth: 'Switzerland North',
-  switzerlandwest: 'Switzerland West',
-  southafricanorth: 'South Africa North',
-  southafricawest: 'South Africa West',
-  uaenorth: 'United Arab Emirates North',
-  uaecentral: 'United Arab Emirates Central',
-  israelcentral: 'Israel Central',
-  japaneast: 'Japan East',
-  japanwest: 'Japan West',
-  koreacentral: 'Korea Central',
-  koreasouth: 'Korea South',
-  southeastasia: 'Southeast Asia',
-  eastasia: 'East Asia',
-  centralus: 'Central US',
-  brazilsouth: 'Brazil South',
+  centralindia: 'Pune',
+  southindia: 'Chennai',
+  westindia: 'Mumbai',
+  australiaeast: 'Sydney',
+  australiasoutheast: 'Melbourne',
+  eastus: 'Virginia',
+  eastus2: 'Virginia',
+  westus: 'California',
+  westus2: 'Washington',
+  northcentralus: 'Illinois',
+  southcentralus: 'Texas',
+  canadacentral: 'Toronto',
+  canadaeast: 'Québec City',
+  westeurope: 'Amsterdam',
+  northeurope: 'Ireland',
+  uksouth: 'London',
+  ukwest: 'Cardiff',
+  germanywestcentral: 'Frankfurt',
+  germanynorth: 'Berlin',
+  francecentral: 'Paris',
+  francesouth: 'Marseille',
+  norwayeast: 'Oslo',
+  norwaywest: 'Stavanger',
+  swedencentral: 'Gävle',
+  swedensouth: 'Malmö',
+  switzerlandnorth: 'Zurich',
+  switzerlandwest: 'Geneva',
+  southafricanorth: 'Johannesburg',
+  southafricawest: 'Cape Town',
+  uaenorth: 'Dubai',
+  uaecentral: 'Abu Dhabi',
+  israelcentral: 'Israel',
+  japaneast: 'Tokyo',
+  japanwest: 'Osaka',
+  koreacentral: 'Seoul',
+  koreasouth: 'Busan',
+  southeastasia: 'Singapore',
+  eastasia: 'Hong Kong',
+  centralus: 'Iowa',
+  brazilsouth: 'São Paulo',
 };
 
-/** [latitude, longitude] of each region in the bundle's AWS, GCP and Azure lists. */
+/** [latitude, longitude] of each region in the bundle's AWS, GCP and Azure lists, and of the GCP multi-regions. */
 const REGION_POSITIONS: Readonly<Record<string, readonly [number, number]>> = {
   // AWS
   'ap-south-1': [19.08, 72.88],
@@ -152,6 +200,9 @@ const REGION_POSITIONS: Readonly<Record<string, readonly [number, number]>> = {
   'us-west2': [34.05, -118.24],
   'us-west3': [40.76, -111.89],
   'us-west4': [36.17, -115.14],
+  us: [39.83, -98.58],
+  asia: [34.05, 100.62],
+  europe: [54.53, 15.26],
   // Azure
   centralindia: [18.58, 73.92],
   southindia: [12.98, 80.16],
@@ -195,7 +246,7 @@ const REGION_POSITIONS: Readonly<Record<string, readonly [number, number]>> = {
   brazilsouth: [-23.55, -46.63],
 };
 
-/** The region's tab and card name: the bundle's AWS / Azure label, else the raw code. */
+/** The region's tab and card name (see the file comment); the raw code when the catalogue lacks it. */
 export function regionName(code: string): string {
   return REGION_NAMES[code] ?? code;
 }
@@ -204,4 +255,40 @@ export function regionName(code: string): string {
 export function regionCoordinates(code: string): [number, number] | null {
   const position = REGION_POSITIONS[code];
   return position ? [position[1], position[0]] : null;
+}
+
+/** One tab of the widget: the regions the console shows under one name, summed. */
+export interface RegionGroup {
+  /** The first code's: the tab id and the React key. */
+  id: string;
+  name: string;
+  /** In response order; "View All" filters the Datastores page by all of them. */
+  codes: string[];
+  datastores: number;
+  scannedDatastores: number;
+  /** The codes' labels, each once, in the order first seen. */
+  sensitiveLabels: string[];
+  /** The first code with a known position, [longitude, latitude]; null draws no dot. */
+  coordinates: [number, number] | null;
+}
+
+/** The response's regions merged by name, each group where its first code is (the console's order). */
+export function groupRegions(regions: DashboardRegion[]): RegionGroup[] {
+  const groups = new Map<string, RegionGroup>();
+  for (const region of regions) {
+    const name = regionName(region.region);
+    let group = groups.get(name);
+    if (!group) {
+      group = { id: region.region, name, codes: [], datastores: 0, scannedDatastores: 0, sensitiveLabels: [], coordinates: null };
+      groups.set(name, group);
+    }
+    group.codes.push(region.region);
+    group.datastores += region.datastores;
+    group.scannedDatastores += region.scannedDatastores;
+    for (const label of region.sensitiveLabels) {
+      if (!group.sensitiveLabels.includes(label)) group.sensitiveLabels.push(label);
+    }
+    group.coordinates ??= regionCoordinates(region.region);
+  }
+  return [...groups.values()];
 }

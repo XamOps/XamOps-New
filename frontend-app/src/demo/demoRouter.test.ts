@@ -1860,15 +1860,13 @@ describe('demo router — XamLens Dashboard (ROLE_XAMOPS)', () => {
 
   it('answers Active Sensitive Regions from the demo cloud rows, each region filtering to its own datastores', async () => {
     const dashboard = await readDemoBody('/api/dspm/dashboard') as DspmDashboard;
-    expect(dashboard.regions.length).toBeGreaterThan(1);
-    const records = dashboard.regions.map(region => region.sensitiveRecords);
-    expect(records).toEqual([...records].sort((a, b) => b - a));
+    // AWS, then GCP, then Azure, as DashboardMapper orders them.
+    expect(dashboard.regions.map(region => region.region)).toEqual(['ap-south-1', 'us-east-1', 'asia-south1', 'centralindia']);
     for (const region of dashboard.regions) {
       const rows = (await readDemoBody(
         `/api/dspm/datastores?tab=cloud&region=${encodeURIComponent(region.region)}&pageSize=100`,
-      ) as DspmPage<DatastoreRow>).data;
+      ) as DspmPage<DatastoreRow>).data.filter(row => row.source.provider !== 'EBS');
       expect(region.datastores, region.region).toBe(rows.length);
-      expect(region.sensitiveRecords).toBe(rows.reduce((sum, row) => sum + row.sensitives.recordCount, 0));
       expect(region.scannedDatastores).toBe(rows.filter(row => row.scan.status === 'CLASSIFIED').length);
     }
   });

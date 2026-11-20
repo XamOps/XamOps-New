@@ -12,6 +12,8 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * The Dashboard's environment cards, Top Risky rows and Active Sensitive Regions from the summary snapshot
@@ -38,6 +40,19 @@ public class DashboardMapper {
 
     /** The scan status the console counts as a scanned datastore (Scanned DataStores, brief 11). */
     private static final String SCANNED_STATUS = "CLASSIFIED";
+
+    /**
+     * The provider the console's region counts leave out: checked live in build 8, its Total and Scanned
+     * DataStores equal the region's rows without EBS volumes.
+     */
+    private static final String EXCLUDED_PROVIDER = "EBS";
+
+    private static final Pattern AWS_REGION = Pattern.compile("[a-z]{2}(-[a-z]+)+-\\d+");
+    private static final Pattern GCP_REGION = Pattern.compile("[a-z]+(-[a-z]+)+\\d+");
+    private static final Set<String> GCP_MULTI_REGIONS = Set.of("us", "eu", "asia", "europe");
+    private static final Pattern AZURE_REGION = Pattern.compile("[a-z]+\\d*");
+    /** A 24-hex ObjectId: its leading timestamp makes string order creation order. */
+    private static final Pattern OBJECT_ID = Pattern.compile("[0-9a-f]{24}");
 
     /** The tab's rows in collector order ({@code -severity}) with records (A6), the first 5 (A4). */
     public List<DatastoreRowMapper.MappedRow> topRows(AssetRowSnapshot snapshot) {
@@ -86,9 +101,12 @@ public class DashboardMapper {
     }
 
     /**
-     * "Active Sensitive Regions" (brief 11) from the collected cloud rows: one entry per {@code source.region}
-     * with a row that has sensitive records or is classified; every cloud row of that region counts. Ordered
-     * by sensitive records, then datastores, then the code. Rows without a region are skipped.
+     * "Active Sensitive Regions" (brief 11, checked against the console in build 8) from the collected cloud
+     * rows: one entry per {@code source.region}, whatever its scan status or records (the console lists
+     * regions with nothing classified). EBS volumes are left out, as the console's counts leave them out.
+     * Ordered as the console orders them: AWS, then GCP, then Azure regions (by the code's shape), each
+     * cloud's regions by their first-created datastore (the smallest 24-hex {@code source_id}), then the
+     * code. Rows without a region are skipped.
      */
     private static List<DspmDashboard.Region> regions(AssetRowSnapshot snapshot) {
         if (snapshot == null || snapshot.rows() == null) {
@@ -98,40 +116,51 @@ public class DashboardMapper {
         for (DatastoreRowMapper.MappedRow mapped : snapshot.rows()) {
             DatastoreRow row = mapped == null ? null : mapped.row();
             String region = row == null || row.source() == null ? null : row.source().region();
-            if (region == null || region.isBlank()) {
+            if (region == null || region.isBlank() || EXCLUDED_PROVIDER.equals(row.source().provider())) {
                 continue;
             }
             sums.computeIfAbsent(region, k -> new RegionSums()).add(row);
         }
+        List<Map.Entry<String, RegionSums>> ordered = new ArrayList<>(sums.entrySet());
+        ordered.sort(Comparator.comparingInt((Map.Entry<String, RegionSums> e) -> cloudRank(e.getKey()))
+                .thenComparing(e -> e.getValue().oldestSourceId, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(Map.Entry::getKey));
         List<DspmDashboard.Region> out = new ArrayList<>();
-        sums.forEach((region, sum) -> {
-            if (sum.active) {
-                out.add(sum.toRegion(region));
-            }
-        });
-        out.sort(Comparator.comparingLong(DspmDashboard.Region::sensitiveRecords).reversed()
-                .thenComparing(Comparator.comparingLong(DspmDashboard.Region::datastores).reversed())
-                .thenComparing(DspmDashboard.Region::region));
+        ordered.forEach(e -> out.add(e.getValue().toRegion(e.getKey())));
         return out;
+    }
+
+    /**
+     * 0 for an AWS code ({@code us-east-1}), 1 for GCP ({@code us-east1}, or a multi-region such as
+     * {@code us}), 2 for Azure ({@code westeurope}), 3 for anything else.
+     */
+    private static int cloudRank(String code) {
+        if (AWS_REGION.matcher(code).matches()) {
+            return 0;
+        }
+        if (GCP_REGION.matcher(code).matches() || GCP_MULTI_REGIONS.contains(code)) {
+            return 1;
+        }
+        return AZURE_REGION.matcher(code).matches() ? 2 : 3;
     }
 
     /** One region's running sums; label counts keep first-seen order for ties. */
     private static final class RegionSums {
         private long datastores;
         private long scanned;
-        private long records;
-        private boolean active;
+        private String oldestSourceId;
         private final Map<String, Integer> labels = new LinkedHashMap<>();
 
         void add(DatastoreRow row) {
-            long rowRecords = recordCount(row);
-            boolean classified = row.scan() != null && SCANNED_STATUS.equals(row.scan().status());
             datastores++;
-            records += rowRecords;
-            if (classified) {
+            if (row.scan() != null && SCANNED_STATUS.equals(row.scan().status())) {
                 scanned++;
             }
-            active |= rowRecords > 0 || classified;
+            String sourceId = row.sourceId();
+            if (sourceId != null && OBJECT_ID.matcher(sourceId).matches()
+                    && (oldestSourceId == null || sourceId.compareTo(oldestSourceId) < 0)) {
+                oldestSourceId = sourceId;
+            }
             if (row.sensitives() != null && row.sensitives().typeLabels() != null) {
                 for (String label : row.sensitives().typeLabels()) {
                     if (label != null) {
@@ -144,7 +173,7 @@ public class DashboardMapper {
         DspmDashboard.Region toRegion(String region) {
             List<String> ordered = new ArrayList<>(labels.keySet());
             ordered.sort(Comparator.comparingInt((String label) -> labels.get(label)).reversed());
-            return new DspmDashboard.Region(region, datastores, scanned, records, ordered);
+            return new DspmDashboard.Region(region, datastores, scanned, ordered);
         }
     }
 
