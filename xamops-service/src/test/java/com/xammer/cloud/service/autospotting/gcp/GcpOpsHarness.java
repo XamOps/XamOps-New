@@ -114,7 +114,17 @@ final class GcpOpsHarness implements AutoCloseable {
                         + " dry_run, created_by, created_at, expires_at) VALUES (?, ?, 3, ?, 'CONFIRMED', ?, 1, 1, ?,"
                         + " ?::jsonb, false, ?::jsonb, ?::jsonb, false, 'test', ?, ?)",
                 planId, f.groupId, kind, fromState, fingerprint, body, warningIds, acks, Timestamp.from(now),
-                Timestamp.from(now.plusSeconds(3600)));
+                Timestamp.from(planExpiry(now)));
+    }
+
+    /**
+     * One hour after the later of the fixed test clock and the wall clock. The fixture clock is pinned to
+     * 2026-11-20T10:00Z, but ConfirmService checks expiry against Instant.now(), so an expiry derived from the
+     * test clock alone made confirm-path tests fail with PLAN_EXPIRED after 2026-11-20T11:00Z (phase 23 F-23-10).
+     */
+    static Instant planExpiry(Instant testNow) {
+        Instant wallNow = Instant.now();
+        return (wallNow.isAfter(testNow) ? wallNow : testNow).plusSeconds(3600);
     }
 
     /** ENABLE at floor {@code n} through the real runner until ACTIVE; the stub MIG ends converted. */
