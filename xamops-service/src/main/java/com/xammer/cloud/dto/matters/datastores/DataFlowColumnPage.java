@@ -8,8 +8,13 @@ import java.util.List;
 @JsonInclude(JsonInclude.Include.ALWAYS)
 public record DataFlowColumnPage(List<Column> rows, int page, int pageSize, long total, int totalPages) {
 
-    /** @param dataElements {@code data_elements[].name}, in API order. */
+    /**
+     * @param dataElements {@code data_elements[].name}, in API order.
+     * @param primaryKey   {@code is_primary_key}: the PK badge.
+     * @param foreignKey   a non-empty {@code foreign_key_constraint_names}: the FK badge.
+     */
     @JsonInclude(JsonInclude.Include.ALWAYS)
-    public record Column(String id, String name, String nativeType, Long sensitiveCount, List<String> dataElements) {
+    public record Column(String id, String name, String nativeType, Long sensitiveCount, List<String> dataElements,
+                         boolean primaryKey, boolean foreignKey) {
     }
 }

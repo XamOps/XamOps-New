@@ -34,12 +34,17 @@ public class PriceSnapshotStore {
 
     /** Stores the snapshot; returns true when a row was written, false when the dedupe index already had it. */
     public boolean insert(NewSnapshot s) {
+        return insert("AWS", s);
+    }
+
+    /** Stores a snapshot of {@code provider} ({@code AWS} or {@code GCP}); same dedupe rule. */
+    public boolean insert(String provider, NewSnapshot s) {
         int rows = jdbc.update("INSERT INTO spot_price_snapshot (id, provider, source, price_kind, region, zone,"
                         + " sku_or_type, platform, rate, unit, currency, effective_from, effective_to, source_version,"
                         + " source_effective_time_stated, fetched_at, payload_sha256, payload)"
-                        + " VALUES (?, 'AWS', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb))"
+                        + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb))"
                         + " ON CONFLICT DO NOTHING",
-                UUID.randomUUID(), s.source(), s.priceKind(), s.region(), s.zone(), s.skuOrType(), s.platform(),
+                UUID.randomUUID(), provider, s.source(), s.priceKind(), s.region(), s.zone(), s.skuOrType(), s.platform(),
                 s.rate(), s.unit(), s.currency(), Timestamp.from(s.effectiveFrom()),
                 s.effectiveTo() == null ? null : Timestamp.from(s.effectiveTo()), s.sourceVersion(),
                 s.sourceEffectiveTimeStated(), Timestamp.from(s.fetchedAt()), s.payloadSha256(), s.payloadJson());

@@ -1,10 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, type ReactNode } from 'react';
 import type { DatastoreFilterOption } from '../../../types/dspmDatastores';
 import {
   EXCLUDABLE_DIMENSIONS, MAX_FILTER_VALUES, clearDimension, isSelectable, mergeSelectedOptions,
   selectAllVisible, setMode, toggleValue, type DatastoreFilterState, type FilterMode,
 } from './datastoreFilters';
 import { SearchInput } from './ui/SearchInput';
+import { CONSOLE_ONLY_TOOLTIP } from './ui/ConsoleOnly';
 
 export interface FilterOptionListProps {
   dimension: string;
@@ -19,11 +20,23 @@ export interface FilterOptionListProps {
   error: boolean;
   onChange: (next: DatastoreFilterState) => void;
   /**
-   * Local mode, for a filter over rows already loaded (the drawer's Risk severities): Include only, so
-   * there is no Include / Exclude choice, and every listed value can be chosen, because none is sent to
-   * the backend and its value rules do not apply.
+   * Local mode, for a filter whose values are not checked against the list's dimension rules (the
+   * drawer's Risk severities, the Endpoint drawer's filters): Include only, so there is no Include /
+   * Exclude choice, and every listed value can be chosen unless `canSelectValue` says otherwise.
    */
   local?: boolean;
+  /**
+   * Local mode only: whether a value can be chosen. A value it refuses renders disabled, as the list's
+   * unsendable values do. Without it every value can be chosen.
+   */
+  canSelectValue?: (value: string) => boolean;
+  /** Draws an option's label (a category chip, say); the default is the plain text. */
+  renderLabel?: (label: string) => ReactNode;
+  /**
+   * Local mode only: show the Include / Exclude select with Exclude disabled and titled
+   * `CONSOLE_ONLY_TOOLTIP`, for a filter whose route takes no exclude parameter. Exclude is never sent.
+   */
+  consoleOnlyExclude?: boolean;
 }
 
 const EMPTY_OPTIONS: DatastoreFilterOption[] = [];
@@ -37,7 +50,8 @@ const EMPTY_OPTIONS: DatastoreFilterOption[] = [];
  * values are selected the remaining boxes are disabled too.
  */
 const FilterOptionList: React.FC<FilterOptionListProps> = ({
-  dimension, options, hasMore, filters, labelMemory, loading, error, onChange, local = false,
+  dimension, options, hasMore, filters, labelMemory, loading, error, onChange, local = false, canSelectValue,
+  renderLabel, consoleOnlyExclude = false,
 }) => {
   const [query, setQuery] = useState('');
   const [stoppedShort, setStoppedShort] = useState(false);
@@ -54,7 +68,8 @@ const FilterOptionList: React.FC<FilterOptionListProps> = ({
   );
   const needle = query.trim().toLowerCase();
   const visible = needle ? listed.filter(option => option.label.toLowerCase().includes(needle)) : listed;
-  const canSelect = (option: { value: string }) => local || isSelectable(dimension, option);
+  const canSelect = (option: { value: string }) =>
+    local ? (canSelectValue?.(option.value) ?? true) : isSelectable(dimension, option);
   const selectable = visible.filter(canSelect);
   const allVisibleChecked = selectable.length > 0 && selectable.every(option => option.checked);
 
@@ -90,6 +105,17 @@ const FilterOptionList: React.FC<FilterOptionListProps> = ({
             >
               Exclude
             </option>
+          </select>
+        )}
+        {local && consoleOnlyExclude && (
+          <select
+            aria-label="Include or exclude"
+            value="include"
+            onChange={() => undefined}
+            className="rounded-lg border border-[rgba(0,0,0,0.1)] bg-white px-1.5 py-1.5 text-xs text-[rgba(0,0,0,0.7)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)]"
+          >
+            <option value="include">Include</option>
+            <option value="exclude" disabled title={CONSOLE_ONLY_TOOLTIP}>Exclude</option>
           </select>
         )}
       </div>
@@ -146,7 +172,9 @@ const FilterOptionList: React.FC<FilterOptionListProps> = ({
                 onChange={() => apply(toggleValue(filters, dimension, option.value))}
                 className="accent-[rgba(0,0,0,0.88)]"
               />
-              <span className="min-w-0 flex-1 truncate text-xs text-[rgba(0,0,0,0.7)]" title={option.label}>{option.label}</span>
+              <span className="min-w-0 flex-1 truncate text-xs text-[rgba(0,0,0,0.7)]" title={option.label}>
+                {renderLabel ? renderLabel(option.label) : option.label}
+              </span>
               {' '}
               {option.count !== null && (
                 <span className="flex-shrink-0 text-[10px] tabular-nums text-[rgba(0,0,0,0.35)]">

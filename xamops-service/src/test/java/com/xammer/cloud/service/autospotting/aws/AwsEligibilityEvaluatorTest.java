@@ -104,7 +104,7 @@ class AwsEligibilityEvaluatorTest {
     }
 
     @Test
-    void untilPhase22EveryRegionIsNotCovered() {
+    void aRegionWithoutVerifiedCoverageIsNotCovered() {
         setUp(false, new FakeAws().happyPath(FakeAws.asg("web-asg").build()));
         assertThat(codes(eval(EvalMode.PLAN).blockers())).containsExactly("REGION_NOT_COVERED");
         assertThat(new AwsRegionCoverage().covered(account, "ap-south-1")).isFalse();
@@ -306,6 +306,30 @@ class AwsEligibilityEvaluatorTest {
         }
     }
 
+    @Test
+    void anOldStackBlocksEnableNamingTheMissingCapabilitiesButListsAndNeverNeedsOne() {
+        // AC-ONB-01, AC-ONB-02: the old stack still lists and reads; only the ENABLE plan is blocked.
+        CloudAccount old = FakeAws.account();
+        old.setAccessType("read-write");
+        old.setStackTemplateVersion("rw-2026.10.1");
+        setUp(group(FakeAws.asg("web-asg")));
+        EligibilityResult plan = evaluator.evaluate(old, "ap-south-1/web-asg", conservative, EvalMode.PLAN).result();
+        assertThat(plan.blockers()).filteredOn(c -> "STACK_TOO_OLD".equals(c.code()))
+                .singleElement().satisfies(c -> assertThat(c.text()).contains("events from every region"));
+        EligibilityResult list = evaluator.evaluate(old, "ap-south-1/web-asg", conservative, EvalMode.LIST).result();
+        assertThat(codes(list.blockers())).doesNotContain("GROUP_NOT_FOUND", "CHECK_FAILED");
+    }
+    @Test
+    void aPreAutoSpottingStackNamesEveryMissingCapability() {
+        CloudAccount old = FakeAws.account();
+        old.setAccessType("read-write");
+        old.setStackTemplateVersion(null);
+        setUp(group(FakeAws.asg("web-asg")));
+        EligibilityResult plan = evaluator.evaluate(old, "ap-south-1/web-asg", conservative, EvalMode.PLAN).result();
+        assertThat(plan.blockers()).filteredOn(c -> "STACK_TOO_OLD".equals(c.code()))
+                .singleElement().satisfies(c -> assertThat(c.text())
+                        .contains("events from every region", "permission self-check"));
+    }
     @Test
     void theSelectorHonoursTheConfiguredTargetCount() {
         setUp(group(FakeAws.asg("web-asg")));

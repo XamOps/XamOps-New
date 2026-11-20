@@ -98,6 +98,8 @@ public class SpotReconciler {
     private final com.xammer.cloud.service.autospotting.core.lease.LeaseProperties leaseProperties;
     private final AutoSpottingMetrics metrics;
     private final Duration stuckThreshold;
+    /** Keeps {@code spot_group_instance} current each sweep (design-aws.md §9.7); absent in the narrow test contexts. */
+    private GroupInstanceIndex instanceIndex;
 
     /** Per-provider staleness and stuck gauges (updated each sweep, published by Micrometer). */
     private final java.util.Map<Provider, AtomicLong> staleness = new java.util.EnumMap<>(Provider.class);
@@ -141,6 +143,34 @@ public class SpotReconciler {
                     stalenessGauge::get);
             metrics.bindReconcilerGauge(AutoSpottingMetrics.OPS_STUCK, provider, stuckGauge::get);
         }
+    }
+
+    /** Optional: per-provider trackers of events the cloud does not push (GCP preemptions, design-gcp.md §8). */
+    private java.util.List<com.xammer.cloud.service.autospotting.spi.PreemptionTracker> trackers = java.util.List.of();
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPreemptionTrackers(java.util.List<com.xammer.cloud.service.autospotting.spi.PreemptionTracker> trackers) {
+        this.trackers = trackers == null ? java.util.List.of() : java.util.List.copyOf(trackers);
+    }
+    /** Run the provider's tracker, if any. A tracker failure never fails the sweep: the status stands without it. */
+    private GroupStatus track(Provider provider, SpotGroup group, GroupStatus status) {
+        if (status == null || !status.found()) {
+            return status;
+        }
+        for (com.xammer.cloud.service.autospotting.spi.PreemptionTracker t : trackers) {
+            if (t.provider() == provider) {
+                try {
+                    return t.track(group, status);
+                } catch (RuntimeException e) {
+                    log.warn("preemption tracking failed for group {}: {}", group.getId(), e.toString());
+                }
+            }
+        }
+        return status;
+    }
+    /** Optional: the AWS instance index the event listener reads (plan-phase-22.md task 22.3). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setInstanceIndex(GroupInstanceIndex instanceIndex) {
+        this.instanceIndex = instanceIndex;
     }
 
     /**
@@ -229,7 +259,7 @@ public class SpotReconciler {
                     Instant.now());
             return;
         }
-        GroupStatus status = provider.getStatus(group, readOnlyView());
+        GroupStatus status = track(provider.provider(), group, provider.getStatus(group, readOnlyView()));
         List<ReconcileAction> actions = provider.reconcile(group, status);
         healthPass.run(group, status, actions);
     }
@@ -281,6 +311,12 @@ public class SpotReconciler {
             reconcilerStore.writeError(group.getId(), null, null, now);
         }
 
+        // Preemptions the cloud does not push are found by polling here (GCP, design-gcp.md §8.2).
+        status = track(provider, group, status);
+        // The instance index the event listener resolves EC2 events with (aws §9.7). Data only.
+        if (provider == Provider.AWS && instanceIndex != null) {
+            instanceIndex.sync(group, status.healthJson(), now);
+        }
         // Step 4: apply pending switch PAUSE / release first (§6.4), with the GR-06 fenced re-read.
         SwitchState switchState = switchService.readUncached();
         if (switchPauseApplier.pauseEngaged(switchState, group)) {
@@ -351,9 +387,18 @@ public class SpotReconciler {
                 case MARK_DEGRADED -> transitionIfAllowed(handle, group, GroupState.DEGRADED, "HEALTH_DEGRADED");
                 case MARK_RECOVERED -> transitionIfAllowed(handle, group, recoveredTarget(group), "HEALTH_RECOVERED");
                 case ALERT -> metrics.reconcileAlert(group.getState().name());
-                // ENQUEUE_FALLBACK / REQUEST_COMPENSATION / UPDATE_PAUSED_FROM / PAUSE / UNPAUSE are the
-                // health-pass / switch-pause responsibilities; left to those paths (dark here).
-                default -> { /* no-op in the dark phase */ }
+                case ENQUEUE_FALLBACK -> {
+                    FallbackEnqueuer.Result r = healthPass.enqueueFallbackEnter(group, "RECONCILE");
+                    if (r == FallbackEnqueuer.Result.FROZEN && group.getState() == GroupState.ACTIVE) {
+                        // No fallback path under the freeze (design-aws.md §6.5): DEGRADED with an alert.
+                        transitionIfAllowed(handle, group, GroupState.DEGRADED, "FALLBACK_FROZEN");
+                        metrics.reconcileAlert(group.getState().name());
+                    }
+                }
+                case ENQUEUE_FALLBACK_EXIT -> healthPass.enqueueFallbackExit(group);
+                // REQUEST_COMPENSATION / UPDATE_PAUSED_FROM / PAUSE / UNPAUSE are the health-pass /
+                // switch-pause responsibilities; left to those paths.
+                default -> { /* handled elsewhere */ }
             }
         }
     }

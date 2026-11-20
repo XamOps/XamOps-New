@@ -306,11 +306,19 @@ public class DashboardController {
             @RequestParam String accountId,
             @RequestParam String resourceId,
             @RequestParam String resourceType,
-            @RequestParam String region) {
+            @RequestParam String region,
+            @RequestParam(defaultValue = "false") boolean acknowledgeAutoSpotting,
+            @AuthenticationPrincipal ClientUserDetails user) {
         try {
-            wasteDeleteService.deleteResource(accountId, resourceId, resourceType, region);
+            wasteDeleteService.deleteResource(accountId, resourceId, resourceType, region,
+                    acknowledgeAutoSpotting, user);
             logger.info("[WasteDelete] Successfully deleted {} '{}' for account {}", resourceType, resourceId, accountId);
             return ResponseEntity.ok(Map.of("message", "Resource deleted successfully"));
+        } catch (com.xammer.cloud.service.WasteDeleteBlockedException e) {
+            // AutoSpotting manages this group (design-core.md section 7.6): nothing was deleted.
+            logger.warn("[WasteDelete] Refused {} '{}': {} ({})", resourceType, resourceId, e.getCode(), e.getState());
+            return ResponseEntity.status(e.getStatus())
+                    .body(Map.of("code", e.getCode(), "state", e.getState(), "error", e.getMessage()));
         } catch (IllegalArgumentException e) {
             logger.warn("[WasteDelete] Bad request: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));

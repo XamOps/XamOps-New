@@ -60,7 +60,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * applies), so AccessDenied surfaces through the existing catalog and maps to {@code PERMISSION}.
  */
 @Component
-public class AwsAutoSpottingClientFactory implements AwsViewSource {
+public class AwsAutoSpottingClientFactory implements AwsViewSource, AwsMutatingSource {
 
     private static final Logger log = LoggerFactory.getLogger(AwsAutoSpottingClientFactory.class);
 
@@ -120,6 +120,7 @@ public class AwsAutoSpottingClientFactory implements AwsViewSource {
      * A {@code WRITE}-mode mutating client for the account and region. Has no caller until Phase 18;
      * built here so the two surfaces share one factory and one session-policy source.
      */
+    @Override
     public AwsMutatingClient mutatingClient(CloudAccount account, String region) {
         String key = cacheKey(account, region, AwsSessionPolicies.Mode.WRITE);
         return (AwsMutatingClient) mutatingCache.get(key, k -> buildMutating(account, region));

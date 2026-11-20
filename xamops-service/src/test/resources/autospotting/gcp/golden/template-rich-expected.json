@@ -1,0 +1,149 @@
+{
+  "description": "XamOps AutoSpotting copy of rich-tpl-1 for group 11111111-2222-3333-4444-555555555555",
+  "name": "web-xas-aaaaaaaa",
+  "properties": {
+    "advancedMachineFeatures": {
+      "enableNestedVirtualization": true,
+      "threadsPerCore": 1,
+      "visibleCoreCount": 4
+    },
+    "canIpForward": true,
+    "confidentialInstanceConfig": {
+      "confidentialInstanceType": "SEV",
+      "enableConfidentialCompute": true
+    },
+    "description": "props desc",
+    "disks": [
+      {
+        "autoDelete": true,
+        "boot": true,
+        "initializeParams": {
+          "diskSizeGb": "50",
+          "diskType": "pd-balanced",
+          "sourceImage": "projects/debian-cloud/global/images/family/debian-12"
+        },
+        "mode": "READ_WRITE",
+        "type": "PERSISTENT"
+      },
+      {
+        "autoDelete": true,
+        "initializeParams": {
+          "diskType": "local-ssd"
+        },
+        "interface": "NVME",
+        "type": "SCRATCH"
+      }
+    ],
+    "displayDevice": {
+      "enableDisplay": true
+    },
+    "guestAccelerators": [
+      {
+        "acceleratorCount": 1,
+        "acceleratorType": "nvidia-tesla-t4"
+      }
+    ],
+    "labels": {
+      "env": "prod",
+      "id": "7",
+      "kind": "web",
+      "xamops-autospotting": "11111111-2222-3333-4444-555555555555"
+    },
+    "machineType": "n1-standard-8",
+    "metadata": {
+      "items": [
+        {
+          "key": "startup-script",
+          "value": "echo hi"
+        }
+      ]
+    },
+    "minCpuPlatform": "Intel Skylake",
+    "networkInterfaces": [
+      {
+        "accessConfigs": [
+          {
+            "name": "External NAT",
+            "networkTier": "PREMIUM",
+            "type": "ONE_TO_ONE_NAT"
+          }
+        ],
+        "aliasIpRanges": [
+          {
+            "ipCidrRange": "/24",
+            "subnetworkRangeName": "pods"
+          }
+        ],
+        "network": "global/networks/default",
+        "subnetwork": "regions/us-central1/subnetworks/default"
+      },
+      {
+        "network": "global/networks/other",
+        "subnetwork": "regions/us-central1/subnetworks/other"
+      }
+    ],
+    "networkPerformanceConfig": {
+      "totalEgressBandwidthTier": "TIER_1"
+    },
+    "privateIpv6GoogleAccess": "INHERIT_FROM_SUBNETWORK",
+    "reservationAffinity": {
+      "consumeReservationType": "SPECIFIC_RESERVATION",
+      "key": "compute.googleapis.com/reservation-name",
+      "values": [
+        "res-1"
+      ]
+    },
+    "resourcePolicies": [
+      "projects/xamops-test/regions/us-central1/resourcePolicies/pol"
+    ],
+    "scheduling": {
+      "automaticRestart": false,
+      "instanceTerminationAction": "DELETE",
+      "localSsdRecoveryTimeout": {
+        "seconds": "60"
+      },
+      "locationHint": "us-central1-a",
+      "maxRunDuration": {
+        "seconds": "3600"
+      },
+      "minNodeCpus": 4,
+      "nodeAffinities": [
+        {
+          "key": "workload",
+          "operator": "IN",
+          "values": [
+            "sole"
+          ]
+        }
+      ],
+      "onHostMaintenance": "TERMINATE",
+      "provisioningModel": "SPOT"
+    },
+    "serviceAccounts": [
+      {
+        "email": "sa@xamops-test.iam.gserviceaccount.com",
+        "scopes": [
+          "https://www.googleapis.com/auth/cloud-platform"
+        ]
+      }
+    ],
+    "shieldedInstanceConfig": {
+      "enableIntegrityMonitoring": true,
+      "enableSecureBoot": true,
+      "enableVtpm": true
+    },
+    "someFutureField": {
+      "nested": [
+        1,
+        2,
+        3
+      ]
+    },
+    "tags": {
+      "items": [
+        "web",
+        "ssh"
+      ]
+    }
+  }
+}

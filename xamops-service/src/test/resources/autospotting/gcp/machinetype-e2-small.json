@@ -1,0 +1,6 @@
+{
+  "name": "e2-small",
+  "guestCpus": 2,
+  "memoryMb": 2048,
+  "isSharedCpu": true
+}

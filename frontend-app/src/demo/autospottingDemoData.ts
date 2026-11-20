@@ -1,6 +1,7 @@
 /**
- * Demo fixtures for the AutoSpotting shell, AWS (plan-phase-14 task 14.4, design-ux-ops.md section 5,
- * AC-UI-06): one answer for every v2 path the shell calls. Shapes mirror `api/autospottingApi.ts`.
+ * Demo fixtures for the AutoSpotting shell, AWS (plan-phase-14 task 14.4) and GCP (plan-phase-26 task 26.5),
+ * design-ux-ops.md section 5, AC-UI-06: one answer for every v2 path the shell calls. Shapes mirror
+ * `api/autospottingApi.ts`. The GCP project answers for {@link DEMO_GCP_ACCOUNT_DB_ID}.
  *
  * Nothing here reaches the backend. Demo stays a session flag (`demoConfig.ts`); there is no URL
  * trigger. State that a user action changes (the group a confirm enables, the saved RI/SP setting) lives
@@ -48,7 +49,15 @@ export const demoAutoSpottingConfig: AutoSpottingConfig = {
 type Seed = Pick<GroupRow, 'id' | 'location' | 'name' | 'state' | 'desired' | 'min' | 'max' | 'instanceType'> & {
   savings: number | null;
   blocker?: { code: string; text: string };
+  /** GCP seeds carry their project: the group key is `project/location/name`. */
+  project?: string;
 };
+
+export type DemoProvider = 'AWS' | 'GCP';
+
+/** The demo GCP project's XamOps account id (`demo-gcp-001`). */
+export const DEMO_GCP_ACCOUNT_DB_ID = 9101;
+const GCP_PROJECT = 'gcp-analytics-demo';
 
 const SEEDS: Seed[] = [
   { id: null, location: 'us-east-1', name: 'web-asg', state: 'UNMANAGED', desired: 6, min: 2, max: 12, instanceType: 'm5.large', savings: 820 },
@@ -61,10 +70,33 @@ const SEEDS: Seed[] = [
   },
 ];
 
+const GCP_SEEDS: Seed[] = [
+  { id: null, project: GCP_PROJECT, location: 'us-central1', name: 'web-mig', state: 'UNMANAGED', desired: 6, min: 3, max: 12, instanceType: 'n2-standard-4', savings: 640 },
+  { id: 'demo-grp-gcp-api', project: GCP_PROJECT, location: 'us-central1', name: 'api-mig', state: 'ACTIVE', desired: 4, min: 4, max: 4, instanceType: 'c2-standard-8', savings: 910 },
+  { id: null, project: GCP_PROJECT, location: 'us-central1-a', name: 'batch-mig', state: 'UNMANAGED', desired: 3, min: 3, max: 3, instanceType: 'e2-standard-2', savings: null },
+  {
+    id: null, project: GCP_PROJECT, location: 'us-central1-b', name: 'gke-analytics-pool-1-grp', state: 'UNMANAGED', desired: 3, min: 1, max: 5, instanceType: 'e2-standard-4', savings: 300,
+    blocker: { code: 'GCP_GKE_NODE_POOL', text: "This instance group belongs to a GKE node pool, which GKE manages. It can't be converted here." },
+  },
+  {
+    id: null, project: GCP_PROJECT, location: 'europe-west1', name: 'frontend-mig', state: 'UNMANAGED', desired: 4, min: 2, max: 8, instanceType: 'n2-standard-2', savings: 220,
+    blocker: {
+      code: 'GCP_NO_READINESS_GATE',
+      text: 'New VMs could receive traffic before they are ready, so capacity behind the load balancer could dip during the rollout. Add an autohealing health check to this MIG, then plan again.',
+    },
+  },
+];
+
+const seedsOf = (provider: DemoProvider): Seed[] => (provider === 'GCP' ? GCP_SEEDS : SEEDS);
+
+/** The cloud a demo account id answers for. */
+export const demoProviderOf = (accountId: string | number | null | undefined): DemoProvider =>
+  String(accountId) === String(DEMO_GCP_ACCOUNT_DB_ID) ? 'GCP' : 'AWS';
+
 /** Per-group state a demo confirm or revert changes. */
 const stateOverride = new Map<string, string>();
 
-const keyOf = (s: Seed) => `${s.location}/${s.name}`;
+const keyOf = (s: Seed) => (s.project ? `${s.project}/${s.location}/${s.name}` : `${s.location}/${s.name}`);
 
 function rowFrom(s: Seed): GroupRow {
   const state = stateOverride.get(keyOf(s)) ?? s.state;
@@ -72,7 +104,7 @@ function rowFrom(s: Seed): GroupRow {
   const unpriced = s.savings === null;
   return {
     id: s.id ?? (stateOverride.has(keyOf(s)) ? `demo-grp-${s.name}` : null),
-    provider: 'AWS',
+    provider: s.project ? 'GCP' : 'AWS',
     groupKey: keyOf(s),
     location: s.location,
     name: s.name,
@@ -94,15 +126,17 @@ function rowFrom(s: Seed): GroupRow {
   };
 }
 
-export function demoGroupList(): GroupList {
-  const items = SEEDS.map(rowFrom);
+export function demoGroupList(provider: DemoProvider = 'AWS'): GroupList {
+  const items = seedsOf(provider).map(rowFrom);
+  const blockedCounts: Record<string, number> = {};
+  items.forEach(r => r.blockers.forEach(b => (blockedCounts[b.code] = (blockedCounts[b.code] ?? 0) + 1)));
   const priced = items.filter(r => !r.savingsUnknown && r.monthlySavings !== null);
   return {
     items,
     partial: false,
     failedLocations: [],
     asOf: iso(0),
-    blockedCounts: { EXTERNAL_SPOT: 1 },
+    blockedCounts,
     kpis: {
       groups: items.length,
       eligible: items.filter(r => r.enableAllowed).length,
@@ -113,8 +147,8 @@ export function demoGroupList(): GroupList {
   };
 }
 
-export function demoPotential(): Potential {
-  const items = SEEDS.map(rowFrom);
+export function demoPotential(provider: DemoProvider = 'AWS'): Potential {
+  const items = seedsOf(provider).map(rowFrom);
   let total = 0;
   let priced = 0;
   let unpriced = 0;
@@ -138,7 +172,7 @@ export function demoPotential(): Potential {
 }
 
 const findSeed = (groupId: string): Seed | undefined =>
-  SEEDS.find(s => (s.id ?? `demo-grp-${s.name}`) === groupId || keyOf(s) === groupId);
+  [...SEEDS, ...GCP_SEEDS].find(s => (s.id ?? `demo-grp-${s.name}`) === groupId || keyOf(s) === groupId);
 
 export function demoGroupDetail(groupId: string): GroupDetail | null {
   const seed = findSeed(groupId);
@@ -164,6 +198,7 @@ export function demoGroupDetail(groupId: string): GroupDetail | null {
 // Plans and operations
 // ---------------------------------------------------------------------------
 const PRICE_SOURCE = { source: 'AWS Price List', version: 'demo', asOf: '2026-11-01' };
+const GCP_PRICE_SOURCE = { source: 'gcp-billing-catalog', version: 'gcp-sku-match-v1', asOf: '2026-11-01' };
 
 const plans = new Map<string, { groupId: string | null; kind: string }>();
 let planSeq = 0;
@@ -181,9 +216,57 @@ export function demoGetPlan(planId: string): Plan | null {
   return p ? buildPlan(planId, p.groupId, p.kind) : null;
 }
 
+/** The GCP plan body: the two-version MIG floor (design-gcp.md 5.2), Option A, no pre-GA native mix. */
+function gcpBody(seed: Seed): string {
+  const t = seed.desired ?? 4;
+  const floorN = Math.max(1, Math.min(Math.ceil(t / 2), t - 1));
+  const regional = !/-[a-z]$/.test(seed.location);
+  const zones = regional ? [`${seed.location}-a`, `${seed.location}-b`, `${seed.location}-c`] : [seed.location];
+  const template = `https://www.googleapis.com/compute/v1/projects/${GCP_PROJECT}/global/instanceTemplates/${seed.name}-tpl`;
+  const surge = regional ? zones.length : 1;
+  return JSON.stringify({
+    current: {
+      shape: 'MIG', locationType: regional ? 'REGIONAL' : 'ZONAL', location: seed.location, name: seed.name,
+      instanceTemplate: template, versions: [{ instanceTemplate: template }], targetSize: t,
+      updatePolicy: { type: 'OPPORTUNISTIC', minimalAction: 'REPLACE' }, distributionZones: regional ? zones : [],
+      autoscaled: false,
+    },
+    target: {
+      shape: 'MIG', floorMechanism: 'TWO_VERSION_MIG',
+      versions: [
+        { name: 'xas-standard', instanceTemplate: template, targetSize: { fixed: floorN } },
+        { name: 'xas-spot', instanceTemplate: '(XamOps Spot copy, created at enable)', remainder: true },
+      ],
+      updatePolicy: { type: 'PROACTIVE', minimalAction: 'REPLACE', mostDisruptiveAllowedAction: 'REPLACE', replacementMethod: 'SUBSTITUTE', maxSurge: { fixed: surge }, maxUnavailable: { fixed: 0 } },
+    },
+    diff: [
+      { field: 'versions', from: '1', to: '2' },
+      { field: 'standardFloor', from: null, to: String(floorN) },
+    ],
+    onDemandFloor: {
+      mechanism: 'TWO_VERSION_MIG', profile: 'CONSERVATIVE', floorN, fullSpot: false,
+      atCurrent: { standard: floorN, spot: t - floorN }, atAutoscalerMin: null, atAutoscalerMax: null, nativeMixUsed: false,
+    },
+    feeBasis: { contractId: null, reason: 'NO_CONTRACT' },
+    revertPath: { program: 'REVERT', method: 'RESTORE_SNAPSHOT', exact: true },
+    rollout: { method: 'SURGE_FIRST_PROACTIVE_REPLACE', instancesToReplace: t - floorN, surge, durationRange: '5 min to 1 h', headroom: `${surge} extra VM(s) above the target size during the rollout` },
+    estimates: [
+      { profile: 'conservative', monthlySavings: 260, priceSources: [GCP_PRICE_SOURCE], label: 'Estimate' },
+      { profile: 'balanced', monthlySavings: 390, priceSources: [GCP_PRICE_SOURCE], label: 'Estimate' },
+      { profile: 'aggressive', monthlySavings: 520, priceSources: [GCP_PRICE_SOURCE], label: 'Estimate' },
+    ],
+  });
+}
+
 function buildPlan(planId: string, groupId: string | null, kind: string): Plan {
   const seed = groupId ? findSeed(groupId) : undefined;
   const desired = seed?.desired ?? 4;
+  if (seed?.project) {
+    return {
+      planId, groupId, kind, status: 'OPEN', version: 1, liveFingerprint: 'demo-fingerprint', body: gcpBody(seed),
+      requiresFullSpotOptin: false, warningIds: '[]', dryRun: false, expiresAt: iso(15 * 60_000), createdAt: iso(0), batchId: null,
+    };
+  }
   return {
     planId,
     groupId,
@@ -287,7 +370,22 @@ const figures = (spot: number, failed: number, causes: Record<string, number>, i
   successRate: spot + failed === 0 ? null : Math.round((spot * 1000) / (spot + failed)) / 10,
 });
 
-export function demoAnalytics(from: string, to: string): Analytics {
+export function demoAnalytics(from: string, to: string, provider: DemoProvider = 'AWS'): Analytics {
+  if (provider === 'GCP') {
+    const web = figures(22, 1, { SPOT_CAPACITY: 1 }, 2, 0);
+    return {
+      from: `${from}T00:00:00Z`,
+      to: `${to}T23:59:59Z`,
+      notTracked: [],
+      totals: web,
+      groups: [
+        {
+          groupId: 'demo-grp-gcp-api', groupKey: `${GCP_PROJECT}/us-central1/api-mig`, name: 'api-mig', location: 'us-central1', figures: web,
+          byType: [{ instanceType: 'c2-standard-8', figures: web }],
+        },
+      ],
+    };
+  }
   const api = figures(46, 2, { SPOT_CAPACITY: 2 }, 3, 5);
   const worker = figures(18, 1, { SPOT_QUOTA: 1 }, 1, 2);
   const sum = figures(64, 3, { SPOT_CAPACITY: 2, SPOT_QUOTA: 1 }, 4, 7);
@@ -312,7 +410,7 @@ export function demoAnalytics(from: string, to: string): Analytics {
   };
 }
 
-export function demoAudit(): AuditEntry[] {
+export function demoAudit(provider: DemoProvider = 'AWS'): AuditEntry[] {
   const row = (id: number, ago: number, eventType: string, action: string, outcome: string, groupKey: string | null, actorType = 'USER'): AuditEntry => ({
     id,
     occurredAt: iso(-ago),
@@ -327,6 +425,14 @@ export function demoAudit(): AuditEntry[] {
     outcome,
     errorCode: null,
   });
+  if (provider === 'GCP') {
+    const key = `${GCP_PROJECT}/us-central1/api-mig`;
+    return [
+      row(3, 6 * DAY, 'STATE_TRANSITION', 'ENABLE', 'OK', key, 'SYSTEM'),
+      row(2, 6 * DAY + 600_000, 'PLAN_CONFIRMED', 'ENABLE', 'OK', key),
+      row(1, 6 * DAY + 1_200_000, 'PLAN_CREATED', 'ENABLE', 'OK', key),
+    ];
+  }
   return [
     row(5, 2 * HOUR, 'SETTING_CHANGED', 'RISP_RESPECT', 'OK', null),
     row(4, 1 * DAY, 'DRY_RUN', 'ENABLE', 'WOULD_DO', 'us-east-1/web-asg'),

@@ -39,13 +39,22 @@ final class Ledger17Support {
 
     /** Makes {@code holder} the holder of the job lease at {@code generation}, valid for an hour. */
     static void setLease(org.springframework.jdbc.core.JdbcTemplate jdbc, String holder, long generation) {
+        setLease(jdbc, LEASE, holder, generation);
+    }
+
+    /** As {@link #setLease(org.springframework.jdbc.core.JdbcTemplate, String, long)} for a named job lease. */
+    static void setLease(org.springframework.jdbc.core.JdbcTemplate jdbc, String lease, String holder, long generation) {
         jdbc.update("INSERT INTO autospotting_job_lease (name, holder, generation, acquired_at, expires_at)"
                 + " VALUES (?, ?, ?, now(), now() + interval '1 hour') ON CONFLICT (name) DO UPDATE SET holder = ?,"
-                + " generation = ?, expires_at = now() + interval '1 hour'", LEASE, holder, generation, holder, generation);
+                + " generation = ?, expires_at = now() + interval '1 hour'", lease, holder, generation, holder, generation);
     }
 
     static LeaseHandle handle(String holder, long generation) {
-        return new LeaseHandle(LeaseHandle.Kind.JOB, LEASE, holder, generation, Duration.ofMinutes(10),
+        return handle(LEASE, holder, generation);
+    }
+
+    static LeaseHandle handle(String lease, String holder, long generation) {
+        return new LeaseHandle(LeaseHandle.Kind.JOB, lease, holder, generation, Duration.ofMinutes(10),
                 Duration.ofMinutes(1), Duration.ofSeconds(10), h -> true);
     }
 

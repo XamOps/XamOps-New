@@ -85,7 +85,8 @@ public class PlanController {
                 .cloudAccountId(account.getId()).open()) {
             String canonical = canonicalPlanBody(kind, request);
             CreateCommand cmd = new CreateCommand(kind, request.groupId(), request.groupRef(),
-                    request.profileId(), false, key, idempotency.hash(canonical), actorName(user));
+                    request.profileId(), false, key, idempotency.hash(canonical), actorName(user),
+                    policyEditJson(request));
             SpotPlan plan = planService.createPlan(account, user, cmd);
             return ResponseEntity.status(HttpStatus.CREATED).body(PlanDto.from(plan));
         }
@@ -137,9 +138,25 @@ public class PlanController {
         }
     }
 
+    private static final com.fasterxml.jackson.databind.ObjectMapper POLICY_JSON = new com.fasterxml.jackson.databind.ObjectMapper()
+            .enable(com.fasterxml.jackson.databind.SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS);
+
+    /** The GCP policy edit as canonical JSON (keys sorted), or null when the request has none. */
+    private static String policyEditJson(PlanRequest r) {
+        if (r.policyEdit() == null) {
+            return null;
+        }
+        try {
+            return POLICY_JSON.writeValueAsString(r.policyEdit());
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new AutoSpottingApiException(HttpStatus.BAD_REQUEST, "CHECK_FAILED", "The policy edit is not valid JSON.");
+        }
+    }
+
     private static String canonicalPlanBody(OperationKind kind, PlanRequest r) {
         return "{\"kind\":\"" + kind.name() + "\",\"groupId\":" + json(r.groupId())
-                + ",\"groupRef\":" + json(r.groupRef()) + ",\"profileId\":" + json(r.profileId()) + "}";
+                + ",\"groupRef\":" + json(r.groupRef()) + ",\"profileId\":" + json(r.profileId())
+                + (r.policyEdit() == null ? "" : ",\"policyEdit\":" + policyEditJson(r)) + "}";
     }
 
     private static String canonicalConfirmBody(UUID planId, ConfirmRequest r) {

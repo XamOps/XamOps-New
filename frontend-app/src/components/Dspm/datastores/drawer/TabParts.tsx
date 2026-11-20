@@ -2,7 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { Icon } from '@iconify/react';
 import type { DspmError } from '../../../../types/dspm';
 import type { LazyResource } from '../../../../hooks/useDspmDatastoreDrawer';
-import { datastoreErrorCopy } from '../datastoreErrors';
+import { datastoreErrorCopy, type ErrorSubject } from '../datastoreErrors';
 import { EmptyState } from '../ui/EmptyState';
 
 /*
@@ -20,9 +20,14 @@ export const LoadingNote: React.FC = () => (
   <p className="py-10 text-center text-xs text-[rgba(0,0,0,0.4)]">Loading…</p>
 );
 
-/** The error copy for the code, with Retry when retrying can help (design 6.16). */
-export const ErrorNote: React.FC<{ error: DspmError; onRetry?: () => void }> = ({ error, onRetry }) => {
-  const copy = datastoreErrorCopy(error);
+/**
+ * The error copy for the code, with Retry when retrying can help (design 6.16). `subject` 'file' gives
+ * the SaaS file drawer its not-found text.
+ */
+export const ErrorNote: React.FC<{ error: DspmError; onRetry?: () => void; subject?: ErrorSubject }> = ({
+  error, onRetry, subject = 'datastore',
+}) => {
+  const copy = datastoreErrorCopy(error, subject);
   const retry = (e: React.MouseEvent<HTMLButtonElement>) => {
     // This note unmounts as soon as the retry starts; keep focus in the drawer rather than let it fall
     // to the page body (design 6.7).
@@ -41,11 +46,13 @@ export const ErrorNote: React.FC<{ error: DspmError; onRetry?: () => void }> = (
 };
 
 /** A tab body over one drawer resource: "Loading…", the error with Retry, or the content. */
-export function ResourceView<T>({ resource, children }: {
+export function ResourceView<T>({ resource, subject, children }: {
   resource: LazyResource<T>;
+  /** Passed to `ErrorNote`: 'file' in the SaaS file drawer. */
+  subject?: ErrorSubject;
   children: (data: T) => React.ReactNode;
 }) {
-  if (resource.error) return <ErrorNote error={resource.error} onRetry={resource.reload} />;
+  if (resource.error) return <ErrorNote error={resource.error} onRetry={resource.reload} subject={subject} />;
   if (resource.data === null) return <LoadingNote />;
   return <>{children(resource.data)}</>;
 }

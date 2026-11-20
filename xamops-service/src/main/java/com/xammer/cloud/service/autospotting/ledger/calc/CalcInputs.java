@@ -1,5 +1,7 @@
 package com.xammer.cloud.service.autospotting.ledger.calc;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.xammer.cloud.domain.autospotting.GroupState;
 
 import java.math.BigDecimal;
@@ -38,6 +40,10 @@ import java.util.List;
  * @param original           the pre-enable configuration from the snapshot (design-ledger.md §3.2, §3.3)
  * @param commitmentsStatus  whether commitments were proven absent, are known, or could not be read
  * @param commitments        unused AWS RI and Savings Plan coverage in scope (design-ledger.md §5)
+ * @param gcp                the GCP inputs of {@code gcp-1}; null for AWS and left out of the canonical text then, so
+ *                           AWS inputs hash as before
+ * @param gcp                the GCP-only inputs of {@code gcp-1} (shapes, core and RAM unit prices, SUD, CUD, billing
+ *                           source); null for AWS, and left out of the canonical text then, so AWS inputs hash as before
  */
 public record CalcInputs(
         String calcVersion,
@@ -58,8 +64,21 @@ public record CalcInputs(
         List<OdPrice> odPrices,
         Original original,
         CommitmentsStatus commitmentsStatus,
-        List<Commitment> commitments) {
+        List<Commitment> commitments,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Gcp gcp) {
 
+    /** The AWS shape: no GCP block. */
+    public CalcInputs(String calcVersion, String provider, String currency, Instant windowStart, Instant windowEnd,
+                      Group group, Instant goLiveAt, Contract contract, FeeBasis feeBasis, Tier reconciledTier,
+                      List<Transition> transitions, List<RevertOp> revertOps, List<Interval> intervals,
+                      List<CapacitySample> capacitySamples, List<SpotPrice> spotPrices, List<OdPrice> odPrices,
+                      Original original, CommitmentsStatus commitmentsStatus, List<Commitment> commitments) {
+        this(calcVersion, provider, currency, windowStart, windowEnd, group, goLiveAt, contract, feeBasis,
+                reconciledTier, transitions, revertOps, intervals, capacitySamples, spotPrices, odPrices, original,
+                commitmentsStatus, commitments, null);
+    }
+
+    @JsonCreator
     public CalcInputs {
         transitions = copy(transitions);
         revertOps = copy(revertOps);
@@ -181,4 +200,79 @@ public record CalcInputs(
             planRates = planRates == null ? java.util.Map.of() : java.util.Map.copyOf(planRates);
         }
     }
+
+    // ------------------------------------------------------------------ GCP (calc version gcp-1)
+
+    /**
+     * What {@code gcp-1} needs beyond the shared shape (design-ledger.md §3.5, §3.9, §4.2, §5.3, §5.4).
+     * Everything is decimal; the calculator derives per-instance-hour rates from the core and RAM unit prices
+     * and the shapes, so the stored inputs reproduce the entry.
+     *
+     * @param billingSource  {@code OWN_EXPORT}, {@code XAMMER_EXPORT} or {@code XAMMER_CSP_DATASET}
+     *                       ({@code CloudAccount.resolveBillingSource()}, PD-06); a CSP dataset project stays
+     *                       {@code MEASURED_ONLY} with {@code CSP_DATASET_PENDING}
+     * @param sharedCoreTable the {@code gcp-shared-core-v1} version the shapes were priced under (PD-09)
+     * @param declaredDiscountPct a contract-declared negotiated discount on top of SUD, or null
+     * @param shapes         billed vCPU and GiB per machine type in use
+     * @param prices         core and RAM unit prices per series and model (Catalog snapshots)
+     * @param sud            sustained use discount inputs per series
+     * @param commitments    unused resource CUD coverage per scope
+     */
+    public record Gcp(String billingSource, String sharedCoreTable, BigDecimal declaredDiscountPct,
+                      List<Shape> shapes, List<UnitPrice> prices, List<Sud> sud, List<Cud> commitments) {
+        public Gcp {
+            shapes = copy(shapes);
+            prices = copy(prices);
+            sud = copy(sud);
+            commitments = copy(commitments);
+        }
+    }
+
+    /**
+     * One machine type. {@code vcpu} is the billed vCPU (the {@code gcp-shared-core-v1} fraction for a shared-core
+     * type, never {@code guestCpus}); null means a shared-core type missing from the table
+     * ({@code GCP_SHARED_CORE_UNSUPPORTED}). {@code gib} is null when memory could not be read.
+     */
+    public record Shape(String instanceType, String series, BigDecimal vcpu, BigDecimal gib, boolean sharedCore) {}
+
+    /** The core or RAM unit price of a series and model, from one Catalog snapshot. {@code resource} is CORE or RAM. */
+    public record UnitPrice(String snapshotId, String model, String series, String resource, BigDecimal rate,
+                            Instant effectiveFrom, Instant effectiveTo) {}
+
+    /**
+     * Sustained use discount inputs of one series for the statement month (design-ledger.md §3.9):
+     * {@code maxRate} (the series maximum from the versioned config, 0 when the series earns none),
+     * {@code tiers} (the price multiplier of each quarter of the month, in order), the export's
+     * {@code observedRate} (credits over eligible cost, null without an export), {@code monthHours}, the
+     * counterfactual's usage {@code cf} and the customer's own On-Demand usage per candidate pooling scope.
+     * {@code snapshotId} is the stamped {@code SUD_RATE} snapshot.
+     */
+    public record Sud(String series, BigDecimal maxRate, List<BigDecimal> tiers, BigDecimal observedRate,
+                      Integer monthHours, List<Span> cf, List<Scope> scopes, String snapshotId) {
+        public Sud {
+            tiers = copy(tiers);
+            cf = copy(cf);
+            scopes = copy(scopes);
+        }
+    }
+
+    /** A candidate SUD pooling scope (region and series, or wider, V-LED-11) and the customer's own usage in it. */
+    public record Scope(String name, List<Span> own) {
+        public Scope {
+            own = copy(own);
+        }
+    }
+
+    /** Usage of {@code vcpu} and {@code gib} for every hour in {@code [fromHour, toHour)} of the month. */
+    public record Span(int fromHour, int toHour, BigDecimal vcpu, BigDecimal gib) {}
+
+    /**
+     * Unused resource CUD coverage of one scope (series and region) and day (design-ledger.md §5.3, §5.4):
+     * unused vCPU-hours and GiB-hours, the other groups' coverable hours in the scope, and, for the last group by
+     * {@code group_id}, what was already allocated to the others. {@code RATE_UNKNOWN} and {@code UNAVAILABLE} cap
+     * the tier at MEASURED_ONLY.
+     */
+    public record Cud(String scopeId, String series, CommitmentData data, BigDecimal unusedVcpuHours,
+                      BigDecimal unusedGibHours, BigDecimal otherVcpuHours, BigDecimal otherGibHours,
+                      boolean lastGroup, BigDecimal allocatedVcpuToOthers, BigDecimal allocatedGibToOthers) {}
 }

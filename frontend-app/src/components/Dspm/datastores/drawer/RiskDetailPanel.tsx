@@ -7,8 +7,11 @@ import { MarkdownView } from '../markdown/MarkdownView';
 import { LevelLabel } from '../ui/Chips';
 import { useSidePanel } from './EscapeStack';
 
-/** A card of the panel: its heading, the markdown and any extra content, or "-" when there is neither. */
-const Card: React.FC<{ title: string; markdown: string | null; children?: React.ReactNode }> = ({ title, markdown, children }) => {
+/**
+ * A card of the panel: its heading, the markdown and any extra content, or "-" when there is neither.
+ * Also the Misconfiguration drawer's Details cards.
+ */
+export const DetailCard: React.FC<{ title: string; markdown: string | null; children?: React.ReactNode }> = ({ title, markdown, children }) => {
   const id = useId();
   const hasText = Boolean(markdown?.trim());
   return (
@@ -67,10 +70,10 @@ const RiskDetailPanel: React.FC<Props> = ({ item, returnFocus, onClose }) => {
         </button>
       </header>
       <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
-        <Card title="Description" markdown={item.description} />
-        <Card title="Remediation" markdown={item.remediation}>
+        <DetailCard title="Description" markdown={item.description} />
+        <DetailCard title="Remediation" markdown={item.remediation}>
           {item.cli !== null && <CodeBlock language="Bash" code={item.cli} />}
-        </Card>
+        </DetailCard>
       </div>
     </section>
   );

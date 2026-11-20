@@ -70,7 +70,10 @@ class GoldenLedgerTest {
                 "fallback-effective-at", "first-conversion-mid-month", "empty-run-day",
                 "switch-d-recovery-same-sweep", "switch-d-degrade-same-sweep", "switch-d-compensated-to-active",
                 "state-order-violation", "revert-failed-before-mutation", "switch-d-stale-cache",
-                "revert-not-started-startup");
+                "revert-not-started-startup",
+                "gcp-steady", "gcp-preempt-first-minute", "gcp-sud-export", "gcp-sud-max", "gcp-sud-observed-wins",
+                "gcp-sud-complementary", "gcp-cud-partial", "gcp-e2-small-shared-core", "gcp-csp-dataset-pending",
+                "duplicate-project");
     }
 
     @Test

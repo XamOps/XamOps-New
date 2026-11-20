@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.autospotting.GroupState;
+import com.xammer.cloud.domain.autospotting.OperationKind;
 import com.xammer.cloud.domain.autospotting.Provider;
 import com.xammer.cloud.domain.autospotting.SpotGroup;
 import com.xammer.cloud.repository.CloudAccountRepository;
@@ -53,9 +54,11 @@ import java.util.Optional;
  *       client is reachable from them (AC-PLN-01).</li>
  *   <li>{@code reconcile} is a pure decision. Health decisions return no fallback action until
  *       Phase 20.</li>
- *   <li>{@code executeConversion} and {@code restore} return {@code AS_PROVIDER_NOT_READY}: the
- *       mutating programs ship in Phase 18 and {@code autospotting.aws.v2-mutations-enabled} stays
- *       false until then.</li>
+ *   <li>{@code executeConversion} returns the {@link AwsStepLibrary} program and {@code restore} the
+ *       REVERT program ({@link AwsRestoreProgram}), but only while {@link AwsProviderGate} is open: both
+ *       {@code autospotting.aws.v2-mutations-enabled} and {@code autospotting.aws.conversions-enabled}
+ *       stay false until Phase 23, so each refuses with {@code AS_PROVIDER_NOT_READY} (the second lock
+ *       behind switch (p) on the confirm path).</li>
  * </ul>
  */
 @Component
@@ -72,25 +75,46 @@ public class AwsSpotProvider implements SpotProvider {
     private final AwsGroupStatusReader statusReader;
     private final AwsEstimatePriceService prices;
     private final AutoSpottingSwitchProperties switchProperties;
+    private final AwsProviderGate gate;
+    private final AwsStepLibrary library;
+    private final AwsRevertProgramFactory revertPrograms;
+    private final AwsRolloutEvaluator rollout;
+    private final AwsFallbackRules fallbackRules;
+    private final AwsFallbackPrograms fallbackPrograms;
+    private final AwsLaunchEventRecorder events;
     private final Clock clock;
 
     @org.springframework.beans.factory.annotation.Autowired
     public AwsSpotProvider(CloudAccountRepository accounts, AwsViewSource views, AwsEligibilityEvaluator evaluator,
                            AwsGroupStatusReader statusReader, AwsEstimatePriceService prices,
-                           AutoSpottingSwitchProperties switchProperties) {
-        this(accounts, views, evaluator, statusReader, prices, switchProperties, Clock.systemUTC());
+                           AutoSpottingSwitchProperties switchProperties, AwsProviderGate gate,
+                           AwsStepLibrary library, AwsRevertProgramFactory revertPrograms,
+                           AwsRolloutEvaluator rollout, AwsFallbackRules fallbackRules,
+                           AwsFallbackPrograms fallbackPrograms, AwsLaunchEventRecorder events) {
+        this(accounts, views, evaluator, statusReader, prices, switchProperties, gate, library, revertPrograms,
+                rollout, fallbackRules, fallbackPrograms, events, Clock.systemUTC());
     }
 
     AwsSpotProvider(CloudAccountRepository accounts, AwsViewSource views, AwsEligibilityEvaluator evaluator,
                     AwsGroupStatusReader statusReader, AwsEstimatePriceService prices,
-                    AutoSpottingSwitchProperties switchProperties, Clock clock) {
+                    AutoSpottingSwitchProperties switchProperties, AwsProviderGate gate, AwsStepLibrary library,
+                    AwsRevertProgramFactory revertPrograms, AwsRolloutEvaluator rollout,
+                    AwsFallbackRules fallbackRules, AwsFallbackPrograms fallbackPrograms,
+                    AwsLaunchEventRecorder events, Clock clock) {
         this.clock = clock;
+        this.fallbackRules = fallbackRules;
+        this.fallbackPrograms = fallbackPrograms;
+        this.events = events;
         this.accounts = accounts;
         this.views = views;
         this.evaluator = evaluator;
         this.statusReader = statusReader;
         this.prices = prices;
         this.switchProperties = switchProperties;
+        this.gate = gate;
+        this.library = library;
+        this.revertPrograms = revertPrograms;
+        this.rollout = rollout;
     }
 
     @Override
@@ -116,6 +140,10 @@ public class AwsSpotProvider implements SpotProvider {
     public PlanBody createPlan(PlanRequest req, ReadOnlyCloudView view) {
         CloudAccount account = account(req.ref().cloudAccountId()).orElseThrow(() ->
                 new AutoSpottingApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Account not found."));
+        if (req.kind() == OperationKind.REVERT) {
+            // A revert is never blocked by the conversion-only checks (DR-03): its own plan, read only.
+            return revertPrograms.plan(req, account);
+        }
         Profile profile = req.profile() == null ? new Profile("conservative", null) : req.profile();
         AwsEligibilityEvaluator.Evaluation ev = evaluator.evaluate(account, req.ref().groupKey(), profile, EvalMode.PLAN);
         AwsGroupFacts g = ev.group();
@@ -140,6 +168,7 @@ public class AwsSpotProvider implements SpotProvider {
                 .put("baseCapacity", params.base())
                 .put("instanceType", ev.launch() == null ? null : ev.launch().instanceType())
                 .put("onDemandCount", Math.max(0, g.desired() - spotTarget))
+                .put("fullSpot", params.base() == 0 && params.percentAboveBase() == 0)
                 .put("allocationStrategy", "prioritized"));
         String revert = write(JSON.createObjectNode()
                 .put("program", "REVERT")
@@ -353,7 +382,60 @@ public class AwsSpotProvider implements SpotProvider {
         CloudAccount account = account(group.getCloudAccountId()).orElseThrow(() ->
                 new AwsReadException("account", ErrorKind.NOT_FOUND));
         String[] parts = AwsEligibilityEvaluator.split(group.getGroupKey());
-        return statusReader.read(viewFor(account, parts[0], view), parts[1]);
+        AwsReadOnlyView v = viewFor(account, parts[0], view);
+        return withFallbackSignals(group, statusReader.read(v, parts[1]), v, parts[1]);
+    }
+
+    /**
+     * The signals only the sweep can add to the status (design-aws.md §6.1, §6.3): when the shortfall began (carried
+     * from the previous observation, so two sweeps are needed), the interruption warnings of the last 30 minutes
+     * from {@code spot_group_event}, and, for a FALLBACK group past its dwell, the Spot placement score. A score
+     * that cannot be read leaves it out and the exit is time-based (§6.5). Read only.
+     */
+    private GroupStatus withFallbackSignals(SpotGroup group, GroupStatus status, AwsReadOnlyView view, String name) {
+        if (status == null || !status.found() || status.healthJson() == null) {
+            return status;
+        }
+        try {
+            Instant now = clock.instant();
+            ObjectNode health = (ObjectNode) JSON.readTree(status.healthJson());
+            JsonNode capacity = status.capacityJson() == null ? JSON.createObjectNode() : JSON.readTree(status.capacityJson());
+            int desired = capacity.path("desired").asInt(0);
+            int healthy = health.hasNonNull("healthyInService") ? health.path("healthyInService").asInt(0)
+                    : health.path("inService").asInt(0);
+            boolean shortNow = healthy < desired;
+            Instant since = null;
+            if (shortNow) {
+                JsonNode prior = group.getHealthState() == null ? null : JSON.readTree(group.getHealthState());
+                since = prior == null ? null : instant(prior, "shortfallSince");
+                since = since == null ? now : since;
+            }
+            health.put("observedAt", now.toString());
+            health.put("shortfallSince", since == null ? null : since.toString());
+            health.put("interruptions30m", interruptions(group, now));
+            if (group.getState() == GroupState.FALLBACK && group.getStateChangedAt() != null
+                    && !group.getStateChangedAt().plus(fallbackRules.properties().dwell()).isAfter(now)) {
+                Integer score = statusReader.placementScore(view, name, desired);
+                if (score != null) {
+                    health.put("placementScore", score);
+                }
+            }
+            return new GroupStatus(true, status.liveFingerprint(), JSON.writeValueAsString(health),
+                    status.capacityJson(), status.foreignActivity());
+        } catch (JsonProcessingException | RuntimeException e) {
+            return status; // the signals are an addition: the base status stands
+        }
+    }
+
+    private int interruptions(SpotGroup group, Instant now) {
+        if (events == null || group.getId() == null) {
+            return 0;
+        }
+        try {
+            return events.interruptionsSince(group.getId(), now.minus(fallbackRules.properties().stormWindow()));
+        } catch (RuntimeException e) {
+            return 0;
+        }
     }
 
     // ---- reconcile: a pure decision ----
@@ -368,43 +450,58 @@ public class AwsSpotProvider implements SpotProvider {
             JsonNode health = JSON.readTree(status.healthJson());
             JsonNode capacity = status.capacityJson() == null ? null : JSON.readTree(status.capacityJson());
             int desired = capacity == null ? 0 : capacity.path("desired").asInt(0);
-            int inService = health.path("inService").asInt(0);
-            long failed = health.path("recentFailedActivities").asLong(0);
-            boolean unhealthy = failed > 0 && inService < desired;
-            // Health decisions only; no fallback action until Phase 20.
-            if (unhealthy && (state == GroupState.ACTIVE || state == GroupState.FALLBACK)) {
-                return List.of(ReconcileAction.MARK_DEGRADED);
+            List<ReconcileAction> actions = new ArrayList<>();
+            // The in-flight shortage rule (design-aws.md §2.5, core §4.7): a switch-paused op makes no polls,
+            // so the same rule WAIT_ROLLOUT uses is evaluated here from the status the sweep just read.
+            if (state == GroupState.APPLYING && health.hasNonNull("healthyInService")
+                    && rollout.shortage(clock.instant(), desired, health.path("healthyInService").asInt(0),
+                            instant(health, "spotFailureStreakSince"), instant(health, "lastSpotFailureAt"))) {
+                actions.add(ReconcileAction.REQUEST_COMPENSATION);
+                actions.add(ReconcileAction.ALERT);
             }
-            if (!unhealthy && state == GroupState.DEGRADED && inService >= desired && failed == 0) {
-                return List.of(ReconcileAction.MARK_RECOVERED);
-            }
+            // Fallback and health decisions (design-aws.md §6.3, §6.5). The core refuses a fallback that the
+            // preemption rules do not allow (ENABLE and ADOPT are never preempted), so a shortage during an
+            // ENABLE still compensates through the rule above.
+            AwsFallbackRules.Decision d = fallbackRules.evaluate(state, group.getPauseReason(),
+                    group.getPausedFromState(), group.getConfigMode(), group.getStateChangedAt(),
+                    AwsFallbackRules.signals(clock.instant(), status.healthJson(), status.capacityJson()));
+            actions.addAll(d.actions());
+            return actions;
         } catch (JsonProcessingException e) {
             return List.of();
         }
-        return List.of();
     }
 
-    // ---- mutating programs: not ready ----
+    // ---- mutating programs: gated ----
 
     @Override
     public StepProgram executeConversion(OperationContext op) {
-        throw notReady();
+        gate.requireOpen();
+        if (AwsFallbackPrograms.supports(op.kind())) {
+            return fallbackPrograms.program(op);
+        }
+        return library.program(op);
     }
 
     @Override
     public StepProgram restore(OperationContext op, SnapshotPayload snapshot) {
-        throw notReady();
-    }
-
-    private AutoSpottingApiException notReady() {
-        // Both before and after the flag: the mutating step library ships in Phase 18.
-        return new AutoSpottingApiException(HttpStatus.CONFLICT, "AS_PROVIDER_NOT_READY",
-                switchProperties.v2MutationsEnabled(true)
-                        ? "The AWS conversion program is not available yet."
-                        : "AutoSpotting is not ready to change AWS groups yet.");
+        gate.requireOpen();
+        return revertPrograms.program(op, snapshot);
     }
 
     // ---- helpers ----
+
+    private static Instant instant(JsonNode n, String field) {
+        String v = n.path(field).asText(null);
+        if (v == null) {
+            return null;
+        }
+        try {
+            return Instant.parse(v);
+        } catch (java.time.format.DateTimeParseException e) {
+            return null;
+        }
+    }
 
     private Optional<CloudAccount> account(Long id) {
         return id == null ? Optional.empty() : accounts.findById(id);

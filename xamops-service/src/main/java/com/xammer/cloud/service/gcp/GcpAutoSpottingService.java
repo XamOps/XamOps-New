@@ -1306,56 +1306,11 @@ public class GcpAutoSpottingService {
     public com.xammer.cloud.dto.gcp.GcpMigConfigDto updateMigConfig(
             String accountId, String region, String migName,
             com.xammer.cloud.dto.gcp.GcpMigConfigDto update) {
-
-        CloudAccount account = resolveAccount(accountId);
-        String projectId = account.getGcpProjectId();
-        log.info("🔧 [GCP Config] Updating config for MIG {}: maxSurge={}, maxUnavailable={}, minReadySec={}",
-            migName, update.getMaxSurge(), update.getMaxUnavailable(), update.getMinReadySeconds());
-
-        try {
-            // GCP constraint (all regions): for regional MIGs, maxSurge.fixed AND maxUnavailable.fixed
-            // must each be 0 or >= numZones. Any value between 1 and numZones-1 → 400 BAD_REQUEST.
-            // Safe rule: zonal → send user values as-is; regional → omit both, let GCP use defaults.
-            boolean isZonal = region.split("-").length == 3;
-
-            // Build PATCH body: update policy + optional target size
-            com.google.gson.JsonObject updatePolicy = new com.google.gson.JsonObject();
-            updatePolicy.addProperty("type", "PROACTIVE");
-            updatePolicy.addProperty("minReadySeconds", update.getMinReadySeconds());
-
-            if (isZonal) {
-                com.google.gson.JsonObject maxSurge = new com.google.gson.JsonObject();
-                maxSurge.addProperty("fixed", update.getMaxSurge());
-                updatePolicy.add("maxSurge", maxSurge);
-
-                com.google.gson.JsonObject maxUnavailable = new com.google.gson.JsonObject();
-                maxUnavailable.addProperty("fixed", update.getMaxUnavailable());
-                updatePolicy.add("maxUnavailable", maxUnavailable);
-            } else {
-                // Regional MIG: omit maxSurge/maxUnavailable — GCP uses numZones as default (always valid).
-                // Sending any fixed value < numZones causes 400 BAD_REQUEST regardless of region.
-                log.info("ℹ️ [GCP Config] Regional MIG {} — omitting maxSurge/maxUnavailable; GCP will apply zone-count defaults", migName);
-            }
-
-            com.google.gson.JsonObject body = new com.google.gson.JsonObject();
-            body.add("updatePolicy", updatePolicy);
-
-            // Also update targetSize if caller provided a non-zero value
-            if (update.getTargetSize() > 0) {
-                body.addProperty("targetSize", update.getTargetSize());
-                log.info("🔧 [GCP Config] Updating targetSize to {} for MIG {}", update.getTargetSize(), migName);
-            }
-
-            restTemplateService.patchMig(projectId, region, migName, body);
-            log.info("✅ [GCP Config] MIG {} config saved (updatePolicy + targetSize)", migName);
-
-        } catch (Exception e) {
-            log.error("❌ [GCP Config] Failed to update config for MIG {}: {}", migName, e.getMessage(), e);
-            throw new RuntimeException("Failed to update MIG config: " + e.getMessage());
-        }
-
-        // Return the updated config
-        return getMigConfig(accountId, region, migName);
+        // Phase 27: a policy change is a confirmed plan (MIG_POLICY_UPDATE or CONFIG_APPLY). This legacy
+        // entry point never sends a PATCH; it refuses before any GCP call.
+        throw com.xammer.cloud.service.autospotting.AutoSpottingBlockedException.planRequired(
+                "/autospotting/gcp/" + accountId + "/groups/" + java.net.URLEncoder.encode(region + "/" + migName,
+                        java.nio.charset.StandardCharsets.UTF_8) + "/plan");
     }
 
     private void recordSavingsEvent(CloudAccount account, String migName, String region,

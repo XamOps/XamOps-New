@@ -158,9 +158,9 @@ class EbsDiskRightsizingServiceExpandTest {
                 "UPGRADE_TYPE", "gp3", null, "i-0abcdef123456789", "my-asg");
 
         assertThat(result).containsEntry("success", true);
-        verify(ebsAsgHelper).updateLaunchTemplateVolumeType(
+        verify(ebsAsgHelper).updateLaunchTemplateVolumeType(any(), eq("us-east-1"),
                 any(), any(), eq("my-asg"), eq("/dev/xvda"), eq("gp3"));
-        verify(ebsAsgHelper).startInstanceRefresh(any(), eq("my-asg"));
+        verify(ebsAsgHelper).startInstanceRefresh(any(), eq("us-east-1"), any(), eq("my-asg"));
     }
 
     @Test

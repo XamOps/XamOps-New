@@ -1,6 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
 import { AlertDialog } from '../components/ui';
+import PageUnavailable from '../components/Shared/PageUnavailable';
+import { DSPM_ADMIN_ROLES } from '../constants/billopsAdminTabs';
+import { useAuth } from '../contexts/AuthContext';
 import { useDspmAdmin, useDspmClientOptions } from '../hooks/useDspmAdmin';
 import {
   ConnectionBadge, EntitlementSwitch, ExpiryBadge, KeyBadge,
@@ -43,6 +46,38 @@ const Tile: React.FC<{
       </div>
     </div>
   );
+};
+
+/**
+ * Why a FORBIDDEN key fails: Matters accepts it on the asset list but refuses the console routes behind
+ * the XamLens drawer. FORBIDDEN is recorded for nothing else.
+ */
+const PLATFORM_SCOPE_REASON = 'This key needs the PLATFORM scope. Issue a Matters key with that scope and save it here.';
+
+/**
+ * A stored error as the page shows it. The PLATFORM-scope one is spelled out, because the stored text
+ * leads with its reason code and the table cuts it off before the word PLATFORM.
+ */
+const errorText = (lastError: string | null): string | null =>
+  lastError?.startsWith('FORBIDDEN_SCOPE:') ? PLATFORM_SCOPE_REASON : lastError;
+
+/**
+ * The line under a mapping's status badge, or null when it is connected. A FORBIDDEN row keeps the
+ * PLATFORM reason even when a later Verify was cut short (say by a rate limit) and left the verdict.
+ */
+const problemOf = (m: DspmMappingAdminView): string | null => {
+  if (m.connectionStatus === 'CONNECTED') return null;
+  return m.connectionStatus === 'FORBIDDEN' ? PLATFORM_SCOPE_REASON : errorText(m.lastError);
+};
+
+/**
+ * The result banner after a Verify, or after a save that verified: what that attempt found. A success
+ * clears the stored error, so an error here is this attempt's, even when it reached no verdict.
+ */
+const describeVerdict = (name: string, m: DspmMappingAdminView): string => {
+  const error = errorText(m.lastError);
+  if (error) return `${name}: ${error}`;
+  return m.connectionStatus === 'CONNECTED' ? `${name} connected successfully.` : `${name}: ${m.connectionStatus}`;
 };
 
 const DspmAdminPage: React.FC = () => {
@@ -94,16 +129,18 @@ const DspmAdminPage: React.FC = () => {
     if (!editing) return;
     // Errors propagate to the modal, which keeps itself open and shows them — a 409 naming a conflicting
     // customer is the whole reason the operator needs to stay on the form.
-    await saveMapping(editing.clientId, request);
+    const saved = await saveMapping(editing.clientId, request);
     setEditing(null);
+    // Saving a new key verifies it, so a key that does not work is reported as Verify reports it.
+    if (saved.connectionStatus !== 'CONNECTED' || saved.lastError) {
+      setVerifyResult(describeVerdict(saved.clientName ?? editing.clientName ?? 'Client', saved));
+    }
   };
 
   const handleVerify = async (mapping: DspmMappingAdminView) => {
     const result = await verifyMapping(mapping.clientId);
     if (!result) return;
-    setVerifyResult(result.connectionStatus === 'CONNECTED'
-      ? `${mapping.clientName ?? 'Client'} connected successfully.`
-      : `${mapping.clientName ?? 'Client'}: ${result.lastError ?? result.connectionStatus}`);
+    setVerifyResult(describeVerdict(mapping.clientName ?? 'Client', result));
   };
 
   const unmappedClients = (clients ?? []).filter(c => !c.mapped);
@@ -253,6 +290,7 @@ const DspmAdminPage: React.FC = () => {
 
               {!loading && rows.map(m => {
                 const busy = busyClientId === m.clientId;
+                const problem = problemOf(m);
                 return (
                   <tr key={m.id} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.015)]">
                     <td className="px-4 py-3">
@@ -289,12 +327,12 @@ const DspmAdminPage: React.FC = () => {
 
                     <td className="px-4 py-3">
                       <ConnectionBadge status={m.connectionStatus} />
-                      {m.lastError && m.connectionStatus !== 'CONNECTED' && (
+                      {problem && (
                         <div
                           className="mt-1 text-[10px] text-[rgba(0,0,0,0.4)] truncate max-w-[16rem]"
-                          title={m.lastError}
+                          title={problem}
                         >
-                          {m.lastError}
+                          {problem}
                         </div>
                       )}
                     </td>
@@ -409,4 +447,14 @@ const DspmAdminPage: React.FC = () => {
   );
 };
 
-export default DspmAdminPage;
+/**
+ * The /dspm-admin route. Its API admits only DSPM_ADMIN_ROLES, so anyone else (a BillOps sub-admin
+ * opening the URL directly) gets the app's "This page isn't available" screen. Checked before the page
+ * mounts, so none of its requests is sent.
+ */
+const DspmAdminRoute: React.FC = () => {
+  const { hasAnyRole } = useAuth();
+  return hasAnyRole(DSPM_ADMIN_ROLES) ? <DspmAdminPage /> : <PageUnavailable />;
+};
+
+export default DspmAdminRoute;

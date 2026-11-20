@@ -29,6 +29,7 @@ class GroupTransitionsTest {
             edge(GroupState.UNMANAGED, GroupState.PLANNED),
             edge(GroupState.UNMANAGED, GroupState.GONE),
             edge(GroupState.REVERTED, GroupState.PLANNED),
+            edge(GroupState.REVERTED, GroupState.REVERTING),
             edge(GroupState.REVERTED, GroupState.GONE),
             edge(GroupState.PLANNED, GroupState.PLANNED),
             edge(GroupState.PLANNED, GroupState.UNMANAGED),
@@ -123,9 +124,10 @@ class GroupTransitionsTest {
     }
 
     @Test
-    void revertedOnlyGoesToPlannedOrGone() {
+    void revertedGoesToPlannedRevertingOrGone() {
+        // REVERTING is the GR-02 edge: the exact revert after a drain-only revert (plan kinds gate it).
         assertThat(GroupTransitions.allowedFrom(GroupState.REVERTED))
-                .containsExactlyInAnyOrder(GroupState.PLANNED, GroupState.GONE);
+                .containsExactlyInAnyOrder(GroupState.PLANNED, GroupState.REVERTING, GroupState.GONE);
     }
 
     static Stream<Arguments> allowedEdges() {

@@ -268,6 +268,54 @@ public class AwsPlanReader {
         return missing;
     }
 
+    /**
+     * The permissions a revert needs, simulated before it changes anything (design-aws.md §5.3 step 0):
+     * {@code autoscaling:UpdateAutoScalingGroup} on the group, and, when the restore will send a launch template
+     * whose version has an instance profile, {@code iam:PassRole} for that profile's role with
+     * {@code iam:PassedToService=ec2.amazonaws.com}. A denied simulate call is reported as {@code checkFailed},
+     * never thrown: the plan still offers the drain-only revert, which needs only the update permission.
+     */
+    public RevertPermissions revertPermissions(AwsReadOnlyView view, String roleArn, String groupArn,
+                                               AwsLaunchInfo launchWhoseTemplateIsSent) {
+        try {
+            List<String> missing = new ArrayList<>();
+            List<EvaluationResult> results = AwsErrors.read("SimulatePrincipalPolicy", () -> view.iam()
+                    .simulatePrincipalPolicy(r -> r.policySourceArn(roleArn)
+                            .actionNames("autoscaling:UpdateAutoScalingGroup")
+                            .resourceArns(groupArn == null ? "*" : groupArn)).evaluationResults());
+            for (EvaluationResult r : results) {
+                if (!"allowed".equals(r.evalDecisionAsString())) {
+                    missing.add(r.evalActionName());
+                }
+            }
+            boolean passRoleDenied = false;
+            if (launchWhoseTemplateIsSent != null && launchWhoseTemplateIsSent.instanceProfileName() != null) {
+                String profileName = launchWhoseTemplateIsSent.instanceProfileName();
+                String passRoleArn = AwsErrors.read("GetInstanceProfile", () -> view.iam()
+                        .getInstanceProfile(r -> r.instanceProfileName(profileName)).instanceProfile().roles().stream()
+                        .map(role -> role.arn()).findFirst().orElse(null));
+                if (passRoleArn != null) {
+                    ContextEntry ctx = ContextEntry.builder().contextKeyName("iam:PassedToService")
+                            .contextKeyType(ContextKeyTypeEnum.STRING).contextKeyValues("ec2.amazonaws.com").build();
+                    List<EvaluationResult> pass = AwsErrors.read("SimulatePrincipalPolicy", () -> view.iam()
+                            .simulatePrincipalPolicy(r -> r.policySourceArn(roleArn).actionNames("iam:PassRole")
+                                    .resourceArns(passRoleArn).contextEntries(ctx)).evaluationResults());
+                    passRoleDenied = pass.stream().anyMatch(r -> !"allowed".equals(r.evalDecisionAsString()));
+                }
+            }
+            return new RevertPermissions(missing, passRoleDenied, false);
+        } catch (AwsReadException e) {
+            return new RevertPermissions(List.of(), false, true);
+        }
+    }
+
+    /** The result of {@link #revertPermissions}: the missing update actions, a denied PassRole, or a failed check. */
+    public record RevertPermissions(List<String> missing, boolean passRoleDenied, boolean checkFailed) {
+        public boolean ok() {
+            return missing.isEmpty() && !passRoleDenied && !checkFailed;
+        }
+    }
+
     // ---- quotas ----
 
     /** The Spot vCPU quota check: limit, current usage, and the {@code ceil(spot × 1.1) × vCPU} this conversion needs. */

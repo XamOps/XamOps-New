@@ -243,6 +243,10 @@ public class MattersAdminService {
     /**
      * Calls Matters with the stored credential and records the verdict.
      *
+     * Two calls, and {@code CONNECTED} needs both: the asset list (does the key authenticate?) and one
+     * console route (does it carry the PLATFORM scope the XamLens drawer needs?). A key without the scope
+     * is recorded {@code FORBIDDEN}.
+     *
      * Not optional in practice. The key field is write-only, so a mistyped or truncated paste is
      * otherwise invisible until a customer reports an empty page — this is what makes a bad key fail in
      * front of the operator who entered it.
@@ -280,6 +284,10 @@ public class MattersAdminService {
         try {
             JsonNode body = apiClient.verify(credential);
             long total = body.path("pagination").path("total").asLong(0L);
+
+            // The asset list accepts a key without the PLATFORM scope, so on its own it reported CONNECTED
+            // while every drawer request answered 403. That 403 lands in the catch below as FORBIDDEN_SCOPE.
+            apiClient.verifyPlatformScope(credential);
 
             mapping.setConnectionStatus(MattersProjectMapping.STATUS_CONNECTED);
             mapping.setLastVerifiedAt(Instant.now());

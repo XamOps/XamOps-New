@@ -13,8 +13,14 @@ import { useAutoSpottingConfig } from '../../hooks/autospotting/useAutoSpottingC
 import { useSpotGroups } from '../../hooks/autospotting/useSpotGroups';
 import { useSpotGroup } from '../../hooks/autospotting/useSpotGroup';
 import { useLedgerSummary } from '../../hooks/autospotting/useLedgerSavings';
+import { useStackCapabilities } from '../../hooks/autospotting/useStackCapabilities';
+import StackUpdateModal from '../../components/AccountManager/StackUpdateModal';
+import UpdateStackBanner from './components/UpdateStackBanner';
+import RegionCoverageList from './components/RegionCoverageList';
+import { useRegionCoverage } from '../../hooks/autospotting/useRegionCoverage';
 import { AutoSpottingApiError, disableLegacyGroup, type GroupRow } from '../../api/autospottingApi';
 import { awsAdapter } from './adapters/awsAdapter';
+import { gcpAdapter } from './adapters/gcpAdapter';
 import type { ProviderAdapter } from './adapters/types';
 import KpiStrip from './components/KpiStrip';
 import Filters, { EMPTY_FILTERS, type FilterValues } from './components/Filters';
@@ -36,16 +42,22 @@ import {
 } from './components/StatePanels';
 import { reasonForError } from './components/reasons';
 
-const ADAPTERS: Record<string, ProviderAdapter> = { AWS: awsAdapter };
+const ADAPTERS: Record<string, ProviderAdapter> = { AWS: awsAdapter, GCP: gcpAdapter };
 
-type DialogState = { type: 'plan'; kind: string; row: GroupRow } | { type: 'revert'; row: GroupRow } | null;
+type DialogState =
+  | { type: 'plan'; kind: string; row: GroupRow; policyEdit?: Record<string, unknown> }
+  | { type: 'revert'; row: GroupRow }
+  | null;
 
-const AutoSpottingPage: React.FC = () => {
+/** `preselect` opens the shell on a cloud (`/gcp-autospotting`): the selected account if it is one, else the first. */
+const AutoSpottingPage: React.FC<{ preselect?: 'AWS' | 'GCP' }> = ({ preselect }) => {
   const { accounts, selectedAccountIds } = useAccounts();
   const [params, setParams] = useSearchParams();
   const { groupId: routeGroupId } = useParams<{ groupId?: string }>();
 
-  const account = accounts.find(a => a.id === selectedAccountIds[0]);
+  const selected = accounts.find(a => a.id === selectedAccountIds[0]);
+  const account =
+    preselect && selected?.provider !== preselect ? accounts.find(a => a.provider === preselect) ?? selected : selected;
   const adapter = ADAPTERS[account?.provider ?? 'AWS'];
   const accountId = account?.dbId ?? null;
 
@@ -53,6 +65,10 @@ const AutoSpottingPage: React.FC = () => {
   const groups = useSpotGroups(adapter ? accountId : null);
   // The open month's ledger accrual; "Not tracked" while it can't be read (shadow figure, not final).
   const ledgerSummary = useLedgerSummary(adapter ? accountId : null);
+  // The CloudFormation stack is AWS only.
+  const stackCapabilities = useStackCapabilities(adapter && account?.provider !== 'GCP' ? accountId : null);
+  const regionCoverage = useRegionCoverage(adapter && account?.provider === 'AWS' ? accountId : null);
+  const [updatingStack, setUpdatingStack] = useState(false);
   const accruingNotFinal = ledgerSummary.data ? Number(ledgerSummary.data.accruingNotFinal.amount) : null;
 
   const filters: FilterValues = {
@@ -128,6 +144,8 @@ const AutoSpottingPage: React.FC = () => {
       setDialog({ type: 'plan', kind: action.planKind, row: selectedRow });
     } else if (action.kind === 'revert') {
       setDialog({ type: 'revert', row: selectedRow });
+    } else if (account && adapter?.provider === 'GCP') {
+      setActionError('Turn off Spot for this group from the legacy GCP AutoSpotting page.');
     } else if (account) {
       // The Phase A disable for a legacy group; used only while the cloud's v2 mutations are off.
       try {
@@ -162,7 +180,13 @@ const AutoSpottingPage: React.FC = () => {
 
   let body: React.ReactNode;
   if (accountId === null) {
-    body = <p className="text-sm text-gray-600">Select an AWS account to see its Auto Scaling Groups.</p>;
+    body = (
+      <p className="text-sm text-gray-600">
+        {adapter.provider === 'GCP'
+          ? 'Select a GCP project to see its Managed Instance Groups.'
+          : 'Select an AWS account to see its Auto Scaling Groups.'}
+      </p>
+    );
   } else if (groups.isLoading) {
     body = <LoadingPanel />;
   } else if (permissionError) {
@@ -199,6 +223,7 @@ const AutoSpottingPage: React.FC = () => {
               tab={tab}
               onTab={setTab}
               onAction={a => void onAction(a)}
+              onEditPolicy={(kind, policyEdit) => setDialog({ type: 'plan', kind, row: selectedRow, policyEdit })}
               onClose={closePanel}
             />
           </div>
@@ -233,6 +258,15 @@ const AutoSpottingPage: React.FC = () => {
       {config?.dryRun && (
         <p className="rounded border border-gray-400 bg-gray-100 px-3 py-1 text-sm text-gray-600">Dry run</p>
       )}
+      <UpdateStackBanner
+        capabilities={stackCapabilities.data}
+        onUpdate={() => setUpdatingStack(true)}
+        consoleHref="/account-manager"
+      />
+      <RegionCoverageList coverage={regionCoverage.data} />
+      {updatingStack && account && (
+        <StackUpdateModal accountId={account.id} accountName={account.name} onClose={() => setUpdatingStack(false)} />
+      )}
 
       <ViewSwitch view={view} onChange={setView} />
       {view === 'analytics' && <AnalyticsView accountId={accountId} />}
@@ -263,6 +297,7 @@ const AutoSpottingPage: React.FC = () => {
           accountId={accountId}
           row={dialog.row}
           kind={dialog.kind}
+          policyEdit={dialog.policyEdit}
           adapter={adapter}
           dryRun={config?.dryRun}
           onClose={() => setDialog(null)}

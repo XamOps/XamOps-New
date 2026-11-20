@@ -1,0 +1,6 @@
+{
+  "matcherId": "SPOT_COUNT_EXCEEDED",
+  "failureClass": "SPOT_QUOTA",
+  "statusMessage": "Could not launch Spot Instances. MaxSpotInstanceCountExceeded - Max spot instance count exceeded. Launching EC2 instance failed.",
+  "note": "recorded-style fixture; V-AWS-16 replaces it with a real sample in Phase 23"
+}

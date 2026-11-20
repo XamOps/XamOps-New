@@ -7,6 +7,7 @@ import com.xammer.cloud.domain.autospotting.Provider;
 import com.xammer.cloud.domain.autospotting.SpotGroup;
 import com.xammer.cloud.domain.autospotting.SpotPlan;
 import com.xammer.cloud.repository.autospotting.SpotGroupRepository;
+import com.xammer.cloud.repository.autospotting.SpotOperationRepository;
 import com.xammer.cloud.repository.autospotting.SpotPlanRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.autospotting.core.AutoSpottingApiException;
@@ -71,6 +72,7 @@ public class PlanService {
 
     private final SpotPlanRepository plans;
     private final SpotGroupRepository groups;
+    private final SpotOperationRepository operations;
     private final ProviderRegistry providers;
     private final FeeBasisResolver feeBasisResolver;
     private final RevertPreconditions revertPreconditions;
@@ -79,13 +81,15 @@ public class PlanService {
     private final GroupLifecycleService lifecycle;
     private final Duration planTtl;
 
-    public PlanService(SpotPlanRepository plans, SpotGroupRepository groups, ProviderRegistry providers,
+    public PlanService(SpotPlanRepository plans, SpotGroupRepository groups, SpotOperationRepository operations,
+                       ProviderRegistry providers,
                        FeeBasisResolver feeBasisResolver, RevertPreconditions revertPreconditions,
                        SwitchService switchService, AutoSpottingSwitchProperties switchProperties,
                        GroupLifecycleService lifecycle,
                        @Value("${autospotting.plan.ttl:15m}") Duration planTtl) {
         this.plans = plans;
         this.groups = groups;
+        this.operations = operations;
         this.providers = providers;
         this.feeBasisResolver = feeBasisResolver;
         this.revertPreconditions = revertPreconditions;
@@ -98,7 +102,12 @@ public class PlanService {
     /** The command a plan request carries (controller-resolved; the account is already authorized). */
     public record CreateCommand(OperationKind kind, UUID groupId, String groupRef, String profileId,
                                 boolean dryRunRequested, String idempotencyKey, String requestSha256,
-                                String createdBy) {
+                                String createdBy, String policyEditJson) {
+        /** A command without a policy edit. */
+        public CreateCommand(OperationKind kind, UUID groupId, String groupRef, String profileId,
+                             boolean dryRunRequested, String idempotencyKey, String requestSha256, String createdBy) {
+            this(kind, groupId, groupRef, profileId, dryRunRequested, idempotencyKey, requestSha256, createdBy, null);
+        }
     }
 
     /**
@@ -109,6 +118,12 @@ public class PlanService {
     public SpotPlan createPlan(CloudAccount account, ClientUserDetails user, CreateCommand cmd) {
         Provider provider = providerOf(account);
 
+        // 0. A MIG policy update (or a policy edit riding on CONFIG_APPLY) is GCP-only: refuse before any row or cloud read.
+        if (provider != Provider.GCP
+                && (cmd.kind() == OperationKind.MIG_POLICY_UPDATE || cmd.policyEditJson() != null)) {
+            throw new AutoSpottingApiException(HttpStatus.CONFLICT, "AS_KIND_NOT_SUPPORTED",
+                    "This plan kind is not supported for this cloud.");
+        }
         // 1. Resolve the group and its state (null = no row yet).
         SpotGroup group = resolveGroup(account, provider, cmd);
         GroupState state = group == null ? null : group.getState();
@@ -139,12 +154,34 @@ public class PlanService {
         GroupRef ref = refFor(account, provider, group, cmd);
         ReadOnlyCloudView view = readOnlyView(spotProvider);
         Profile profile = new Profile(cmd.profileId() == null || cmd.profileId().isBlank()
-                ? "conservative" : cmd.profileId(), null);
+                ? "conservative" : cmd.profileId(), cmd.policyEditJson());
+        boolean policyChange = cmd.kind() == OperationKind.MIG_POLICY_UPDATE
+                || (cmd.kind() == OperationKind.CONFIG_APPLY && cmd.policyEditJson() != null);
 
-        EligibilityResult eligibility = spotProvider.checkEligibility(ref, view, profile, EvalMode.PLAN);
+        // A revert is never blocked by the conversion-only eligibility checks (DR-03): it takes the warnings of
+        // its own plan, and the provider's restore-permission pre-check (design-core.md §7.4) is part of it.
+        EligibilityResult eligibility = cmd.kind() == OperationKind.REVERT || policyChange ? null
+                : spotProvider.checkEligibility(ref, view, profile, EvalMode.PLAN);
         com.xammer.cloud.service.autospotting.spi.PlanRequest planRequest =
                 new com.xammer.cloud.service.autospotting.spi.PlanRequest(ref, cmd.kind(), profile);
         PlanBody body = spotProvider.createPlan(planRequest, view);
+        if (group == null && cmd.kind() == OperationKind.MIG_POLICY_UPDATE) {
+            // The MIG must exist before a row does: a missing MIG or a failed read creates nothing.
+            if (body.eligibility() != null && body.eligibility().blockers().stream().anyMatch(c ->
+                    "GCP_MIG_NOT_FOUND".equals(c.code()) || c.errorKind() != null)) {
+                boolean missing = body.eligibility().blockers().stream().anyMatch(c -> "GCP_MIG_NOT_FOUND".equals(c.code()));
+                throw missing
+                        ? new AutoSpottingApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Instance group not found.")
+                        : new AutoSpottingApiException(HttpStatus.CONFLICT, "CHECK_FAILED",
+                                "Could not read the instance group. Try again.");
+            }
+            // §2.1, §7.4: a MIG with no row gets an UNMANAGED row once its existence is confirmed, so the plan,
+            // the op and the group lease have a home. Its state never changes and UNMANAGED stays non-billable.
+            group = insertUnmanaged(account, provider, ref);
+        }
+        if (eligibility == null) {
+            eligibility = body.eligibility() != null ? body.eligibility() : EligibilityResult.eligible(List.of(), List.of());
+        }
 
         String feeBasis = feeBasisResolver.resolve(account.getId(), switches);
         PlanBody bodyWithFee = withFeeBasis(body, feeBasis);
@@ -219,9 +256,13 @@ public class PlanService {
     }
 
     private void checkKindState(OperationKind kind, SpotGroup group, GroupState state) {
+        boolean regrant = false;
         if (kind == OperationKind.REVERT) {
+            // GR-02: a REVERTED group is revertible again only after a drain-only revert (PASSROLE_DENIED).
+            regrant = group != null && state == GroupState.REVERTED
+                    && RevertHistory.lastRevertPassRoleDenied(operations, plans, group.getId());
             // §7.4 REVERT exceptions, resolved before the general table.
-            if (group == null || state == GroupState.UNMANAGED || state == GroupState.REVERTED
+            if (group == null || state == GroupState.UNMANAGED || state == GroupState.REVERTED && !regrant
                     || state == GroupState.GONE || state == GroupState.PLANNED && !hasConfirmedEnable(group)) {
                 throw new AutoSpottingApiException(HttpStatus.CONFLICT, "NOT_MANAGED",
                         "XamOps does not manage this group, so there is nothing to revert.");
@@ -231,7 +272,7 @@ public class PlanService {
                         "AutoSpotting is already reverting this group.");
             }
         }
-        if (!PlanKinds.isAllowed(kind, state)) {
+        if (!PlanKinds.isAllowed(kind, state, regrant)) {
             throw AutoSpottingApiException.planKindNotAllowed(PlanKinds.notAllowedDetail(kind, state));
         }
     }
@@ -272,6 +313,26 @@ public class PlanService {
         return group != null ? group.getId() : UUID.randomUUID();
     }
 
+    private SpotGroup insertUnmanaged(CloudAccount account, Provider provider, GroupRef ref) {
+        Instant now = Instant.now();
+        SpotGroup row = new SpotGroup();
+        row.setId(UUID.randomUUID());
+        row.setProvider(provider);
+        row.setCloudAccountId(account.getId());
+        row.setClientId(account.getClient() == null ? null : account.getClient().getId());
+        row.setGroupKey(ref.groupKey());
+        row.setProviderStableId(ref.providerStableId());
+        row.setState(GroupState.UNMANAGED);
+        row.setDriftStatus(com.xammer.cloud.domain.autospotting.DriftStatus.NONE);
+        row.setConfigMode(com.xammer.cloud.domain.autospotting.ConfigMode.MANAGED);
+        row.setOwnedArtifacts("{}");
+        row.setStateChangedAt(now);
+        row.setCreatedBy("plan");
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return groups.saveAndFlush(row);
+    }
+
     private void moveToPlanned(SpotGroup group, ClientUserDetails user) {
         TransitionRequest request = TransitionRequest.of(GroupState.PLANNED, "ENABLE_PLAN_CREATED",
                 Actor.user(user == null ? null : user.getId(), null), null, Instant.now());
@@ -284,7 +345,10 @@ public class PlanService {
     private boolean requiresFullSpotOptin(EligibilityResult eligibility, PlanBody body) {
         // The provider's plan body knows whether the target is 100% Spot; the fake carries it in the
         // rollout. This phase only needs the flag persisted for confirm step 6 (PROGRESS kinds).
-        return body != null && body.rollout() != null && "100".equals(body.rollout().headroom());
+        // A provider says so either through the rollout (the fake) or in its On-Demand floor
+        // ({@code "fullSpot":true}: base 0 and no On-Demand share, AWS design-aws.md §3.1, FR-PLN-04).
+        return body != null && ((body.rollout() != null && "100".equals(body.rollout().headroom()))
+                || (body.onDemandFloorJson() != null && body.onDemandFloorJson().contains("\"fullSpot\":true")));
     }
 
     private static boolean sameHash(SpotPlan prior, String requestSha256) {
@@ -337,6 +401,7 @@ public class PlanService {
         sb.append(",\"feeBasis\":").append(orNull(body.feeBasisJson()));
         sb.append(",\"revertPath\":").append(orNull(body.revertPathJson()));
         sb.append(",\"rollout\":").append(rolloutJson(body.rollout()));
+        sb.append(",\"eligibility\":").append(eligibilityJson(body));
         sb.append(",\"estimates\":").append(estimatesJson(body));
         sb.append("}");
         return sb.toString();
@@ -346,6 +411,30 @@ public class PlanService {
         return new PlanBody(body.currentJson(), body.targetJson(), body.diffJson(), body.snapshotToStore(),
                 body.eligibility(), body.rollout(), body.estimates(), body.onDemandFloorJson(),
                 feeBasis, body.revertPathJson());
+    }
+
+    /**
+     * The definitive blockers recorded with the plan ({@code {"blockers":[{code,text}]}}), so confirm
+     * can refuse a blocked PROGRESS plan with 422 before any operation exists. A failed read
+     * ({@code errorKind} set) is not a blocker here: op step 0 re-evaluates eligibility in CONFIRM mode.
+     */
+    private static String eligibilityJson(PlanBody body) {
+        StringBuilder sb = new StringBuilder("{\"blockers\":[");
+        boolean first = true;
+        if (body.eligibility() != null) {
+            for (var b : body.eligibility().blockers()) {
+                if (b.errorKind() != null) {
+                    continue;
+                }
+                if (!first) {
+                    sb.append(',');
+                }
+                first = false;
+                sb.append("{\"code\":\"").append(escape(b.code())).append("\",\"text\":\"")
+                        .append(escape(b.text())).append("\"}");
+            }
+        }
+        return sb.append("]}").toString();
     }
 
     private static String rolloutJson(PlanBody.Rollout r) {

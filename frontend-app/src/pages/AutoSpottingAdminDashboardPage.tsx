@@ -11,6 +11,7 @@ import {
 } from '../types/autospotting';
 import OperatorPanel from '../components/AutoSpottingAdmin/OperatorPanel';
 import AllowlistPanel from '../components/AutoSpottingAdmin/AllowlistPanel';
+import DlqPanel from '../components/AutoSpottingAdmin/DlqPanel';
 import LegacyUnverifiedTag, { LEGACY_UNVERIFIED_LABEL } from '../components/SpotAutomation/LegacyUnverifiedTag';
 
 // xamops-service serves these under /api/xamops/, which the gateway and the Vite proxy route to it.
@@ -341,9 +342,9 @@ const AutoSpottingAdminOverview: React.FC = () => {
   );
 };
 
-/** Overview (the dashboard and operator views) and Allowlist (operator only, billing basis per account). */
+/** Overview (the dashboard and operator views), Allowlist (billing basis per account) and DLQ (AWS event replay). */
 const AutoSpottingAdminDashboardPage: React.FC = () => {
-  const [tab, setTab] = useState<'overview' | 'allowlist'>('overview');
+  const [tab, setTab] = useState<'overview' | 'allowlist' | 'dlq'>('overview');
   const tabClass = (active: boolean) =>
     `rounded border px-3 py-1 text-sm ${active ? 'border-black bg-black text-white' : 'border-gray-400 bg-white text-black'}`;
   return (
@@ -355,12 +356,15 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
         <button type="button" aria-pressed={tab === 'allowlist'} onClick={() => setTab('allowlist')} className={tabClass(tab === 'allowlist')}>
           Allowlist
         </button>
+        <button type="button" aria-pressed={tab === 'dlq'} onClick={() => setTab('dlq')} className={tabClass(tab === 'dlq')}>
+          DLQ
+        </button>
       </nav>
       {tab === 'overview' ? (
         <AutoSpottingAdminOverview />
       ) : (
         <main className="flex-1 px-6 pt-4 pb-6">
-          <AllowlistPanel />
+          {tab === 'allowlist' ? <AllowlistPanel /> : <DlqPanel />}
         </main>
       )}
     </>

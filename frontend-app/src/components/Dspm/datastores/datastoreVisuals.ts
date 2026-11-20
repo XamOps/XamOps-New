@@ -60,6 +60,29 @@ export const agentStatusVisual = (status: string | null | undefined): Visual =>
 export const scanRunVisual = (status: string | null | undefined): Visual =>
   status === 'SCAN_STOPPED' ? { icon: 'mdi:circle-half-full', cls: NEUTRAL } : { icon: 'mdi:circle-medium', cls: NEUTRAL };
 
+const SAAS_SCAN_STATE: Record<string, Visual> = {
+  COMPLETED: { icon: 'mdi:check-circle', cls: 'text-emerald-500' },
+  DISABLED: { icon: 'mdi:circle-half-full', cls: NEUTRAL },
+  ENABLED: { icon: 'mdi:check-circle', cls: 'text-emerald-500' },
+  IN_PROGRESS: { icon: 'mdi:progress-clock', cls: 'text-sky-500' },
+  FAILED: { icon: 'mdi:alert-circle', cls: 'text-rose-500' },
+};
+
+/** A SaaS datastore's Backfill Scan or Incremental Scan state (the SaaS drawer's strip). */
+export const saasScanStateVisual = (state: string | null | undefined): Visual =>
+  SAAS_SCAN_STATE[state ?? ''] ?? { icon: 'mdi:circle-medium', cls: NEUTRAL };
+
+const ENDPOINT_SCAN_STATUS: Record<string, Visual> = {
+  COMPLETED: { icon: 'mdi:check-circle', cls: 'text-emerald-500' },
+  IN_PROGRESS: { icon: 'mdi:progress-clock', cls: 'text-sky-500' },
+  TIMED_OUT: { icon: 'mdi:alert-circle', cls: 'text-rose-500' },
+  FAILED: { icon: 'mdi:alert-circle', cls: 'text-rose-500' },
+};
+
+/** An endpoint scan's status (the Endpoint drawer's Scan History). */
+export const endpointScanStatusVisual = (status: string | null | undefined): Visual =>
+  ENDPOINT_SCAN_STATUS[status ?? ''] ?? { icon: 'mdi:circle-medium', cls: NEUTRAL };
+
 const FILE_TYPE_ICONS: Record<string, string> = {
   unknown_files: 'mdi:file-question-outline',
   xlsx_files: 'mdi:file-excel-outline',
@@ -94,14 +117,36 @@ export const CLOUD_MARK_PROVIDERS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The `DspmProviderIcon` key of a SaaS drive type: the Gmail mark for `GMAIL`, the Google Drive logo for
+ * `GOOGLE_WORKSPACE` or `GOOGLE_DRIVE` (the vendor sends `GOOGLE_WORKSPACE`, which `DspmProviderIcon`
+ * would draw as the generic Google mark); any other value unchanged, null for none.
+ */
+export function driveIconKey(driveType: string | null | undefined): string | null {
+  if (driveType === 'GMAIL') return 'GMAIL';
+  if (driveType === 'GOOGLE_WORKSPACE' || driveType === 'GOOGLE_DRIVE') return 'GOOGLE_DRIVE';
+  return driveType ?? null;
+}
+
+/**
+ * The icon key of a file copy's or lineage lane's source: its drive type (`driveIconKey`), else its OS
+ * (`MAC`, `WINDOWS`, `LINUX`), else its provider.
+ */
+export function sourceIconKey(source: {
+  driveType: string | null; os: string | null; provider: string | null;
+}): string | null {
+  return driveIconKey(source.driveType) ?? source.os ?? source.provider;
+}
+
+/**
  * The key `DspmProviderIcon` draws for a row's Datastore / Device cell: SaaS rows by drive type (a Gmail
- * mailbox or Google Drive), endpoint rows by OS (Apple, Windows), everything else by provider.
+ * mailbox or Google Drive) when it is one of those, else by provider; endpoint rows by OS (Apple,
+ * Windows); everything else by provider.
  */
 export function datastoreIconKey(row: Pick<DatastoreRow, 'category' | 'subtype' | 'source'>): string | null {
   if (row.category === 'saas') {
-    if (row.subtype === 'GMAIL') return 'GMAIL';
-    if (row.subtype === 'GOOGLE_WORKSPACE') return 'GOOGLE_DRIVE';
-    return row.source.provider;
+    // Review fix R16: another drive type keeps its provider's icon.
+    const drive = row.subtype === 'GMAIL' || row.subtype === 'GOOGLE_WORKSPACE' || row.subtype === 'GOOGLE_DRIVE';
+    return drive ? driveIconKey(row.subtype) : row.source.provider;
   }
   if (row.category === 'endpoint') return row.subtype ?? row.source.provider;
   return row.source.provider;

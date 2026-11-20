@@ -100,6 +100,13 @@ public class CloudAccount {
 
     @Column(name = "gcp_billing_account_id")
     private String gcpBillingAccountId;
+    /** GCP credential source: {@code KEY} (default) or {@code IMPERSONATION} (keyless, not offered yet). */
+    @Column(name = "gcp_auth_mode", length = 16, nullable = false,
+            columnDefinition = "VARCHAR(16) NOT NULL DEFAULT 'KEY'")
+    private String gcpAuthMode = "KEY";
+    /** {@code READ_ONLY}, {@code AUTOSPOTTING} or {@code READ_WRITE}, from the connect-time permission check. Null = not checked yet. */
+    @Column(name = "gcp_access_type", length = 16)
+    private String gcpAccessType;
 
     @Column(name = "azure_tenant_id")
     private String azureTenantId;
@@ -220,6 +227,16 @@ public class CloudAccount {
 
     @Column(name = "stack_checked_at")
     private Instant stackCheckedAt;
+
+    /**
+     * The unique id ({@code AROA...}) of the AutoSpotting event forwarder's execution role, from the
+     * stack output {@code AutoSpottingForwarderRoleId}. The event listener compares it with the SQS
+     * {@code SenderId} so one customer account cannot send events as another (design-aws.md §9.5).
+     * Null until the coverage job or the {@code iam:GetRole} fallback reads it.
+     */
+    @JsonIgnore
+    @Column(name = "as_forwarder_role_id", length = 128)
+    private String asForwarderRoleId;
 
     /**
      * The CUR stack created for this account's own Cost and Usage Report, recorded separately

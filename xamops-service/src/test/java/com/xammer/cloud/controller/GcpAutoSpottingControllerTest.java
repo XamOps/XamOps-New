@@ -107,7 +107,17 @@ class GcpAutoSpottingControllerTest {
     void paused_migConfigUpdateIsRefusedWithoutServiceCall() throws Exception {
         expectCode(mvc(false).perform(put(BASE + "/migs/" + PROJECT + "/config?" + MIG.substring(1))
                         .contentType(MediaType.APPLICATION_JSON).content("{}")),
-                409, AutoSpottingBlockedException.CONVERSIONS_PAUSED);
+                409, AutoSpottingBlockedException.PLAN_REQUIRED);
+        verifyNoInteractions(gcpService);
+    }
+
+    @Test
+    void migConfigUpdateIsPlanRequiredWhateverTheFlag() throws Exception {
+        for (boolean flag : new boolean[] {false, true}) {
+            expectCode(mvc(flag).perform(put(BASE + "/migs/" + PROJECT + "/config?" + MIG.substring(1))
+                            .contentType(MediaType.APPLICATION_JSON).content("{\"maxSurge\":1}")),
+                    409, AutoSpottingBlockedException.PLAN_REQUIRED);
+        }
         verifyNoInteractions(gcpService);
     }
 

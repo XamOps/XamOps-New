@@ -33,8 +33,37 @@ Parameters:
     Type: Number
     Default: 0.05
     Description: Ledger UNKNOWN-price entries over all entries in 24 h that raises the ticket alarm (design-ledger.md)
+  EventsQueueSuffix:
+    Type: String
+    Default: ''
+    AllowedValues:
+      - ''
+      - '-uat'
+    Description: >
+      Suffix of the events queue pair from xamops-autospotting-queue.yaml: empty for prod, -uat for UAT. The
+      Rules section below refuses a suffix that does not match Environment.
+  XamOpsEventBusName:
+    Type: String
+    Default: xamops-onboarding-events
+    Description: >
+      The XamOps event bus that receives the customer forwarder's OnFailure records (prod only; the UAT customer
+      stacks send none). The forwarder-failure alarm below counts the matches of one rule on this bus.
+Rules:
+  UatUsesTheUatQueue:
+    RuleCondition: !Equals [!Ref Environment, uat]
+    Assertions:
+      - Assert: !Equals [!Ref EventsQueueSuffix, '-uat']
+        AssertDescription: A UAT monitoring stack alarms on the -uat queue pair
+  ProdUsesTheUnsuffixedQueue:
+    RuleCondition: !Equals [!Ref Environment, prod]
+    Assertions:
+      - Assert: !Equals [!Ref EventsQueueSuffix, '']
+        AssertDescription: A prod monitoring stack alarms on the unsuffixed queue pair
 Conditions:
   HasOncallEmail: !Not [!Equals [!Ref OncallEmail, '']]
+  # The events queue pairs exist for uat and prod only (xamops-autospotting-queue.yaml).
+  HasEventsQueue: !Or [!Equals [!Ref Environment, prod], !Equals [!Ref Environment, uat]]
+  IsProdEnv: !Equals [!Ref Environment, prod]
 
 Mappings:
   # Not used for logic; kept so the namespace is declared in one place for readers.
@@ -392,6 +421,141 @@ Resources:
           ReturnData: true
           Expression: 'IF(entries > 0, unknown / entries, 0)'
           Label: ledger-unknown-price-ratio
+  # ============================================================================
+  # AWS event pipeline alarms (design-aws.md section 9.8, plan-phase-22.md task 22.2, AC-OBS-02). Each has an
+  # action to the on-call topic. The queue and DLQ names match xamops-autospotting-queue.yaml.
+  # ============================================================================
+  # DLQ depth: ApproximateNumberOfMessagesVisible > 0 for 5 min, Ticket, not breaching.
+  EventsDlqDepthAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasEventsQueue
+    Properties:
+      AlarmName: !Sub 'autospotting-events-dlq-depth-${Environment}'
+      AlarmDescription: Messages are waiting in the AutoSpotting events DLQ (design-aws.md section 9.8)
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !Sub 'xamops-autospotting-events${EventsQueueSuffix}-dlq.fifo'
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref OncallTopic
+      OKActions:
+        - !Ref OncallTopic
+  # Queue age: ApproximateAgeOfOldestMessage > 600 s, Ticket, not breaching.
+  EventsQueueAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasEventsQueue
+    Properties:
+      AlarmName: !Sub 'autospotting-events-queue-age-${Environment}'
+      AlarmDescription: The oldest AutoSpotting event has waited over 10 minutes (design-aws.md section 9.8)
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions:
+        - Name: QueueName
+          Value: !Sub 'xamops-autospotting-events${EventsQueueSuffix}.fifo'
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 600
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref OncallTopic
+      OKActions:
+        - !Ref OncallTopic
+  # Sender mismatch: autospotting.events.security{reason=sender_mismatch} Sum > 0, 5 min, Page, not breaching.
+  # A message from an IAM role other than the account's forwarder role is dropped and counted here.
+  EventsSenderMismatchAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'autospotting-events-sender-mismatch-${Environment}'
+      AlarmDescription: An AutoSpotting event came from a role that is not the account's forwarder (design-aws.md section 9.5, Page)
+      Namespace: !Sub 'XamOps/AutoSpotting/${Environment}'
+      MetricName: autospotting.events.security
+      Dimensions:
+        - Name: provider
+          Value: aws
+        - Name: reason
+          Value: sender_mismatch
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref OncallTopic
+      OKActions:
+        - !Ref OncallTopic
+  # Forwarder failures: a customer forwarder Lambda failed after its retries and sent its OnFailure record to the
+  # XamOps bus. The rule below matches those records and also publishes each one to the on-call topic, so the
+  # message names the account. The alarm counts the rule's invocations per hour. Prod only: UAT stacks have no
+  # failure bus. Cross-account OnFailure delivery is V-AWS-13.
+  ForwarderFailureRule:
+    Type: AWS::Events::Rule
+    Condition: IsProdEnv
+    Properties:
+      Name: !Sub 'xamops-as-forwarder-failure-${Environment}'
+      Description: Customer AutoSpotting forwarder invocation failures (design-aws.md section 9.8)
+      EventBusName: !Ref XamOpsEventBusName
+      State: ENABLED
+      EventPattern:
+        source:
+          - lambda
+        detail-type:
+          - Lambda Function Invocation Result - Failure
+        detail:
+          requestContext:
+            functionArn:
+              - wildcard: '*:function:xamops-as-events-forwarder*'
+      Targets:
+        - Id: OncallTopic
+          Arn: !Ref OncallTopic
+  ForwarderFailureTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Condition: IsProdEnv
+    Properties:
+      Topics:
+        - !Ref OncallTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowForwarderFailureRule
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref OncallTopic
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt ForwarderFailureRule.Arn
+  EventsForwarderFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsProdEnv
+    Properties:
+      AlarmName: !Sub 'autospotting-events-forwarder-failure-${Environment}'
+      AlarmDescription: A customer AutoSpotting forwarder failed after its retries (design-aws.md section 9.8, Ticket)
+      Namespace: AWS/Events
+      MetricName: Invocations
+      Dimensions:
+        - Name: RuleName
+          Value: !Sub 'xamops-as-forwarder-failure-${Environment}'
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref OncallTopic
+      OKActions:
+        - !Ref OncallTopic
 Outputs:
   XamOpsAutoSpottingOncallTopicArn:
     Description: ARN of the on-call SNS topic; pass to autospotting-engine.yaml OncallTopicArn

@@ -32,6 +32,8 @@ public final class Reasons {
     public static final String COMMITMENT_RATE_UNKNOWN = "COMMITMENT_RATE_UNKNOWN";
     /** The inputs are complete but reconciliation has not verified the day against the bill. */
     public static final String NOT_RECONCILED = "NOT_RECONCILED";
+    /** The project's bill is in a reseller dataset XamOps cannot read yet (PD-06, V-GCP-14): measured, never invoiced. */
+    public static final String CSP_DATASET_PENDING = "CSP_DATASET_PENDING";
 
     // Unknown inputs (6.3)
     public static final String MISSING_SPOT_PRICE = "MISSING_SPOT_PRICE";
@@ -41,4 +43,8 @@ public final class Reasons {
     public static final String MISSING_DESIRED = "MISSING_DESIRED";
     public static final String MISSING_SNAPSHOT = "MISSING_SNAPSHOT";
     public static final String MISSING_STATE_ORDER = "MISSING_STATE_ORDER";
+    /** A shared-core type missing from gcp-shared-core-v1 is never priced at its reported guestCpus (PD-09). */
+    public static final String GCP_SHARED_CORE_UNSUPPORTED = "GCP_SHARED_CORE_UNSUPPORTED";
+    /** The series has no entry in the SUD config: its discount is unknown, never assumed zero. */
+    public static final String MISSING_SUD_RATE = "MISSING_SUD_RATE";
 }

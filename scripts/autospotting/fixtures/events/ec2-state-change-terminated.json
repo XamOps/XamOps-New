@@ -1,0 +1,20 @@
+{
+  "description": "State-change terminated carries no instance-lifecycle field, so a rule on it can never match",
+  "expect": [],
+  "event": {
+    "version": "0",
+    "id": "1e3a4c56-8d79-4b0a-a1f2-3c4d5e6f7a80",
+    "detail-type": "EC2 Instance State-change Notification",
+    "source": "aws.ec2",
+    "account": "111122223333",
+    "time": "2026-10-12T09:52:10Z",
+    "region": "us-east-1",
+    "resources": [
+      "arn:aws:ec2:us-east-1:111122223333:instance/i-0aaa1111bbbb2222c"
+    ],
+    "detail": {
+      "instance-id": "i-0aaa1111bbbb2222c",
+      "state": "terminated"
+    }
+  }
+}

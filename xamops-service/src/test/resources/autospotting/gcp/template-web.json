@@ -1,0 +1,36 @@
+{
+  "kind": "compute#instanceTemplate",
+  "id": "7700",
+  "name": "web-tpl-1",
+  "selfLink": "https://www.googleapis.com/compute/v1/projects/xamops-test/global/instanceTemplates/web-tpl-1",
+  "description": "web tier",
+  "properties": {
+    "machineType": "n2-standard-4",
+    "labels": {
+      "env": "prod"
+    },
+    "disks": [
+      {
+        "boot": true,
+        "type": "PERSISTENT",
+        "initializeParams": {
+          "sourceImage": "projects/debian-cloud/global/images/family/debian-12",
+          "diskSizeGb": "20"
+        }
+      }
+    ],
+    "serviceAccounts": [
+      {
+        "email": "web-sa@xamops-test.iam.gserviceaccount.com",
+        "scopes": [
+          "https://www.googleapis.com/auth/cloud-platform"
+        ]
+      }
+    ],
+    "scheduling": {
+      "provisioningModel": "STANDARD",
+      "onHostMaintenance": "MIGRATE",
+      "automaticRestart": true
+    }
+  }
+}

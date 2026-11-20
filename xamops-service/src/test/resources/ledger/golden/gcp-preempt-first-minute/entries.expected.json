@@ -1,0 +1,42 @@
+[
+  {
+    "billable" : true,
+    "calcVersion" : "gcp-1",
+    "clientId" : 502,
+    "cloudAccountId" : 1002,
+    "commitmentDeduction" : "0.0000000000",
+    "contractId" : "cccccccc-0000-4000-8000-000000000002",
+    "counterfactualCost" : "7.4586624000",
+    "counterfactualListCost" : "9.3233280000",
+    "counterfactualUnitSeconds" : "172800.000000",
+    "currency" : "USD",
+    "effectiveRateAdjustment" : "1.8646656000",
+    "exclusions" : [
+      {
+        "counterfactualCost" : "0.0000000000",
+        "reason" : "PROVIDER_NOT_CHARGED",
+        "unitSeconds" : "45.000000"
+      }
+    ],
+    "grossSavings" : "5.1700224000",
+    "groupId" : "33333333-3333-4333-8333-333333333333",
+    "instanceSeconds" : 172800,
+    "netSavings" : "5.1700224000",
+    "netSavingsLowerBound" : null,
+    "nonBillableReason" : null,
+    "periodEnd" : "2026-09-02T00:00:00Z",
+    "periodStart" : "2026-09-01T00:00:00Z",
+    "priceSnapshotIds" : [
+      "70000001-0000-4000-8000-000000000001",
+      "70000002-0000-4000-8000-000000000002",
+      "70000003-0000-4000-8000-000000000003",
+      "70000004-0000-4000-8000-000000000004"
+    ],
+    "provider" : "GCP",
+    "spotCost" : "2.2886400000",
+    "spotCostSource" : "MEASURED",
+    "statementMonth" : "2026-09-01",
+    "tier" : "BILL_VERIFIED",
+    "unknownInputs" : [ ]
+  }
+]

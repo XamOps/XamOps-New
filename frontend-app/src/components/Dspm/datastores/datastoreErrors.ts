@@ -26,10 +26,27 @@ const CONNECTION_CODES: ReadonlySet<string> = new Set([
   'KEY_EXPIRED', 'INVALID_KEY', 'WRONG_ENVIRONMENT', 'DECRYPT_FAILED', 'MALFORMED_KEY',
 ]);
 
-export function datastoreErrorCopy(error: Pick<DspmError, 'code' | 'retryAfterSeconds'>): DatastoreErrorCopy {
+/**
+ * What a failed request was about: a datastore (the page and every datastore drawer), a file (the
+ * SaaS file drawer), a misconfiguration (the Misconfiguration drawer), or any other item (a schedule,
+ * run, scope or integration). Only the not-found text depends on it.
+ */
+export type ErrorSubject = 'datastore' | 'file' | 'misconfiguration' | 'item';
+
+const NOT_FOUND_TEXT: Readonly<Record<ErrorSubject, string>> = {
+  datastore: 'This datastore could not be found. It may have been removed.',
+  file: 'This file could not be found. It may have been removed.',
+  misconfiguration: 'This misconfiguration is no longer reported.',
+  item: 'This item could not be found. It may have been removed.',
+};
+
+export function datastoreErrorCopy(
+  error: Pick<DspmError, 'code' | 'retryAfterSeconds'>,
+  subject: ErrorSubject = 'datastore',
+): DatastoreErrorCopy {
   switch (error.code) {
     case 'ASSET_NOT_FOUND':
-      return { text: 'This datastore could not be found. It may have been removed.', retry: false };
+      return { text: NOT_FOUND_TEXT[subject], retry: false };
     case 'FORBIDDEN_SCOPE':
       return { text: 'This Matters key needs the PLATFORM scope.', retry: false };
     case 'RATE_LIMITED':

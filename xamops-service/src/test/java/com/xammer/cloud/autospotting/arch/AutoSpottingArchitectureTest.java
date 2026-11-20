@@ -72,7 +72,10 @@ class AutoSpottingArchitectureTest {
         // and the operator API read the spine op store directly (design-core.md §11, §6.6).
         ArchRule rule = noClasses()
                 .that().resideOutsideOfPackages("..repository.autospotting..", "..service.autospotting.core..",
-                        "..controller.autospotting..", "..service.autospotting.ledger..")
+                        "..controller.autospotting..", "..service.autospotting.ledger..",
+                        "..service.autospotting.notify..")
+                // Phase 24: the waste delete reads spot_group to guard managed groups (design-core.md §7.6).
+                .and().doNotHaveFullyQualifiedName("com.xammer.cloud.service.WasteDeleteService")
                 .should().dependOnClassesThat().resideInAPackage("..repository.autospotting..")
                 .because("the spine repositories are driven only by the core services and the "
                         + "AutoSpotting controllers (design-ux-ops.md §9.1, design-core.md §11)");

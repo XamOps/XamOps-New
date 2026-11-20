@@ -174,7 +174,8 @@ public class AccountManagerController {
         // exactly as before and has its id discovered later from the role it created.
         String stackId = payload.get("stackId");
         try {
-            awsAccountService.connectViaCallback(externalId, awsAccountId, roleArn, stackId);
+            awsAccountService.connectViaCallback(externalId, awsAccountId, roleArn, stackId,
+                    payload.get("templateVersion"));
             logger.info("EventBridge callback succeeded for externalId={}", externalId);
             return ResponseEntity.ok(Map.of("message", "Account connected successfully"));
         } catch (Exception e) {
@@ -539,6 +540,14 @@ public class AccountManagerController {
         try {
             awsAccountService.deleteAccountById(id);
             return ResponseEntity.ok(Map.of("message", "Account " + accountName + " removed successfully."));
+        } catch (com.xammer.cloud.service.autospotting.core.AccountHasManagedGroupsException e) {
+            // PO-21: AutoSpotting still manages groups here. Nothing was deleted; the body names the groups
+            // and links to the "Revert all" flow (design-core.md section 7.5).
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "code", com.xammer.cloud.service.autospotting.core.AccountHasManagedGroupsException.CODE,
+                    "message", e.getMessage(),
+                    "groups", e.getGroups(),
+                    "revertAllPath", e.getRevertAllPath()));
         } catch (DataIntegrityViolationException e) {
             // A dependent table we do not clean up yet. Surface the table/constraint the
             // database named so the gap is diagnosable instead of an opaque failure.
@@ -567,7 +576,10 @@ public class AccountManagerController {
         try {
             CloudAccount savedAccount = gcpDataService.createGcpAccount(gcpAccountRequestDto, client);
             grantSubUserAccess(userDetails, savedAccount);
-            return ResponseEntity.ok(Map.of("message", "GCP Account added successfully."));
+            return ResponseEntity.ok(Map.of("message", "GCP Account added successfully.",
+                    "gcpAccessType", String.valueOf(savedAccount.getGcpAccessType())));
+        } catch (com.xammer.cloud.service.gcp.GcpProjectAlreadyConnectedException e) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
@@ -612,6 +624,7 @@ public class AccountManagerController {
         dto.setCspManaged(account.isCspManaged());
         dto.setBillingSource(account.resolveBillingSource().name());
         dto.setBillingDataAvailable(account.getBillingDataAvailable());
+        dto.setGcpAccessType(account.getGcpAccessType());
         return dto;
     }
 

@@ -32,6 +32,11 @@ public final class DatastoreParams {
     public static final int MAX_SKIP = 10_000;
     public static final int DEFAULT_LIMIT = 10;
     public static final int MAX_LIMIT = 100;
+    public static final int MAX_TEXT_LENGTH = 128;
+
+    /** The SaaS records views; the first is the default. */
+    public static final String VIEW_DATA_ELEMENTS = "data_elements";
+    public static final String VIEW_DOCUMENT_CLASSES = "document_classes";
 
     private static final Pattern PAGE = Pattern.compile("^\\d{1,6}$");
     private static final Pattern PAGE_SIZE = Pattern.compile("^\\d{1,3}$");
@@ -40,6 +45,10 @@ public final class DatastoreParams {
     private static final Pattern SOURCE_ID = Pattern.compile("^[0-9a-fA-F]{24}$");
     private static final Pattern UUID = Pattern.compile(
             "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
+    /** A misconfiguration policy id: {@code p-} plus 16 hex today, snake_case words on some rules. */
+    private static final Pattern POLICY_ID = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$");
+    /** A keyset cursor: base64 or base64url, 1..1,024 characters, at most two {@code =} of padding. */
+    private static final Pattern CURSOR = Pattern.compile("^[A-Za-z0-9+/_-]{1,1024}={0,2}$");
 
     private DatastoreParams() {
     }
@@ -93,12 +102,34 @@ public final class DatastoreParams {
         return raw.toLowerCase(Locale.ROOT);
     }
 
+    /** A SaaS file's 24-hex id from the SaaS file list, lower-cased. */
+    public static String fileId(String raw) {
+        if (raw == null || !SOURCE_ID.matcher(raw).matches()) {
+            throw new DspmBadRequestException("fileId", "fileId must be 24 hexadecimal characters");
+        }
+        return raw.toLowerCase(Locale.ROOT);
+    }
+
     /** A Data Flow database, schema or table id in canonical UUID form, lower-cased. */
     public static String uuid(String parameter, String raw) {
         if (raw == null || !UUID.matcher(raw).matches()) {
             throw new DspmBadRequestException(parameter, parameter + " must be a UUID");
         }
         return raw.toLowerCase(Locale.ROOT);
+    }
+
+    /** True when the text is a policy id {@link #policyId} accepts. */
+    public static boolean isPolicyId(String raw) {
+        return raw != null && POLICY_ID.matcher(raw).matches();
+    }
+
+    /** A misconfiguration's vendor {@code policy_id}: 1 to 128 letters, digits, '_', '-' or '.', as given. */
+    public static String policyId(String raw) {
+        if (!isPolicyId(raw)) {
+            throw new DspmBadRequestException("policyId",
+                    "policyId must be 1 to 128 letters, digits, '_', '-' or '.'");
+        }
+        return raw;
     }
 
     // ── paging ───────────────────────────────────────────────────────────────────────────────────
@@ -164,8 +195,13 @@ public final class DatastoreParams {
 
     /** {@code limit}: 1 to 3 digits, 1..100. Default 10. */
     public static int limit(String raw) {
+        return limit(raw, DEFAULT_LIMIT);
+    }
+
+    /** {@code limit}: 1 to 3 digits, 1..100, or {@code defaultValue} when absent. */
+    public static int limit(String raw, int defaultValue) {
         if (raw == null) {
-            return DEFAULT_LIMIT;
+            return defaultValue;
         }
         if (!LIMIT.matcher(raw).matches()) {
             throw limitError();
@@ -203,6 +239,32 @@ public final class DatastoreParams {
         return value;
     }
 
+    // ── SaaS drawer ──────────────────────────────────────────────────────────────────────────────
+
+    /** {@code view}: exactly {@code data_elements} or {@code document_classes}. Default data_elements. */
+    public static String saasView(String raw) {
+        if (raw == null) {
+            return VIEW_DATA_ELEMENTS;
+        }
+        if (!VIEW_DATA_ELEMENTS.equals(raw) && !VIEW_DOCUMENT_CLASSES.equals(raw)) {
+            throw new DspmBadRequestException("view", "view must be data_elements or document_classes");
+        }
+        return raw;
+    }
+
+    /**
+     * A required text value such as a data element or document class name: trimmed, 1..128 characters,
+     * no control characters. Membership, where it applies, is checked by the service, after this.
+     */
+    public static String requiredText(String parameter, String raw) {
+        String value = raw == null ? "" : raw.trim();
+        if (value.isEmpty() || value.length() > MAX_TEXT_LENGTH || hasControlCharacter(value)) {
+            throw new DspmBadRequestException(parameter,
+                    parameter + " is required and must be 1 to 128 characters without control characters");
+        }
+        return value;
+    }
+
     // ── search ───────────────────────────────────────────────────────────────────────────────────
 
     /** {@code q}: trimmed; blank means absent (null); at most 200 characters; no control characters. */
@@ -225,6 +287,130 @@ public final class DatastoreParams {
     public static String dataFlowSearch(String raw) {
         String value = search(raw);
         return value == null || value.length() < MIN_DATA_FLOW_SEARCH_LENGTH ? null : value;
+    }
+
+    // ── Files page ───────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * {@code cursor}: absent is the first page (null); present, it must be base64 or base64url text of 1 to
+     * 1,024 characters with at most two {@code =} of padding. It is checked for format only and never
+     * decoded: the vendor's keyset cursor is opaque.
+     */
+    public static String cursor(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        if (!isCursor(raw)) {
+            throw new DspmBadRequestException("cursor", "cursor must be a cursor returned by the previous page");
+        }
+        return raw;
+    }
+
+    /** True when {@code value} passes {@link #cursor}'s format rule. The mapper drops a next cursor that fails it. */
+    public static boolean isCursor(String value) {
+        return value != null && CURSOR.matcher(value).matches();
+    }
+
+    /**
+     * A single-choice parameter such as {@code sharing} or {@code lastModified}: null when absent, else one
+     * of {@code allowed}, compared exactly (case-sensitive).
+     */
+    public static String choice(String parameter, String raw, List<String> allowed) {
+        if (raw == null) {
+            return null;
+        }
+        if (!allowed.contains(raw)) {
+            throw new DspmBadRequestException(parameter,
+                    parameter + " must be one of " + String.join(", ", allowed));
+        }
+        return raw;
+    }
+
+    // ── build 6 ──────────────────────────────────────────────────────────────────────────────────
+
+    /** Longest free-text filter value ({@code account}). */
+    public static final int MAX_FREE_TEXT_LENGTH = 128;
+
+    private static final Pattern CODE = Pattern.compile("^[A-Z][A-Z0-9_]{0,63}$");
+    private static final Pattern DOMAIN = Pattern.compile("^[A-Za-z0-9.-]{1,253}$");
+
+    /** A SaaS integration's 24-hex id ({@code source.account} of its rows), lower-cased. */
+    public static String integrationId(String raw) {
+        if (raw == null || !SOURCE_ID.matcher(raw).matches()) {
+            throw new DspmBadRequestException("integrationId", "integrationId must be 24 hexadecimal characters");
+        }
+        return raw.toLowerCase(Locale.ROOT);
+    }
+
+    /** A schedule, run or scope id: 24 hex characters or a canonical UUID, lower-cased. */
+    public static String scanObjectId(String parameter, String raw) {
+        if (raw == null || !(SOURCE_ID.matcher(raw).matches() || UUID.matcher(raw).matches())) {
+            throw new DspmBadRequestException(parameter,
+                    parameter + " must be 24 hexadecimal characters or a UUID");
+        }
+        return raw.toLowerCase(Locale.ROOT);
+    }
+
+    /** An upper-snake vendor code ({@code ^[A-Z][A-Z0-9_]{0,63}$}), or null when absent. */
+    public static String code(String parameter, String raw) {
+        if (raw == null) {
+            return null;
+        }
+        if (!CODE.matcher(raw).matches()) {
+            throw new DspmBadRequestException(parameter,
+                    parameter + " must be an upper-case code of 1 to 64 letters, digits or underscores");
+        }
+        return raw;
+    }
+
+    /** Exactly one of {@code allowed} (case-sensitive), or null when absent. */
+    public static String oneOf(String parameter, String raw, Set<String> allowed) {
+        if (raw == null) {
+            return null;
+        }
+        if (!allowed.contains(raw)) {
+            throw new DspmBadRequestException(parameter,
+                    parameter + " must be one of " + String.join(", ", allowed.stream().sorted().toList()));
+        }
+        return raw;
+    }
+
+    /** Trimmed text of 1 to 128 characters without control characters or commas, or null when absent. */
+    public static String freeText(String parameter, String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String value = raw.trim();
+        if (value.isEmpty() || value.length() > MAX_FREE_TEXT_LENGTH || hasControlCharacter(value)
+                || value.indexOf(',') >= 0) {
+            throw new DspmBadRequestException(parameter,
+                    parameter + " must be 1 to 128 characters without control characters or commas");
+        }
+        return value;
+    }
+
+    /** {@code domain}: 1 to 253 letters, digits, dots or hyphens, or null when absent. */
+    public static String domain(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        if (!DOMAIN.matcher(raw).matches()) {
+            throw new DspmBadRequestException("domain",
+                    "domain must be 1 to 253 letters, digits, dots or hyphens");
+        }
+        return raw;
+    }
+
+    /** Exactly {@code true} or {@code false}, or null when absent. */
+    public static Boolean booleanFlag(String parameter, String raw) {
+        if (raw == null) {
+            return null;
+        }
+        return switch (raw) {
+            case "true" -> Boolean.TRUE;
+            case "false" -> Boolean.FALSE;
+            default -> throw new DspmBadRequestException(parameter, parameter + " must be true or false");
+        };
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────────────────────────

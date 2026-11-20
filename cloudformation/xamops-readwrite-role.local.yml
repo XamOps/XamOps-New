@@ -1,5 +1,14 @@
-# Template version rw-2026.10.1 (Metadata.XamOps.TemplateVersion and Outputs.TemplateVersion).
+# Template version rw-2026.11.1 (Metadata.XamOps.TemplateVersion and Outputs.TemplateVersion).
 # Bump both, identically in the prod, uat and local variants, on every permission change.
+#
+# rw-2026.11.1: AutoSpotting events nested stack (AutoSpottingEventsStack, guarded by
+# EnableAutoSpottingEvents) with rules that match what EC2 and Auto Scaling emit: Spot
+# interruption warning, rebalance recommendation, Auto Scaling launch and terminate, in every
+# enabled region, with a valid SQS MessageDeduplicationId. The legacy forwarder Lambda, its
+# role, log group, alarms and four rules are removed (they never delivered an event).
+# EnableAutoSpotting, XammerSQSQueueUrl and XammerRegion stay as unused parameters for one
+# version so UsePreviousValue updates do not fail. New outputs AutoSpottingForwarderRoleId and
+# AutoSpottingEventRegions; output AutoSpottingForwarderFunctionArn is removed with the function.
 #
 # rw-2026.10.1: AutoSpotting least-privilege policy XamOpsAutoSpottingPolicy; 22 unused
 # Spot/Fleet/ASG actions removed from XamOpsPolicySpots; iam:PassRole limited to EC2 and
@@ -8,9 +17,9 @@
 # Do not change RoleName, Path, the trust policy, any logical id, or any
 # ManagedPolicyName/Description: those replace the resource and break Update stack.
 #
-# Non-production variant: no parameter default may name a production resource. The AutoSpotting
-# event queue defaults to blank with forwarding off (local has no AutoSpotting queue of its own
-# yet), and the inventory queue defaults to local's own queue.
+# Non-production variant: no parameter default may name a production resource. The inventory
+# queue defaults to this environment's own queue, the AutoSpotting event queue to its own queue
+# (UAT) or blank (local), and the failure bus is blank.
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   XamOps Read-Write + AutoSpotting Stack (LOCAL DEV): Creates a secure IAM Role for the XamOps platform
@@ -19,8 +28,13 @@ Description: >
   Deploys EventBridge rules and a Lambda forwarder for real-time Spot instance event capture.
 
 Metadata:
+  # The three legacy AutoSpotting parameters are kept unused for one version (see above).
+  cfn-lint:
+    config:
+      ignore_checks:
+        - W2001
   XamOps:
-    TemplateVersion: rw-2026.10.1
+    TemplateVersion: rw-2026.11.1
   AWS::CloudFormation::Interface:
     ParameterGroups:
       - Label:
@@ -39,6 +53,11 @@ Metadata:
           - XammerRegion
           - EnableAutoSpotting
           - AutoSpottingPassRoleArns
+          - EnableAutoSpottingEvents
+          - XamOpsAutoSpottingQueueUrl
+          - XamOpsAutoSpottingFailureBusArn
+          - XamOpsAutoSpottingResourceSuffix
+          - XamOpsAutoSpottingTemplateUrl
     ParameterLabels:
       XamOpsAccountId:
         default: "XamOps AWS Account ID"
@@ -54,6 +73,10 @@ Metadata:
         default: "Enable AutoSpotting"
       AutoSpottingPassRoleArns:
         default: "AutoSpotting instance-profile roles (optional)"
+      EnableAutoSpottingEvents:
+        default: "AutoSpotting events"
+      XamOpsAutoSpottingQueueUrl:
+        default: "AutoSpotting event queue URL"
 
 Parameters:
   XamOpsAccountId:
@@ -171,8 +194,47 @@ Parameters:
       Use AUTO if you are also deploying the XamOps cost reporting stack, which creates
       xamops-cur-<this account id>.
 
+  # -------------------------------------------------------------------
+  # AutoSpotting events (nested stack AutoSpottingEventsStack)
+  #
+  # Every default is this environment's own. EnableAutoSpotting, XammerSQSQueueUrl and
+  # XammerRegion above are unused from rw-2026.11.1 and are kept for one version.
+  # -------------------------------------------------------------------
+  EnableAutoSpottingEvents:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: >
+      Forward Spot interruption warnings, rebalance recommendations and Auto Scaling launch
+      events from every enabled region to XamOps. With the queue URL blank, nothing is deployed.
+  # Blank: local has no AutoSpotting queue, so the events stack is not deployed. Never the production queue.
+  XamOpsAutoSpottingQueueUrl:
+    Type: String
+    Description: URL of the XamOps AutoSpotting FIFO event queue for this environment.
+    Default: ''
+  # Where the forwarder reports failures after its retries. Blank turns the destination off.
+  XamOpsAutoSpottingFailureBusArn:
+    Type: String
+    Description: XamOps event bus that receives forwarder failure records. Blank for none.
+    Default: ''
+    AllowedPattern: '^$|^arn:aws:events:[a-z0-9-]+:[0-9]{12}:event-bus/[A-Za-z0-9._-]{1,256}$'
+  XamOpsAutoSpottingResourceSuffix:
+    Type: String
+    Description: >
+      Suffix for the physically-named resources of the AutoSpotting events stack, so one AWS
+      account can be connected to more than one XamOps environment.
+    Default: '-local'
+    AllowedPattern: '^$|^-[a-z0-9-]{1,20}$'
+  XamOpsAutoSpottingTemplateUrl:
+    Type: String
+    Description: S3 URL of the nested AutoSpotting events template.
+    Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-autospotting-events-nested.yaml'
 Conditions:
-  IsAutoSpottingEnabled: !Equals [!Ref EnableAutoSpotting, 'true']
+  # The events stack needs the switch on and a queue to send to. A blank queue (an environment
+  # with no AutoSpotting queue) deploys nothing instead of failing the stack.
+  DeployAutoSpottingEvents: !And
+    - !Equals [!Ref EnableAutoSpottingEvents, 'true']
+    - !Not [!Equals [!Ref XamOpsAutoSpottingQueueUrl, '']]
 
   # True when the customer listed instance-profile roles in AutoSpottingPassRoleArns. A blank
   # CommaDelimitedList arrives as [''], so it is joined before the comparison.
@@ -1439,279 +1501,24 @@ Resources:
       StackId: !Ref AWS::StackId
 
   # =================================================================
-  # AUTOSPOTTING — Event Forwarder Lambda + IAM Role
+  # AUTOSPOTTING EVENTS (nested)
+  #
+  # Replaces the legacy forwarder Lambda, its role, log group, alarms and four EventBridge
+  # rules (removed in rw-2026.11.1). Those rules filtered on detail.instance-lifecycle, which
+  # EC2 does not emit, and the forwarder built an invalid SQS MessageDeduplicationId, so no
+  # event was ever delivered. The nested stack creates rules in every enabled region that
+  # match the real Spot interruption, rebalance and Auto Scaling events.
   # =================================================================
-
-  AutoSpottingEventForwarderRole:
-    Type: AWS::IAM::Role
+  AutoSpottingEventsStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: DeployAutoSpottingEvents
     Properties:
-      RoleName: xamops-autospotting-forwarder-role-local
-      Description: "[LOCAL] IAM role for AutoSpotting event forwarder Lambda"
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: SendToXammerSQS
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: AllowSendToXammerQueue
-                Effect: Allow
-                Action:
-                  - sqs:SendMessage
-                  - sqs:GetQueueUrl
-                Resource: !Sub 'arn:aws:sqs:${XammerRegion}:${XamOpsAccountId}:autospotting-events.fifo'
-              - Sid: AllowEC2Describe
-                Effect: Allow
-                Action:
-                  - ec2:DescribeInstances
-                  - ec2:DescribeSpotPriceHistory
-                Resource: '*'
-      Tags:
-        - Key: Service
-          Value: XamOps-AutoSpotting
-        - Key: Environment
-          Value: local
-
-  AutoSpottingEventForwarderFunction:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: xamops-autospotting-event-forwarder-local
-      Description: "[LOCAL] Forward EC2 spot instance events to XamOps AutoSpotting engine"
-      Runtime: python3.11
-      Handler: index.lambda_handler
-      Role: !GetAtt AutoSpottingEventForwarderRole.Arn
-      Timeout: 30
-      Environment:
-        Variables:
-          XAMMER_SQS_QUEUE_URL: !Ref XammerSQSQueueUrl
-          XAMMER_REGION: !Ref XammerRegion
-          CUSTOMER_ACCOUNT_ID: !Ref 'AWS::AccountId'
-      Code:
-        ZipFile: |
-          import json
-          import boto3
-          import os
-          from datetime import datetime
-
-          sqs = boto3.client('sqs', region_name=os.environ['XAMMER_REGION'])
-
-          def lambda_handler(event, context):
-              """Forward EC2 spot events and interruption warnings to XamOps SQS queue"""
-
-              print(f"Received event: {json.dumps(event)}")
-
-              detail_type = event.get('detail-type', '')
-              detail = event.get('detail', {})
-              instance_id = detail.get('instance-id', 'unknown')
-              state = detail.get('state', '')
-              instance_lifecycle = detail.get('instance-lifecycle', '')
-
-              is_interruption = (detail_type == 'EC2 Spot Instance Interruption Warning')
-              is_spot_launch = (state == 'running' and instance_lifecycle == 'spot')
-              is_od_launch = (state == 'running' and instance_lifecycle == 'normal')
-              is_termination = (state in ('terminated', 'stopped') and instance_lifecycle == 'spot')
-
-              if not (is_interruption or is_spot_launch or is_od_launch or is_termination):
-                  print(f"Skipping event: detail-type={detail_type} state={state} lifecycle={instance_lifecycle}")
-                  return {'statusCode': 200, 'body': 'Event not relevant'}
-
-              enriched_event = {
-                  'version': event.get('version'),
-                  'id': event.get('id'),
-                  'detail-type': detail_type,
-                  'source': event.get('source'),
-                  'account': os.environ['CUSTOMER_ACCOUNT_ID'],
-                  'time': event.get('time'),
-                  'region': event.get('region'),
-                  'resources': event.get('resources', []),
-                  'detail': detail
-              }
-
-              try:
-                  dedup_id = f"{instance_id}-{state or detail_type}-{event.get('time', '')}"
-                  response = sqs.send_message(
-                      QueueUrl=os.environ['XAMMER_SQS_QUEUE_URL'],
-                      MessageBody=json.dumps(enriched_event),
-                      MessageGroupId='customer-events',
-                      MessageDeduplicationId=dedup_id
-                  )
-                  print(f"Forwarded {detail_type} event for {instance_id}: {response['MessageId']}")
-                  return {
-                      'statusCode': 200,
-                      'body': json.dumps({'message': 'Event forwarded successfully', 'messageId': response['MessageId']})
-                  }
-              except Exception as e:
-                  print(f"Error forwarding event: {str(e)}")
-                  raise
-      Tags:
-        - Key: Service
-          Value: XamOps-AutoSpotting
-        - Key: Environment
-          Value: local
-
-  AutoSpottingForwarderLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub '/aws/lambda/${AutoSpottingEventForwarderFunction}'
-      RetentionInDays: 7
-
-  # =================================================================
-  # EVENTBRIDGE RULES
-  # =================================================================
-
-  SpotInstanceLaunchRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: xamops-autospotting-spot-launch-local
-      Description: "[LOCAL] Capture spot instance launch events and forward to XamOps"
-      State: !If [IsAutoSpottingEnabled, ENABLED, DISABLED]
-      EventPattern:
-        source:
-          - aws.ec2
-        detail-type:
-          - EC2 Instance State-change Notification
-        detail:
-          state:
-            - running
-          instance-lifecycle:
-            - spot
-      Targets:
-        - Arn: !GetAtt AutoSpottingEventForwarderFunction.Arn
-          Id: XamOpsSpotLaunchTarget
-
-  LaunchRuleLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref AutoSpottingEventForwarderFunction
-      Action: lambda:InvokeFunction
-      Principal: events.amazonaws.com
-      SourceArn: !GetAtt SpotInstanceLaunchRule.Arn
-
-  SpotInstanceTerminationRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: xamops-autospotting-spot-termination-local
-      Description: "[LOCAL] Capture spot instance termination events and forward to XamOps"
-      State: !If [IsAutoSpottingEnabled, ENABLED, DISABLED]
-      EventPattern:
-        source:
-          - aws.ec2
-        detail-type:
-          - EC2 Instance State-change Notification
-        detail:
-          state:
-            - terminated
-            - stopped
-          instance-lifecycle:
-            - spot
-      Targets:
-        - Arn: !GetAtt AutoSpottingEventForwarderFunction.Arn
-          Id: XamOpsSpotTerminationTarget
-
-  TerminationRuleLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref AutoSpottingEventForwarderFunction
-      Action: lambda:InvokeFunction
-      Principal: events.amazonaws.com
-      SourceArn: !GetAtt SpotInstanceTerminationRule.Arn
-
-  SpotInterruptionRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: xamops-autospotting-spot-interruption-local
-      Description: "[LOCAL] Capture Spot interruption warnings (2-min notice) and forward to XamOps"
-      State: !If [IsAutoSpottingEnabled, ENABLED, DISABLED]
-      EventPattern:
-        source:
-          - aws.ec2
-        detail-type:
-          - EC2 Spot Instance Interruption Warning
-      Targets:
-        - Arn: !GetAtt AutoSpottingEventForwarderFunction.Arn
-          Id: XamOpsInterruptionTarget
-
-  InterruptionRuleLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref AutoSpottingEventForwarderFunction
-      Action: lambda:InvokeFunction
-      Principal: events.amazonaws.com
-      SourceArn: !GetAtt SpotInterruptionRule.Arn
-
-  ODFallbackRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: xamops-autospotting-od-fallback-local
-      Description: "[LOCAL] Capture OD launches to detect when Spot is unavailable"
-      State: !If [IsAutoSpottingEnabled, ENABLED, DISABLED]
-      EventPattern:
-        source:
-          - aws.ec2
-        detail-type:
-          - EC2 Instance State-change Notification
-        detail:
-          state:
-            - running
-          instance-lifecycle:
-            - normal
-      Targets:
-        - Arn: !GetAtt AutoSpottingEventForwarderFunction.Arn
-          Id: XamOpsODFallbackTarget
-
-  ODFallbackRuleLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref AutoSpottingEventForwarderFunction
-      Action: lambda:InvokeFunction
-      Principal: events.amazonaws.com
-      SourceArn: !GetAtt ODFallbackRule.Arn
-
-  # =================================================================
-  # CLOUDWATCH ALARMS
-  # =================================================================
-
-  AutoSpottingLambdaErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: xamops-autospotting-forwarder-errors-local
-      AlarmDescription: "[LOCAL] Alert when AutoSpotting event forwarder Lambda encounters errors"
-      MetricName: Errors
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 5
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref AutoSpottingEventForwarderFunction
-      TreatMissingData: notBreaching
-
-  AutoSpottingLambdaThrottleAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: xamops-autospotting-forwarder-throttles-local
-      AlarmDescription: "[LOCAL] Alert when AutoSpotting event forwarder Lambda is throttled"
-      MetricName: Throttles
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref AutoSpottingEventForwarderFunction
-      TreatMissingData: notBreaching
-
+      TemplateURL: !Ref XamOpsAutoSpottingTemplateUrl
+      TimeoutInMinutes: 20
+      Parameters:
+        XamOpsAutoSpottingQueueUrl: !Ref XamOpsAutoSpottingQueueUrl
+        XamOpsFailureBusArn: !Ref XamOpsAutoSpottingFailureBusArn
+        ResourceSuffix: !Ref XamOpsAutoSpottingResourceSuffix
   # =================================================================
   # INVENTORY EVENTS (nested)
   #
@@ -1879,14 +1686,21 @@ Outputs:
     Description: Name of the IAM role created for the XamOps platform.
     Value: !Ref XamOpsReadWriteRole
 
-  AutoSpottingForwarderFunctionArn:
-    Description: ARN of the AutoSpotting event forwarder Lambda function.
-    Value: !GetAtt AutoSpottingEventForwarderFunction.Arn
-
   AutoSpottingStatus:
     Description: AutoSpotting event forwarding status in this account.
-    Value: !If [IsAutoSpottingEnabled, 'ENABLED', 'DISABLED']
-
+    Value: !If [DeployAutoSpottingEvents, 'ENABLED', 'DISABLED']
+  AutoSpottingForwarderRoleId:
+    Condition: DeployAutoSpottingEvents
+    Description: RoleId of the AutoSpotting event forwarder role. XamOps matches it against the sender of queued events.
+    Value: !GetAtt AutoSpottingEventsStack.Outputs.ForwarderRoleId
+  AutoSpottingEventRegions:
+    Condition: DeployAutoSpottingEvents
+    Description: Regions where AutoSpotting event rules were created.
+    Value: !GetAtt AutoSpottingEventsStack.Outputs.RegionsConfigured
+  AutoSpottingEventRegionsSkipped:
+    Condition: DeployAutoSpottingEvents
+    Description: Regions skipped because of an error. Polling still covers them.
+    Value: !GetAtt AutoSpottingEventsStack.Outputs.RegionsSkipped
   InventoryEventsEnabled:
     Description: Whether near-real-time inventory events were configured.
     Value: !Ref EnableInventoryEvents
@@ -1909,4 +1723,4 @@ Outputs:
 
   TemplateVersion:
     Description: Version of this XamOps read-write template. XamOps reads it to know which permissions the stack carries.
-    Value: rw-2026.10.1
+    Value: rw-2026.11.1

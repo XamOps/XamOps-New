@@ -1,8 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Icon } from '@iconify/react';
 
-/** Copies `text` to the clipboard and shows a check mark for 1.5 s. */
-export const CopyButton: React.FC<{ text: string; label?: string }> = ({ text, label = 'Copy' }) => {
+/**
+ * Copies `text` to the clipboard and shows a check mark for 1.5 s. `onCopied` runs after a successful
+ * write (a toast, for example), never after a failed one.
+ */
+export const CopyButton: React.FC<{ text: string; label?: string; onCopied?: () => void }> = ({
+  text, label = 'Copy', onCopied,
+}) => {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -15,6 +20,7 @@ export const CopyButton: React.FC<{ text: string; label?: string }> = ({ text, l
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
+      onCopied?.();
     } catch {
       // No clipboard (an insecure context or a denied permission): the button simply does not confirm.
     }

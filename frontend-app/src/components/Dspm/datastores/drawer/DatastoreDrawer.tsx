@@ -1,5 +1,4 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import ReactDOM from 'react-dom';
+import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
 import type {
   DataFlowDatabases, DatastoreAccessGraph, DatastoreOverview, DatastoreRisks, DatastoreRow, DatastoreScanHistory,
   DatastoreSensitives,
@@ -7,8 +6,11 @@ import type {
 import {
   datastoreDrawerApi, useLazyResource, type DatastoreDrawerApi, type LazyResource,
 } from '../../../../hooks/useDspmDatastoreDrawer';
+import { datastoreScanApi } from '../../../../hooks/useDspmScans';
+import { usePolling } from '../../../../hooks/useServerList';
 import { DEFAULT_DRAWER_TAB, drawerTabsFor, type DrawerTabId } from './drawerTabs';
-import { EscapeStack, useEscapeStack } from './EscapeStack';
+import { DrawerShell } from './DrawerShell';
+import { DrawerTabList } from './DrawerTabList';
 import { DrawerHeader, DrawerInfoCard } from './DrawerHeader';
 import { ResourceView } from './TabParts';
 import SensitiveTab from './SensitiveTab';
@@ -17,6 +19,10 @@ import RiskTab from './RiskTab';
 import DataFlowTab from './DataFlowTab';
 import AccessGraphTab from './AccessGraphTab';
 import ScanHistoryTab from './ScanHistoryTab';
+import DrawerActionsMenu from './DrawerActionsMenu';
+import ScanSettingsDrawer from './ScanSettingsDrawer';
+import { SyncStatusBadge } from './SyncStatusBadge';
+import { isSyncing } from './syncStatus';
 
 /** A cloud or on-prem row. The page opens the drawer only for rows whose `sourceId` is 24 hex. */
 export type DrawerRow = DatastoreRow & { sourceId: string };
@@ -70,9 +76,11 @@ interface Props {
  * Each tab has its own loading and error state, so one failing request never blanks another tab, and a
  * failed overview leaves the header on the row's data.
  *
- * Escape is read on `window`, so it works wherever focus is (also after the focused control unmounted
- * or became disabled): it closes the topmost layer on the `EscapeStack`, else the drawer. Controls that
- * must win (an open popover, a visible console-only tooltip) stop the key before it gets there.
+ * The info card also shows the sync status (polled every minute while a sync runs) and the Actions menu,
+ * whose Scan Settings opens the nested "Datastore Scan Configuration" layer (design 6.9).
+ *
+ * The portal, overlay, focus and Escape rules are `DrawerShell`'s: Escape closes the topmost layer on
+ * the drawer's Escape stack, else the drawer.
  */
 const DatastoreDrawer: React.FC<Props> = ({ row, onClose }) => {
   const api = useMemo(() => datastoreDrawerApi(row.sourceId), [row.sourceId]);
@@ -81,6 +89,14 @@ const DatastoreDrawer: React.FC<Props> = ({ row, onClose }) => {
   const overview = useLazyResource(api.overview, true);
   const scanStatus = useLazyResource(api.scanStatus, true);
   const sensitives = useLazyResource(api.sensitives, true);
+
+  const scanApi = useMemo(() => datastoreScanApi(row.sourceId), [row.sourceId]);
+  const sync = useLazyResource(scanApi.syncStatus, true);
+  usePolling(isSyncing(sync.data), sync.reload);
+  const [scanSettingsOpen, setScanSettingsOpen] = useState(false);
+  const actionsButton = useRef<HTMLButtonElement>(null);
+  const openScanSettings = useCallback(() => setScanSettingsOpen(true), []);
+  const closeScanSettings = useCallback(() => setScanSettingsOpen(false), []);
 
   const tabs = drawerTabsFor(row.category, overview.data?.canDiscoverSchema);
   const active = tabs.some(t => t.id === tab) ? tab : DEFAULT_DRAWER_TAB;
@@ -91,67 +107,31 @@ const DatastoreDrawer: React.FC<Props> = ({ row, onClose }) => {
   const accessGraph = useLazyResource(api.accessGraph, active === 'accessGraph');
   const scanHistory = useLazyResource(api.scanHistory, active === 'scanHistory');
 
-  const aside = useRef<HTMLElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
-  const escapeStack = useEscapeStack(aside);
   const ids = useId();
 
-  useEffect(() => { closeButton.current?.focus(); }, []);
+  return (
+    <DrawerShell label={row.name ?? undefined} onClose={onClose} initialFocus={closeButton}>
+      <DrawerHeader row={row} overview={overview.data} closeRef={closeButton} onClose={onClose} />
+      <div className="flex-1 space-y-4 overflow-y-auto px-5 pb-6">
+        <DrawerInfoCard
+          row={row}
+          overview={overview.data}
+          progress={scanStatus.data?.progress ?? null}
+          syncStatus={<SyncStatusBadge resource={sync} />}
+          actions={<DrawerActionsMenu row={row} buttonRef={actionsButton} onScanSettings={openScanSettings} />}
+        />
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (!escapeStack.closeTopmost()) onClose();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [escapeStack, onClose]);
+        <DrawerTabList tabs={tabs} active={active} onSelect={setTab} label="Datastore details" idPrefix={ids} />
 
-  return ReactDOM.createPortal(
-    <>
-      <div className="fixed inset-0 z-40 bg-[rgba(0,0,0,0.25)]" onClick={onClose} aria-hidden="true" />
-      <aside
-        ref={aside}
-        role="dialog"
-        aria-modal="true"
-        aria-label={row.name ?? undefined}
-        tabIndex={-1}
-        className="fixed inset-y-0 right-0 z-50 flex w-full flex-col bg-white shadow-2xl focus:outline-none lg:w-[55vw]"
-      >
-        <EscapeStack stack={escapeStack}>
-          <DrawerHeader row={row} overview={overview.data} closeRef={closeButton} onClose={onClose} />
-          <div className="flex-1 space-y-4 overflow-y-auto px-5 pb-6">
-            <DrawerInfoCard row={row} overview={overview.data} progress={scanStatus.data?.progress ?? null} />
-
-            <div role="tablist" aria-label="Datastore details" className="flex gap-1 border-b border-[rgba(0,0,0,0.08)]">
-              {tabs.map(t => (
-                <button
-                  key={t.id}
-                  id={`${ids}-tab-${t.id}`}
-                  type="button"
-                  role="tab"
-                  aria-selected={t.id === active}
-                  aria-controls={`${ids}-panel`}
-                  onClick={() => setTab(t.id)}
-                  className={`-mb-px border-b-2 px-3 py-2.5 text-xs font-semibold transition-colors ${
-                    t.id === active
-                      ? 'border-[rgba(0,0,0,0.88)] text-[rgba(0,0,0,0.88)]'
-                      : 'border-transparent text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.7)]'
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-
-            <div role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-tab-${active}`}>
-              {body({ api, row, overview, sensitives, risks, dataFlowDatabases, accessGraph, scanHistory })}
-            </div>
-          </div>
-        </EscapeStack>
-      </aside>
-    </>,
-    document.body,
+        <div role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-tab-${active}`}>
+          {body({ api, row, overview, sensitives, risks, dataFlowDatabases, accessGraph, scanHistory })}
+        </div>
+      </div>
+      {scanSettingsOpen && (
+        <ScanSettingsDrawer row={row} api={scanApi} returnFocus={actionsButton.current} onClose={closeScanSettings} />
+      )}
+    </DrawerShell>
   );
 };
 

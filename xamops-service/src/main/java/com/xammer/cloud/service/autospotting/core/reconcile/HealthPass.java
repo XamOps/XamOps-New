@@ -54,13 +54,15 @@ public class HealthPass {
     private final PreemptionService preemption;
     private final ReconcilerStore reconcilerStore;
     private final AutoSpottingMetrics metrics;
+    private final FallbackEnqueuer fallback;
 
     public HealthPass(SpotOperationRepository operations, PreemptionService preemption,
-                      ReconcilerStore reconcilerStore, AutoSpottingMetrics metrics) {
+                      ReconcilerStore reconcilerStore, AutoSpottingMetrics metrics, FallbackEnqueuer fallback) {
         this.operations = operations;
         this.preemption = preemption;
         this.reconcilerStore = reconcilerStore;
         this.metrics = metrics;
+        this.fallback = fallback;
     }
 
     /**
@@ -109,14 +111,22 @@ public class HealthPass {
                 && (group.getPauseReason() == PauseReason.FREEZE || group.getPauseReason() == PauseReason.DRIFT)) {
             return; // no automatic action under FREEZE or DRIFT (§6.4)
         }
-        // The actual op insert + preemption is owned by the reconciler's enqueue path (SpotReconciler),
-        // which runs this under the row lock. The health pass records the decision as a hint and the
-        // reconciler acts on it; dark until a provider is registered.
+        FallbackEnqueuer.Result result = fallback.enqueueEnter(group, "HEALTH_PASS");
         metrics.reconcileGroup(group.getState().name(), "FALLBACK");
         if (log.isDebugEnabled()) {
-            log.debug("health pass: FALLBACK_ENTER decision for group {} (config_mode would be {})",
-                    group.getId(), ConfigMode.FALLBACK);
+            log.debug("health pass: FALLBACK_ENTER for group {} -> {} (config_mode becomes {} when verified)",
+                    group.getId(), result, ConfigMode.FALLBACK);
         }
+    }
+
+    /** Enqueue a fallback exit decided by the reconcile function; used by the sweep, which holds the lease. */
+    public FallbackEnqueuer.Result enqueueFallbackExit(SpotGroup group) {
+        return fallback.enqueueExit(group, Instant.now());
+    }
+
+    /** Enqueue a SAFETY fallback enter from the full sweep. */
+    public FallbackEnqueuer.Result enqueueFallbackEnter(SpotGroup group, String reason) {
+        return fallback.enqueueEnter(group, reason);
     }
 
     private void requestCompensation(SpotGroup group) {

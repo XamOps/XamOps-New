@@ -1,0 +1,6 @@
+{
+  "matcherId": "SPOT_VCPU_QUOTA",
+  "failureClass": "SPOT_QUOTA",
+  "statusMessage": "You have requested more vCPU capacity than your current vCPU limit of 64 allows for the instance bucket that the specified instance type belongs to (Spot Instance vCPU quota). Launching EC2 instance failed.",
+  "note": "recorded-style fixture; V-AWS-16 replaces it with a real sample in Phase 23"
+}

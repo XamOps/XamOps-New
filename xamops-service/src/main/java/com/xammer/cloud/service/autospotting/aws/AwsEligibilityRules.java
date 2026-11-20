@@ -87,9 +87,12 @@ public final class AwsEligibilityRules {
             blockers.add(blocker("READ_ONLY_CONNECTION",
                     "This account is connected read-only, so XamOps can't change its Auto Scaling groups."));
         }
-        if (stackTooOld(in.account().stackTemplateVersion())) {
+        List<StackCapabilities> missingCapabilities = StackCapabilities.missingForConversion(
+                in.account().stackTemplateVersion(), provenByPreflight(in));
+        if (!missingCapabilities.isEmpty()) {
             blockers.add(blocker("STACK_TOO_OLD",
                     "The XamOps stack in this account is older than " + MINIMUM_STACK_VERSION
+                            + " and lacks: " + StackCapabilities.describe(missingCapabilities)
                             + ". Update the stack, then plan again."));
         }
 
@@ -373,36 +376,21 @@ public final class AwsEligibilityRules {
         return null;
     }
 
-    /** True when {@code version} is null, unparseable, or below {@link #MINIMUM_STACK_VERSION}. */
+    /** True when {@code version} is null, unparseable, or lacks a capability a conversion needs. */
     public static boolean stackTooOld(String version) {
-        int[] have = parse(version);
-        int[] want = parse(MINIMUM_STACK_VERSION);
-        if (have == null) {
-            return true;
-        }
-        for (int i = 0; i < want.length; i++) {
-            if (have[i] != want[i]) {
-                return have[i] < want[i];
-            }
-        }
-        return false;
+        return !StackCapabilities.missingForConversion(version).isEmpty();
     }
-
-    private static int[] parse(String v) {
-        if (v == null || !v.startsWith("rw-")) {
-            return null;
+    /** Capabilities a passing pre-flight read proves on an older stack (design-aws.md §10.1). */
+    private static java.util.Set<StackCapabilities> provenByPreflight(Inputs in) {
+        java.util.Set<StackCapabilities> proven = java.util.EnumSet.noneOf(StackCapabilities.class);
+        if (in.missingPermissions() instanceof Sig.Ok<List<String>> ok && ok.value().isEmpty()) {
+            proven.add(StackCapabilities.AS_PASSROLE_SCOPED);
         }
-        String[] parts = v.substring(3).split("\\.");
-        if (parts.length != 3) {
-            return null;
+        if (in.spotQuota() instanceof Sig.Ok) {
+            proven.add(StackCapabilities.AS_QUOTA_READS);
         }
-        try {
-            return new int[] {Integer.parseInt(parts[0]), Integer.parseInt(parts[1]), Integer.parseInt(parts[2])};
-        } catch (NumberFormatException e) {
-            return null;
-        }
+        return proven;
     }
-
     private static Check blocker(String code, String text) {
         return Check.of("b-" + code, code, text);
     }

@@ -65,7 +65,13 @@ class AwsGroupListerTest {
             }
         }, lookup, new AutoSpottingMetrics(new SimpleMeterRegistry()), 12);
         AwsSpotProvider provider = new AwsSpotProvider(mock(CloudAccountRepository.class), views, evaluator, status,
-                prices, mock(AutoSpottingSwitchProperties.class));
+                prices, mock(AutoSpottingSwitchProperties.class),
+                new AwsProviderGate(mock(AutoSpottingSwitchProperties.class),
+                        new com.xammer.cloud.service.autospotting.AutoSpottingFeatureFlags(false, false, false, false)),
+                mock(AwsStepLibrary.class), mock(AwsRevertProgramFactory.class),
+                new AwsRolloutEvaluator(AwsRolloutProperties.defaults()),
+                new AwsFallbackRules(com.xammer.cloud.service.autospotting.core.FallbackProperties.defaults()),
+                mock(AwsFallbackPrograms.class), mock(AwsLaunchEventRecorder.class));
         return new AwsGroupLister(views, evaluator, provider, status, lookup, budget, Clock.systemUTC());
     }
 

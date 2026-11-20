@@ -204,7 +204,7 @@ public class DatastoreDrawerMapper {
         return null;
     }
 
-    private static boolean isCredentialShaped(String key) {
+    static boolean isCredentialShaped(String key) {
         String lower = key.toLowerCase(Locale.ROOT);
         return CREDENTIAL_MARKERS.stream().anyMatch(lower::contains);
     }

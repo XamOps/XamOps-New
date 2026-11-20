@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { resolveDemoResponse } from './demoRouter';
 import { DEMO_MODE_KEY, DEMO_ROLE_KEY } from './demoConfig';
 import { demoCapabilities } from './k8sAutomationMockData';
@@ -12,8 +14,28 @@ import { trendBadge } from '../components/Dspm/datastores/datastoreFormat';
 import type { DspmPage } from '../types/dspm';
 import type {
   DataFlowColumnPage, DataFlowDatabases, DataFlowSchemas, DataFlowTablePage, DatastoreFilterOptions, DatastoreKpis,
-  DatastoreOccurrencePage, DatastoreOverview, DatastoreRow, DatastoreSensitives,
+  DatastoreOccurrencePage, DatastoreOverview, DatastoreRisks, DatastoreRow, DatastoreSensitives,
 } from '../types/dspmDatastores';
+import type { MisconfigurationDetail, MisconfigurationList } from '../types/dspmMisconfigurations';
+import type {
+  DataFlowErd, DataFlowRelations, EndpointScanPage, EndpointSensitiveMetrics, EndpointSummary, SaasFileActivity,
+  SaasFileCopies, SaasFileLineage, SaasFileOverview, SaasFilePage, SaasRecords, EndpointFilePage,
+} from '../types/dspmDrawers';
+import type {
+  LineageCategories, LineageDatastorePage, LineageFilePage, LineagePolicyPage,
+} from '../types/dspmLineage';
+import { DEMO_LINEAGE_STEPS_DEFAULT, DEMO_LINEAGE_STEPS_KEY } from './xamlensLineageMockData';
+import type {
+  EndpointFileActivity, EndpointFileLineage, EndpointFileOverview, SaasFileListPage, SaasFileListRow,
+} from '../types/dspmFiles';
+import { DEMO_NOW } from './xamlensEndpointDrawerMockData';
+import { demoEndpointFileTimes } from './xamlensFilesMockData';
+import type { AssistList, DocumentClassList, DspmDashboard, RemediationActivity } from '../types/dspmPages';
+import type {
+  DatastoreDatabases, DatastoreScanSettings, DatastoreSyncStatus, EndpointScanConfiguration, SaasChannel,
+  SaasIntegrationList, SaasScanConfiguration, SaasScanUser, ScanRun, ScanRunDatastore, ScanRunDetail, ScanSchedule,
+  ScanScheduleDetail, ScanScope, ScanScopeDetail,
+} from '../types/dspmScans';
 
 /**
  * The generic `/api/xamops/*` fallback answers `{}`, which is wrong for any
@@ -370,6 +392,36 @@ describe('demo router — trial management (ROLE_BILLOPS_ADMIN)', () => {
     expect(Array.isArray(body)).toBe(false);
     expect(body.planType).toBe('PAID');
     expect(body.trialStatus).toBe('CONVERTED');
+  });
+});
+
+/**
+ * The XamLens (DSPM) admin page filters and counts its lists, so the billops-admin catch-all's {}
+ * crashed it for the BillOps demo login ("list.filter is not a function"). Empty, synthetic answers;
+ * none of these reads may reach the real admin API, which holds customers' Matters keys.
+ */
+describe('demo router — XamLens (DSPM) admin page (ROLE_BILLOPS_ADMIN)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_BILLOPS_ADMIN');
+  });
+
+  it.each([
+    '/api/xamops/billops-admin/dspm/mappings',
+    '/api/xamops/billops-admin/dspm/clients',
+  ])('answers %s with an empty list', async (url) => {
+    expect(await readDemoBody(url)).toEqual([]);
+  });
+
+  it('answers the audit trail with an empty page in the shape the audit table reads', async () => {
+    expect(await readDemoBody('/api/xamops/billops-admin/dspm/audit?page=0&size=25&action=MAPPING_CREATED&days=30'))
+      .toEqual({ data: [], page: 0, pageSize: 25, total: 0, totalPages: 0 });
+    expect(await readDemoBody('/api/xamops/billops-admin/dspm/audit')).toEqual(
+      { data: [], page: 0, pageSize: 50, total: 0, totalPages: 0 });
+  });
+
+  it('keeps every other DSPM admin path off the backend', async () => {
+    expect(await readDemoBody('/api/xamops/billops-admin/dspm/mappings/7/verify')).toEqual({});
   });
 });
 
@@ -1266,6 +1318,560 @@ describe('demo router — XamLens Datastores page and drawer (ROLE_XAMOPS)', () 
     expect(((await readDemoBody(`${DS}?tab=${tab}`)) as DspmPage<DatastoreRow>).total).toBe(kpis.assetCount.value);
   });
 });
+
+describe('demo router — XamLens Misconfigurations page (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+
+  const MC = '/api/dspm/misconfigurations';
+  const RANK: Record<string, number> = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
+  const datastoresOf = async () => [
+    ...((await readDemoBody('/api/dspm/datastores?tab=cloud&pageSize=100')) as DspmPage<DatastoreRow>).data,
+    ...((await readDemoBody('/api/dspm/datastores?tab=on_prem&pageSize=100')) as DspmPage<DatastoreRow>).data,
+  ];
+
+  it('answers the list with rows in row order and cards that match them, never {}', async () => {
+    const list = await readDemoBody(MC) as MisconfigurationList;
+    expect(list).not.toEqual({});
+    expect(list.capped).toBe(false);
+    expect(list.datastoresRead).toBe(23);
+    expect(list.rows.length).toBeGreaterThanOrEqual(8);
+    for (let i = 1; i < list.rows.length; i++) {
+      const [a, b] = [list.rows[i - 1], list.rows[i]];
+      const order = (RANK[a.severity ?? ''] ?? 0) - (RANK[b.severity ?? ''] ?? 0) || a.affectedResources - b.affectedResources;
+      expect(order, `${a.title} before ${b.title}`).toBeGreaterThanOrEqual(0);
+    }
+    expect(list.rows[0].severity).toBe('HIGH');
+    expect(list.open.total).toBe(list.rows.length);
+    expect(list.open.high + list.open.medium + list.open.critical + list.open.low).toBe(list.rows.length);
+    expect(new Set(list.rows.map(row => row.source))).toEqual(new Set(['UPWIND', 'MATTERS']));
+    const details = await Promise.all(list.rows.map(row =>
+      readDemoBody(`${MC}/policies/${encodeURIComponent(row.policyId)}`) as Promise<MisconfigurationDetail>));
+    expect(list.totalAffectedResources)
+      .toBe(new Set(details.flatMap(detail => detail.affected.map(item => item.datastore.sourceId))).size);
+    expect(details.some(detail => detail.learnMore?.startsWith('https://'))).toBe(true);
+    expect(details.some(detail => detail.cli !== null)).toBe(true);
+  });
+
+  it("agrees with every cloud and on-prem datastore's /risks list", async () => {
+    const list = await readDemoBody(MC) as MisconfigurationList;
+    const datastores = await datastoresOf();
+    const risksOf = new Map<string, string[]>();
+    for (const row of datastores) {
+      const body = await readDemoBody(`/api/dspm/datastores/${row.sourceId}/risks`) as DatastoreRisks;
+      risksOf.set(row.sourceId!, body.items.map(item => item.title!));
+      // A derived datastore reports findings once scanned; the never-scanned Azure showcase keeps its own.
+      if (row.scan.status === 'NOT_SCANNED' && row.name !== 'ledger-exports-weu') expect(body.items, row.name!).toEqual([]);
+    }
+    for (const row of list.rows) {
+      const detail = await readDemoBody(`${MC}/policies/${encodeURIComponent(row.policyId)}`) as MisconfigurationDetail;
+      expect(detail.policyId).toBe(row.policyId);
+      expect(detail.title).toBe(row.title);
+      const expected = datastores.filter(d => risksOf.get(d.sourceId!)!.includes(row.title!)).map(d => d.sourceId);
+      expect(detail.affected.map(item => item.datastore.sourceId), row.title!).toEqual(expected);
+      expect(row.affectedResources).toBe(expected.length);
+      expect(row.sensitiveRecords).toBe(detail.affected.reduce((sum, item) => sum + item.datastore.sensitives.recordCount, 0));
+    }
+    // Every finding on every datastore belongs to one row.
+    const titles = new Set(list.rows.map(row => row.title));
+    for (const found of risksOf.values()) for (const title of found) expect(titles.has(title), title).toBe(true);
+  });
+
+  it('answers an unknown or malformed policy with 404 ASSET_NOT_FOUND, never {}', async () => {
+    for (const url of [
+      `${MC}/policies/p-ffffffffffffffff`,
+      `${MC}/policies/-leading-dash`,
+      `${MC}/policies/a%2Fb`,
+      `${MC}/somewhere-else`,
+    ]) {
+      const response = resolveDemoResponse(url);
+      expect(response?.status, url).toBe(404);
+      expect((await response!.json()).code, url).toBe('ASSET_NOT_FOUND');
+    }
+  });
+});
+
+describe('demo router — XamLens SaaS, Endpoint and Graph View drawers (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+  const DS = '/api/dspm/datastores';
+  const FLOW = '/api/dspm/data-flow';
+  const rowsOf = async (tab: string): Promise<DatastoreRow[]> =>
+    ((await readDemoBody(`${DS}?tab=${tab}&pageSize=100`)) as DspmPage<DatastoreRow>).data;
+  const rowOf = async (tab: string, name: string, subtype?: string) =>
+    (await rowsOf(tab)).find(row => row.name === name && (!subtype || row.subtype === subtype))!;
+  const answerOf = async (url: string) => {
+    const response = resolveDemoResponse(url);
+    expect(response, url).not.toBeNull();
+    return { status: response!.status, body: await response!.json() };
+  };
+  const filesOf = (sourceId: string, query: string) => readDemoBody(`${DS}/${sourceId}/saas/files?${query}`) as Promise<SaasFilePage>;
+  const crmSchemas = async () => {
+    const crm = await rowOf('on_prem', 'crm_production');
+    const databases = await readDemoBody(`${DS}/${crm.sourceId}/data-flow/databases`) as DataFlowDatabases;
+    const schemas = await readDemoBody(`${FLOW}/databases/${databases.items[0].id}/schemas`) as DataFlowSchemas;
+    return { database: databases.items[0].id, schemas: schemas.items };
+  };
+  const tablesOf = async (schemaId: string) =>
+    (await readDemoBody(`${FLOW}/schemas/${schemaId}/tables?page=1&pageSize=100`) as DataFlowTablePage).rows;
+
+  it('answers every new path with its DTO, never the {} catch-all', async () => {
+    const gmail = await rowOf('saas', 'Priya Nair', 'GMAIL');
+    const mac = await rowOf('endpoint', 'Priya’s MacBook Pro');
+    const files = await filesOf(gmail.sourceId!, 'dataElement=PERSON%20NAME&limit=5&skip=0');
+    expect(files).toMatchObject({ skip: 0, limit: 5, total: 6 });
+    const { database, schemas } = await crmSchemas();
+    const [table] = await tablesOf(schemas[0].id!);
+    const urls = [
+      ...['detail', 'records?view=data_elements', 'records?view=document_classes', 'scan-summary']
+        .map(path => `${DS}/${gmail.sourceId}/saas/${path}`),
+      ...['overview', 'activity', 'lineage', 'copies'].map(path => `/api/dspm/saas-files/${files.rows[0].id}/${path}`),
+      ...['overview', 'filter-options', 'summary', 'sensitives?showFalsePositives=false',
+        'occurrences?entityName=EMAIL%20ADDRESS&skip=0&limit=10&showFalsePositives=false', 'files?skip=0&limit=10',
+        'scans?skip=0&limit=10'].map(path => `${DS}/${mac.sourceId}/endpoint/${path}`),
+      `${FLOW}/schemas/${schemas[0].id}/erd`, `${FLOW}/databases/${database}/erd`, `${FLOW}/tables/${table.id}/relations`,
+    ];
+    for (const url of urls) {
+      const { status, body } = await answerOf(url);
+      expect(status, url).toBe(200);
+      expect(body, url).not.toEqual({});
+    }
+  });
+
+  it('answers unknown datastore, file and table ids with 404 ASSET_NOT_FOUND', async () => {
+    const cloud = await rowOf('cloud', 'xammer-prod-customer-exports');
+    for (const url of [
+      `${DS}/ffffffffffffffffffffffff/saas/detail`,
+      // A cloud row is no SaaS row.
+      `${DS}/${cloud.sourceId}/saas/records?view=data_elements`,
+      `${DS}/ffffffffffffffffffffffff/endpoint/overview`,
+      '/api/dspm/saas-files/ffffffffffffffffffffffff/overview',
+      '/api/dspm/saas-files/de5003999999999999999999/lineage',
+      `${FLOW}/schemas/00000000-0000-4000-8000-000000000000/erd`,
+      `${FLOW}/tables/00000000-0000-4000-8000-000000000000/relations`,
+    ]) {
+      const { status, body } = await answerOf(url);
+      expect(status, url).toBe(404);
+      expect(body.code, url).toBe('ASSET_NOT_FOUND');
+    }
+  });
+
+  it('refuses a files filter that is no row of its view with 400 INVALID_REQUEST, as the backend does', async () => {
+    const gmail = (await rowOf('saas', 'Priya Nair', 'GMAIL')).sourceId!;
+    const drive = (await rowOf('saas', 'Priya Nair', 'GOOGLE_WORKSPACE')).sourceId!;
+    for (const [sourceId, query, parameter] of [
+      [gmail, 'dataElement=CREDIT%20CARD%20NUMBERS', 'dataElement'],
+      [gmail, 'documentClass=Budgets', 'documentClass'],
+      [drive, 'documentClass=Invoices%20%26%20Receipts', 'documentClass'],
+      [gmail, 'dataElement=PERSON%20NAME&documentClass=Legal', 'dataElement'],
+      [gmail, 'limit=5', 'dataElement'],
+    ]) {
+      const { status, body } = await answerOf(`${DS}/${sourceId}/saas/files?${query}`);
+      expect(status, query).toBe(400);
+      expect(body, query).toEqual({ code: 'INVALID_REQUEST', message: `${parameter} is not a row of this datastore` });
+    }
+  });
+
+  it('agrees with the list on the record count of every SaaS and endpoint row (FR-DEMO-3)', async () => {
+    for (const row of await rowsOf('saas')) {
+      const records = await readDemoBody(`${DS}/${row.sourceId}/saas/records?view=data_elements`) as SaasRecords;
+      expect(records.rows.reduce((sum, r) => sum + r.count, 0), row.name!).toBe(row.sensitives.recordCount);
+      for (const element of records.rows) {
+        const files = await filesOf(row.sourceId!, `dataElement=${encodeURIComponent(element.name)}&limit=100&skip=0`);
+        expect(files.rows.reduce((sum, file) => sum + file.records, 0), `${row.name} ${element.name}`).toBe(element.count);
+      }
+    }
+    for (const row of await rowsOf('endpoint')) {
+      const metrics = await readDemoBody(`${DS}/${row.sourceId}/endpoint/sensitives?showFalsePositives=false`) as EndpointSensitiveMetrics;
+      const summary = await readDemoBody(`${DS}/${row.sourceId}/endpoint/summary`) as EndpointSummary;
+      const entities = metrics.metrics.filter(metric => metric.kind === 'ENTITY').reduce((sum, metric) => sum + metric.count, 0);
+      expect(entities, row.name!).toBe(row.sensitives.recordCount);
+      expect(summary.totalSensitives ?? 0, row.name!).toBe(row.sensitives.recordCount);
+    }
+  });
+
+  it('draws each Table View foreign key in Graph View, from a column marked foreignKey', async () => {
+    const { schemas } = await crmSchemas();
+    let keys = 0;
+    for (const schema of schemas) {
+      const erd = await readDemoBody(`${FLOW}/schemas/${schema.id}/erd`) as DataFlowErd;
+      const tables = await tablesOf(schema.id!);
+      expect(erd.nodes.map(node => node.id)).toEqual(tables.map(table => table.id));
+      for (const table of tables) {
+        const name = table.name!;
+        const outgoing = erd.edges.filter(edge => edge.sourceTableId === table.id);
+        expect(outgoing, name).toHaveLength(table.foreignKeyCount ?? 0);
+        keys += outgoing.length;
+        const relations = await readDemoBody(`${FLOW}/tables/${table.id}/relations`) as DataFlowRelations;
+        const columns = (await readDemoBody(`${FLOW}/tables/${table.id}/columns?page=1&pageSize=100`) as DataFlowColumnPage).rows;
+        const sources = relations.outgoing.flatMap(relation => relation.columns.map(pair => pair.sourceColumn));
+        expect(sources, name).toHaveLength(table.foreignKeyCount ?? 0);
+        expect(columns.filter(column => column.foreignKey).map(column => column.name).sort(), name).toEqual([...sources].sort());
+        expect(columns.filter(column => column.primaryKey).map(column => column.name), name).toEqual(['id']);
+        const node = erd.nodes.find(n => n.id === table.id)!;
+        expect(node.keyColumns.every(key => columns.some(column => column.name === key)), name).toBe(true);
+      }
+    }
+    expect(keys).toBe(31);
+  });
+
+  it('draws audit.service_accounts as the public diagram’s one external card, with three isolated tables', async () => {
+    const { schemas } = await crmSchemas();
+    const erd = await readDemoBody(`${FLOW}/schemas/${schemas.find(s => s.name === 'public')!.id}/erd`) as DataFlowErd;
+    expect(erd.externalTables).toEqual([{ key: 'ext:audit.service_accounts', schemaName: 'audit', tableName: 'service_accounts' }]);
+    expect(erd.edges.filter(edge => edge.external).map(edge => edge.targetKey)).toEqual(Array(5).fill('ext:audit.service_accounts'));
+    const linked = new Set(erd.edges.flatMap(edge => [edge.sourceTableId, edge.targetKey]));
+    expect(erd.nodes.filter(node => !linked.has(node.id)).map(node => node.name)).toEqual(['email_templates', 'job_queue', 'territories']);
+    // deals.parent_deal_id: the self-reference.
+    expect(erd.edges.filter(edge => edge.sourceTableId === edge.targetKey)).toHaveLength(1);
+  });
+
+  it('lists the relations of contacts: its two keys and the eight that point at it', async () => {
+    const { schemas } = await crmSchemas();
+    const contacts = (await tablesOf(schemas.find(s => s.name === 'public')!.id!)).find(table => table.name === 'contacts')!;
+    const relations = await readDemoBody(`${FLOW}/tables/${contacts.id}/relations`) as DataFlowRelations;
+    expect(relations.outgoing.map(r => `${r.schemaName}.${r.tableName}`)).toEqual(['public.accounts', 'audit.service_accounts']);
+    expect(relations.incoming).toHaveLength(8);
+    expect(relations.incoming.every(r => r.columns[0].sourceColumn === 'contact_id' && r.columns[0].targetColumn === 'id')).toBe(true);
+  });
+
+  it('serves the SaaS file and Endpoint showcases', async () => {
+    const gmail = (await rowOf('saas', 'Priya Nair', 'GMAIL')).sourceId!;
+    const drive = (await rowOf('saas', 'Priya Nair', 'GOOGLE_WORKSPACE')).sourceId!;
+    const idOf = async (sourceId: string, name: string, element: string) =>
+      (await filesOf(sourceId, `dataElement=${encodeURIComponent(element)}&limit=100&skip=0`)).rows.find(f => f.name === name)!.id!;
+    const fileAnswer = (id: string, resource: string) => readDemoBody(`/api/dspm/saas-files/${id}/${resource}`);
+
+    const offerPdf = await idOf(gmail, 'Offer Letter - Priya Nair.pdf', 'PERSON NAME');
+    const lineage = await fileAnswer(offerPdf, 'lineage') as SaasFileLineage;
+    expect(lineage.lanes.map(lane => [lane.channelLabel, lane.self])).toEqual([['Gmail', true], ['Google Drive', false], ['Google Drive', false]]);
+    expect((await fileAnswer(offerPdf, 'copies') as SaasFileCopies).copies.map(copy => copy.ownerEmail))
+      .toEqual(['priya@xammer.in', 'priya@xammer.in']);
+    expect((await fileAnswer(offerPdf, 'activity') as SaasFileActivity).entries).toHaveLength(2);
+
+    const offerDocx = await idOf(drive, 'Offer Letter - Priya Nair.docx', 'ADDRESS');
+    expect((await fileAnswer(offerDocx, 'overview') as SaasFileOverview).sharing)
+      .toMatchObject({ externalShare: true, externalEmails: ['talent.partner@example.com'] });
+    const docxCopies = await fileAnswer(offerDocx, 'copies') as SaasFileCopies;
+    expect(docxCopies.locations).toBe(3);
+    expect(docxCopies.copies.map(copy => copy.locationLabel)).toEqual(['SaaS · Gmail', 'SaaS · Google Drive', 'Endpoint · macOS']);
+    const roster = await fileAnswer(await idOf(drive, 'Team Roster.xlsx', 'PHONE NUMBER'), 'overview') as SaasFileOverview;
+    expect(roster.sharing).toEqual({
+      internalEmails: [], externalEmails: [], internalGroups: [], externalGroups: [],
+      privateShare: true, publicShare: false, orgWide: false, externalShare: false,
+    });
+
+    const desktop = (await rowOf('endpoint', 'HR-DESKTOP-02')).sourceId!;
+    const scans = await readDemoBody(`${DS}/${desktop}/endpoint/scans?skip=0&limit=10`) as EndpointScanPage;
+    expect(scans.rows.map(run => [run.status, run.endTime === null, run.totalFiles])).toEqual([['IN_PROGRESS', true, null], ['TIMED_OUT', false, 1240]]);
+  });
+
+  it('keeps no fixture-derived file name in the demo data', () => {
+    // jsdom gives import.meta.url no file scheme; vitest runs from the app's root folder.
+    const dir = join(process.cwd(), 'src', 'demo');
+    const renamed = ['people', 'list'].join('-');
+    const files = readdirSync(dir).filter(name => /\.tsx?$/.test(name));
+    expect(files.length).toBeGreaterThan(5);
+    for (const name of files) expect(readFileSync(join(dir, name), 'utf8').includes(renamed), name).toBe(false);
+  });
+});
+
+describe('demo router — XamLens Files page and Endpoint file drawer (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const DS = '/api/dspm/datastores';
+  const FILES = '/api/dspm/files';
+  const saasPage = (query = '') => readDemoBody(`${FILES}/saas?limit=10${query}`) as Promise<SaasFileListPage>;
+  const endpointPage = (query = '') => readDemoBody(`${FILES}/endpoint?skip=0&limit=10${query}`) as Promise<EndpointFilePage>;
+  const allSaasRows = async (query = '') => {
+    const rows: SaasFileListRow[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: SaasFileListPage = await saasPage(`${query}${cursor ? `&cursor=${cursor}` : ''}`);
+      rows.push(...page.rows);
+      cursor = page.nextCursor;
+    } while (cursor);
+    return rows;
+  };
+  const endpointFile = (id: string, resource: string) => readDemoBody(`/api/dspm/endpoint-files/${id}/${resource}`);
+  const optionsOf = (options: DatastoreFilterOptions, key: string) => options.dimensions.find(d => d.key === key)!.options;
+  const deviceRows = async () =>
+    ((await readDemoBody(`${DS}?tab=endpoint&pageSize=100`)) as DspmPage<DatastoreRow>).data;
+  const modesOf = (sharing: SaasFileOverview['sharing']) => {
+    const codes = [sharing.publicShare && 'PUBLIC', sharing.externalEmails.length > 0 && 'EXTERNAL',
+      sharing.internalEmails.length > 0 && 'INTERNAL'].filter(Boolean);
+    return codes.length > 0 ? codes : ['PRIVATE'];
+  };
+  const showcaseRow = async () => (await endpointPage('&q=offer-letter')).rows[0];
+
+  it('answers every Files path with its DTO, never the {} catch-all', async () => {
+    const [first] = (await endpointPage()).rows;
+    const urls = [
+      `${FILES}/saas?limit=10`, `${FILES}/saas/filter-options`, `${FILES}/saas/filter-options?category=Legal`,
+      `${FILES}/endpoint?skip=0&limit=10`, `${FILES}/endpoint/filter-options`,
+      ...['overview', 'activity', 'lineage', 'copies'].map(resource => `/api/dspm/endpoint-files/${first.id}/${resource}`),
+    ];
+    for (const url of urls) {
+      const response = resolveDemoResponse(url);
+      expect(response, url).not.toBeNull();
+      expect(response!.status, url).toBe(200);
+      expect(await response!.json(), url).not.toEqual({});
+    }
+  });
+
+  it('answers an unknown endpoint file id or Files path with 404 ASSET_NOT_FOUND', async () => {
+    for (const url of [
+      '/api/dspm/endpoint-files/de500000-0000-4000-8000-000199999999/overview',
+      '/api/dspm/endpoint-files/00000000-0000-4000-8000-000000000000/lineage',
+      `${FILES}/unknown`,
+    ]) {
+      const response = resolveDemoResponse(url)!;
+      expect(response.status, url).toBe(404);
+      expect((await response.json()).code, url).toBe('ASSET_NOT_FOUND');
+    }
+  });
+
+  it('pages the SaaS tab forward and back through three pages, newest first, with a null cursor on the last', async () => {
+    const one = await saasPage();
+    const two = await saasPage(`&cursor=${one.nextCursor}`);
+    const three = await saasPage(`&cursor=${two.nextCursor}`);
+    expect([one, two, three].map(page => page.rows.length)).toEqual([10, 10, 10]);
+    expect(three.nextCursor).toBeNull();
+    // Back: the pager re-sends the cursor it kept for page 2.
+    expect(await saasPage(`&cursor=${one.nextCursor}`)).toEqual(two);
+    expect(await saasPage('&cursor=not-a-cursor')).toEqual(one);
+    const times = [...one.rows, ...two.rows, ...three.rows].map(row => row.lastModifiedAt!);
+    expect(times).toEqual([...times].sort((a, b) => b - a));
+    expect(new Set([...one.rows, ...two.rows, ...three.rows].map(row => row.id)).size).toBe(30);
+  });
+
+  it('opens every SaaS row as a drawer with the same name, owner, category, class, sharing and last modified', async () => {
+    for (const row of await allSaasRows()) {
+      const overview = await readDemoBody(`/api/dspm/saas-files/${row.id}/overview`) as SaasFileOverview;
+      expect([overview.name, overview.owner, overview.categoryLabel, overview.documentClassLabel, overview.lastModifiedAt], row.name!)
+        .toEqual([row.name, row.owner, row.categoryLabel, row.documentClassLabel, row.lastModifiedAt]);
+      expect(row.sharingModes.map(mode => mode.code), row.name!).toEqual(modesOf(overview.sharing));
+      expect(row.extension, row.name!).toBe(overview.fileExtension === 'msg' ? null : overview.fileExtension);
+    }
+  });
+
+  it('shows the sharing forms of the demo: Externally Shared + 1, Private and Internally Shared', async () => {
+    const rows = await allSaasRows();
+    const labels = (name: string) => rows.find(row => row.name === name)!.sharingModes.map(mode => mode.label);
+    expect(labels('Offer Letter - Priya Nair.docx')).toEqual(['Externally Shared', 'Internally Shared']);
+    expect(labels('Team Roster.xlsx')).toEqual(['Private']);
+    expect(labels('Offer Letter - Priya Nair.pdf')).toEqual(['Internally Shared']);
+  });
+
+  it('narrows the SaaS tab by each filter', async () => {
+    const all = await allSaasRows();
+    const gmail = await allSaasRows('&appType=GMAIL');
+    expect(gmail.length).toBeGreaterThan(0);
+    expect(gmail.length).toBeLessThan(all.length);
+    expect(gmail.every(row => row.source === 'GMAIL' && row.sourceLabel === 'Gmail')).toBe(true);
+    // A mail's subject is no extension; the Gmail attachment keeps its own.
+    expect(gmail.filter(row => row.extension !== null).map(row => [row.name, row.extension]))
+      .toEqual([['Offer Letter - Priya Nair.pdf', 'pdf']]);
+    expect((await allSaasRows('&sharing=external')).map(row => row.name)).toEqual(['Offer Letter - Priya Nair.docx']);
+    expect((await allSaasRows('&externalUser=talent.partner%40example.com')).map(row => row.name)).toEqual(['Offer Letter - Priya Nair.docx']);
+    expect((await allSaasRows('&documentClass=Invoices%20%26%20Receipts')).every(row => row.documentClassLabel === 'Invoices & Receipts')).toBe(true);
+    expect((await allSaasRows('&category=Legal')).every(row => row.categoryLabel === 'Legal')).toBe(true);
+    expect((await allSaasRows('&q=offer')).map(row => row.name).sort())
+      .toEqual(['Offer Letter - Priya Nair.docx', 'Offer Letter - Priya Nair.pdf', 'Re: Offer acceptance']);
+    const pci = await allSaasRows('&sensitives=PCI');
+    expect(pci.length).toBeGreaterThan(0);
+    expect(pci.length).toBeLessThan(all.length);
+  });
+
+  it('lists one Owner per SaaS datastore with files, so Priya twice, each selecting that datastore’s rows', async () => {
+    const options = await readDemoBody(`${FILES}/saas/filter-options`) as DatastoreFilterOptions;
+    expect(options.dimensions.map(d => d.key))
+      .toEqual(['sensitives', 'category', 'appType', 'documentClass', 'owner', 'internalUser', 'externalUser', 'sharing']);
+    const priya = optionsOf(options, 'owner').filter(option => option.label === 'priya@xammer.in');
+    expect(priya).toHaveLength(2);
+    const [gmail, drive] = await Promise.all(priya.map(option => allSaasRows(`&owner=${option.value}`)));
+    expect(gmail.every(row => row.source === 'GMAIL' && row.owner === 'priya@xammer.in')).toBe(true);
+    expect(drive.map(row => row.name).sort()).toEqual(['Offer Letter - Priya Nair.docx', 'Team Roster.xlsx']);
+    expect((await allSaasRows(`&owner=${priya.map(o => o.value).join(',')}`)).length).toBe(gmail.length + drive.length);
+  });
+
+  it('offers the fixed Sensitives, App Type and Sharing lists, and narrows Document Class by Category', async () => {
+    const options = await readDemoBody(`${FILES}/saas/filter-options`) as DatastoreFilterOptions;
+    expect(optionsOf(options, 'sensitives').map(o => [o.value, o.label]))
+      .toEqual([['PII', 'Personal'], ['PCI', 'Financial'], ['PHI', 'Health'], ['SECRETS', 'IT & Security']]);
+    expect(optionsOf(options, 'appType')).toHaveLength(9);
+    expect(optionsOf(options, 'sharing').map(o => o.label)).toEqual(['Shared Internally', 'Shared Externally', 'Shared Publicly']);
+    expect(optionsOf(options, 'documentClass').length).toBeGreaterThan(1);
+    const legal = await readDemoBody(`${FILES}/saas/filter-options?category=Legal`) as DatastoreFilterOptions;
+    expect(optionsOf(legal, 'documentClass').map(o => o.value)).toEqual(['General Contracts & Agreements']);
+    expect(optionsOf(options, 'externalUser').map(o => o.value)).toEqual(['talent.partner@example.com']);
+  });
+
+  it('lists every device’s File View rows on the Endpoint tab, of 32,325', async () => {
+    expect((await endpointPage()).total).toBe(32_325);
+    for (const device of await deviceRows()) {
+      const fileView = await readDemoBody(`${DS}/${device.sourceId}/endpoint/files?skip=0&limit=10`) as EndpointFilePage;
+      const files = await endpointPage(`&hostname=${encodeURIComponent(device.name!)}`);
+      expect(files.rows, device.name!).toEqual(fileView.rows);
+      expect(files.total, device.name!).toBe(fileView.total);
+    }
+  });
+
+  it('narrows the Endpoint tab by each filter', async () => {
+    expect((await endpointPage('&hostname=build-runner-01')).total).toBe(18_240);
+    expect((await endpointPage('&uid=C02XD4DEMO01')).total).toBe(4_210);
+    expect((await endpointPage('&tag=customer-data')).rows.map(row => row.name)).toEqual(['customer_export_sept.csv']);
+    expect((await endpointPage('&documentClass=payroll%20records')).rows.map(row => row.name)).toEqual(['payroll_draft.xlsx']);
+    expect((await endpointPage('&category=it%20%26%20technical')).total).toBe(3);
+    expect((await endpointPage('&dataElement=IFSC%20CODE')).rows.map(row => row.name)).toEqual(['vendor_bank_details.xlsx']);
+    expect((await endpointPage('&sensitives=PCI')).total).toBe(3);
+    const recent = await endpointPage('&lastModified=48h');
+    expect(recent.rows.map(row => row.name)).toEqual(['offer-letter.docx']);
+    expect((await endpointPage('&lastModified=30d')).total).toBeLessThan(32_325);
+  });
+
+  it('offers the Endpoint filters in the More filters order, data elements in sentence case', async () => {
+    const options = await readDemoBody(`${FILES}/endpoint/filter-options`) as DatastoreFilterOptions;
+    expect(options.dimensions.map(d => d.key))
+      .toEqual(['category', 'sensitives', 'documentClass', 'dataElement', 'tag', 'uid', 'hostname', 'lastModified']);
+    expect(optionsOf(options, 'dataElement').find(o => o.value === 'EMAIL ADDRESS')!.label).toBe('Email address');
+    expect(optionsOf(options, 'tag').map(o => o.value)).toEqual(['customer-data', 'hr-restricted']);
+    expect(optionsOf(options, 'hostname')).toHaveLength(6);
+    expect(optionsOf(options, 'lastModified').map(o => o.value)).toEqual(['48h', '7d', '30d']);
+  });
+
+  it('opens every endpoint row as a drawer with its name and times, also after the clock moves 61 s', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const firstRows = (await readDemoBody(`${FILES}/endpoint?skip=0&limit=100`) as EndpointFilePage).rows;
+    const deviceFirsts = [];
+    for (const device of await deviceRows()) {
+      const [row] = (await endpointPage(`&hostname=${encodeURIComponent(device.name!)}`)).rows;
+      if (row) deviceFirsts.push(row);
+    }
+    const saas = await allSaasRows();
+    expect(deviceFirsts).toHaveLength(4);
+    vi.setSystemTime(Date.now() + 61_000);
+    for (const row of [...firstRows, ...deviceFirsts]) {
+      expect(row.id).toMatch(/^de500000-0000-4000-8000-\d{12}$/);
+      expect(row.scannedAt).not.toBeNull();
+      const overview = await endpointFile(row.id!, 'overview') as EndpointFileOverview;
+      expect([overview.name, overview.modifiedAt, overview.path], row.id!).toEqual([row.name, row.modifiedAt, row.path]);
+      if (overview.modifiedAt === null) {
+        expect([overview.fileCreatedAt, overview.accessedAt]).toEqual([null, null]);
+      } else {
+        expect(overview.fileCreatedAt).toBe(overview.modifiedAt - 2_592_000);
+        expect(overview.accessedAt!).toBeGreaterThanOrEqual(overview.modifiedAt);
+        expect(overview.accessedAt!).toBeLessThanOrEqual(Math.max(overview.modifiedAt, DEMO_NOW));
+      }
+    }
+    for (const row of saas) {
+      const overview = await readDemoBody(`/api/dspm/saas-files/${row.id}/overview`) as SaasFileOverview;
+      expect(overview.lastModifiedAt, row.name!).toBe(row.lastModifiedAt);
+    }
+  });
+
+  it('derives File Created and Last Accessed from the change time', () => {
+    const N = 1_800_000_000;
+    expect(demoEndpointFileTimes(null, N)).toEqual({ fileCreatedAt: null, accessedAt: null });
+    expect(demoEndpointFileTimes(N - 864_000, N)).toEqual({ fileCreatedAt: N - 864_000 - 2_592_000, accessedAt: N - 777_600 });
+    expect(demoEndpointFileTimes(N - 3_600, N).accessedAt).toBe(N);
+    expect(demoEndpointFileTimes(N + 60, N).accessedAt).toBe(N + 60);
+  });
+
+  it('serves offer-letter.docx as the showcase: New, one File Activity entry, Mac, Gmail and Drive lanes, three copies', async () => {
+    const row = await showcaseRow();
+    expect(row.name).toBe('offer-letter.docx');
+    expect(DEMO_NOW - row.modifiedAt!).toBeGreaterThanOrEqual(0);
+    expect(DEMO_NOW - row.modifiedAt!).toBeLessThan(48 * 3600);
+    const activity = await endpointFile(row.id!, 'activity') as EndpointFileActivity;
+    expect(activity.entries).toEqual([{
+      action: 'TAG_APPLIED', actionLabel: 'Tag applied', selectedTag: 'Confidential', previousTag: null,
+      performedBy: 'priya@xammer.in', occurredAt: DEMO_NOW - 259_200, keywordsWritten: true, mipLabelWritten: false,
+    }]);
+    const lineage = await endpointFile(row.id!, 'lineage') as EndpointFileLineage;
+    expect(lineage.asset).toMatchObject({ title: 'offer-letter.docx', device: 'Priya’s MacBook Pro', osUser: 'priya', events: [] });
+    expect(lineage.copies.lanes.map(lane => [lane.channelLabel, lane.self]))
+      .toEqual([['Gmail', false], ['Google Drive', false], ['Google Drive', false], ['Endpoint', true]]);
+    const copies = await endpointFile(row.id!, 'copies') as SaasFileCopies;
+    expect(copies.locations).toBe(3);
+    expect(copies.copies.map(copy => copy.sourceLabel)).toEqual(['Gmail', 'Google Drive', 'Google Drive']);
+    const other = (await endpointPage()).rows[0];
+    expect(await endpointFile(other.id!, 'activity')).toEqual({ entries: [] });
+    expect(await endpointFile(other.id!, 'copies')).toEqual({ available: true, copies: [], locations: 1 });
+  });
+
+  it('puts offer-letter.docx fourth in demo-ep-01’s File View and keeps its 4,210 files and 5,400 records', async () => {
+    const mac = (await deviceRows()).find(row => row.name === 'Priya’s MacBook Pro')!;
+    expect(mac.sensitives.recordCount).toBe(5_400);
+    const fileView = await readDemoBody(`${DS}/${mac.sourceId}/endpoint/files?skip=0&limit=10`) as EndpointFilePage;
+    expect(fileView.total).toBe(4_210);
+    expect(fileView.rows[3]).toMatchObject({ name: 'offer-letter.docx', sensitiveCount: 0 });
+    const others = fileView.rows.filter(row => row.name !== 'offer-letter.docx');
+    expect(others.every(row => DEMO_NOW - row.modifiedAt! >= 48 * 3600)).toBe(true);
+    const summary = await readDemoBody(`${DS}/${mac.sourceId}/endpoint/summary`) as EndpointSummary;
+    expect(summary.extensions.find(chip => chip.extension === 'docx')).toMatchObject({ label: 'DOCX', count: 1 });
+  });
+});
+
+
+describe('demo router — XamLens Dashboard (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+
+  it('answers /api/dspm/dashboard with four environments whose Top Risky rows are demo datastores', async () => {
+    const dashboard = await readDemoBody('/api/dspm/dashboard') as DspmDashboard;
+    expect(dashboard.environments.map(e => e.id)).toEqual(['cloud', 'saas', 'endpoint', 'on_prem']);
+    const all = (await readDemoBody('/api/dspm/datastores?tab=all&pageSize=100') as DspmPage<DatastoreRow>).data;
+    const known = new Set(all.map(row => row.sourceId));
+    for (const [tab, rows] of Object.entries(dashboard.topRisky)) {
+      expect(rows.length, tab).toBeLessThanOrEqual(5);
+      for (const row of rows) {
+        expect(known.has(row.sourceId), `${tab}: ${row.name}`).toBe(true);
+        expect(row.sensitives.recordCount).toBeGreaterThan(0);
+        // Its drawer answers with data, never a 404.
+        expect(resolveDemoResponse(`/api/dspm/datastores/${row.sourceId}/${
+          row.category === 'saas' ? 'saas/detail' : row.category === 'endpoint' ? 'endpoint/overview' : 'overview'
+        }`)!.status, row.name ?? '').toBe(200);
+      }
+    }
+    expect(dashboard.topRisky.all.length).toBeGreaterThan(0);
+    for (const environment of dashboard.environments) {
+      const rows = (await readDemoBody(
+        `/api/dspm/datastores?tab=${environment.id}&pageSize=100`,
+      ) as DspmPage<DatastoreRow>).data;
+      expect(environment.sensitiveRecords).toBe(rows.reduce((sum, row) => sum + row.sensitives.recordCount, 0));
+      expect(environment.connected).toBe(rows.length > 0);
+      expect(environment.subCategories.reduce((sum, bar) => sum + bar.sensitiveRecords, 0))
+        .toBe(environment.sensitiveRecords);
+    }
+  });
+
+  it('answers Active Sensitive Regions from the demo cloud rows, each region filtering to its own datastores', async () => {
+    const dashboard = await readDemoBody('/api/dspm/dashboard') as DspmDashboard;
+    expect(dashboard.regions.length).toBeGreaterThan(1);
+    const records = dashboard.regions.map(region => region.sensitiveRecords);
+    expect(records).toEqual([...records].sort((a, b) => b - a));
+    for (const region of dashboard.regions) {
+      const rows = (await readDemoBody(
+        `/api/dspm/datastores?tab=cloud&region=${encodeURIComponent(region.region)}&pageSize=100`,
+      ) as DspmPage<DatastoreRow>).data;
+      expect(region.datastores, region.region).toBe(rows.length);
+      expect(region.sensitiveRecords).toBe(rows.reduce((sum, row) => sum + row.sensitives.recordCount, 0));
+      expect(region.scannedDatastores).toBe(rows.filter(row => row.scan.status === 'CLASSIFIED').length);
+    }
+  });
+});
 /**
  * AC-UI-06 (AWS): every v2 path the AutoSpotting shell calls has a demo response, so a demo session
  * never reaches the backend and never gets the generic `{}` where a list or document is expected.
@@ -1358,6 +1964,205 @@ describe('demo router — AutoSpotting shell (ROLE_XAMOPS)', () => {
   });
 });
 
+/** AC-UI-06 (GCP): the demo GCP project answers every path the shell calls with GCP data. */
+describe('demo router — AutoSpotting shell for GCP (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+    resetAutoSpottingDemo();
+  });
+
+  const call = async (url: string, method = 'GET', body?: unknown) => {
+    const response = resolveDemoResponse(url, method, body === undefined ? undefined : JSON.stringify(body));
+    expect(response, `expected a demo response for ${method} ${url}`).not.toBeNull();
+    return { status: response!.status, body: JSON.parse(await response!.text()) };
+  };
+  const V2 = '/api/autospotting/v2';
+  const G = `${V2}/accounts/9101`;
+
+  it('gives the demo GCP project a XamOps account id and lists GCP in the config', async () => {
+    expect(demoAccounts.find(a => a.provider === 'GCP')?.dbId).toBe(9101);
+    const { body } = await call(`${V2}/config`);
+    expect(body.providers.GCP.conversionsEnabled).toBe(false);
+    expect(body.providers.GCP.v2MutationsEnabled).toBe(false);
+  });
+
+  it('answers the MIG list with GKE excluded from the potential, and one detail', async () => {
+    const list = (await call(`${G}/groups`)).body;
+    expect(list.items.every((r: { provider: string }) => r.provider === 'GCP')).toBe(true);
+    expect(list.items.some((r: { groupKey: string }) => r.groupKey.split('/').length === 3)).toBe(true);
+    expect(list.blockedCounts.GCP_GKE_NODE_POOL).toBe(1);
+    expect(list.blockedCounts.GCP_NO_READINESS_GATE).toBe(1);
+    const potential = (await call(`${G}/groups/potential`)).body;
+    expect(potential.ineligibleGroups).toBe(2);
+    expect(potential.unpricedGroups).toBe(1);
+    const detail = await call(`${G}/groups/demo-grp-gcp-api`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.group.provider).toBe('GCP');
+  });
+
+  it('plans with the two-version floor and confirms through a scripted operation', async () => {
+    const created = await call(`${G}/plans`, 'POST', { kind: 'ENABLE', groupRef: 'gcp-analytics-demo/us-central1/web-mig' });
+    expect(created.status).toBe(201);
+    const body = JSON.parse(created.body.body);
+    expect(body.target.floorMechanism).toBe('TWO_VERSION_MIG');
+    expect(body.onDemandFloor.floorN).toBe(3);
+    expect(body.estimates.map((e: { profile: string }) => e.profile)).toEqual(['conservative', 'balanced', 'aggressive']);
+    const confirmed = await call(`${G}/plans/${created.body.planId}/confirm`, 'POST', { planVersion: 1, acknowledgedWarningIds: [], fullSpotOptIn: false });
+    for (let i = 0; i < 6; i++) await call(`${G}/operations/${confirmed.body.operationId}`);
+    const web = (await call(`${G}/groups`)).body.items.find((r: { name: string }) => r.name === 'web-mig');
+    expect(web.state).toBe('ACTIVE');
+  });
+
+  it('answers analytics, activity and commitments for the GCP project', async () => {
+    const analytics = (await call(`${G}/analytics?from=2026-10-22&to=2026-11-20`)).body;
+    expect(analytics.groups[0].byType[0].instanceType).toBe('c2-standard-8');
+    const audit = (await call(`${G}/audit?from=2026-10-22&to=2026-11-20&limit=100`)).body;
+    expect(audit.every((e: { groupKey: string | null }) => e.groupKey === null || e.groupKey.startsWith('gcp-analytics-demo/'))).toBe(true);
+    expect((await call(`${G}/commitments/settings`)).status).toBe(200);
+  });
+});
+
+describe('demo router — XamLens Document Classes, Assists and Remediation (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+
+  it('answers /api/dspm/document-classes with 33 classes in 11 categories', async () => {
+    const list = await readDemoBody('/api/dspm/document-classes') as DocumentClassList;
+    expect(list.categories).toHaveLength(11);
+    expect(list.rows).toHaveLength(33);
+    for (const row of list.rows) expect(list.categories).toContain(row.category);
+  });
+
+  it('answers /api/dspm/assists with an active, a disabled, an expiring and an expired assist', async () => {
+    const { assists } = await readDemoBody('/api/dspm/assists') as AssistList;
+    const now = Date.now() / 1000;
+    expect(assists).toHaveLength(4);
+    expect(assists.map(a => a.statusLabel)).toContain('Disabled');
+    expect(assists.some(a => a.version === null)).toBe(true);
+    expect(assists.some(a => a.secretExpiresAt !== null && a.secretExpiresAt < now)).toBe(true);
+    expect(assists.some(a => a.secretExpiresAt !== null && a.secretExpiresAt > now && a.secretExpiresAt - now <= 12 * 86_400)).toBe(true);
+    for (const a of assists) expect(a.clientId).toMatch(/^[A-Za-z0-9+/]+=*$/);
+  });
+
+  it('answers /api/dspm/remediation/activity applying status, actionType, q, skip and limit', async () => {
+    const url = (query: string) => `/api/dspm/remediation/activity?${query}`;
+    const all = await readDemoBody(url('skip=0&limit=10')) as RemediationActivity;
+    expect(all.items).toHaveLength(6);
+    expect(all.total).toBe(6);
+    expect(all.summary.total).toBe(6);
+    expect(new Set(all.items.map(i => i.status)).size).toBeGreaterThanOrEqual(5);
+    const completed = await readDemoBody(url('status=COMPLETED&skip=0&limit=10')) as RemediationActivity;
+    expect(completed.items.every(i => i.status === 'COMPLETED')).toBe(true);
+    expect(completed.total).toBe(completed.items.length);
+    expect(completed.summary.total).toBe(6);   // the cards cover every status
+    const action = await readDemoBody(url('actionType=DELETE_FILE&skip=0&limit=10')) as RemediationActivity;
+    expect(action.items.map(i => i.actionType)).toEqual(['DELETE_FILE']);
+    const searched = await readDemoBody(url('q=ROSTER&skip=0&limit=10')) as RemediationActivity;
+    expect(searched.items).toHaveLength(1);
+    const paged = await readDemoBody(url('skip=4&limit=10')) as RemediationActivity;
+    expect(paged.items).toHaveLength(2);
+    expect(paged.total).toBe(6);
+    const none = await readDemoBody(url('q=no-such-object&skip=0&limit=10')) as RemediationActivity;
+    expect(none.items).toEqual([]);
+    expect(none.summary.total).toBe(0);
+  });
+});
+
+describe('demo router — XamLens Scan Management (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+  const SM = '/api/dspm/scan-management';
+  const expectNotFound = async (url: string) => {
+    const response = resolveDemoResponse(url);
+    expect(response?.status, url).toBe(404);
+    expect(JSON.parse(await response!.text()).code).toBe('ASSET_NOT_FOUND');
+  };
+
+  it('answers the schedules, a legacy one-time and a weekly one, with their details', async () => {
+    const list = await readDemoBody(`${SM}/schedules?page=1&pageSize=10`) as DspmPage<ScanSchedule>;
+    expect(list.total).toBe(2);
+    const legacy = list.data.find(s => s.legacy) as ScanSchedule;
+    expect(legacy.name).toBeNull();
+    expect(legacy.timing?.type).toBe('once');
+    expect(legacy.lastRunAt).toBeNull();
+    const weekly = list.data.find(s => !s.legacy) as ScanSchedule;
+    expect(weekly.timing?.recurrenceType).toBe('WEEKLY');
+    expect(weekly.timing?.repeatOn.length).toBeGreaterThan(0);
+    const detail = await readDemoBody(`${SM}/schedules/${legacy.id}`) as ScanScheduleDetail;
+    expect(detail.targets.length).toBeLessThan(detail.targetsTotal);
+    const endpointOnly = await readDemoBody(`${SM}/schedules?platform=endpoint&page=1&pageSize=10`) as DspmPage<ScanSchedule>;
+    expect(endpointOnly.data.map(s => s.id)).toEqual([weekly.id]);
+    await expectNotFound(`${SM}/schedules/ffffffffffffffffffffffff`);
+  });
+
+  it('answers 8 runs (one in progress, one failed) with filters, details and datastores', async () => {
+    const list = await readDemoBody(`${SM}/scan-history?page=1&pageSize=10`) as DspmPage<ScanRun>;
+    expect(list.total).toBe(8);
+    expect(list.data.filter(r => r.status === 'IN_PROGRESS')).toHaveLength(1);
+    expect(list.data.filter(r => r.status === 'FAILED')).toHaveLength(1);
+    expect(list.data.filter(r => r.status === 'SUCCESS')).toHaveLength(6);
+    const cloud = await readDemoBody(`${SM}/scan-history?platform=cloud&page=1&pageSize=10`) as DspmPage<ScanRun>;
+    expect(cloud.data.length).toBeGreaterThan(0);
+    expect(cloud.data.every(r => r.platform === 'cloud')).toBe(true);
+    const paged = await readDemoBody(`${SM}/scan-history?page=2&pageSize=5`) as DspmPage<ScanRun>;
+    expect(paged.data).toHaveLength(3);
+
+    const failed = list.data.find(r => r.status === 'FAILED') as ScanRun;
+    const detail = await readDemoBody(`${SM}/scan-history/${failed.id}`) as ScanRunDetail;
+    expect(detail.run.id).toBe(failed.id);
+    expect(detail.accounts.length).toBeGreaterThan(0);
+    const datastores = await readDemoBody(`${SM}/scan-history/${failed.id}/datastores?page=1&pageSize=10`) as DspmPage<ScanRunDatastore>;
+    expect(datastores.data.some(d => d.status === 'FAILED' && d.failureReason !== null)).toBe(true);
+    const byAccount = await readDemoBody(`${SM}/scan-history/${failed.id}/datastores?account=${encodeURIComponent(detail.accounts[0].value ?? '')}&page=1&pageSize=10`) as DspmPage<ScanRunDatastore>;
+    expect(byAccount.data.every(d => d.accountName === detail.accounts[0].value)).toBe(true);
+    await expectNotFound(`${SM}/scan-history/00000000-0000-4000-8000-000000000000`);
+    await expectNotFound(`${SM}/scan-history/00000000-0000-4000-8000-000000000000/datastores`);
+  });
+
+  it('answers one scope with its targets', async () => {
+    const list = await readDemoBody(`${SM}/scan-scopes?page=1&pageSize=10`) as DspmPage<ScanScope>;
+    expect(list.data).toHaveLength(1);
+    const detail = await readDemoBody(`${SM}/scan-scopes/${list.data[0].id}`) as ScanScopeDetail;
+    expect(detail.targets.length).toBeGreaterThan(0);
+    const none = await readDemoBody(`${SM}/scan-scopes?platform=endpoint&page=1&pageSize=10`) as DspmPage<ScanScope>;
+    expect(none.data).toEqual([]);
+    await expectNotFound(`${SM}/scan-scopes/ffffffffffffffffffffffff`);
+  });
+
+  it('answers Google Workspace with 23 users and Slack with 3 channels', async () => {
+    const { integrations } = await readDemoBody(`${SM}/saas-integrations`) as SaasIntegrationList;
+    expect(integrations.map(i => i.provider)).toEqual(['GOOGLE_WORKSPACE', 'SLACK']);
+    const [google, slack] = integrations;
+    const config = await readDemoBody(`${SM}/saas-integrations/${google.id}/configuration`) as SaasScanConfiguration;
+    expect(config.scopes.map(s => s.driveType)).toEqual(['GOOGLE_WORKSPACE', 'GMAIL']);
+    const users = await readDemoBody(`${SM}/saas-integrations/${google.id}/users?driveType=GOOGLE_WORKSPACE&page=3&pageSize=10`) as DspmPage<SaasScanUser>;
+    expect(users.total).toBe(23);
+    expect(users.data).toHaveLength(3);
+    const org = await readDemoBody(`${SM}/saas-integrations/${google.id}/users?driveType=GOOGLE_WORKSPACE&domain=example.org&page=1&pageSize=50`) as DspmPage<SaasScanUser>;
+    expect(org.data.length).toBeGreaterThan(0);
+    expect(org.data.every(u => u.email?.endsWith('@example.org'))).toBe(true);
+    const channels = await readDemoBody(`${SM}/saas-integrations/${slack.id}/channels?page=1&pageSize=10`) as DspmPage<SaasChannel>;
+    expect(channels.total).toBe(3);
+    const fresh = await readDemoBody(`${SM}/saas-integrations/${slack.id}/channels?isNew=true&page=1&pageSize=10`) as DspmPage<SaasChannel>;
+    expect(fresh.data.every(c => c.isNew)).toBe(true);
+    const enabled = await readDemoBody(`${SM}/saas-integrations/${slack.id}/channels?scanState=ENABLED&page=1&pageSize=10`) as DspmPage<SaasChannel>;
+    expect(enabled.data.every(c => c.selected)).toBe(true);
+    await expectNotFound(`${SM}/saas-integrations/ffffffffffffffffffffffff/configuration`);
+  });
+
+  it('answers the endpoint configuration, and 404 for an unknown path', async () => {
+    const config = await readDemoBody(`${SM}/endpoint-configuration`) as EndpointScanConfiguration;
+    expect(config.configured).toBe(true);
+    expect(config.fileTypes.every(t => config.allFileTypes.includes(t))).toBe(true);
+    await expectNotFound(`${SM}/no-such-view`);
+  });
+});
+
 describe.each(['ROLE_XAMOPS', 'ROLE_BILLOPS_ADMIN'])('demo router — AutoSpotting operator views (%s)', role => {
   beforeEach(() => {
     sessionStorage.setItem(DEMO_MODE_KEY, 'true');
@@ -1378,5 +2183,224 @@ describe.each(['ROLE_XAMOPS', 'ROLE_BILLOPS_ADMIN'])('demo router — AutoSpotti
     expect(changed.version).toBe(1);
     const paused = JSON.parse(await resolveDemoResponse(`${PREFIX}/groups/g-1/pause`, 'POST', JSON.stringify({ reason: 'x' }))!.text());
     expect(paused.state).toBe('PAUSED');
+  });
+});
+
+/** Build 4 design 7 and AC22: every Data Lineage path is answered in the browser, off and on. */
+describe('demo router — XamLens Data Lineage page (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+  afterEach(() => {
+    sessionStorage.removeItem(DEMO_LINEAGE_STEPS_KEY);
+  });
+  const LN = '/api/dspm/lineage';
+  const POLICY = '5e1f0c00-0000-4000-8000-000000000001';
+  const answerOf = async (url: string) => {
+    const response = resolveDemoResponse(url);
+    expect(response, url).not.toBeNull();
+    return { status: response!.status, body: await response!.json() };
+  };
+  const stepsOn = () => sessionStorage.setItem(DEMO_LINEAGE_STEPS_KEY, 'on');
+  const policies = (query: string) => readDemoBody(`${LN}/policies?category=SENSITIVE_FINDINGS&${query}`) as Promise<LineagePolicyPage>;
+  const datastores = (query = '') => readDemoBody(`${LN}/policies/${POLICY}/datastores?${query}`) as Promise<LineageDatastorePage>;
+  const filesOf = (id: string, query = '') => readDemoBody(`${LN}/datastores/${id}/files?${query}`) as Promise<LineageFilePage>;
+
+  it('answers as the switch-off backend by default', async () => {
+    expect(DEMO_LINEAGE_STEPS_DEFAULT).toBe(false);
+    const categories = await readDemoBody(`${LN}/categories`) as LineageCategories;
+    expect(categories.available).toBe(false);
+    expect(categories.categories.map(c => c.name)).toEqual([
+      'Sensitive Findings', 'Excessive Exposure', 'High Volume Access', 'Stale Data', 'Risky User', 'Public Exposure',
+    ]);
+    expect(categories.categories.every(c => c.exposures === null)).toBe(true);
+    expect(await readDemoBody(`${LN}/filter-options?level=policy`)).toEqual({ dimensions: [] });
+    const off = { available: false, rows: [], total: 0, skip: 0, limit: 7 };
+    expect(await policies('skip=0&limit=7')).toEqual(off);
+    expect(await datastores('skip=0&limit=7')).toEqual(off);
+    expect(await filesOf('exp-01-studiomac', 'skip=0&limit=7')).toEqual(off);
+    expect(await readDemoBody(`${LN}/files/f11e0000-0000-4000-8000-000000000001/lineage`))
+      .toEqual({ available: false, coverageNote: null, lanes: [], events: [] });
+  });
+
+  it('answers every pattern off and on with its DTO, never the {} catch-all', async () => {
+    for (const steps of ['off', 'on']) {
+      sessionStorage.setItem(DEMO_LINEAGE_STEPS_KEY, steps);
+      for (const url of [
+        `${LN}/categories`, `${LN}/filter-options?level=policy`, `${LN}/filter-options?level=datastore`,
+        `${LN}/policies?category=SENSITIVE_FINDINGS&skip=0&limit=7`, `${LN}/policies/${POLICY}/datastores?skip=0&limit=7`,
+        `${LN}/datastores/exp-01-studiomac/files?skip=0&limit=7`, `${LN}/files/f11e0000-0000-4000-8000-000000000001/lineage`,
+      ]) {
+        const { status, body } = await answerOf(url);
+        expect(status, `${steps} ${url}`).toBe(200);
+        expect(body, `${steps} ${url}`).not.toEqual({});
+      }
+    }
+  });
+
+  it('switched on: counts agree with the lists, 9 policies page as 7 + 2, one datastore has 9 files', async () => {
+    stepsOn();
+    const categories = await readDemoBody(`${LN}/categories`) as LineageCategories;
+    expect(categories.available).toBe(true);
+    expect(categories.categories.map(c => c.exposures)).toEqual([9, 1, 0, 2, 0, 0]);
+    for (const category of categories.categories) {
+      const rows = await readDemoBody(`${LN}/policies?category=${category.id}&limit=50`) as LineagePolicyPage;
+      expect(rows.total, category.id).toBe(category.exposures);
+      expect(rows.rows).toHaveLength(category.exposures!);
+    }
+    const first = await policies('skip=0&limit=7');
+    expect(first).toMatchObject({ available: true, total: 9, skip: 0, limit: 7 });
+    expect(first.rows).toHaveLength(7);
+    expect((await policies('skip=7&limit=7')).rows).toHaveLength(2);
+    for (const policy of first.rows) {
+      const page = await readDemoBody(`${LN}/policies/${policy.id}/datastores?limit=50`) as LineageDatastorePage;
+      expect(page.total, policy.name!).toBe(policy.datastores);
+      for (const datastore of page.rows) {
+        const files = await filesOf(datastore.id!, 'limit=100');
+        expect(files.total, datastore.name!).toBe(datastore.files);
+        expect(files.rows).toHaveLength(datastore.files!);
+      }
+    }
+    const studio = (await datastores()).rows.find(row => row.files === 9)!;
+    expect(studio).toBeDefined();
+    const pageOne = await filesOf(studio.id!, 'skip=0&limit=7');
+    expect(pageOne).toMatchObject({ total: 9, skip: 0, limit: 7 });
+    expect(pageOne.rows).toHaveLength(7);
+    expect((await filesOf(studio.id!, 'skip=7&limit=7')).rows).toHaveLength(2);
+  });
+
+  it('switched on: filter options, search, Include and Exclude as the backend applies them', async () => {
+    stepsOn();
+    const options = await readDemoBody(`${LN}/filter-options?level=policy`) as DatastoreFilterOptions;
+    expect(options.dimensions.map(d => d.key)).toEqual(['severity', 'datastoreName', 'label']);
+    expect(options.dimensions[0].options.map(o => o.label)).toEqual(['Critical', 'High', 'Medium']);
+    const names = options.dimensions[1].options.map(o => o.label);
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+    expect(options.dimensions[2].options.map(o => o.value)).toEqual(['PII', 'PCI', 'PHI', 'SECRETS']);
+    const datastoreOptions = await readDemoBody(`${LN}/filter-options?level=datastore`) as DatastoreFilterOptions;
+    expect(datastoreOptions.dimensions.map(d => d.key)).toEqual(['severity']);
+
+    const all = (await policies('limit=50')).rows;
+    const critical = await policies('limit=50&severity=CRITICAL');
+    expect(critical.rows.length).toBeGreaterThan(0);
+    expect(critical.rows.every(row => row.severity === 'CRITICAL')).toBe(true);
+    const notCritical = await policies('limit=50&severity_exclude=CRITICAL');
+    expect(notCritical.total + critical.total).toBe(all.length);
+    expect(notCritical.rows.some(row => row.severity === 'CRITICAL')).toBe(false);
+    expect(await policies('limit=50&severity_exclude=CRITICAL,HIGH,MEDIUM'))
+      .toEqual({ available: true, rows: [], total: 0, skip: 0, limit: 50 });
+    const secrets = await policies('limit=50&label=SECRETS');
+    expect(secrets.total).toBeGreaterThan(0);
+    expect(secrets.total).toBeLessThan(all.length);
+    const legal = await policies('limit=50&datastoreName=Legal%20SharePoint');
+    expect(legal.rows.every(row => row.service === 'SHARE_POINT')).toBe(true);
+    const searched = await policies('limit=50&q=ONEDRIVE');
+    expect(searched.total).toBeGreaterThan(0);
+    expect(searched.rows.every(row => row.name!.toLowerCase().includes('onedrive'))).toBe(true);
+
+    const policyDatastores = await datastores();
+    const high = await datastores('severity=HIGH');
+    const notHigh = await datastores('severity_exclude=HIGH');
+    expect(high.total + notHigh.total).toBe(policyDatastores.total);
+    expect((await datastores('q=ops')).rows.map(row => row.name)).toEqual(['Ops MacBook Air']);
+  });
+
+  it('switched on: lineage for most files, available:false for one', async () => {
+    stepsOn();
+    const files = (await Promise.all((await datastores()).rows.map(row => filesOf(row.id!, 'limit=100')))).flatMap(p => p.rows);
+    const answers = await Promise.all(files.map(file => readDemoBody(`${LN}/files/${file.id}/lineage`) as Promise<SaasFileLineage>));
+    expect(answers.filter(a => !a.available)).toHaveLength(1);
+    const lineage = answers.find(a => a.available)!;
+    expect(lineage.lanes.filter(lane => lane.self)).toHaveLength(1);
+    expect(lineage.events.map(e => e.typeLabel)).toEqual(['File Created', 'File Modified', 'File Copied']);
+  });
+
+  it('refuses a value that is no option, a bad category and a bad level with 400 INVALID_REQUEST', async () => {
+    stepsOn();
+    for (const [url, message] of [
+      [`${LN}/policies?category=SENSITIVE_FINDINGS&severity=LOW`, 'severity is not an option of this project'],
+      [`${LN}/policies?category=SENSITIVE_FINDINGS&label_exclude=OTHER`, 'label_exclude is not an option of this project'],
+      [`${LN}/policies/${POLICY}/datastores?severity_exclude=LOW`, 'severity_exclude is not an option of this project'],
+      [`${LN}/policies?category=NOT_A_CATEGORY`, 'category must be one of the exposure categories'],
+      [`${LN}/filter-options?level=file`, 'level must be policy or datastore'],
+    ]) {
+      const { status, body } = await answerOf(url);
+      expect(status, url).toBe(400);
+      expect(body, url).toEqual({ code: 'INVALID_REQUEST', message });
+    }
+  });
+
+  it('answers unknown ids and other lineage paths with 404 ASSET_NOT_FOUND', async () => {
+    stepsOn();
+    for (const url of [
+      `${LN}/policies/00000000-0000-4000-8000-000000000000/datastores`,
+      `${LN}/datastores/exp-unknown/files`,
+      `${LN}/files/ffffffffffffffffffffffff/lineage`,
+      `${LN}/policies/not-a-uuid/datastores`,
+      `${LN}/summary`,
+      `${LN}/`,
+    ]) {
+      const { status, body } = await answerOf(url);
+      expect(status, url).toBe(404);
+      expect(body.code, url).toBe('ASSET_NOT_FOUND');
+    }
+    sessionStorage.setItem(DEMO_LINEAGE_STEPS_KEY, 'off');
+    expect((await answerOf(`${LN}/summary`)).status).toBe(404);
+  });
+});
+
+describe('demo router — XamLens datastore sync status and Scan Settings (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+
+  const DS = '/api/dspm/datastores';
+  const S3 = 'de3000000000000000000001';
+  const DYNAMODB = 'de3000000000000000000005';
+  const RDS = 'de3000000000000000000006';
+  const ON_PREM = 'de3000000000000000000011';
+
+  it('answers sync statuses covering a finished, a running, a failed and no sync', async () => {
+    const statuses = await Promise.all([S3, RDS, ON_PREM, DYNAMODB]
+      .map(id => readDemoBody(`${DS}/${id}/sync-status`) as Promise<DatastoreSyncStatus>));
+    expect(statuses.map(s => s.status)).toEqual(['SUCCESS', 'IN_PROGRESS', 'FAILED', null]);
+    expect(statuses[0].updatedAt).toEqual(expect.any(Number));
+    expect(statuses[3].updatedAt).toBeNull();
+  });
+
+  it('answers an RDS-like, an S3-like and an on-prem scan settings answer, with no secret field', async () => {
+    const rds = await readDemoBody(`${DS}/${RDS}/scan-settings`) as DatastoreScanSettings;
+    expect(rds.host).not.toBeNull();
+    expect(rds.port).toBe(5432);
+    expect(rds.exportAssistName).not.toBeNull();
+    const s3 = await readDemoBody(`${DS}/${S3}/scan-settings`) as DatastoreScanSettings;
+    expect(s3.host).toBeNull();
+    expect(s3.inclusionPaths.length).toBeGreaterThan(0);
+    expect(s3.parameters?.timeOutHours).not.toBeNull();
+    const onPrem = await readDemoBody(`${DS}/${ON_PREM}/scan-settings`) as DatastoreScanSettings;
+    const filled = Object.values(onPrem.parameters ?? {}).filter(value => value !== null);
+    expect(filled).toHaveLength(3);
+    for (const body of [rds, s3, onPrem]) {
+      expect(body).not.toHaveProperty('uri');
+      expect(JSON.stringify(body)).not.toMatch(/password|userName|ProxyId/);
+    }
+  });
+
+  it('answers an empty database list for datastores that are not Snowflake or Databricks', async () => {
+    expect(await readDemoBody(`${DS}/${RDS}/scan-settings/databases`) as DatastoreDatabases).toEqual({ databases: [] });
+  });
+
+  it('answers an unknown or non-cloud id with the backend 404', async () => {
+    for (const url of [
+      `${DS}/ffffffffffffffffffffffff/sync-status`,
+      `${DS}/ffffffffffffffffffffffff/scan-settings`,
+      `${DS}/de3100000000000000000001/scan-settings/databases`,
+    ]) {
+      const response = resolveDemoResponse(url);
+      expect(response?.status, url).toBe(404);
+      expect(JSON.parse(await response!.text()).code).toBe('ASSET_NOT_FOUND');
+    }
   });
 });

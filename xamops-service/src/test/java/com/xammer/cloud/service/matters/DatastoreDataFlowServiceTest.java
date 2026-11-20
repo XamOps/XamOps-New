@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.xammer.cloud.dto.matters.datastores.DataFlowColumnPage;
 import com.xammer.cloud.dto.matters.datastores.DataFlowDatabases;
+import com.xammer.cloud.dto.matters.datastores.DataFlowErd;
+import com.xammer.cloud.dto.matters.datastores.DataFlowRelations;
 import com.xammer.cloud.dto.matters.datastores.DataFlowSchemas;
 import com.xammer.cloud.dto.matters.datastores.DataFlowTablePage;
 import org.junit.jupiter.api.BeforeEach;
@@ -358,6 +360,69 @@ class DatastoreDataFlowServiceTest {
                 .containsExactly("dspm:dsdfschemas:10:" + DATABASE);
     }
 
+    // ── Graph View ───────────────────────────────────────────────────────────────────────────────
+
+    private static final String ERD_BODY = """
+            {"nodes": [{"id": "t-1", "name": "invoice", "sensitive_count": 2, "row_count_estimate": 9},
+                       {"id": "t-2", "name": "client"}],
+             "edges": [{"foreign_key_id": "MARKER-FK", "constraint_name": "MARKER-CONSTRAINT",
+                        "source_table_id": "t-1", "target_table_id": "t-2",
+                        "columns": [{"source_column_name": "client_id", "target_column_name": "id"}]}]}
+            """;
+
+    private static final String RELATIONS_BODY = """
+            {"outgoing": [{"constraint_name": "MARKER-CONSTRAINT", "other_schema_name": "public",
+                           "other_table_name": "client",
+                           "columns": [{"source_column_name": "client_id", "target_column_name": "id"}]}],
+             "incoming": []}
+            """;
+
+    private JsonNode parse(String raw) {
+        try {
+            return json.readTree(raw);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Test
+    @DisplayName("schema and database diagrams are cached for 5 minutes under their s: and d: keys")
+    void diagramsAreCached() {
+        when(apiClient.schemaErd(CREDENTIAL, SCHEMA)).thenAnswer(inv -> parse(ERD_BODY));
+        when(apiClient.databaseErd(CREDENTIAL, DATABASE)).thenAnswer(inv -> parse(ERD_BODY));
+
+        DataFlowErd schemaErd = service.schemaErd(10L, SCHEMA);
+        service.schemaErd(10L, SCHEMA);
+        DataFlowErd databaseErd = service.databaseErd(10L, DATABASE);
+        service.databaseErd(10L, DATABASE);
+
+        verify(apiClient, times(1)).schemaErd(CREDENTIAL, SCHEMA);
+        verify(apiClient, times(1)).databaseErd(CREDENTIAL, DATABASE);
+        assertThat(schemaErd.nodes()).extracting(DataFlowErd.Node::name).containsExactly("invoice", "client");
+        assertThat(schemaErd.edges()).extracting(DataFlowErd.Edge::id).containsExactly("fk-0");
+        assertThat(databaseErd).isEqualTo(schemaErd);
+        assertThat(cache.puts).extracting(InMemoryRedisCache.Put::key, InMemoryRedisCache.Put::minutes).containsExactly(
+                tuple("dspm:dsdferd:10:s:" + SCHEMA, 5),
+                tuple("dspm:dsdferd:10:d:" + DATABASE, 5));
+        assertThat(cache.puts).allSatisfy(put -> assertThat(put.json()).doesNotContain("MARKER"));
+    }
+
+    @Test
+    @DisplayName("a table's relations are cached for 5 minutes under dsdfrel")
+    void relationsAreCached() {
+        when(apiClient.tableRelations(CREDENTIAL, TABLE)).thenAnswer(inv -> parse(RELATIONS_BODY));
+
+        DataFlowRelations relations = service.tableRelations(10L, TABLE);
+        service.tableRelations(10L, TABLE);
+
+        verify(apiClient, times(1)).tableRelations(CREDENTIAL, TABLE);
+        assertThat(relations.outgoing()).extracting(DataFlowRelations.Relation::tableName).containsExactly("client");
+        assertThat(relations.incoming()).isEmpty();
+        assertThat(cache.puts).extracting(InMemoryRedisCache.Put::key, InMemoryRedisCache.Put::minutes)
+                .containsExactly(tuple("dspm:dsdfrel:10:" + TABLE, 5));
+        assertThat(cache.puts).allSatisfy(put -> assertThat(put.json()).doesNotContain("MARKER"));
+    }
+
     // ── order of checks ──────────────────────────────────────────────────────────────────────────
 
     @Test
@@ -366,6 +431,18 @@ class DatastoreDataFlowServiceTest {
         schemaWithTables(10);
         service.schemaTables(10L, SCHEMA, 1, 10, null);
         assertThat(events).startsWith("resolve", "get dspm:dsdftables:10:s:" + SCHEMA + ":1");
+        when(apiClient.schemaErd(CREDENTIAL, SCHEMA)).thenAnswer(inv -> parse(ERD_BODY));
+        when(apiClient.databaseErd(CREDENTIAL, DATABASE)).thenAnswer(inv -> parse(ERD_BODY));
+        when(apiClient.tableRelations(CREDENTIAL, TABLE)).thenAnswer(inv -> parse(RELATIONS_BODY));
+        events.clear();
+        service.schemaErd(10L, SCHEMA);
+        assertThat(events).startsWith("resolve", "get dspm:dsdferd:10:s:" + SCHEMA);
+        events.clear();
+        service.databaseErd(10L, DATABASE);
+        assertThat(events).startsWith("resolve", "get dspm:dsdferd:10:d:" + DATABASE);
+        events.clear();
+        service.tableRelations(10L, TABLE);
+        assertThat(events).startsWith("resolve", "get dspm:dsdfrel:10:" + TABLE);
 
         doThrow(new MattersApiException(MattersApiException.Reason.NOT_ENTITLED, "not entitled"))
                 .when(resolver).resolve(10L);
@@ -380,6 +457,9 @@ class DatastoreDataFlowServiceTest {
         assertThatThrownBy(() -> guarded.databaseTables(10L, DATABASE, 1, 10, null))
                 .isInstanceOf(MattersApiException.class);
         assertThatThrownBy(() -> guarded.columns(10L, TABLE, 1, 10)).isInstanceOf(MattersApiException.class);
+        assertThatThrownBy(() -> guarded.schemaErd(10L, SCHEMA)).isInstanceOf(MattersApiException.class);
+        assertThatThrownBy(() -> guarded.databaseErd(10L, DATABASE)).isInstanceOf(MattersApiException.class);
+        assertThatThrownBy(() -> guarded.tableRelations(10L, TABLE)).isInstanceOf(MattersApiException.class);
         verifyNoInteractions(untouched);
         assertThat(cache.gets).isEmpty();
     }

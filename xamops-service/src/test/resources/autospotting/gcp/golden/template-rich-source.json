@@ -1,0 +1,161 @@
+{
+  "creationTimestamp": "2026-01-01T00:00:00.000-08:00",
+  "description": "customer template",
+  "id": "7770001",
+  "kind": "compute#instanceTemplate",
+  "name": "rich-tpl-1",
+  "properties": {
+    "advancedMachineFeatures": {
+      "enableNestedVirtualization": true,
+      "threadsPerCore": 1,
+      "visibleCoreCount": 4
+    },
+    "canIpForward": true,
+    "confidentialInstanceConfig": {
+      "confidentialInstanceType": "SEV",
+      "enableConfidentialCompute": true
+    },
+    "description": "props desc",
+    "disks": [
+      {
+        "autoDelete": true,
+        "boot": true,
+        "initializeParams": {
+          "diskSizeGb": "50",
+          "diskType": "pd-balanced",
+          "sourceImage": "projects/debian-cloud/global/images/family/debian-12"
+        },
+        "kind": "compute#attachedDisk",
+        "mode": "READ_WRITE",
+        "type": "PERSISTENT"
+      },
+      {
+        "autoDelete": true,
+        "initializeParams": {
+          "diskType": "local-ssd"
+        },
+        "interface": "NVME",
+        "kind": "compute#attachedDisk",
+        "type": "SCRATCH"
+      }
+    ],
+    "displayDevice": {
+      "enableDisplay": true
+    },
+    "guestAccelerators": [
+      {
+        "acceleratorCount": 1,
+        "acceleratorType": "nvidia-tesla-t4"
+      }
+    ],
+    "labels": {
+      "env": "prod",
+      "id": "7",
+      "kind": "web"
+    },
+    "machineType": "n1-standard-8",
+    "metadata": {
+      "fingerprint": "def=",
+      "items": [
+        {
+          "key": "startup-script",
+          "value": "echo hi"
+        }
+      ],
+      "kind": "compute#metadata"
+    },
+    "minCpuPlatform": "Intel Skylake",
+    "networkInterfaces": [
+      {
+        "accessConfigs": [
+          {
+            "kind": "compute#accessConfig",
+            "name": "External NAT",
+            "networkTier": "PREMIUM",
+            "type": "ONE_TO_ONE_NAT"
+          }
+        ],
+        "aliasIpRanges": [
+          {
+            "ipCidrRange": "/24",
+            "subnetworkRangeName": "pods"
+          }
+        ],
+        "fingerprint": "nic1=",
+        "kind": "compute#networkInterface",
+        "network": "global/networks/default",
+        "subnetwork": "regions/us-central1/subnetworks/default"
+      },
+      {
+        "kind": "compute#networkInterface",
+        "network": "global/networks/other",
+        "subnetwork": "regions/us-central1/subnetworks/other"
+      }
+    ],
+    "networkPerformanceConfig": {
+      "totalEgressBandwidthTier": "TIER_1"
+    },
+    "privateIpv6GoogleAccess": "INHERIT_FROM_SUBNETWORK",
+    "reservationAffinity": {
+      "consumeReservationType": "SPECIFIC_RESERVATION",
+      "key": "compute.googleapis.com/reservation-name",
+      "values": [
+        "res-1"
+      ]
+    },
+    "resourcePolicies": [
+      "projects/xamops-test/regions/us-central1/resourcePolicies/pol"
+    ],
+    "scheduling": {
+      "automaticRestart": true,
+      "localSsdRecoveryTimeout": {
+        "seconds": "60"
+      },
+      "locationHint": "us-central1-a",
+      "maxRunDuration": {
+        "seconds": "3600"
+      },
+      "minNodeCpus": 4,
+      "nodeAffinities": [
+        {
+          "key": "workload",
+          "operator": "IN",
+          "values": [
+            "sole"
+          ]
+        }
+      ],
+      "onHostMaintenance": "MIGRATE",
+      "preemptible": false,
+      "provisioningModel": "STANDARD"
+    },
+    "serviceAccounts": [
+      {
+        "email": "sa@xamops-test.iam.gserviceaccount.com",
+        "scopes": [
+          "https://www.googleapis.com/auth/cloud-platform"
+        ]
+      }
+    ],
+    "shieldedInstanceConfig": {
+      "enableIntegrityMonitoring": true,
+      "enableSecureBoot": true,
+      "enableVtpm": true
+    },
+    "someFutureField": {
+      "nested": [
+        1,
+        2,
+        3
+      ]
+    },
+    "tags": {
+      "fingerprint": "abc=",
+      "items": [
+        "web",
+        "ssh"
+      ]
+    }
+  },
+  "selfLink": "https://www.googleapis.com/compute/v1/projects/xamops-test/global/instanceTemplates/rich-tpl-1"
+}

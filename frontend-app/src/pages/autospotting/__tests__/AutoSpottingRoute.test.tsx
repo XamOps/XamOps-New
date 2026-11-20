@@ -11,7 +11,9 @@ vi.mock('../../../contexts/AccountContext', () => ({
 }));
 vi.mock('../../SpotAutomationPage', () => ({ default: () => <div>legacy aws page</div> }));
 vi.mock('../../GcpSpotAutomationPage', () => ({ default: () => <div>legacy gcp page</div> }));
-vi.mock('../AutoSpottingPage', () => ({ default: () => <div>shared shell</div> }));
+vi.mock('../AutoSpottingPage', () => ({
+  default: ({ preselect }: { preselect?: string }) => <div>{`shared shell${preselect ? ` ${preselect}` : ''}`}</div>,
+}));
 
 import AutoSpottingRoute from '../AutoSpottingRoute';
 
@@ -41,10 +43,22 @@ describe('AutoSpottingRoute', () => {
     expect(await screen.findByText('shared shell')).toBeInTheDocument();
   });
 
-  it('renders the legacy GCP page for a GCP account even with the flag on', async () => {
+  it('renders the shell for a GCP account when the flag is on', async () => {
     account.provider = 'GCP';
     installFetch([{ match: /\/v2\/config$/, responses: [{ body: config(true) }] }]);
     renderWithProviders(<AutoSpottingRoute />);
+    expect(await screen.findByText('shared shell GCP')).toBeInTheDocument();
+  });
+
+  it('/gcp-autospotting opens the shell with GCP preselected when the flag is on', async () => {
+    installFetch([{ match: /\/v2\/config$/, responses: [{ body: config(true) }] }]);
+    renderWithProviders(<AutoSpottingRoute gcp />);
+    expect(await screen.findByText('shared shell GCP')).toBeInTheDocument();
+  });
+
+  it('/gcp-autospotting keeps the legacy GCP page while the flag is off', async () => {
+    installFetch([{ match: /\/v2\/config$/, responses: [{ body: config(false) }] }]);
+    renderWithProviders(<AutoSpottingRoute gcp />);
     expect(await screen.findByText('legacy gcp page')).toBeInTheDocument();
   });
 });

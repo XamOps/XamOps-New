@@ -110,6 +110,8 @@ export interface GroupDetail {
     occurredAt: string;
   }>;
   currentOperation: Operation | null;
+  /** GCP: preemptions recorded in the last 7 days; null when nothing is tracked for the group yet. */
+  preemptions7d?: number | null;
 }
 
 export interface Plan {
@@ -135,6 +137,8 @@ export interface PlanRequest {
   groupId?: string | null;
   groupRef?: string | null;
   profileId?: string | null;
+  /** GCP only: the edited rolling-update fields of a MIG_POLICY_UPDATE or policy-only CONFIG_APPLY plan. */
+  policyEdit?: Record<string, unknown> | null;
 }
 
 export interface ConfirmRequest {
@@ -448,6 +452,27 @@ export interface Potential {
   partial: boolean;
   asOf: string | null;
 }
+export interface StackCapability {
+  code: string;
+  label: string;
+}
+/** What the account's stack lacks for AutoSpotting (design-aws.md §10.1). */
+export interface StackCapabilities {
+  applicable: boolean;
+  templateVersion: string | null;
+  latestVersion: string;
+  updateRequired: boolean;
+  missing: StackCapability[];
+}
+export const getStackCapabilities = (accountId: number): Promise<StackCapabilities> =>
+  request('GET', `${V2}/accounts/${accountId}/stack-capabilities`);
+/** The AWS event pipeline's coverage per region (design-aws.md §9.4). Only COVERED lets a group convert. */
+export interface RegionCoverage {
+  applicable: boolean;
+  regions: { region: string; status: 'COVERED' | 'MISSING' | 'SKIPPED' | 'UNKNOWN'; checkedAt: string; lastEventAt: string | null }[];
+}
+export const getRegionCoverage = (accountId: number): Promise<RegionCoverage> =>
+  request('GET', `${V2}/accounts/${accountId}/region-coverage`);
 export const getCommitmentCoverage = (accountId: number): Promise<RispCoverageBody> =>
   request('GET', `${V2}/accounts/${accountId}/commitments/coverage`);
 export const getCommitmentSettings = (accountId: number): Promise<CommitmentSettings> =>
@@ -590,6 +615,35 @@ export const removeFromAllowlist = (
     idempotencyKey,
   });
 // ---------------------------------------------------------------------------
+// Operator: AWS event dead-letter queue (Phase 22, design-aws.md section 9.8). No message bodies.
+// ---------------------------------------------------------------------------
+export interface DlqEntry {
+  messageId: string;
+  detailType: string | null;
+  account: string | null;
+  groupId: string | null;
+  sentAt: string | null;
+  receiveCount: number;
+}
+export interface DlqSummary {
+  configured: boolean;
+  queue: string | null;
+  depth: number;
+  messages: DlqEntry[];
+  redriveRunning: boolean;
+}
+export interface DlqRedriveResult {
+  mode: 'MOVE_TASK' | 'RESEND';
+  taskHandle: string | null;
+  moved: number;
+}
+export const getEventsDlq = (): Promise<DlqSummary> => request('GET', `${ADMIN}/events/dlq?provider=aws`);
+export const redriveEventsDlq = (
+  reason: string,
+  idempotencyKey: string = newIdempotencyKey(),
+): Promise<DlqRedriveResult> =>
+  request('POST', `${ADMIN}/events/dlq/redrive?provider=aws`, { body: { reason }, idempotencyKey });
+// ---------------------------------------------------------------------------
 // BillOps admin: contracts and go-live (Phase 15, ledger design section 11.4). BillOps and super admins only.
 // Percentages and amounts travel as decimal strings; the form never turns them into numbers.
 // ---------------------------------------------------------------------------
@@ -696,3 +750,61 @@ export function parseWarningIds(plan: Pick<Plan, 'warningIds'>): string[] {
   const ids = parseJson<unknown>(plan.warningIds, []);
   return Array.isArray(ids) ? ids.filter((i): i is string => typeof i === 'string') : [];
 }
+
+// ---------------------------------------------------------------------------
+// Account deletion check and "Revert all" (design-core.md §7.5, PO-21)
+// ---------------------------------------------------------------------------
+
+export interface ManagedGroupRef {
+  groupId: string;
+  groupKey: string;
+  state: string;
+}
+
+export interface DeletionCheck {
+  /** Groups in a state that blocks account deletion (APPLYING, ACTIVE, FALLBACK, REVERTING). */
+  blocking: ManagedGroupRef[];
+  /** DEGRADED, PAUSED and FAILED groups: still converted, do not block (PO-21a, open). */
+  stillConverted: ManagedGroupRef[];
+  revertAllPath: string;
+  deletable: boolean;
+}
+
+export interface RevertAllItem {
+  groupId: string;
+  groupKey: string | null;
+  groupState: string | null;
+  plan: Plan | null;
+  errorCode: string | null;
+  errorDetail: string | null;
+  operationId: string | null;
+  operationStatus: string | null;
+}
+
+export interface RevertAllBatch {
+  batchId: string;
+  accountId: number;
+  items: RevertAllItem[];
+  total: number;
+  reverted: number;
+  failed: number;
+  alreadyReverting: string[];
+}
+
+export const getDeletionCheck = (accountId: number): Promise<DeletionCheck> =>
+  request('GET', `${V2}/accounts/${accountId}/deletion-check`);
+
+export const createRevertAll = (accountId: number, idempotencyKey: string, retry?: RetryOptions): Promise<RevertAllBatch> =>
+  sendWithRetry('POST', `${V2}/accounts/${accountId}/revert-all`, {}, idempotencyKey, retry);
+
+export const getRevertAll = (accountId: number, batchId: string): Promise<RevertAllBatch> =>
+  request('GET', `${V2}/accounts/${accountId}/revert-all/${batchId}`);
+
+export const confirmRevertAll = (
+  accountId: number,
+  batchId: string,
+  req: { acknowledgedWarningIds: string[]; reason?: string },
+  idempotencyKey: string,
+  retry?: RetryOptions,
+): Promise<RevertAllBatch> =>
+  sendWithRetry('POST', `${V2}/accounts/${accountId}/revert-all/${batchId}/confirm`, req, idempotencyKey, retry);

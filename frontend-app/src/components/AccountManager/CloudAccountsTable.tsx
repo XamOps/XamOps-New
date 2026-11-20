@@ -7,6 +7,7 @@ import { apiFetch } from '../../utils/apiClient';
 import type { CloudAccount } from '../../types/accountManager';
 import { fetchStackStatus, type StackDiagnosis } from '../../api/stackApi';
 import StackUpdateModal from './StackUpdateModal';
+import { gcpAccessLabel } from './gcpAccessLabel';
 
 /** What the customer has to do to bring their stack onto the current template. */
 interface StackUpdateGuide {
@@ -341,7 +342,7 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
                       {/* Access */}
                       <td className="px-4 py-3.5 whitespace-nowrap">
                         <span className="text-[12px] text-[rgba(0,0,0,0.55)]">
-                          {account.access || 'Contributor'}
+                          {gcpAccessLabel(account.gcpAccessType) ?? (account.access || 'Contributor')}
                         </span>
                       </td>
 

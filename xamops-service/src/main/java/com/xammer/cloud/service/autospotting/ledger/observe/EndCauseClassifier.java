@@ -20,6 +20,10 @@ public final class EndCauseClassifier {
 
     public static final String SOURCE_EC2_STATE_REASON = "EC2_STATE_REASON";
     public static final String SOURCE_ASG_ACTIVITY_CAUSE = "ASG_ACTIVITY_CAUSE";
+    /** A {@code compute.instances.preempted} zone operation (design-ledger.md §3.5). */
+    public static final String SOURCE_GCE_PREEMPTED_OPERATION = "GCE_PREEMPTED_OPERATION";
+    /** A {@code compute.instances.delete} zone operation: the end is known and the provider did not reclaim it. */
+    public static final String SOURCE_GCE_DELETE_OPERATION = "GCE_DELETE_OPERATION";
 
     /** An end cause with the source that established it ({@code source} is null for UNKNOWN). */
     public record Cause(String cause, String source) {

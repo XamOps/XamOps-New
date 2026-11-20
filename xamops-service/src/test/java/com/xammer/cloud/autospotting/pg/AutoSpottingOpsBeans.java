@@ -129,9 +129,21 @@ class AutoSpottingOpsBeans {
     }
 
     @Bean
+    com.xammer.cloud.repository.autospotting.NotificationStore notificationStore(DataSource dataSource) {
+        return new com.xammer.cloud.repository.autospotting.NotificationStore(dataSource);
+    }
+
+    @Bean
+    com.xammer.cloud.service.autospotting.notify.AutoSpottingNotificationService notificationService(
+            com.xammer.cloud.repository.autospotting.NotificationStore store, AuditRedactor redactor) {
+        return new com.xammer.cloud.service.autospotting.notify.AutoSpottingNotificationService(store, redactor);
+    }
+
+    @Bean
     GroupLifecycleService groupLifecycleService(FencedTx fencedTx, SpotGroupLifecycleRepository lifecycle,
-                                                AutoSpottingAuditWriter auditWriter) {
-        return new GroupLifecycleService(fencedTx, lifecycle, auditWriter);
+                                                AutoSpottingAuditWriter auditWriter,
+            com.xammer.cloud.service.autospotting.notify.AutoSpottingNotificationService notifications) {
+        return new GroupLifecycleService(fencedTx, lifecycle, auditWriter, notifications);
     }
 
     @Bean
@@ -201,6 +213,18 @@ class AutoSpottingOpsBeans {
                 opsLifecycle, metrics);
     }
 
+    @Bean
+    com.xammer.cloud.service.autospotting.core.FallbackProperties fallbackProperties() {
+        return com.xammer.cloud.service.autospotting.core.FallbackProperties.defaults();
+    }
+    @Bean
+    com.xammer.cloud.service.autospotting.core.reconcile.FallbackEnqueuer fallbackEnqueuer(
+            SpotOperationRepository ops, PreemptionService preemption, OperationStore store,
+            com.xammer.cloud.service.autospotting.core.FallbackProperties props, AutoSpottingAuditWriter audit,
+            com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics, SwitchService switches) {
+        return new com.xammer.cloud.service.autospotting.core.reconcile.FallbackEnqueuer(ops, preemption, store, props,
+                audit, metrics, switches);
+    }
     @Bean
     PreemptionService preemptionService(SpotOperationRepository ops, SpotGroupLifecycleRepository lifecycle) {
         return new PreemptionService(ops, lifecycle);

@@ -25,6 +25,7 @@ import com.xammer.cloud.service.autospotting.core.ops.PreemptionService;
 import com.xammer.cloud.service.autospotting.core.switches.AutoSpottingSwitchProperties;
 import com.xammer.cloud.service.autospotting.core.switches.SwitchService;
 import com.xammer.cloud.service.autospotting.core.switches.SwitchState;
+import com.xammer.cloud.service.autospotting.notify.AutoSpottingNotificationService;
 import com.xammer.cloud.service.autospotting.spi.ProviderRegistry;
 import com.xammer.cloud.service.autospotting.spi.ReadOnlyCloudView;
 import com.xammer.cloud.service.autospotting.spi.SpotProvider;
@@ -86,6 +87,7 @@ public class ConfirmService {
     private final AutoSpottingSwitchProperties switchProperties;
     private final ProviderRegistry providers;
     private final AutoSpottingAuditWriter auditWriter;
+    private final AutoSpottingNotificationService notifications;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ConfirmService(SpotPlanRepository plans, SpotGroupRepository groups,
@@ -93,7 +95,7 @@ public class ConfirmService {
                           PreemptionService preemption, AutoSpottingAuthorization authorization,
                           RevertPreconditions revertPreconditions, SwitchService switchService,
                           AutoSpottingSwitchProperties switchProperties, ProviderRegistry providers,
-                          AutoSpottingAuditWriter auditWriter) {
+                          AutoSpottingAuditWriter auditWriter, AutoSpottingNotificationService notifications) {
         this.plans = plans;
         this.groups = groups;
         this.operations = operations;
@@ -105,9 +107,15 @@ public class ConfirmService {
         this.switchProperties = switchProperties;
         this.providers = providers;
         this.auditWriter = auditWriter;
+        this.notifications = notifications;
     }
 
     /** The confirm command (controller-resolved; the account is already tenancy-authorized). */
+    /** The marker stored in {@code confirm_acks} when the customer confirmed a 100% Spot plan (FR-PLN-04). */
+    public static final String FULL_SPOT_OPTIN = "FULL_SPOT_OPTIN";
+    /** GR-03: the 409 code of a GCP revert plan that needs a permission XamOps does not have. */
+    public static final String REVERT_NEEDS_PERMISSION = "REVERT_NEEDS_PERMISSION";
+
     public record ConfirmCommand(int planVersion, List<String> acknowledgedWarningIds, boolean fullSpotOptIn,
                                  String reason, boolean dryRunRequested, String idempotencyKey,
                                  String requestSha256) {
@@ -152,8 +160,11 @@ public class ConfirmService {
             throw new AutoSpottingApiException(decision.denyStatus(), decision.denyCode(), decision.denyDetail());
         }
 
-        // 3. Kind and state (the §7.4 table), repeated under the group's current state.
-        if (!PlanKinds.isAllowed(plan.getKind(), state)) {
+        // 3. Kind and state (the §7.4 table), repeated under the group's current state. GR-02: a REVERTED
+        // group is revertible only after a drain-only revert (PASSROLE_DENIED).
+        boolean regrant = revert && group != null && state == GroupState.REVERTED
+                && RevertHistory.lastRevertPassRoleDenied(operations, plans, group.getId());
+        if (!PlanKinds.isAllowed(plan.getKind(), state, regrant)) {
             throw AutoSpottingApiException.planKindNotAllowed(PlanKinds.notAllowedDetail(plan.getKind(), state));
         }
 
@@ -171,6 +182,14 @@ public class ConfirmService {
                     "The plan changed since you read it. Reload and try again.");
         }
 
+        // GR-03: a GCP revert has no partial safe target that needs fewer permissions than the PATCH itself, so a plan
+        // that carries REVERT_NEEDS_PERMISSION is refused here (retryable: re-plan after the grant). Nothing was
+        // enqueued, so the group keeps its state and fallback and billing carry on.
+        if (revert && provider == Provider.GCP && planNeedsPermission(plan)) {
+            throw new AutoSpottingApiException(HttpStatus.CONFLICT, REVERT_NEEDS_PERMISSION,
+                    "XamOps is missing a permission it needs to revert this group. Grant it, then plan the revert again.",
+                    true, null, null);
+        }
         // 5. Every warning id acknowledged.
         Set<String> required = warningIds(plan);
         Set<String> acked = new HashSet<>(cmd.acknowledgedWarningIds() == null ? List.of() : cmd.acknowledgedWarningIds());
@@ -185,6 +204,15 @@ public class ConfirmService {
             if (plan.isRequiresFullSpotOptin() && !cmd.fullSpotOptIn()) {
                 throw new AutoSpottingApiException(HttpStatus.UNPROCESSABLE_ENTITY, "CHECK_FAILED",
                         "This plan is 100% Spot; confirm the full-Spot opt-in to proceed.");
+            }
+            JsonNode blocker = firstBlocker(plan);
+            if (blocker != null) {
+                // A blocked plan is never confirmed: a Launch Configuration group, desired <= 1, a
+                // terminate-first maintenance policy and the other hard blockers end here with 422 and
+                // the plan's own guidance text, before an operation exists (AC-AWS-01).
+                throw new AutoSpottingApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+                        blocker.path("code").asText("CHECK_FAILED"), blocker.path("text").asText(
+                                "This group can't be converted yet."));
             }
             if (desiredAtMostOne(plan)) {
                 throw new AutoSpottingApiException(HttpStatus.UNPROCESSABLE_ENTITY, "CHECK_FAILED",
@@ -217,7 +245,7 @@ public class ConfirmService {
         // asks for it (§7.2, plan-phase-11.md 11.3).
         boolean dryRun = plan.isDryRun() || cmd.dryRunRequested() || switchProperties.mutationsDryRun();
         int flipped = plans.confirmIfOpen(plan.getId(), plan.getVersion(), actorName(user), Instant.now(),
-                acksJson(cmd.acknowledgedWarningIds()), cmd.reason());
+                acksJson(acksWithOptIn(cmd)), cmd.reason());
         if (flipped != 1) {
             // Another confirm won the race between our read and the UPDATE: return its op id.
             SpotOperation winner = operations.findByPlanId(plan.getId()).orElse(null);
@@ -230,6 +258,13 @@ public class ConfirmService {
 
         UUID insertedOpId = insertOp(account, plan, group, state, opId, dryRun, cmd);
         auditConfirm(account, plan, group, decision);
+        if (decision.adminEnabled()) {
+            // PO14_RECOMMENDED only: tell the customer an admin enabled this on their behalf (ux §7.2). The
+            // outbox row joins this transaction, so it exists exactly when the confirm does.
+            notifications.recordAdminEnabled(group, account.getId(), null, plan.getId(), actorName(user),
+                    decision.role() == null ? null : decision.role().name(),
+                    decision.actor() == null ? null : decision.actor().impersonatorUserId(), cmd.reason());
+        }
 
         if (log.isDebugEnabled()) {
             log.debug("plan {} CONFIRMED -> op {} kind={} dryRun={}", plan.getId(), insertedOpId,
@@ -250,6 +285,7 @@ public class ConfirmService {
                     .priorState(priorState)
                     .compensationTarget(CompensationTargets.forKind(plan.getKind()))
                     .targetConfigJson(targetConfigJson(plan))
+                    .compensationConfigJson(compensationConfigJson(plan))
                     .idempotencyKey(cmd.idempotencyKey())
                     .requestSha256(cmd.requestSha256())
                     .requestedBy(plan.getCreatedBy())
@@ -303,6 +339,31 @@ public class ConfirmService {
         return ids;
     }
 
+    /** True when the plan's eligibility carries a {@code REVERT_NEEDS_PERMISSION} blocker (GCP, GR-03). */
+    private boolean planNeedsPermission(SpotPlan plan) {
+        try {
+            JsonNode body = objectMapper.readTree(plan.getBody() == null ? "{}" : plan.getBody());
+            for (JsonNode blocker : body.path("eligibility").path("blockers")) {
+                if (REVERT_NEEDS_PERMISSION.equals(blocker.path("code").asText())) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+            // an unreadable body carries no such blocker; step 0 of the revert checks the permissions again
+        }
+        return false;
+    }
+    /** The first definitive blocker the plan recorded, or null when it has none. */
+    private JsonNode firstBlocker(SpotPlan plan) {
+        try {
+            JsonNode body = objectMapper.readTree(plan.getBody() == null ? "{}" : plan.getBody());
+            JsonNode blockers = body.path("eligibility").path("blockers");
+            return blockers.isArray() && !blockers.isEmpty() ? blockers.get(0) : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private boolean desiredAtMostOne(SpotPlan plan) {
         // The plan body carries the rollout; a group with desired <= 1 is too small for a PROGRESS
         // conversion (§7.4 step 6, AC-PLN-08). The fake/provider encodes desired in the rollout's
@@ -317,6 +378,25 @@ public class ConfirmService {
             // fall through
         }
         return false;
+    }
+
+    /**
+     * The configuration a PRIOR_CONFIG compensation restores (design-core.md §2.2.1): the plan body's
+     * {@code current}, the owned fields as read when the plan was made. Null for the other targets, and
+     * when the body carries no JSON object there.
+     */
+    private String compensationConfigJson(SpotPlan plan) {
+        if (CompensationTargets.forKind(plan.getKind())
+                != com.xammer.cloud.domain.autospotting.CompensationTarget.PRIOR_CONFIG) {
+            return null;
+        }
+        try {
+            JsonNode body = objectMapper.readTree(plan.getBody() == null ? "{}" : plan.getBody());
+            JsonNode current = body.get("current");
+            return current != null && current.isObject() ? current.toString() : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private String targetConfigJson(SpotPlan plan) {
@@ -343,6 +423,16 @@ public class ConfirmService {
 
     private Provider providerOf(CloudAccount account) {
         return "GCP".equalsIgnoreCase(account.getProvider()) ? Provider.GCP : Provider.AWS;
+    }
+
+    /** The acknowledged warning ids, plus {@link #FULL_SPOT_OPTIN} when the customer ticked the opt-in. */
+    private static List<String> acksWithOptIn(ConfirmCommand cmd) {
+        List<String> acks = new java.util.ArrayList<>(cmd.acknowledgedWarningIds() == null
+                ? List.of() : cmd.acknowledgedWarningIds());
+        if (cmd.fullSpotOptIn()) {
+            acks.add(FULL_SPOT_OPTIN);
+        }
+        return acks;
     }
 
     private static String acksJson(List<String> acks) {

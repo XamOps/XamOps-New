@@ -153,7 +153,8 @@ class ConfirmConcurrencyIT {
                 ctx.getBean(SwitchService.class),
                 props,
                 new ProviderRegistry(List.of()),
-                ctx.getBean(AutoSpottingAuditWriter.class));
+                ctx.getBean(AutoSpottingAuditWriter.class),
+                Mockito.mock(com.xammer.cloud.service.autospotting.notify.AutoSpottingNotificationService.class));
     }
 
     private static CloudAccount account() {

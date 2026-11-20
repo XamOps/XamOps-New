@@ -85,6 +85,11 @@ public class LedgerWriter {
                      List<CalcInputs> groups) {
     }
 
+    private final String job;
+    private final String providerName;
+    private final String version;
+    private final Provider providerEnum;
+    private final java.util.function.BooleanSupplier gateOn;
     private final LedgerInputsSource source;
     private final LedgerRunChain chain;
     private final SavingsCalculator calculator = new SavingsCalculator();
@@ -96,13 +101,27 @@ public class LedgerWriter {
     private final java.util.concurrent.atomic.AtomicReference<Instant> lastSuccess;
 
     @org.springframework.beans.factory.annotation.Autowired
-    public LedgerWriter(LedgerInputsSource source, LedgerRunChain chain, JobRunner jobRunner, LedgerGate gate,
+    public LedgerWriter(@org.springframework.beans.factory.annotation.Qualifier("awsLedgerInputs") LedgerInputsSource source, LedgerRunChain chain, JobRunner jobRunner, LedgerGate gate,
                         AutoSpottingMetrics metrics, AutoSpottingAuditWriter audit) {
         this(source, chain, jobRunner, gate, metrics, audit, Clock.systemUTC());
     }
 
     public LedgerWriter(LedgerInputsSource source, LedgerRunChain chain, JobRunner jobRunner, LedgerGate gate,
                  AutoSpottingMetrics metrics, AutoSpottingAuditWriter audit, Clock clock) {
+        this(JOB, PROVIDER, SavingsCalculator.VERSION, Provider.AWS, gate::awsWriterOn, source, chain, jobRunner, gate,
+                metrics, audit, clock);
+    }
+
+    /** The writer of one provider: its job, provider code, calc version and gate (used by {@link GcpLedgerWriter}). */
+    protected LedgerWriter(String job, String providerName, String version, Provider providerEnum,
+                           java.util.function.BooleanSupplier gateOn, LedgerInputsSource source, LedgerRunChain chain,
+                           JobRunner jobRunner, LedgerGate gate, AutoSpottingMetrics metrics,
+                           AutoSpottingAuditWriter audit, Clock clock) {
+        this.job = job;
+        this.providerName = providerName;
+        this.version = version;
+        this.providerEnum = providerEnum;
+        this.gateOn = gateOn;
         this.source = source;
         this.chain = chain;
         this.jobRunner = jobRunner;
@@ -112,7 +131,7 @@ public class LedgerWriter {
         this.clock = clock;
         this.lastSuccess = new java.util.concurrent.atomic.AtomicReference<>(clock.instant());
         // "Ledger writer missed run" (§6.4): seconds since the last completed daily pass, 0 while the writer is off.
-        metrics.bindLedgerLastSuccessAge(JOB, () -> gate.awsWriterOn()
+        metrics.bindLedgerLastSuccessAge(job, () -> gateOn.getAsBoolean()
                 ? Duration.between(lastSuccess.get(), clock.instant()).getSeconds() : 0L);
     }
 
@@ -122,8 +141,8 @@ public class LedgerWriter {
     @Scheduled(cron = "0 30 2 * * *", zone = "UTC")
     public void daily() {
         LocalDate today = LocalDate.now(clock.withZone(ZoneOffset.UTC));
-        jobRunner.runLeased(JOB, "daily-" + today, (LeaseHandle lease) -> {
-            if (gate.awsWriterOn()) {
+        jobRunner.runLeased(job, "daily-" + today, (LeaseHandle lease) -> {
+            if (gateOn.getAsBoolean()) {
                 runDaily(lease, today.minusDays(1));
             }
         });
@@ -131,8 +150,8 @@ public class LedgerWriter {
 
     /** On demand for a day, e.g. {@code PRICE_RESOLVED} after a late price lands (§13.1). */
     public void requestRun(long cloudAccountId, LocalDate day, String trigger) {
-        jobRunner.runLeased(JOB, null, (LeaseHandle lease) -> {
-            if (gate.awsWriterOn()) {
+        jobRunner.runLeased(job, null, (LeaseHandle lease) -> {
+            if (gateOn.getAsBoolean()) {
                 writeDay(lease, cloudAccountId, day, trigger);
             }
         });
@@ -150,7 +169,7 @@ public class LedgerWriter {
             written += runAccount(lease, accountId, lastDay, "DAILY");
         }
         if (written == 0) {
-            log.debug("ledger-writer:aws wrote no runs for {}", lastDay);
+            log.debug("{} wrote no runs for {}", job, lastDay);
         }
         // A pass that finished without an exception is a success, even with nothing to write (liveness).
         lastSuccess.set(clock.instant());
@@ -202,13 +221,13 @@ public class LedgerWriter {
             return Outcome.NOT_STARTED;
         }
         List<CalcInputs> entryInputs = computed.stream().map(Computed::inputs).toList();
-        String sha = CanonicalJson.hash(new RunInputs(start, end, accountId, SavingsCalculator.VERSION, entryInputs));
+        String sha = CanonicalJson.hash(new RunInputs(start, end, accountId, version, entryInputs));
 
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             // Step 2: the end of the chain. Step 4: an equal head is a no-op.
-            Optional<LedgerRunChain.Head> head = chain.head(PROVIDER, accountId, start);
+            Optional<LedgerRunChain.Head> head = chain.head(providerName, accountId, start);
             if (head.isPresent() && head.get().inputsSha256().equals(sha)
-                    && SavingsCalculator.VERSION.equals(head.get().calcVersion())) {
+                    && version.equals(head.get().calcVersion())) {
                 return Outcome.NO_OP;
             }
             List<LedgerRunChain.NewEntry> entries = new ArrayList<>();
@@ -216,15 +235,15 @@ public class LedgerWriter {
                 String json = CanonicalJson.compact(c.inputs());
                 entries.add(new LedgerRunChain.NewEntry(c.entry(), c.inputs(), json, CanonicalJson.sha256(json)));
             }
-            LedgerRunChain.NewRun run = new LedgerRunChain.NewRun(UUID.randomUUID(), PROVIDER, accountId, start, end,
-                    SavingsCalculator.VERSION, sha, head.map(LedgerRunChain.Head::runId).orElse(null), trigger,
+            LedgerRunChain.NewRun run = new LedgerRunChain.NewRun(UUID.randomUUID(), providerName, accountId, start, end,
+                    version, sha, head.map(LedgerRunChain.Head::runId).orElse(null), trigger,
                     entries);
             try {
                 // Step 6: one fenced transaction. The audit record is written inside it (step 7 follows the commit).
                 chain.append(lease, run, r -> auditRun(r, accountId, day));
             } catch (LedgerRunChain.ChainRaceException race) {
-                log.debug("ledger-writer:aws lost the chain race for account {} day {}; re-reading (attempt {})",
-                        accountId, day, attempt);
+                log.debug("{} lost the chain race for account {} day {}; re-reading (attempt {})",
+                        job, accountId, day, attempt);
                 continue;
             } catch (LeaseLostException lost) {
                 throw lost;
@@ -241,7 +260,7 @@ public class LedgerWriter {
 
     private void auditRun(LedgerRunChain.NewRun run, long accountId, LocalDate day) {
         audit.write(AuditRecord.builder("LEDGER_RUN", Actor.system(), "WRITE_RUN", "SUCCESS")
-                .provider(PROVIDER).cloudAccountId(accountId)
+                .provider(providerName).cloudAccountId(accountId)
                 .details("{\"runId\":\"" + run.id() + "\",\"day\":\"" + day + "\",\"trigger\":\"" + run.trigger()
                         + "\",\"entries\":" + run.entries().size() + ",\"calcVersion\":\"" + run.calcVersion()
                         + "\",\"supersedes\":" + (run.supersedes() == null ? "null" : "\"" + run.supersedes() + "\"")
@@ -254,8 +273,8 @@ public class LedgerWriter {
         Map<String, Long> byTier = new TreeMap<>();
         computed.stream().map(c -> c.entry().tier().name()).sorted(Comparator.naturalOrder())
                 .forEach(t -> byTier.merge(t, 1L, Long::sum));
-        byTier.forEach((tier, n) -> metrics.ledgerEntries(Provider.AWS, tier, n));
+        byTier.forEach((tier, n) -> metrics.ledgerEntries(providerEnum, tier, n));
         computed.stream().filter(c -> "UNKNOWN".equals(c.entry().tier().name()))
-                .forEach(c -> metrics.ledgerUnknown(Provider.AWS));
+                .forEach(c -> metrics.ledgerUnknown(providerEnum));
     }
 }

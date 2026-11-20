@@ -12,12 +12,11 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useAccounts } from '../../contexts/AccountContext';
 import AccountSelector from './AccountSelector';
 import NavItem from './NavItem';
-import { AWS_SERVICE_ICONS } from '../../utils/awsServiceIcons';
 import NavSection from './NavSection';
 import SubNav from './SubNav';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useXamTabAccess } from '../../contexts/XamTabAccessContext';
-import { makeBillopsTabGate } from '../../constants/billopsAdminTabs';
+import { DSPM_ADMIN_ROLES, makeBillopsTabGate } from '../../constants/billopsAdminTabs';
 import { XAMSECURE_SIDEBAR_TABS } from '../../constants/xamsecureTabs';
 import { XAMLENS_HOME, XAMLENS_SIDEBAR_TABS } from '../../constants/xamlensTabs';
 import { ClusterSectionsNav } from '../CloudK8s/shared/ClusterSectionsNav';
@@ -307,14 +306,15 @@ const Sidebar: React.FC = () => {
                       everyone who has logged in on the demo host (demo.xamops.com). */}
                   {isTabAllowed('demo-users') && <NavItem href="/billops-admin-demo-users" icon="fas fa-user-clock" label="Demo Users" isActive={isActive('/billops-admin-demo-users')} />}
                   {isTabAllowed('agreement-admin') && <NavItem href="/billops-admin-agreements" icon="fas fa-file-signature" label="Agreement" isActive={isActive('/billops-admin-agreements')} />}
-                  {isTabAllowed('autospotting-admin') && <NavItem href="/autospotting-admin" icon="" iconSrc={AWS_SERVICE_ICONS['Auto Scaling Group']} label="AutoSpotting" isActive={isActive('/autospotting-admin')} />}
+                  {isTabAllowed('autospotting-admin') && <NavItem href="/autospotting-admin" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/autospotting-admin')} />}
                   {isTabAllowed('historical-billing') && <NavItem href="/billops-admin-historical-billing" icon="fas fa-history" label="Historical Billing" isActive={isActive('/billops-admin-historical-billing')} />}
                   {isTabAllowed('autospotting-billing') && <NavItem href="/billops-admin-autospotting" icon="fas fa-file-contract" label="AutoSpotting Billing" isActive={isActive('/billops-admin-autospotting')} />}
                   {isTabAllowed('client-intake') && <NavItem href="/billops-client-intake" icon="fas fa-clipboard-list" label="Client Intake" isActive={isActive('/billops-client-intake')} />}
                   {/* DSPM add-on administration: org -> Matters project mappings, the per-customer API
                       keys and the access audit trail. Sits next to Accounts because it is the other
-                      place a customer's entitlements are granted. */}
-                  {isTabAllowed('dspm-admin') && <NavItem href="/dspm-admin" icon="fas fa-database" label="XamLens" isActive={isActive('/dspm-admin')} />}
+                      place a customer's entitlements are granted. Shown only to the roles its API
+                      admits, so not to BillOps sub-admins. */}
+                  {isTabAllowed('dspm-admin') && hasAnyRole(DSPM_ADMIN_ROLES) && <NavItem href="/dspm-admin" icon="fas fa-database" label="XamLens" isActive={isActive('/dspm-admin')} />}
                 </>
               )}
             </>
@@ -368,7 +368,7 @@ const Sidebar: React.FC = () => {
                   <>
                     {isXamTabAllowed('finops-cloudsitter') && <NavItem href="/cloudsitter" icon="fas fa-clock" label="CloudSitter" isActive={isActive('/cloudsitter')} />}
                     {isXamTabAllowed('finops-flex-compute') && <NavItem href="/flex-compute" icon="fas fa-microchip" label="Flex Compute" isActive={isActive('/flex-compute')} />}
-                    {isXamTabAllowed('finops-autospotting') && <NavItem href="/autospotting" icon="" iconSrc={AWS_SERVICE_ICONS['Auto Scaling Group']} label="AutoSpotting" isActive={isActive('/autospotting')} />}
+                    {isXamTabAllowed('finops-autospotting') && <NavItem href="/autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/autospotting')} />}
                   </>
                 )}
                 {selectedAccountDisplay.provider === 'GCP' && (

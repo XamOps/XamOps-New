@@ -1,12 +1,17 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '@iconify/react';
 import FilterOptionList, { type FilterOptionListProps } from './FilterOptionList';
+import SingleChoiceList from './SingleChoiceList';
 import { usePopoverEscape } from './ui/usePopoverEscape';
 
 interface Props extends FilterOptionListProps {
   label: string;
   /** Iconify id drawn before the label (the Risk tab's funnel). */
   icon?: string;
+  /** A single-choice list (`SingleChoiceList`) instead of checkboxes. Default off. */
+  single?: boolean;
+  /** Single choice only: the first option, meaning no choice ("Any Access"). */
+  anyLabel?: string;
 }
 
 /**
@@ -16,7 +21,7 @@ interface Props extends FilterOptionListProps {
  * wrapper and stopped there (no document listener), so inside a drawer it closes the popover and not the
  * drawer; while open, the popover is also on the drawer's Escape stack.
  */
-const FilterDropdown: React.FC<Props> = ({ label, icon, ...listProps }) => {
+const FilterDropdown: React.FC<Props> = ({ label, icon, single = false, anyLabel, ...listProps }) => {
   const [open, setOpen] = useState(false);
   const wrapper = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -68,7 +73,22 @@ const FilterDropdown: React.FC<Props> = ({ label, icon, ...listProps }) => {
           aria-label={label}
           className="absolute left-0 top-full z-30 mt-1 w-72 rounded-xl border border-[rgba(0,0,0,0.1)] bg-white shadow-lg"
         >
-          <FilterOptionList {...listProps} />
+          {single ? (
+            <SingleChoiceList
+              dimension={listProps.dimension}
+              options={listProps.options}
+              filters={listProps.filters}
+              loading={listProps.loading}
+              error={listProps.error}
+              onChange={listProps.onChange}
+              hasMore={listProps.hasMore}
+              labelMemory={listProps.labelMemory}
+              anyLabel={anyLabel}
+              canSelectValue={listProps.canSelectValue}
+            />
+          ) : (
+            <FilterOptionList {...listProps} />
+          )}
         </div>
       )}
     </div>

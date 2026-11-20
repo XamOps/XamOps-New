@@ -11,7 +11,7 @@ import { SearchInput } from '../ui/SearchInput';
 import { SegmentedToggle, type SegmentedOption } from '../ui/SegmentedToggle';
 import { TableFooter, dataFlowPageLimit } from '../ui/TableFooter';
 import type { TableParent } from './AssetHierarchy';
-import { EmptyTableRow, ErrorNote, LoadingNote, TH, useHiddenColumns } from './TabParts';
+import { EmptyTableRow, ErrorNote, LoadingNote, TH } from './TabParts';
 import type { TableRequest } from './useSearchGate';
 
 /** The answer to a table request, as the gate hands it to the view. */
@@ -32,8 +32,11 @@ export interface OpenTable {
 /** Fewer characters do not search: the backend would read every vendor page for them. */
 const MIN_SEARCH = 3;
 
-/** The search sent for the input's text: the normalised text when it has 3+ characters, else none (''). */
-function searchTerm(text: string): string {
+/**
+ * The search sent for the input's text: the normalised text when it has 3+ characters, else none ('').
+ * Graph View dims its cards with the same term.
+ */
+export function searchTerm(text: string): string {
   const normalized = normalizeSearch(text);
   return normalized !== null && normalized.length >= MIN_SEARCH ? normalized : '';
 }
@@ -95,21 +98,21 @@ export const DataFlowBreadcrumb: React.FC<BreadcrumbProps> = ({ rootName, parent
   );
 };
 
-type TableColumnId = 'table' | 'rows' | 'foreignKeys' | 'sensitives';
+export type TableColumnId = 'table' | 'rows' | 'foreignKeys' | 'sensitives';
 
-/** Table order; Table is always shown. */
-const COLUMNS: ReadonlyArray<{ id: TableColumnId; label: string }> = [
+/** Table order; Table is always shown. Graph View's "Column" chooser lists them too (A31). */
+export const COLUMNS: ReadonlyArray<{ id: TableColumnId; label: string }> = [
   { id: 'table', label: 'Table' },
   { id: 'rows', label: 'Rows' },
   { id: 'foreignKeys', label: 'Foreign Keys' },
   { id: 'sensitives', label: 'Sensitives' },
 ];
 
-type TablesMode = 'table' | 'graph';
+export type TablesMode = 'table' | 'graph';
 
-const MODES: ReadonlyArray<SegmentedOption<TablesMode>> = [
+export const MODES: ReadonlyArray<SegmentedOption<TablesMode>> = [
   { value: 'table', label: 'Table View' },
-  { value: 'graph', label: 'Graph View', disabled: true, soon: true },
+  { value: 'graph', label: 'Graph View' },
 ];
 
 const TD = 'px-3 py-2.5 align-middle text-xs text-[rgba(0,0,0,0.75)]';
@@ -143,6 +146,14 @@ interface Props {
   /** Where this view registers while it is on screen, so the gate can tell which answers are wanted. */
   viewRef: RefObject<TablesView | null>;
   onOpenTable: (table: OpenTable) => void;
+  /** The toolbar's raw search text, owned by `DataFlowTab` so it survives a toggle and a schema switch. */
+  search: string;
+  onSearchChange: (text: string) => void;
+  /** The hidden table columns, owned by `DataFlowTab` as well. */
+  hidden: ReadonlySet<TableColumnId>;
+  onToggleColumn: (id: TableColumnId) => void;
+  mode: TablesMode;
+  onModeChange: (mode: TablesMode) => void;
 }
 
 /**
@@ -151,17 +162,19 @@ interface Props {
  * search gate, plain paging does not. Answers are applied only while they are this view's newest
  * request, so a superseded page or search changes nothing.
  *
- * Graph View is not offered yet, and Sync schema is a console action. A row opens its columns.
+ * The search text and the hidden columns come from `DataFlowTab`. A kept search of 3+ characters is the
+ * first request's `q` already (review fix R10), so returning from Graph View or switching schemas never
+ * sends an unfiltered page first. Sync schema is a console action. A row opens its columns.
  */
-const DataFlowTables: React.FC<Props> = ({ rootName, parent, request, viewRef, onOpenTable }) => {
-  const [search, setSearch] = useState('');
-  const [q, setQ] = useState('');
+const DataFlowTables: React.FC<Props> = ({
+  rootName, parent, request, viewRef, onOpenTable, search, onSearchChange, hidden, onToggleColumn, mode, onModeChange,
+}) => {
+  const [q, setQ] = useState(() => searchTerm(search));
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DSPM_PAGE_SIZES[0]);
   const [result, setResult] = useState<DataFlowTablePage | null>(null);
   const [error, setError] = useState<DspmError | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [hidden, toggleColumn] = useHiddenColumns<TableColumnId>();
   const heading = useRef<HTMLHeadingElement>(null);
   useHeadingFocus(heading);
 
@@ -212,16 +225,16 @@ const DataFlowTables: React.FC<Props> = ({ rootName, parent, request, viewRef, o
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <ColumnsMenu label="Column" columns={COLUMNS} hidden={hidden} onToggle={toggleColumn} />
+        <ColumnsMenu label="Column" columns={COLUMNS} hidden={hidden} onToggle={onToggleColumn} />
         <SearchInput
           value={search}
-          onChange={setSearch}
+          onChange={onSearchChange}
           placeholder="Search tables (min 3 characters)"
           maxLength={MAX_SEARCH}
           className="w-64"
         />
         <span className="ml-auto">
-          <SegmentedToggle options={MODES} value="table" onChange={() => {}} label="Tables view" />
+          <SegmentedToggle options={MODES} value={mode} onChange={onModeChange} label="Tables view" />
         </span>
       </div>
 

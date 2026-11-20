@@ -1,6 +1,8 @@
 package com.xammer.cloud.service.autospotting.spi;
 
+import com.xammer.cloud.domain.autospotting.CompensationTarget;
 import com.xammer.cloud.domain.autospotting.OperationKind;
+import com.xammer.cloud.domain.autospotting.OperationPhase;
 import com.xammer.cloud.domain.autospotting.SpotGroup;
 
 /**
@@ -21,7 +23,16 @@ public record OperationContext(
         OperationKind kind,
         SpotGroup group,
         String targetConfigJson,
-        String compensationConfigJson) {
+        String compensationConfigJson,
+        OperationPhase phase,
+        java.util.UUID planId,
+        CompensationTarget compensationTarget) {
+
+    /** The five-argument form: a forward-leg context with no plan and no compensation target. */
+    public OperationContext(java.util.UUID operationId, OperationKind kind, SpotGroup group,
+                            String targetConfigJson, String compensationConfigJson) {
+        this(operationId, kind, group, targetConfigJson, compensationConfigJson, OperationPhase.FORWARD, null, null);
+    }
 
     public OperationContext {
         if (operationId == null) {
@@ -30,5 +41,6 @@ public record OperationContext(
         if (kind == null) {
             throw new IllegalArgumentException("operation kind is required");
         }
+        phase = phase == null ? OperationPhase.FORWARD : phase;
     }
 }

@@ -1,0 +1,4984 @@
+{
+ "days": [
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-02T00:00:00Z",
+   "windowStart": "2026-09-01T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-03T00:00:00Z",
+   "windowStart": "2026-09-02T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-04T00:00:00Z",
+   "windowStart": "2026-09-03T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-05T00:00:00Z",
+   "windowStart": "2026-09-04T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-06T00:00:00Z",
+   "windowStart": "2026-09-05T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-07T00:00:00Z",
+   "windowStart": "2026-09-06T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-08T00:00:00Z",
+   "windowStart": "2026-09-07T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-09T00:00:00Z",
+   "windowStart": "2026-09-08T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-10T00:00:00Z",
+   "windowStart": "2026-09-09T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-11T00:00:00Z",
+   "windowStart": "2026-09-10T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-12T00:00:00Z",
+   "windowStart": "2026-09-11T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-13T00:00:00Z",
+   "windowStart": "2026-09-12T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-14T00:00:00Z",
+   "windowStart": "2026-09-13T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-15T00:00:00Z",
+   "windowStart": "2026-09-14T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-16T00:00:00Z",
+   "windowStart": "2026-09-15T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-17T00:00:00Z",
+   "windowStart": "2026-09-16T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-18T00:00:00Z",
+   "windowStart": "2026-09-17T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-19T00:00:00Z",
+   "windowStart": "2026-09-18T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-20T00:00:00Z",
+   "windowStart": "2026-09-19T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-21T00:00:00Z",
+   "windowStart": "2026-09-20T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-22T00:00:00Z",
+   "windowStart": "2026-09-21T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-23T00:00:00Z",
+   "windowStart": "2026-09-22T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-24T00:00:00Z",
+   "windowStart": "2026-09-23T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-25T00:00:00Z",
+   "windowStart": "2026-09-24T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-26T00:00:00Z",
+   "windowStart": "2026-09-25T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-27T00:00:00Z",
+   "windowStart": "2026-09-26T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-28T00:00:00Z",
+   "windowStart": "2026-09-27T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-29T00:00:00Z",
+   "windowStart": "2026-09-28T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-09-30T00:00:00Z",
+   "windowStart": "2026-09-29T00:00:00Z"
+  },
+  {
+   "calcVersion": "gcp-1",
+   "capacitySamples": [
+    {
+     "at": "2026-09-01T00:00:00Z",
+     "desired": "3"
+    }
+   ],
+   "commitments": [],
+   "commitmentsStatus": "NONE_PROVEN",
+   "contract": {
+    "contractId": "cccccccc-0000-4000-8000-000000000002",
+    "sharePct": "20.000000"
+   },
+   "currency": "USD",
+   "feeBasis": "CONTRACT",
+   "gcp": {
+    "billingSource": "OWN_EXPORT",
+    "commitments": [],
+    "declaredDiscountPct": "0",
+    "prices": [
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.031611",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000001-0000-4000-8000-000000000001"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "ON_DEMAND",
+      "rate": "0.004237",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000002-0000-4000-8000-000000000002"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00776",
+      "resource": "CORE",
+      "series": "n2",
+      "snapshotId": "70000003-0000-4000-8000-000000000003"
+     },
+     {
+      "effectiveFrom": "2026-08-01T00:00:00Z",
+      "effectiveTo": null,
+      "model": "SPOT",
+      "rate": "0.00104",
+      "resource": "RAM",
+      "series": "n2",
+      "snapshotId": "70000004-0000-4000-8000-000000000004"
+     }
+    ],
+    "shapes": [
+     {
+      "gib": "16",
+      "instanceType": "n2-standard-4",
+      "series": "n2",
+      "sharedCore": false,
+      "vcpu": "4"
+     }
+    ],
+    "sharedCoreTable": "gcp-shared-core-v1",
+    "sud": [
+     {
+      "cf": [],
+      "maxRate": "0.2",
+      "monthHours": null,
+      "observedRate": null,
+      "scopes": [],
+      "series": "n2",
+      "snapshotId": null,
+      "tiers": [
+       "1",
+       "0.866667",
+       "0.733333",
+       "0.6"
+      ]
+     }
+    ]
+   },
+   "goLiveAt": "2026-09-01T00:00:00Z",
+   "group": {
+    "clientId": 502,
+    "cloudAccountId": 1002,
+    "groupId": "33333333-3333-4333-8333-333333333333",
+    "region": "us-central1"
+   },
+   "intervals": [
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-1",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-1",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-2",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-2",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    },
+    {
+     "capacityWeight": "1",
+     "endAt": null,
+     "endCause": null,
+     "firstAbsentAt": null,
+     "instanceId": "gcp-spot-3",
+     "instanceType": "n2-standard-4",
+     "intervalId": "spot-3",
+     "lastSeenAt": null,
+     "platform": null,
+     "purchaseOption": "SPOT",
+     "startAt": "2026-09-01T00:00:00Z",
+     "zone": "us-central1-a"
+    }
+   ],
+   "odPrices": [],
+   "original": {
+    "baseUnits": "0",
+    "onDemandPctAboveBase": "100",
+    "preEnable": [
+     {
+      "instanceType": "n2-standard-4",
+      "normalizationFactor": null,
+      "platform": null,
+      "weight": "1"
+     }
+    ]
+   },
+   "provider": "GCP",
+   "reconciledTier": "BILL_VERIFIED",
+   "revertOps": [],
+   "spotPrices": [],
+   "transitions": [
+    {
+     "effectiveAt": "2026-09-01T00:00:00Z",
+     "fromState": "PLANNED",
+     "id": 1,
+     "occurredAt": "2026-09-01T00:00:00Z",
+     "toState": "ACTIVE"
+    }
+   ],
+   "windowEnd": "2026-10-01T00:00:00Z",
+   "windowStart": "2026-09-30T00:00:00Z"
+  }
+ ]
+}

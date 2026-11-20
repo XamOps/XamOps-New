@@ -1,0 +1,6 @@
+{
+  "name": "e2-future-shared",
+  "guestCpus": 2,
+  "memoryMb": 1024,
+  "isSharedCpu": true
+}

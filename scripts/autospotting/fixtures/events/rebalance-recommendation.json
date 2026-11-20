@@ -1,0 +1,21 @@
+{
+  "description": "EC2 Instance Rebalance Recommendation",
+  "expect": [
+    "rebalance-recommendation"
+  ],
+  "event": {
+    "version": "0",
+    "id": "9f1c6a52-8b0e-4c1b-9d57-0a3c2b7e4d11",
+    "detail-type": "EC2 Instance Rebalance Recommendation",
+    "source": "aws.ec2",
+    "account": "111122223333",
+    "time": "2026-10-12T09:35:44Z",
+    "region": "us-east-1",
+    "resources": [
+      "arn:aws:ec2:us-east-1b:instance/i-0123456789abcdef0"
+    ],
+    "detail": {
+      "instance-id": "i-0123456789abcdef0"
+    }
+  }
+}

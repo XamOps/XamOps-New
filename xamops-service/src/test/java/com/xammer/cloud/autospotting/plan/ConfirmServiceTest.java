@@ -87,7 +87,8 @@ class ConfirmServiceTest {
         providers = new ProviderRegistry(List.of()); // no provider: fingerprint re-read "times out"
         auditWriter = mock(AutoSpottingAuditWriter.class);
         confirm = new ConfirmService(plans, groups, operations, operationStore, preemption, authorization,
-                revertPreconditions, switchService, switchProperties, providers, auditWriter);
+                revertPreconditions, switchService, switchProperties, providers, auditWriter,
+                mock(com.xammer.cloud.service.autospotting.notify.AutoSpottingNotificationService.class));
 
         when(switchService.readUncached()).thenReturn(new SwitchState(Set.of(), Set.of(), false, false));
         when(authorization.authorizeConfirm(any(), any(), any(), any())).thenReturn(allow());
@@ -193,6 +194,47 @@ class ConfirmServiceTest {
         verify(operationStore, never()).insertQueued(any());
     }
 
+    /** A SUCCEEDED REVERT op of {@code groupId} whose plan body says {@code reasons} (the drain-only history). */
+    private void lastRevertWas(UUID groupId, String reasonsJson) {
+        SpotOperation last = new SpotOperation();
+        last.setId(UUID.randomUUID());
+        last.setKind(OperationKind.REVERT);
+        last.setStatus(com.xammer.cloud.domain.autospotting.OperationStatus.SUCCEEDED);
+        last.setCreatedAt(Instant.now());
+        SpotPlan lastPlan = plan(OperationKind.REVERT, groupId, "[]", false);
+        lastPlan.setBody("{\"revertPath\":{\"reasons\":" + reasonsJson + "}}");
+        last.setPlanId(lastPlan.getId());
+        when(operations.findByGroupId(groupId)).thenReturn(List.of(last));
+        when(plans.findById(lastPlan.getId())).thenReturn(Optional.of(lastPlan));
+    }
+
+    @Test
+    void gr02ARevertedGroupCannotBeRevertedAgainUnlessTheLastRevertWasDrainOnly() {
+        SpotGroup g = group(GroupState.REVERTED);
+        SpotPlan p = plan(OperationKind.REVERT, g.getId(), "[]", false);
+        when(plans.findById(p.getId())).thenReturn(Optional.of(p));
+        when(operations.findByPlanId(p.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+        lastRevertWas(g.getId(), "[]");
+        assertThatThrownBy(() -> confirm.confirm(account(), user(), p.getId(), cmd(1, List.of(), false)))
+                .isInstanceOfSatisfying(AutoSpottingApiException.class,
+                        ex -> assertThat(ex.getCode()).isEqualTo("PLAN_KIND_NOT_ALLOWED"));
+        verify(operationStore, never()).insertQueued(any());
+    }
+
+    @Test
+    void gr02ARevertedGroupAfterADrainOnlyRevertCanBeRevertedExactly() {
+        SpotGroup g = group(GroupState.REVERTED);
+        SpotPlan p = plan(OperationKind.REVERT, g.getId(), "[]", false);
+        when(plans.findById(p.getId())).thenReturn(Optional.of(p));
+        when(operations.findByPlanId(p.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+        when(plans.confirmIfOpen(eq(p.getId()), eq(1), anyString(), any(), anyString(), any())).thenReturn(1);
+        lastRevertWas(g.getId(), "[\"PASSROLE_DENIED\"]");
+        assertThat(confirm.confirm(account(), user(), p.getId(), cmd(1, List.of(), false)).status()).isEqualTo("QUEUED");
+        verify(operationStore).insertQueued(any());
+    }
+
     @Test
     void desiredOneEnableIs422_whileDesiredOneRevertIsAccepted() {
         // ENABLE with 100% Spot opt-in required but not given → 422 (PROGRESS check).
@@ -218,6 +260,93 @@ class ConfirmServiceTest {
         assertThat(result.status()).isEqualTo("QUEUED");
     }
 
+    @Test
+    void aPlanWithAHardBlockerIs422WithTheBlockersOwnCodeAndNoOp() {
+        // A Launch Configuration group (or desired <= 1, a terminate-first policy, ...) is never confirmed.
+        SpotGroup g = group(GroupState.UNMANAGED);
+        SpotPlan enable = plan(OperationKind.ENABLE, g.getId(), "[]", false);
+        enable.setBody("{\"target\":{},\"eligibility\":{\"blockers\":[{\"code\":\"LAUNCH_CONFIGURATION\","
+                + "\"text\":\"This group uses a launch configuration. Migrate it to a launch template, then plan again.\"}]}}");
+        when(plans.findById(enable.getId())).thenReturn(Optional.of(enable));
+        when(operations.findByPlanId(enable.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+
+        assertThatThrownBy(() -> confirm.confirm(account(), user(), enable.getId(), cmd(1, List.of(), false)))
+                .isInstanceOfSatisfying(AutoSpottingApiException.class, ex -> {
+                    assertThat(ex.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+                    assertThat(ex.getCode()).isEqualTo("LAUNCH_CONFIGURATION");
+                    assertThat(ex.getMessage()).contains("Migrate it to a launch template");
+                });
+        verify(operationStore, never()).insertQueued(any());
+    }
+
+    @Test
+    void aPlanWithNoBlockersStoresThePlanTimeConfigurationForPriorConfigCompensation() {
+        SpotGroup g = group(GroupState.ACTIVE);
+        SpotPlan apply = plan(OperationKind.CONFIG_APPLY, g.getId(), "[]", false);
+        apply.setBody("{\"current\":{\"shape\":\"MIXED_INSTANCES_POLICY\"},\"target\":{\"shape\":\"MIXED_INSTANCES_POLICY\"},"
+                + "\"eligibility\":{\"blockers\":[]}}");
+        when(plans.findById(apply.getId())).thenReturn(Optional.of(apply));
+        when(operations.findByPlanId(apply.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+        when(plans.confirmIfOpen(eq(apply.getId()), eq(1), anyString(), any(), anyString(), any())).thenReturn(1);
+
+        confirm.confirm(account(), user(), apply.getId(), cmd(1, List.of(), false));
+
+        org.mockito.ArgumentCaptor<com.xammer.cloud.service.autospotting.core.ops.OperationRecord> captor =
+                org.mockito.ArgumentCaptor.forClass(com.xammer.cloud.service.autospotting.core.ops.OperationRecord.class);
+        verify(operationStore).insertQueued(captor.capture());
+        assertThat(captor.getValue().compensationConfigJson()).isEqualTo("{\"shape\":\"MIXED_INSTANCES_POLICY\"}");
+        assertThat(captor.getValue().targetConfigJson()).isEqualTo("{\"shape\":\"MIXED_INSTANCES_POLICY\"}");
+    }
+
+    @Test
+    void theFullSpotOptInIsRecordedWithTheAcknowledgements() {
+        SpotGroup g = group(GroupState.UNMANAGED);
+        SpotPlan enable = plan(OperationKind.ENABLE, g.getId(), "[]", true);
+        when(plans.findById(enable.getId())).thenReturn(Optional.of(enable));
+        when(operations.findByPlanId(enable.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+        when(plans.confirmIfOpen(eq(enable.getId()), eq(1), anyString(), any(), anyString(), any())).thenReturn(1);
+
+        confirm.confirm(account(), user(), enable.getId(), cmd(1, List.of(), true));
+
+        org.mockito.ArgumentCaptor<String> acks = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(plans).confirmIfOpen(eq(enable.getId()), eq(1), anyString(), any(), acks.capture(), any());
+        assertThat(acks.getValue()).contains(ConfirmService.FULL_SPOT_OPTIN);
+    }
+
+    @Test
+    void gr03AGcpRevertPlanThatNeedsAPermissionIs409RetryableAndNoOp_otherRevertsAreNotRefused() {
+        CloudAccount gcp = account();
+        gcp.setProvider("GCP");
+        SpotGroup g = group(GroupState.ACTIVE);
+        g.setProvider(Provider.GCP);
+        SpotPlan p = plan(OperationKind.REVERT, g.getId(), "[]", false);
+        p.setBody("{\"eligibility\":{\"blockers\":[{\"code\":\"REVERT_NEEDS_PERMISSION\",\"text\":\"x\"}]}}");
+        when(plans.findById(p.getId())).thenReturn(Optional.of(p));
+        when(operations.findByPlanId(p.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+        assertThatThrownBy(() -> confirm.confirm(gcp, user(), p.getId(), cmd(1, List.of(), false)))
+                .isInstanceOfSatisfying(AutoSpottingApiException.class, ex -> {
+                    assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+                    assertThat(ex.getCode()).isEqualTo("REVERT_NEEDS_PERMISSION");
+                    assertThat(ex.isRetryable()).isTrue();
+                });
+        verify(operationStore, never()).insertQueued(any());
+        verify(plans, never()).confirmIfOpen(any(), anyInt(), anyString(), any(), anyString(), any());
+        // The same blocker on an AWS plan is not a GCP refusal (AWS has its own drain-only path), and a GCP revert
+        // plan without it confirms.
+        SpotGroup ok = group(GroupState.ACTIVE);
+        ok.setProvider(Provider.GCP);
+        SpotPlan clean = plan(OperationKind.REVERT, ok.getId(), "[]", false);
+        clean.setBody("{\"eligibility\":{\"blockers\":[]}}");
+        when(plans.findById(clean.getId())).thenReturn(Optional.of(clean));
+        when(operations.findByPlanId(clean.getId())).thenReturn(Optional.empty());
+        when(groups.findById(ok.getId())).thenReturn(Optional.of(ok));
+        when(plans.confirmIfOpen(eq(clean.getId()), eq(1), anyString(), any(), anyString(), any())).thenReturn(1);
+        assertThat(confirm.confirm(gcp, user(), clean.getId(), cmd(1, List.of(), false)).status()).isEqualTo("QUEUED");
+    }
     @Test
     void unreadableSwitchStoreHoldsRevert() {
         when(switchService.readUncached()).thenReturn(new SwitchState(Set.of(), Set.of(), true, false));

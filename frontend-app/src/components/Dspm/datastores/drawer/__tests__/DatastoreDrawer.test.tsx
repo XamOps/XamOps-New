@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type {
@@ -6,13 +6,14 @@ import type {
   DatastoreFilePage, DatastoreOccurrence, DatastoreOccurrencePage, DatastoreOverview, DatastoreRisks,
   DatastoreScanHistory, DatastoreSensitives,
 } from '../../../../../types/dspmDatastores';
+import type { DataFlowErd } from '../../../../../types/dspmDrawers';
 
 vi.mock('../../../../../utils/apiClient', () => ({ default: { get: vi.fn() } }));
 
 import apiClient from '../../../../../utils/apiClient';
 import { ThemeProvider } from '../../../../../contexts/ThemeContext';
 import DatastoreDrawer, { type DrawerRow } from '../DatastoreDrawer';
-import { formatConsoleDate } from '../../datastoreFormat';
+import { formatConsoleDate, formatListDate } from '../../datastoreFormat';
 
 const get = apiClient.get as unknown as ReturnType<typeof vi.fn>;
 
@@ -275,10 +276,25 @@ function tablePage(url: URL, rows = FLOW_TABLES): DataFlowTablePage {
 
 const FLOW_COLUMNS: DataFlowColumnPage = {
   rows: [
-    { id: 'column-amount', name: 'amount', nativeType: 'numeric', sensitiveCount: 0, dataElements: [] },
-    { id: 'column-payer', name: 'payer_name', nativeType: 'varchar', sensitiveCount: 4, dataElements: ['PERSON NAME', 'EMAIL ADDRESS'] },
+    { id: 'column-amount', name: 'amount', nativeType: 'numeric', sensitiveCount: 0, dataElements: [], primaryKey: false, foreignKey: false },
+    {
+      id: 'column-payer', name: 'payer_name', nativeType: 'varchar', sensitiveCount: 4, dataElements: ['PERSON NAME', 'EMAIL ADDRESS'],
+      primaryKey: false, foreignKey: false,
+    },
   ],
   page: 1, pageSize: 10, total: 2, totalPages: 1,
+};
+
+/** Graph View's diagram of either schema; `DataFlowGraph.test.tsx` covers the diagram itself. */
+const FLOW_ERD: DataFlowErd = {
+  nodes: [
+    { id: 'table-payments', name: 'payments', sensitiveCount: 3, keyColumns: ['refund_id'] },
+    { id: 'table-refunds', name: 'refunds', sensitiveCount: 0, keyColumns: ['id'] },
+  ],
+  edges: [{ id: 'fk-0', sourceTableId: 'table-payments', targetKey: 'table-refunds', external: false }],
+  externalTables: [],
+  nodesTruncated: false,
+  edgesTruncated: false,
 };
 
 // ─── mocked API ──────────────────────────────────────────────────────────────────────────────────
@@ -297,6 +313,7 @@ function flowAnswer(path: string, url: URL): unknown {
   if (path === 'databases/db-ledger/schemas') return FLOW_SCHEMAS;
   if (/^schemas\/[^/]+\/tables$/.test(path)) return tablePage(url);
   if (/^tables\/[^/]+\/columns$/.test(path)) return FLOW_COLUMNS;
+  if (/^schemas\/[^/]+\/erd$/.test(path)) return FLOW_ERD;
   throw new Error(`HTTP 404: ${JSON.stringify({ code: 'ASSET_NOT_FOUND', message: 'gone' })}`);
 }
 
@@ -319,6 +336,11 @@ const tableSearches = () => flowCalls().filter(url => url.pathname.endsWith('/ta
 function last<T>(items: T[]): T {
   return items[items.length - 1];
 }
+
+beforeAll(async () => {
+  // Graph View's canvas is lazy: import it (with cytoscape) once here, so no wait below includes that import.
+  await import('../erd/ErdCanvas');
+});
 
 beforeEach(() => {
   answers = {
@@ -381,16 +403,18 @@ async function openFileView(user: ReturnType<typeof userEvent.setup>, drawer: HT
 // ─── tests ───────────────────────────────────────────────────────────────────────────────────────
 
 describe('DatastoreDrawer', () => {
-  it('loads the overview, scan status and sensitives in parallel on open and focuses the close button', () => {
+  it('loads the overview, scan status, sensitives and sync status in parallel on open and focuses the close button', () => {
     answers.overview = pending;
     answers['scan-status'] = pending;
     answers.sensitives = pending;
+    answers['sync-status'] = pending;
     const { drawer } = renderDrawer();
 
     expect(calls().map(url => url.pathname)).toEqual([
       '/api/dspm/datastores/0123456789abcdef01234567/overview',
       '/api/dspm/datastores/0123456789abcdef01234567/scan-status',
       '/api/dspm/datastores/0123456789abcdef01234567/sensitives',
+      '/api/dspm/datastores/0123456789abcdef01234567/sync-status',
     ]);
     expect(within(drawer).getByRole('button', { name: 'Close' })).toHaveFocus();
     expect(within(drawer).getByText('Loading…')).toBeInTheDocument();
@@ -399,7 +423,7 @@ describe('DatastoreDrawer', () => {
     expect(drawer.parentElement).toBe(document.body);
   });
 
-  it('renders the header from the row and the overview, with every console action greyed', async () => {
+  it('renders the header from the row and the overview, with Start Scan greyed and Actions a menu button', async () => {
     const { drawer } = renderDrawer();
     const link = await within(drawer).findByRole('link', { name: /Go to AWS/ });
     expect(link).toHaveAttribute('href', S3_OVERVIEW.consoleUrl);
@@ -408,12 +432,14 @@ describe('DatastoreDrawer', () => {
     expect(within(drawer).getByRole('heading', { name: 'orders-archive' })).toBeInTheDocument();
     expect(within(drawer).getByText('S3')).toBeInTheDocument();
     expect(within(drawer).getByText('example-prod')).toBeInTheDocument();
-    for (const name of ['Start Scan', 'Actions']) {
-      const control = within(drawer).getByRole('button', { name });
-      expect(control).toHaveAttribute('aria-disabled', 'true');
-      expect(document.getElementById(control.getAttribute('aria-describedby') ?? ''))
-        .toHaveTextContent(/^Disabled by admin$/);
-    }
+    const startScan = within(drawer).getByRole('button', { name: 'Start Scan' });
+    expect(startScan).toHaveAttribute('aria-disabled', 'true');
+    expect(document.getElementById(startScan.getAttribute('aria-describedby') ?? ''))
+      .toHaveTextContent(/^Disabled by admin$/);
+    const actions = within(drawer).getByRole('button', { name: 'Actions' });
+    expect(actions).not.toHaveAttribute('aria-disabled');
+    expect(actions).toHaveAttribute('aria-haspopup', 'menu');
+    expect(actions).toHaveAttribute('aria-expanded', 'false');
   });
 
   it.each([
@@ -585,6 +611,79 @@ describe('DatastoreDrawer', () => {
       expect(scanChipElement().textContent).toBe('Scanning Output Processed');
       expect(scanChipDot()).toBe('green');
       expect(within(drawer).queryByRole('alert')).toBeNull();
+    });
+  });
+
+  describe('Sync status and Actions', () => {
+    const syncBadge = () => document.querySelector('[data-sync-status]');
+
+    it('shows nothing when the sync-status request fails (the default mock answers 404)', async () => {
+      const { drawer } = renderDrawer();
+      await within(drawer).findByText('EMAIL ADDRESS');
+      await act(async () => {});
+      expect(requestsTo('sync-status')).toHaveLength(1);
+      expect(syncBadge()).toBeNull();
+      expect(within(drawer).queryByRole('alert')).toBeNull();
+    });
+
+    it('shows a finished sync after the Scan Status chip, with its time as the title', async () => {
+      const finished = Math.floor(Date.now() / 1000) - 3 * 3600;
+      answers['sync-status'] = () => ({ status: 'SUCCESS', updatedAt: finished });
+      renderDrawer();
+      await waitFor(() => expect(syncBadge()).toHaveTextContent('Last sync 3 hours ago'));
+      expect(syncBadge()).toHaveAttribute('title', `Finished ${formatListDate(finished)}`);
+      expect(scanChipElement().nextElementSibling).toBe(syncBadge());
+    });
+
+    it('polls the sync status every minute while it runs, and stops once it finished', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        let status = 'IN_PROGRESS';
+        answers['sync-status'] = () => ({ status, updatedAt: Math.floor(Date.now() / 1000) });
+        renderDrawer();
+        await waitFor(() => expect(syncBadge()).toHaveTextContent('Syncing'));
+        expect(requestsTo('sync-status')).toHaveLength(1);
+        status = 'SUCCESS';
+        await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+        await waitFor(() => expect(syncBadge()).toHaveTextContent('Last sync just now'));
+        expect(requestsTo('sync-status')).toHaveLength(2);
+        await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+        expect(requestsTo('sync-status')).toHaveLength(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('opens Scan Settings from the Actions menu as a nested layer; Escape closes it back to Actions', async () => {
+      const user = userEvent.setup();
+      answers['scan-settings'] = () => ({
+        parameters: { numFoldersLeafNode: 50, parallelism: 100, timeOutHours: 2, rowSamplingLimit: null, samplingPercentageLimit: null },
+        inclusionPaths: [], exclusionPaths: [], allDatabases: false, selectedDatabases: [], accessible: null,
+        exportAssistName: null, discoveryAssistName: null, host: null, port: null, serviceName: null, credentialsSaved: false,
+      });
+      const { drawer, onClose } = renderDrawer();
+      await within(drawer).findByText('EMAIL ADDRESS');
+      const actions = within(drawer).getByRole('button', { name: 'Actions' });
+      await user.click(actions);
+      await user.click(screen.getByRole('menuitem', { name: 'Scan Settings' }));
+      const layer = await screen.findByRole('dialog', { name: 'Datastore Scan Configuration' });
+      expect(await within(layer).findByText('Configuration Parameters')).toBeInTheDocument();
+      expect(within(layer).getByText('orders-archive')).toBeInTheDocument();
+      expect(requestsTo('scan-settings')).toHaveLength(1);
+      expect(requestsTo('scan-settings/databases')).toHaveLength(0);
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('dialog', { name: 'Datastore Scan Configuration' })).toBeNull();
+      expect(actions).toHaveFocus();
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('does not offer Scan Settings for an Azure Blob container', async () => {
+      const user = userEvent.setup();
+      answers.overview = () => AZURE_NOT_SCANNED;
+      const { drawer } = renderDrawer(AZURE_ROW);
+      await user.click(within(drawer).getByRole('button', { name: 'Actions' }));
+      expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map(item => item.textContent))
+        .toEqual(['Sync Datastore', 'Download Sensitives', 'Create Jira Ticket']);
     });
   });
 
@@ -951,7 +1050,8 @@ describe('DatastoreDrawer', () => {
       expect((within(table).getAllByRole('row')[2] as HTMLTableRowElement).cells[1].textContent).toBe('-');
       expect(within(drawer).getByRole('button', { name: /^Column/ })).toHaveTextContent('Column 4');
       expect(within(drawer).getByRole('button', { name: 'Sync schema' })).toHaveAttribute('aria-disabled', 'true');
-      expect(within(drawer).getByRole('button', { name: /Graph View/ })).toHaveAttribute('aria-disabled', 'true');
+      expect(within(drawer).getByRole('button', { name: 'Graph View' })).not.toHaveAttribute('aria-disabled');
+      expect(within(drawer).getByRole('button', { name: 'Table View' })).toHaveAttribute('aria-pressed', 'true');
 
       const search = tableSearch(drawer);
       expect(search).toHaveAttribute('maxlength', '200');
@@ -989,18 +1089,76 @@ describe('DatastoreDrawer', () => {
 
       await user.click(within(drawer).getByRole('button', { name: 'audit' }));
       expect(await within(drawer).findByRole('heading', { name: 'audit' })).toBeInTheDocument();
-      // The new schema's first page is not a search, so it does not wait.
-      await waitFor(() => expect(last(flowCalls()).pathname).toBe('/api/dspm/data-flow/schemas/schema-audit/tables'));
-      expect(tableSearch(drawer)).toHaveValue('');
+      // The search survives the switch (R10), so the new schema's first page is a search too, and it waits.
+      expect(tableSearch(drawer)).toHaveValue('pay');
       fireEvent.change(tableSearch(drawer), { target: { value: 'refund' } });
       await afterDebounce();
       expect(tableSearches()).toHaveLength(1);
+      expect(flowCalls().some(url => url.pathname === '/api/dspm/data-flow/schemas/schema-audit/tables')).toBe(false);
 
       await act(async () => { deferred[0].resolve(tablePage(deferred[0].url)); });
       await waitFor(() => expect(tableSearches()).toHaveLength(2));
       const next = last(tableSearches());
       expect(next.pathname).toBe('/api/dspm/data-flow/schemas/schema-audit/tables');
       expect(next.searchParams.get('q')).toBe('refund');
+    });
+
+    it('keeps the view, the search text and the hidden columns across Graph View and a schema switch', async () => {
+      const user = userEvent.setup();
+      const { drawer } = await openDataFlow(user);
+      await user.click(within(drawer).getByRole('button', { name: /^Column/ }));
+      await user.click(within(drawer).getByRole('checkbox', { name: 'Rows' }));
+      await user.keyboard('{Escape}');
+      fireEvent.change(tableSearch(drawer), { target: { value: 'pa' } });
+
+      await user.click(within(drawer).getByRole('button', { name: 'Graph View' }));
+      expect(await within(drawer).findByRole('group', { name: 'Schema diagram' })).toBeInTheDocument();
+      expect(within(drawer).getByRole('button', { name: 'Graph View' })).toHaveAttribute('aria-pressed', 'true');
+      expect(tableSearch(drawer)).toHaveValue('pa');
+      expect(within(drawer).getByRole('button', { name: /^Column/ })).toHaveTextContent('Column 3');
+
+      await user.click(within(drawer).getByRole('button', { name: 'Table View' }));
+      expect(headers(await within(drawer).findByRole('table'))).toEqual(['Table', 'Foreign Keys', 'Sensitives']);
+      expect(tableSearch(drawer)).toHaveValue('pa');
+
+      await user.click(within(drawer).getByRole('button', { name: 'audit' }));
+      expect(await within(drawer).findByRole('heading', { name: 'audit' })).toBeInTheDocument();
+      expect(tableSearch(drawer)).toHaveValue('pa');
+      expect(headers(await within(drawer).findByRole('table'))).toEqual(['Table', 'Foreign Keys', 'Sensitives']);
+
+      await user.click(within(drawer).getByRole('button', { name: 'Graph View' }));
+      await within(drawer).findByRole('group', { name: 'Schema diagram' });
+      await user.click(within(drawer).getByRole('button', { name: 'public' }));
+      expect(await within(drawer).findByRole('heading', { name: 'public' })).toBeInTheDocument();
+      expect(await within(drawer).findByRole('group', { name: 'Schema diagram' })).toBeInTheDocument();
+      expect(within(drawer).getByRole('button', { name: 'Graph View' })).toHaveAttribute('aria-pressed', 'true');
+      expect(tableSearch(drawer)).toHaveValue('pa');
+      // One diagram request per schema: the first schema's is reused.
+      expect(flowCalls().filter(url => url.pathname.endsWith('/erd')).map(url => url.pathname)).toEqual([
+        '/api/dspm/data-flow/schemas/schema-public/erd',
+        '/api/dspm/data-flow/schemas/schema-audit/erd',
+      ]);
+    });
+
+    it('sends no table request in Graph View, and the kept search with the first one after it (R10)', async () => {
+      const user = userEvent.setup();
+      const { drawer } = await openDataFlow(user);
+      fireEvent.change(tableSearch(drawer), { target: { value: 'pay' } });
+      await waitFor(() => expect(tableSearches()).toHaveLength(1));
+      await within(drawer).findByText('payments');
+
+      const beforeGraph = flowCalls().length;
+      await user.click(within(drawer).getByRole('button', { name: 'Graph View' }));
+      await within(drawer).findByRole('group', { name: 'Schema diagram' });
+      expect(flowCalls().slice(beforeGraph).map(url => url.pathname)).toEqual(['/api/dspm/data-flow/schemas/schema-public/erd']);
+
+      const beforeTable = flowCalls().length;
+      await user.click(within(drawer).getByRole('button', { name: 'Table View' }));
+      await within(drawer).findByRole('table');
+      const tableRequests = flowCalls().slice(beforeTable).filter(url => url.pathname.endsWith('/tables'));
+      expect(tableRequests).toHaveLength(1);
+      expect(tableRequests[0].pathname).toBe('/api/dspm/data-flow/schemas/schema-public/tables');
+      expect(tableRequests[0].searchParams.get('q')).toBe('pay');
     });
 
     it('opens a table\'s columns on a row click with focus on their heading, and the schema crumb goes back', async () => {

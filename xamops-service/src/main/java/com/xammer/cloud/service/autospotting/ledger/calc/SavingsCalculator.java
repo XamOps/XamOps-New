@@ -49,6 +49,9 @@ import java.util.TreeSet;
 public final class SavingsCalculator {
     public static final String VERSION = "aws-1";
     public static final String PROVIDER = "AWS";
+    /** The GCP branch (design-ledger.md §3.5, §3.9, §5.3, §5.4, PO-08): same engine, GCP billing units, SUD and CUD. */
+    public static final String GCP_VERSION = "gcp-1";
+    public static final String GCP_PROVIDER = "GCP";
     private static final Currency USD = Currency.getInstance("USD");
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100L);
     private static final int MONEY_SCALE = Money.ENTRY_SCALE;
@@ -57,6 +60,10 @@ public final class SavingsCalculator {
     /** Calculates the entry of the day, or empty when the group spent no part of it in a state that earns an entry (§6.1). */
     public Optional<EntryCalc> calculate(CalcInputs in) {
         validate(in);
+        GcpPrep.Prepared gp = isGcp(in) ? GcpPrep.prepare(in) : null;
+        if (gp != null) {
+            in = gp.engine();
+        }
         long ws = Instants.sec(in.windowStart());
         long we = Instants.sec(in.windowEnd());
         Long goLive = in.goLiveAt() == null ? null : Instants.sec(in.goLiveAt());
@@ -65,22 +72,25 @@ public final class SavingsCalculator {
             return Optional.of(orderViolationEntry(in));
         }
         List<Item> items = items(in, ws, we);
-        Pass pass = new Pass(in, windows, items, ws, we, false);
+        Pass pass = new Pass(in, windows, items, ws, we, false, gp);
         pass.run();
         if (!pass.exists) {
             return Optional.empty();
         }
-        return Optional.of(assemble(in, windows, items, ws, we, pass));
+        return Optional.of(assemble(in, windows, items, ws, we, pass, gp));
     }
 
     // ---------------------------------------------------------------- validation
 
     private static void validate(CalcInputs in) {
-        if (!VERSION.equals(in.calcVersion())) {
-            throw new IllegalArgumentException("this calculator runs " + VERSION + ", not " + in.calcVersion());
+        boolean gcp = isGcp(in);
+        String version = gcp ? GCP_VERSION : VERSION;
+        if (!version.equals(in.calcVersion())) {
+            throw new IllegalArgumentException("this calculator runs " + VERSION + " and " + GCP_VERSION + ", not "
+                    + in.calcVersion() + " for " + in.provider());
         }
-        if (!PROVIDER.equals(in.provider())) {
-            throw new IllegalArgumentException("provider must be AWS: " + in.provider());
+        if (!(gcp ? GCP_PROVIDER : PROVIDER).equals(in.provider())) {
+            throw new IllegalArgumentException("provider must be AWS or GCP: " + in.provider());
         }
         if (!"USD".equals(in.currency())) {
             throw new IllegalArgumentException("v1 is USD only (PD-01): " + in.currency());
@@ -90,6 +100,10 @@ public final class SavingsCalculator {
             throw new IllegalArgumentException("the accrual window is one UTC day: " + in.windowStart() + " to "
                     + in.windowEnd());
         }
+    }
+
+    private static boolean isGcp(CalcInputs in) {
+        return GCP_PROVIDER.equals(in.provider());
     }
 
     // ---------------------------------------------------------------- items
@@ -116,6 +130,7 @@ public final class SavingsCalculator {
     }
 
     private static List<Item> items(CalcInputs in, long ws, long we) {
+        boolean gcp = isGcp(in);
         List<Item> out = new ArrayList<>();
         for (Interval iv : in.intervals()) {
             if (iv.startAt() == null) {
@@ -147,7 +162,8 @@ public final class SavingsCalculator {
                 continue;
             }
             if (it.spot) {
-                it.charge = AwsBillingUnits.charge(endKnown, it.hi - it.start, iv.endCause());
+                it.charge = gcp ? GcpBillingUnits.charge(endKnown, it.hi - it.start, iv.endCause())
+                        : AwsBillingUnits.charge(endKnown, it.hi - it.start, iv.endCause());
             }
             out.add(it);
         }
@@ -170,6 +186,9 @@ public final class SavingsCalculator {
         final List<CapacitySample> samples;
         final List<SpotPrice> spotPrices;
         final Original original;
+        final GcpPrep.Prepared gcp;
+        /** The counterfactual's vCPU-seconds and GiB-seconds per series (GCP CUD, §5.4). */
+        final java.util.Map<String, BigDecimal[]> cfUse = new java.util.TreeMap<>();
 
         BigDecimal cfRs = BigDecimal.ZERO;
         BigDecimal cfListRs = BigDecimal.ZERO;
@@ -185,7 +204,9 @@ public final class SavingsCalculator {
         final TreeSet<String> snapshotIds = new TreeSet<>();
         final Exclusions exclusions = new Exclusions();
 
-        Pass(CalcInputs in, StateWindows windows, List<Item> items, long ws, long we, boolean substitute) {
+        Pass(CalcInputs in, StateWindows windows, List<Item> items, long ws, long we, boolean substitute,
+             GcpPrep.Prepared gcp) {
+            this.gcp = gcp;
             this.in = in;
             this.windows = windows;
             this.items = items;
@@ -287,6 +308,11 @@ public final class SavingsCalculator {
             cfRs = cfRs.add(cf.effectiveRate.multiply(d));
             cfListRs = cfListRs.add(cf.listRate.multiply(d));
             cfUnitSeconds = cfUnitSeconds.add(cf.units.multiply(d));
+            cf.use.forEach((series, u) -> {
+                BigDecimal[] acc = cfUse.computeIfAbsent(series, k -> new BigDecimal[] {BigDecimal.ZERO, BigDecimal.ZERO});
+                acc[0] = acc[0].add(u[0].multiply(d));
+                acc[1] = acc[1].add(u[1].multiply(d));
+            });
             snapshotIds.addAll(cf.snapshotIds);
             discountUndeclared |= cf.discountUndeclared;
             for (Item it : cost) {
@@ -342,7 +368,7 @@ public final class SavingsCalculator {
                 snapshotIds.add(best.snapshotId());
                 return best.rate();
             }
-            unknown.add(Reasons.MISSING_SPOT_PRICE);
+            unknown.add(gcp == null ? Reasons.MISSING_SPOT_PRICE : gcp.spotProblem(it.iv.instanceType()));
             if (substitute) {
                 for (OdPrice od : in.odPrices()) {
                     if (java.util.Objects.equals(od.instanceType(), it.iv.instanceType())
@@ -458,7 +484,8 @@ public final class SavingsCalculator {
                 for (Item it : cfItems) {
                     Rate r = rates.rateFor(it.iv.instanceType(), it.iv.platform(), it.weight);
                     if (r == null) {
-                        missing |= flag(measured, Reasons.MISSING_OD_PRICE);
+                        missing |= flag(measured, gcp == null ? Reasons.MISSING_OD_PRICE
+                                : gcp.odProblem(it.iv.instanceType(), original));
                     } else {
                         usable.add(it);
                         usableRates.add(r);
@@ -493,6 +520,14 @@ public final class SavingsCalculator {
                 cf.listRate = cf.listRate.add(allocated.multiply(usableRates.get(i).list()));
                 cf.snapshotIds.addAll(usableRates.get(i).snapshotIds());
                 cf.discountUndeclared |= usableRates.get(i).discountUndeclared();
+                if (gcp != null) {
+                    CalcInputs.Shape shape = gcp.shapes().get(usable.get(i).iv.instanceType());
+                    BigDecimal fraction = allocated.divide(usable.get(i).weight, 12, RoundingMode.HALF_UP);
+                    BigDecimal[] u = cf.use.computeIfAbsent(shape.series(),
+                            k -> new BigDecimal[] {BigDecimal.ZERO, BigDecimal.ZERO});
+                    u[0] = u[0].add(shape.vcpu().multiply(fraction));
+                    u[1] = u[1].add(shape.gib().multiply(fraction));
+                }
                 remaining = remaining.subtract(allocated);
             }
             return cf;
@@ -518,6 +553,8 @@ public final class SavingsCalculator {
         boolean missing;
         boolean discountUndeclared;
         final TreeSet<String> snapshotIds = new TreeSet<>();
+        /** vCPU and GiB per series the counterfactual consumed per second (GCP). */
+        final java.util.Map<String, BigDecimal[]> use = new java.util.TreeMap<>();
 
         /** The informational counterfactual of an excluded window as rate-seconds, null when a price is missing. */
         BigDecimal rateSeconds(BigDecimal delta) {
@@ -529,14 +566,15 @@ public final class SavingsCalculator {
 
     private EntryCalc orderViolationEntry(CalcInputs in) {
         BigDecimal zero = BigDecimal.ZERO.setScale(MONEY_SCALE);
-        return new EntryCalc(VERSION, PROVIDER, "USD", in.group().groupId(), in.group().cloudAccountId(),
+        return new EntryCalc(in.calcVersion(), in.provider(), "USD", in.group().groupId(), in.group().cloudAccountId(),
                 in.group().clientId(), in.windowStart(), in.windowEnd(), month(in), Tier.UNKNOWN, false,
                 Reasons.MISSING_STATE_ORDER, List.of(Reasons.MISSING_STATE_ORDER), 0L,
                 BigDecimal.ZERO.setScale(UNIT_SCALE), zero, zero, zero, zero, zero, zero, zero, null, "MEASURED",
                 List.of(), in.contract() == null ? null : in.contract().contractId(), List.of());
     }
 
-    private EntryCalc assemble(CalcInputs in, StateWindows windows, List<Item> items, long ws, long we, Pass pass) {
+    private EntryCalc assemble(CalcInputs in, StateWindows windows, List<Item> items, long ws, long we, Pass pass,
+                               GcpPrep.Prepared gp) {
         boolean unknown = !pass.unknown.isEmpty();
         BigDecimal cfList = money(pass.cfListRs);
         BigDecimal cf = money(pass.cfRs);
@@ -546,10 +584,19 @@ public final class SavingsCalculator {
         List<Exclusions.Item> exclusions;
         if (!unknown) {
             List<CalcInputs.PreType> pre = in.original() == null ? List.of() : in.original().preEnable();
-            CommitmentDeduction.Result r = CommitmentDeduction.compute(cf, pass.cfUnitSeconds, pre,
-                    in.commitmentsStatus(), in.commitments());
-            ded = r.deduction();
-            commitmentCap = r.capReason();
+            BigDecimal deduction;
+            if (gp != null) {
+                CudDeduction.Result r = CudDeduction.compute(cf, cudUses(gp, pass), in.commitmentsStatus(),
+                        in.gcp().commitments());
+                deduction = r.deduction();
+                commitmentCap = r.capReason();
+            } else {
+                CommitmentDeduction.Result r = CommitmentDeduction.compute(cf, pass.cfUnitSeconds, pre,
+                        in.commitmentsStatus(), in.commitments());
+                deduction = r.deduction();
+                commitmentCap = r.capReason();
+            }
+            ded = deduction;
             if (ded.signum() > 0) {
                 BigDecimal covered = cf.signum() == 0 ? BigDecimal.ZERO
                         : pass.cfUnitSeconds.multiply(ded).divide(cf, UNIT_SCALE, RoundingMode.HALF_UP);
@@ -563,9 +610,12 @@ public final class SavingsCalculator {
         BigDecimal net = gross.subtract(ded);
         boolean measuredNonEmpty = pass.measuredSeconds > 0;
 
+        boolean csp = gp != null && gp.cspPending();
         String capReason = null;
         if (!unknown) {
-            if (commitmentCap != null) {
+            if (csp) {
+                capReason = Reasons.CSP_DATASET_PENDING;
+            } else if (commitmentCap != null) {
                 capReason = commitmentCap;
             } else if (pass.discountUndeclared) {
                 capReason = Reasons.DISCOUNT_NOT_DECLARED;
@@ -576,7 +626,7 @@ public final class SavingsCalculator {
         Tier tier;
         if (unknown) {
             tier = Tier.UNKNOWN;
-        } else if (commitmentCap != null || pass.discountUndeclared || !in.reconciledTier().isBillable()
+        } else if (csp || commitmentCap != null || pass.discountUndeclared || !in.reconciledTier().isBillable()
                 || (pass.legacySeconds > 0 && pass.measuredSeconds == 0)) {
             tier = Tier.MEASURED_ONLY;
         } else {
@@ -593,10 +643,11 @@ public final class SavingsCalculator {
                 bound = net;
             } else if (unknown) {
                 reason = pass.unknown.first();
-                bound = worstCase(in, windows, items, ws, we, pass);
+                bound = worstCase(in, windows, items, ws, we, pass, gp);
             } else if (capReason != null) {
                 reason = capReason;
-                bound = Reasons.NOT_RECONCILED.equals(capReason) ? net : spot.negate();
+                bound = Reasons.NOT_RECONCILED.equals(capReason) || Reasons.CSP_DATASET_PENDING.equals(capReason)
+                        ? net : spot.negate();
             } else {
                 reason = contractReason;
                 bound = net;
@@ -604,25 +655,26 @@ public final class SavingsCalculator {
         }
         if (unknown) {
             BigDecimal zero = BigDecimal.ZERO.setScale(MONEY_SCALE);
-            return new EntryCalc(VERSION, PROVIDER, "USD", in.group().groupId(), in.group().cloudAccountId(),
+            return new EntryCalc(in.calcVersion(), in.provider(), "USD", in.group().groupId(), in.group().cloudAccountId(),
                     in.group().clientId(), in.windowStart(), in.windowEnd(), month(in), tier, false, reason,
                     List.copyOf(pass.unknown), pass.instanceSeconds, BigDecimal.ZERO.setScale(UNIT_SCALE), zero,
-                    zero, zero, zero, zero, zero, zero, bound, "MEASURED", List.copyOf(pass.snapshotIds),
+                    zero, zero, zero, zero, zero, zero, bound, "MEASURED", expandIds(pass.snapshotIds),
                     contractId(in), toExclusions(exclusions));
         }
-        return new EntryCalc(VERSION, PROVIDER, "USD", in.group().groupId(), in.group().cloudAccountId(),
+        return new EntryCalc(in.calcVersion(), in.provider(), "USD", in.group().groupId(), in.group().cloudAccountId(),
                 in.group().clientId(), in.windowStart(), in.windowEnd(), month(in), tier, billable, reason,
                 List.of(), pass.instanceSeconds, pass.cfUnitSeconds.setScale(UNIT_SCALE, RoundingMode.HALF_UP),
-                cfList, adj, cf, spot, gross, ded, net, bound, "MEASURED", List.copyOf(pass.snapshotIds),
+                cfList, adj, cf, spot, gross, ded, net, bound, "MEASURED", expandIds(pass.snapshotIds),
                 contractId(in), toExclusions(exclusions));
     }
 
     /** The §3.6 worst case when only Spot prices are missing: the missing Spot rate is the On-Demand list rate. */
-    private BigDecimal worstCase(CalcInputs in, StateWindows windows, List<Item> items, long ws, long we, Pass first) {
+    private BigDecimal worstCase(CalcInputs in, StateWindows windows, List<Item> items, long ws, long we, Pass first,
+                                 GcpPrep.Prepared gp) {
         if (!first.unknown.equals(new TreeSet<>(List.of(Reasons.MISSING_SPOT_PRICE)))) {
             return null;
         }
-        Pass p = new Pass(in, windows, items, ws, we, true);
+        Pass p = new Pass(in, windows, items, ws, we, true, gp);
         p.run();
         if (p.noBound) {
             return null;
@@ -630,12 +682,47 @@ public final class SavingsCalculator {
         BigDecimal cf = money(p.cfRs);
         BigDecimal spot = money(p.spotRs);
         List<CalcInputs.PreType> pre = in.original() == null ? List.of() : in.original().preEnable();
-        CommitmentDeduction.Result r = CommitmentDeduction.compute(cf, p.cfUnitSeconds, pre, in.commitmentsStatus(),
-                in.commitments());
-        if (r.capReason() != null) {
+        String capReason;
+        BigDecimal deduction;
+        if (gp != null) {
+            CudDeduction.Result r = CudDeduction.compute(cf, cudUses(gp, p), in.commitmentsStatus(),
+                    in.gcp().commitments());
+            capReason = r.capReason();
+            deduction = r.deduction();
+        } else {
+            CommitmentDeduction.Result r = CommitmentDeduction.compute(cf, p.cfUnitSeconds, pre,
+                    in.commitmentsStatus(), in.commitments());
+            capReason = r.capReason();
+            deduction = r.deduction();
+        }
+        if (capReason != null || (gp != null && gp.cspPending())) {
             return spot.negate();
         }
-        return cf.subtract(spot).subtract(r.deduction());
+        return cf.subtract(spot).subtract(deduction);
+    }
+
+    /** The counterfactual's hours per series and the effective rates they were priced at, for the CUD deduction. */
+    private static java.util.Map<String, CudDeduction.SeriesUse> cudUses(GcpPrep.Prepared gp, Pass pass) {
+        java.util.Map<String, CudDeduction.SeriesUse> out = new java.util.TreeMap<>();
+        BigDecimal hour = BigDecimal.valueOf(3600L);
+        pass.cfUse.forEach((series, u) -> {
+            GcpPrep.SeriesRates r = gp.series().get(series);
+            if (r != null) {
+                out.put(series, new CudDeduction.SeriesUse(
+                        u[0].divide(hour, CudDeduction.SCALE, RoundingMode.HALF_UP),
+                        u[1].divide(hour, CudDeduction.SCALE, RoundingMode.HALF_UP), r.coreRate(), r.ramRate()));
+            }
+        });
+        return out;
+    }
+
+    /** Price snapshot ids as stored: a GCP rate is stamped with its core, RAM and SUD snapshots joined by {@code +}. */
+    private static List<String> expandIds(java.util.Collection<String> ids) {
+        TreeSet<String> out = new TreeSet<>();
+        for (String id : ids) {
+            out.addAll(List.of(id.split("\\+")));
+        }
+        return List.copyOf(out);
     }
 
     /** The state or go-live reason with the most seconds when {@code M(W)} is empty; ties go to the first by code. */

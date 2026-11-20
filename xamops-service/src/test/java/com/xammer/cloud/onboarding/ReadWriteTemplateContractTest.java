@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Contract for the three served read-write connection templates (prod, uat, local) at template
- * version rw-2026.10.1. Static: the templates are parsed from {@code cloudformation/}, no AWS call
+ * version rw-2026.11.1. Static: the templates are parsed from {@code cloudformation/}, no AWS call
  * is made, so this runs in CI.
  *
  * <p>Pins what an in-place "Update stack" must never change (anything that replaces the role or a
@@ -37,7 +37,7 @@ class ReadWriteTemplateContractTest {
     /** The module directory is the working directory of a surefire run. */
     private static final Path CLOUDFORMATION = Path.of("..", "cloudformation");
 
-    private static final String VERSION = "rw-2026.10.1";
+    private static final String VERSION = "rw-2026.11.1";
     private static final String ROLE = "XamOpsReadWriteRole";
     private static final String READ_ONLY_ROLE = "XamOpsReadOnlyRole";
     private static final String READ_ONLY_ACCESS = "arn:aws:iam::aws:policy/ReadOnlyAccess";
@@ -177,7 +177,16 @@ class ReadWriteTemplateContractTest {
     /** Production event sinks. A non-production variant must never default to one of them. */
     private static final List<String> PRODUCTION_QUEUES = List.of(
             "https://sqs.ap-south-1.amazonaws.com/605134457560/autospotting-events.fifo",
-            "https://sqs.ap-south-1.amazonaws.com/605134457560/xamops-inventory-events.fifo");
+            "https://sqs.ap-south-1.amazonaws.com/605134457560/xamops-inventory-events.fifo",
+            "https://sqs.ap-south-1.amazonaws.com/605134457560/xamops-autospotting-events.fifo");
+    private static final String PRODUCTION_BUS =
+            "arn:aws:events:ap-south-1:605134457560:event-bus/xamops-onboarding-events";
+    private static final List<String> LEGACY_FORWARDER = List.of(
+            "AutoSpottingEventForwarderRole", "AutoSpottingEventForwarderFunction", "AutoSpottingForwarderLogGroup",
+            "SpotInstanceLaunchRule", "LaunchRuleLambdaPermission", "SpotInstanceTerminationRule",
+            "TerminationRuleLambdaPermission", "SpotInterruptionRule", "InterruptionRuleLambdaPermission",
+            "ODFallbackRule", "ODFallbackRuleLambdaPermission", "AutoSpottingLambdaErrorAlarm",
+            "AutoSpottingLambdaThrottleAlarm");
 
     // ------------------------------------------------------------------ 1. update-in-place stability
 
@@ -412,6 +421,51 @@ class ReadWriteTemplateContractTest {
         // Its own inventory queue, the one its app reads and passes in the quick-create link.
         assertThat(asMap(parameters.get("XamOpsInventoryQueueUrl")).get("Default")).isEqualTo(
                 "https://sqs.ap-south-1.amazonaws.com/605134457560/xamops-inventory-events" + variant.suffix + ".fifo");
+    }
+
+    // ------------------------------------------------------------------ AutoSpotting events stack
+    @ParameterizedTest
+    @EnumSource(Variant.class)
+    void theEventsStackReplacesTheLegacyForwarderAndKeepsTheOldParameters(Variant variant) {
+        CfnTemplate template = variant.readWrite();
+        Map<String, Object> resources = template.section("Resources");
+        assertThat(resources.keySet()).doesNotContainAnyElementsOf(LEGACY_FORWARDER);
+        assertThat(template.type("AutoSpottingEventsStack")).isEqualTo("AWS::CloudFormation::Stack");
+        assertThat(asMap(template.resource("AutoSpottingEventsStack")).get("Condition")).isEqualTo("DeployAutoSpottingEvents");
+        // Unused for one version so UsePreviousValue updates still work.
+        assertThat(template.section("Parameters")).containsKeys("EnableAutoSpotting", "XammerSQSQueueUrl",
+                "XammerRegion", "EnableAutoSpottingEvents", "XamOpsAutoSpottingQueueUrl",
+                "XamOpsAutoSpottingTemplateUrl", "XamOpsAutoSpottingFailureBusArn", "XamOpsAutoSpottingResourceSuffix");
+        assertThat(asMap(template.section("Parameters").get("EnableAutoSpottingEvents")).get("Default")).isEqualTo("true");
+        assertThat(template.section("Outputs")).containsKeys("AutoSpottingForwarderRoleId", "TemplateVersion")
+                .doesNotContainKey("AutoSpottingForwarderFunctionArn");
+        assertThat(asMap(template.section("Outputs").get("AutoSpottingForwarderRoleId")).get("Condition"))
+                .isEqualTo("DeployAutoSpottingEvents");
+        assertThat(asMap(template.section("Parameters").get("XamOpsAutoSpottingResourceSuffix")).get("Default"))
+                .isEqualTo(variant.suffix);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Variant.class, names = {"UAT", "LOCAL"})
+    void aNonProductionVariantNeverDefaultsToAProductionAutoSpottingQueueOrBus(Variant variant) {
+        Map<String, Object> parameters = variant.readWrite().section("Parameters");
+        assertThat(asMap(parameters.get("XamOpsAutoSpottingFailureBusArn")).get("Default")).isEqualTo("");
+        parameters.forEach((name, spec) -> assertThat(PRODUCTION_BUS).as(name)
+                .isNotEqualTo(String.valueOf(asMap(spec).get("Default"))));
+        Object queue = asMap(parameters.get("XamOpsAutoSpottingQueueUrl")).get("Default");
+        assertThat(queue).isIn("", "https://sqs.ap-south-1.amazonaws.com/605134457560/xamops-autospotting-events"
+                + variant.suffix + ".fifo");
+    }
+
+    @Test
+    void theEventsNestedStackKeepsItsContract() {
+        CfnTemplate nested = CfnTemplate.load(CLOUDFORMATION.resolve("xamops-autospotting-events-nested.yaml"));
+        assertThat(canonical(nested.properties("ForwarderRole").get("RoleName")))
+                .contains("xamops-as-events-fwd-role").doesNotContain("xamops-autospotting-forwarder-role");
+        assertThat(nested.properties("ForwarderInvokeConfig").get("MaximumRetryAttempts")).isEqualTo(2);
+        assertThat(nested.section("Outputs")).containsKey("ForwarderRoleId");
+        assertThat(canonical(nested.section("Parameters"))).doesNotContain("605134457560");
+        assertThat(canonical(nested.section("Resources"))).doesNotContain("instance-lifecycle");
     }
 
     // ------------------------------------------------------------------ helpers

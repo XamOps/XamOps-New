@@ -37,6 +37,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -88,7 +89,7 @@ class DspmDatastoreControllerTest {
         }
     }
 
-    /** The 16 endpoints of design 5.2, each with valid parameters. */
+    /** The 19 endpoints of design 5.2 (build 1's 16 and endpoints 15, 16, 18), each with valid parameters. */
     private static List<Call> everyEndpoint() {
         return List.of(
                 new Call("/api/dspm/datastores", "tab", "cloud", "provider", "S3,EBS"),
@@ -108,7 +109,10 @@ class DspmDatastoreControllerTest {
                 new Call("/api/dspm/data-flow/schemas/" + UUID + "/tables", "page", "2", "pageSize", "10",
                         "q", "orders"),
                 new Call("/api/dspm/data-flow/databases/" + UUID + "/tables"),
-                new Call("/api/dspm/data-flow/tables/" + UUID + "/columns", "page", "1", "pageSize", "25"));
+                new Call("/api/dspm/data-flow/tables/" + UUID + "/columns", "page", "1", "pageSize", "25"),
+                new Call("/api/dspm/data-flow/schemas/" + UUID + "/erd"),
+                new Call("/api/dspm/data-flow/databases/" + UUID + "/erd"),
+                new Call("/api/dspm/data-flow/tables/" + UUID + "/relations"));
     }
 
     @BeforeEach
@@ -165,7 +169,7 @@ class DspmDatastoreControllerTest {
     // ── routing and tenancy ──────────────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("ROLE_XAMOPS with the tab: all 16 endpoints answer 200, each service gets the principal's client id")
+    @DisplayName("ROLE_XAMOPS with the tab: all 19 endpoints answer 200, each service gets the principal's client id")
     void everyEndpointAnswers() throws Exception {
         when(tabs.findTabNamesByUserId(500L)).thenReturn(List.of("cloudops-cloudk8s", TAB));
 
@@ -189,6 +193,29 @@ class DspmDatastoreControllerTest {
         verify(dataFlowService).schemaTables(10L, UUID, 2, 10, "orders");
         verify(dataFlowService).databaseTables(10L, UUID, 1, 10, null);
         verify(dataFlowService).columns(10L, UUID, 1, 25);
+        verify(dataFlowService).schemaErd(10L, UUID);
+        verify(dataFlowService).databaseErd(10L, UUID);
+        verify(dataFlowService).tableRelations(10L, UUID);
+    }
+
+    @Test
+    @DisplayName("Graph View ids are lower-cased UUIDs; a non-UUID or a parameter is a 400; a refused principal a 403")
+    void graphViewEndpoints() throws Exception {
+        perform(new Call("/api/dspm/data-flow/tables/0000000A-0000-4000-8000-00000000000B/relations"))
+                .andExpect(status().isOk());
+        verify(dataFlowService).tableRelations(10L, UUID);
+
+        expectInvalid(new Call("/api/dspm/data-flow/tables/not-a-uuid/relations"), "tableId");
+        expectInvalid(new Call("/api/dspm/data-flow/schemas/not-a-uuid/erd"), "schemaId");
+        expectInvalid(new Call("/api/dspm/data-flow/databases/" + SOURCE_ID + "/erd"), "databaseId");
+        expectInvalid(new Call("/api/dspm/data-flow/tables/" + UUID + "/relations", "page", "1"), "page");
+        expectInvalid(new Call("/api/dspm/data-flow/schemas/" + UUID + "/erd", "q", "orders"), "q");
+
+        when(tabs.findTabNamesByUserId(500L)).thenReturn(List.of("cloudops-cloudk8s"));
+        expectTabDenied(new Call("/api/dspm/data-flow/tables/" + UUID + "/relations"));
+        expectTabDenied(new Call("/api/dspm/data-flow/schemas/" + UUID + "/erd"));
+        verify(dataFlowService).tableRelations(10L, UUID);
+        verifyNoMoreInteractions(dataFlowService);
     }
 
     @Test

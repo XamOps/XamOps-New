@@ -28,6 +28,8 @@ import {
   HelpModal,
 } from '../components/AccountManager';
 import type { CloudAccount, GitHubConfig, JenkinsConfig } from '../types/accountManager';
+import { getDeletionCheck } from '../api/autospottingApi';
+import AccountDeletionDialog from './autospotting/components/AccountDeletionDialog';
 
 
 const AccountManagerPage: React.FC = () => {
@@ -86,7 +88,8 @@ const AccountManagerPage: React.FC = () => {
   }, []);
 
   // Handle remove account
-  const handleRemoveAccount = useCallback(async (account: CloudAccount) => {
+  const [deletionAccount, setDeletionAccount] = useState<CloudAccount | null>(null);
+  const removeConfirmed = useCallback(async (account: CloudAccount) => {
     // Removal now cascades into billing: the backend deletes this account's invoices
     // and agreements along with it, finalized ones included. Say so here — it is the
     // only point where the action can still be called off.
@@ -110,6 +113,23 @@ const AccountManagerPage: React.FC = () => {
       alert(`Error: ${err instanceof Error ? err.message : 'Failed to remove account'}`);
     }
   }, [removeAccount]);
+
+  // PO-21: an AWS account with AutoSpotting groups goes through the deletion dialog first. If the check
+  // itself fails, the existing flow (and the server-side 409) still applies.
+  const handleRemoveAccount = useCallback(async (account: CloudAccount) => {
+    if (account.provider === 'AWS') {
+      try {
+        const check = await getDeletionCheck(account.dbId);
+        if (check.blocking.length > 0 || check.stillConverted.length > 0) {
+          setDeletionAccount(account);
+          return;
+        }
+      } catch {
+        // fall through to the normal removal flow
+      }
+    }
+    await removeConfirmed(account);
+  }, [removeConfirmed]);
 
   // Handle remove GitHub config
   const handleRemoveGitHubConfig = useCallback(async (config: GitHubConfig) => {
@@ -182,6 +202,18 @@ const AccountManagerPage: React.FC = () => {
         onVerify={verifyAccount}
       />
 
+      {deletionAccount && (
+        <AccountDeletionDialog
+          accountId={deletionAccount.dbId}
+          accountName={deletionAccount.name}
+          onClose={() => setDeletionAccount(null)}
+          onDelete={() => {
+            const account = deletionAccount;
+            setDeletionAccount(null);
+            void removeConfirmed(account);
+          }}
+        />
+      )}
       {/* Help Modal */}
       <HelpModal
         isOpen={isHelpModalOpen}

@@ -11,6 +11,8 @@ export const autoSpottingKeys = {
     ['autospotting', 'analytics', accountId, from, to] as const,
   audit: (accountId: number | null, groupId: string, from: string, to: string, limit: number) =>
     ['autospotting', 'audit', accountId, groupId, from, to, limit] as const,
+  stackCapabilities: (accountId: number | null) => ['autospotting', 'stack-capabilities', accountId] as const,
+  regionCoverage: (accountId: number | null) => ['autospotting', 'region-coverage', accountId] as const,
   potential: (accountId: number | null) => ['autospotting', 'potential', accountId] as const,
   ledgerSummary: (accountId: number | null) => ['autospotting', 'ledger-summary', accountId] as const,
   groupSavings: (accountId: number | null, groupId: string | null) =>

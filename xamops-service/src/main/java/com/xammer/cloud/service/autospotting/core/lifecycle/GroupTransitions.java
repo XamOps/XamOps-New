@@ -53,8 +53,9 @@ public final class GroupTransitions {
         // UNMANAGED --> PLANNED (enable plan created); --> GONE (not found, or new stable id).
         put(m, GroupState.UNMANAGED, GroupState.PLANNED, GroupState.GONE);
 
-        // REVERTED --> PLANNED (new enable plan); --> GONE.
-        put(m, GroupState.REVERTED, GroupState.PLANNED, GroupState.GONE);
+        // REVERTED --> PLANNED (new enable plan); --> REVERTING (GR-02: the exact revert offered after a drain-only
+        //          revert ended with PASSROLE_DENIED; plan kinds allow it from no other REVERTED group); --> GONE.
+        put(m, GroupState.REVERTED, GroupState.PLANNED, GroupState.REVERTING, GroupState.GONE);
 
         // PLANNED --> PLANNED (superseding enable plan, inherits from_state, 7.4);
         //         --> UNMANAGED / REVERTED (plan expired/superseded/cancelled before start, to from_state);
@@ -118,7 +119,7 @@ public final class GroupTransitions {
         // FAILED --> REVERTING (revert op, acknowledged REVERT_FROM_FAILED, 7.4); --> GONE.
         put(m, GroupState.FAILED, GroupState.REVERTING, GroupState.GONE);
 
-        // GONE and REVERTED are terminal for automation (REVERTED's only edges are above: PLANNED, GONE).
+        // GONE and REVERTED are terminal for automation (REVERTED's only edges are above: PLANNED, REVERTING for GR-02, GONE).
         put(m, GroupState.GONE); // no outgoing edge
 
         return m;

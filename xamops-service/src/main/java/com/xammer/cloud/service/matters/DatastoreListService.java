@@ -100,7 +100,7 @@ public class DatastoreListService {
         return facets;
     }
 
-    private DatastoreSummarySnapshot summary(MattersCredential credential, Long clientId) {
+    DatastoreSummarySnapshot summary(MattersCredential credential, Long clientId) {
         String key = DatastoreCacheKeys.summary(clientId);
         Optional<DatastoreSummarySnapshot> cached = cache.get(key, SUMMARY);
         if (cached.isPresent()) {

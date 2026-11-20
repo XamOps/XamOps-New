@@ -41,4 +41,13 @@ public class LedgerGate {
         SwitchState state = switches.current();
         return !state.switchStoreUnreadable() && !state.engagedScopeKeys().contains(writerKey(true));
     }
+
+    /** True when the GCP ledger jobs may run now (the same rule, {@code autospotting.ledger.gcp.writer-enabled}). */
+    public boolean gcpWriterOn() {
+        if (!properties.ledgerWriterEnabled(false)) {
+            return false;
+        }
+        SwitchState state = switches.current();
+        return !state.switchStoreUnreadable() && !state.engagedScopeKeys().contains(writerKey(false));
+    }
 }

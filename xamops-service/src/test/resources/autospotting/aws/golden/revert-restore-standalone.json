@@ -1,0 +1,8 @@
+{
+  "AutoScalingGroupName" : "web-asg",
+  "LaunchTemplate" : {
+    "LaunchTemplateId" : "lt-0abc",
+    "Version" : "$Default"
+  },
+  "CapacityRebalance" : false
+}
