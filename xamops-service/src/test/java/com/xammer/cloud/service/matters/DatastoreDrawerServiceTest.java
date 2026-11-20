@@ -285,13 +285,13 @@ class DatastoreDrawerServiceTest {
     // ── no sample in the cache ───────────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("no cached value holds a sample, while the occurrence response carries it raw")
+    @DisplayName("no cached value holds a sample, while the occurrence response carries it masked")
     void noSampleIsEverCached() {
         everyMethod().values().forEach(Runnable::run);
         DatastoreOccurrencePage occurrences = service.occurrences(10L, SOURCE_ID, "PERSON NAME", 0, 10, true);
 
         assertThat(cache.puts).isNotEmpty()
                 .allSatisfy(put -> assertThat(put.json()).as(put.key()).doesNotContain(MARKER));
-        assertThat(occurrences.rows().get(0).samples()).containsExactly(MARKER, "<<Second Sample>>");
+        assertThat(occurrences.rows().get(0).samples()).containsExactly("<<SYNT•••••-SAM•••-7•••>>", "<<Sec••• Sa••••>>");
     }
 }

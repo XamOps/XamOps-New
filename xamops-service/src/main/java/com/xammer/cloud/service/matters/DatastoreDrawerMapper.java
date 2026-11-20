@@ -33,7 +33,7 @@ import static com.xammer.cloud.service.matters.DatastoreRowMapper.totalPages;
  *
  * <p>This is where the whitelist lives. The overview and sensitives routes carry raw samples and
  * connection config; only the fields named here leave the server, and only {@link #toOccurrences}
- * carries a sample (decision D1). Dependency-free and defensive, like {@link MattersAssetMapper}.
+ * carries a sample, masked by {@link SampleMask} (build 9). Dependency-free and defensive, like {@link MattersAssetMapper}.
  */
 @Component
 public class DatastoreDrawerMapper {
@@ -373,10 +373,13 @@ public class DatastoreDrawerMapper {
     /**
      * {@code /sensitives/entity} → one occurrence page. {@code total} is {@code pagination.total} when
      * numeric, else {@code skip} + the rows returned; {@code total_sensitive_occurrences} counts records,
-     * not rows, and is never used. {@code skip} and {@code limit} echo the request.
+     * not rows, and is never used. {@code skip} and {@code limit} echo the request. Every sample is
+     * masked (build 9): by {@link SampleMask#maskSecret} when the entity is a secret type (its name or
+     * {@code entity_level_response.labels}), else by {@link SampleMask#mask}.
      */
     public DatastoreOccurrencePage toOccurrences(JsonNode body, String entityName, int skip, int limit) {
         JsonNode response = body.path("entity_level_response");
+        boolean secret = SampleMask.isSecret(entityName, DrawerJson.strings(response.path("labels"), 20, 128));
         List<DatastoreOccurrencePage.Occurrence> rows = new ArrayList<>();
         for (JsonNode row : response.path("data")) {
             String url = text(row, "url");
@@ -385,7 +388,7 @@ public class DatastoreDrawerMapper {
             for (JsonNode sample : row.path("sampled_data")) {
                 JsonNode value = sample.path("value");
                 if (!value.isMissingNode() && !value.isNull() && !value.isContainerNode()) {
-                    samples.add(value.asText());
+                    samples.add(secret ? SampleMask.maskSecret(value.asText()) : SampleMask.mask(value.asText()));
                 }
             }
             JsonNode falsePositive = row.path("is_false_positive");

@@ -429,7 +429,7 @@ class DatastoreDrawerMapperTest {
         assertThat(page.limit()).isEqualTo(10);
         assertThat(page.entityName()).isEqualTo("PERSON NAME");
         DatastoreOccurrencePage.Occurrence first = page.rows().get(0);
-        assertThat(first.samples()).containsExactly("SYNTHMARKER-a", "SYNTHMARKER-b");
+        assertThat(first.samples()).containsExactly("SYNTH••••••-•", "SYNTH••••••-•");
         assertThat(first.fileName()).isEqualTo("one.csv");
         assertThat(first.url()).isEqualTo("s3://synth/dir/one.csv");
         DatastoreOccurrencePage.Occurrence second = page.rows().get(1);
@@ -441,6 +441,25 @@ class DatastoreDrawerMapperTest {
         assertThat(serialise(page)).doesNotContain("topic_name").doesNotContain("page_number");
     }
 
+    @Test
+    @DisplayName("occurrences: a SECRETS-labelled entity's samples use the secret rule (first 4 visible)")
+    void occurrencesSecretRule() {
+        DatastoreOccurrencePage page = mapper.toOccurrences(parse("""
+                {"entity_level_response": {"entity_name": "ACCESS KEY AWS", "labels": ["SECRETS"],
+                   "data": [{"url": "s3://synth/k.env", "sampled_data": [{"value": "AKIAIOSFODNN7EXAMPLE"}]}]}}
+                """), "ACCESS KEY AWS", 0, 10);
+        assertThat(page.rows().get(0).samples()).containsExactly("AKIA••••••••••••••••");
+        assertThat(serialise(page)).doesNotContain("AKIAIOSFODNN7EXAMPLE");
+    }
+    @Test
+    @DisplayName("an Occurrence built without the mapper still masks its samples (the DTO floor)")
+    void occurrenceFloor() {
+        DatastoreOccurrencePage.Occurrence row = new DatastoreOccurrencePage.Occurrence(
+                "a.csv", "s3://a.csv", null, null, null, null, false, List.of("Jane Doe"));
+        assertThat(row.samples()).containsExactly("Ja•• D••");
+        assertThat(new DatastoreOccurrencePage.Occurrence(null, null, null, null, null, null, false, null).samples())
+                .isNotNull().isEmpty();
+    }
     @Test
     @DisplayName("without a numeric pagination.total, skip 20 with 4 rows gives 24")
     void occurrenceTotalFallback() {

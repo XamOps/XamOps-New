@@ -153,7 +153,7 @@ public class DspmDatastoreController {
 
     /**
      * {@code entityName} (required, one of this datastore's entities), {@code skip}, {@code limit} and
-     * {@code showFalsePositives}. Carries raw samples, so the response is {@code Cache-Control: no-store}.
+     * {@code showFalsePositives}. Carries masked samples, so the response is {@code Cache-Control: no-store}.
      */
     @GetMapping("/datastores/{sourceId}/sensitives/occurrences")
     public ResponseEntity<DatastoreOccurrencePage> occurrences(@AuthenticationPrincipal ClientUserDetails user,

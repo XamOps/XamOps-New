@@ -28,7 +28,7 @@ import java.util.function.Supplier;
  *
  * <p>The sensitives route is mapped once into two entries: the small {@code dssens} snapshot (entities
  * and database tables), which the Sensitive tab and the occurrence check read, and the large
- * {@code dsfiles} rows the File View pages through. Occurrences, which carry raw samples (decision D1),
+ * {@code dsfiles} rows the File View pages through. Occurrences, which carry masked samples (build 9),
  * are never read from or written to the cache; that method reads only the snapshot, to validate
  * {@code entityName}.
  */
@@ -106,7 +106,7 @@ public class DatastoreDrawerService {
     }
 
     /**
-     * One page of an entity's occurrences, with raw samples. Never cached: the cache is read only for
+     * One page of an entity's occurrences, with masked samples. Never cached: the cache is read only for
      * the sensitives snapshot, and {@code entityName} must be a non-blank entity of that snapshot
      * before the occurrences route is called.
      *

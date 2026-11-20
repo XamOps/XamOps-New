@@ -24,7 +24,7 @@ import java.util.function.Supplier;
  * <p>Every method resolves the credential first, then reads the cache, then makes the vendor calls
  * listed, then caches the whitelisted DTO. The unfiltered sensitive-files answer is cached once as the
  * {@code dsepsum} snapshot: the Information tab's totals plus the agent's entity names, which validate
- * {@code entityName}. Occurrences carry raw samples (decision D1) and are never cached.
+ * {@code entityName}. Occurrences carry masked samples (build 9) and are never cached.
  */
 @Service
 @RequiredArgsConstructor
@@ -94,7 +94,7 @@ public class EndpointDrawerService {
     }
 
     /**
-     * One page of an entity's occurrences, with raw samples. Occurrences never store an occurrence page.
+     * One page of an entity's occurrences, with masked samples. Occurrences never store an occurrence page.
      * On a dsepsum miss they write that snapshot (no samples), as the summary endpoint would. The cache
      * is read only for that snapshot, and {@code entityName} must be one of its entity names before the
      * entity route is called (review fix R5).
