@@ -820,6 +820,14 @@ describe('DatastoresPage filter seed from the URL (design 4.7)', () => {
     await waitFor(() => expect(screen.getByTestId('search')).toHaveTextContent(/^\?view=x$/));
   });
 
+  it('seeds ?region= (Active Sensitive Regions "View All") on the Cloud tab, then removes it', async () => {
+    renderSeeded('/xamlens/datastores/cloud?region=eu-west-3');
+    await screen.findByText('orders-archive');
+    expect(listRequests()[0].searchParams.get('region')).toBe('eu-west-3');
+    await waitFor(() => expect(screen.getByTestId('search')).toBeEmptyDOMElement());
+    expect(last(listRequests()).searchParams.get('region')).toBe('eu-west-3');
+  });
+
   it('seeds os on the Endpoint tab', async () => {
     renderSeeded('/xamlens/datastores/endpoint?os=MAC');
     await screen.findByText('orders-archive');

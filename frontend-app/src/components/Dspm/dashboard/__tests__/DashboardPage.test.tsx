@@ -7,6 +7,8 @@ import type { DatastoreRow } from '../../../../types/dspmDatastores';
 import type { DashboardEnvironment, DspmDashboard } from '../../../../types/dspmPages';
 
 vi.mock('../../../../utils/apiClient', () => ({ default: { get: vi.fn() } }));
+// The world map fetches its outline from a CDN; its own test covers it.
+vi.mock('../RegionMap', () => ({ default: () => <div data-testid="region-map" /> }));
 
 import apiClient from '../../../../utils/apiClient';
 import DashboardPage from '../DashboardPage';
@@ -84,6 +86,9 @@ const DASHBOARD: DspmDashboard = {
     endpoint: [],
     on_prem: [],
   },
+  regions: [
+    { region: 'eu-west-1', datastores: 3, scannedDatastores: 2, sensitiveRecords: 3_900, sensitiveLabels: ['Financial', 'Personal'] },
+  ],
 };
 
 let dashboardAnswer: () => Promise<DspmDashboard>;
@@ -200,6 +205,17 @@ describe('DashboardPage', () => {
     await screen.findByRole('article', { name: 'On Prem' });
     expect(within(card('On Prem')).getByText('Based on the first 1,000 datastores.')).toBeInTheDocument();
     expect(within(card('Cloud')).queryByText('Based on the first 1,000 datastores.')).toBeNull();
+  });
+
+  it('shows Active Sensitive Regions under the cards, and its View All opens the region-filtered Cloud tab', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const widget = await screen.findByRole('region', { name: 'Active Sensitive Regions' });
+    expect(within(widget).getByText('(Showing 1 Regions)')).toBeInTheDocument();
+    expect(within(widget).getByRole('tab', { name: 'Ireland' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(widget).getByTestId('region-map')).toBeInTheDocument();
+    await user.click(within(widget).getByRole('link', { name: 'View All datastores in Ireland' }));
+    expect(screen.getByTestId('location')).toHaveTextContent('/xamlens/datastores/cloud?region=eu-west-1');
   });
 
   it('lists the Top Risky rows of the selected tab, with "View All" only off All', async () => {

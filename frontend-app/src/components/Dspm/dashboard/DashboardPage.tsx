@@ -7,6 +7,7 @@ import DspmNotReady from '../DspmNotReady';
 import { DatastoreDrawerHost } from '../datastores/DatastoreDrawerHost';
 import { ErrorNote, LoadingNote } from '../datastores/drawer/TabParts';
 import { ConsoleOnlyButton } from '../datastores/ui/ConsoleOnly';
+import ActiveSensitiveRegions from './ActiveSensitiveRegions';
 import { DashboardSection } from './DashboardParts';
 import EnvironmentCards from './EnvironmentCards';
 import TopRiskyDatastores from './TopRiskyDatastores';
@@ -51,7 +52,15 @@ const ReadyDashboard: React.FC = () => {
         </div>
       </div>
       <DashboardSection title="Where does sensitive data live" subtitle="Environment breakdown">
-        {state(data => <EnvironmentCards environments={data.environments} />)}
+        {state(data => (
+          <>
+            <EnvironmentCards environments={data.environments} />
+            <ActiveSensitiveRegions
+              regions={data.regions}
+              partial={data.environments.some(environment => environment.id === 'cloud' && environment.partial)}
+            />
+          </>
+        ))}
       </DashboardSection>
       <DashboardSection title="Where exactly is the risk concentrated" subtitle="Granular risk detail">
         {state(data => <TopRiskyDatastores topRisky={data.topRisky} onOpen={setOpenRow} />)}
@@ -68,10 +77,10 @@ interface Props {
 
 /**
  * XamLens Dashboard (design 6.4, brief 10.1): the console's widgets that public API data fills, the
- * environment cards and Top Risky Datastores, from one `GET /api/dspm/dashboard`. Every other console
- * widget (Data Coverage, Sensitive Data at Risk, Open Issues, Compliance Control Readiness, Active
- * Sensitive Regions, the two "by Labels" charts) has no public source and is left out. The DAM view and
- * the gear (Manage dashboard) are the console's and greyed.
+ * environment cards, Active Sensitive Regions (in part, brief 11) and Top Risky Datastores, from one
+ * `GET /api/dspm/dashboard`. Every other console widget (Data Coverage, Sensitive Data at Risk, Open
+ * Issues, Compliance Control Readiness, the two "by Labels" charts) has no public source and is left out.
+ * The DAM view and the gear (Manage dashboard) are the console's and greyed.
  */
 const DashboardPage: React.FC<Props> = ({ status, onRetry }) => {
   if (!status.ready) return <DspmNotReady status={status} onRetry={onRetry} />;

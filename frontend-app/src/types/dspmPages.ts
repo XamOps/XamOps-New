@@ -42,10 +42,27 @@ export interface DashboardEnvironment {
   partial: boolean;
 }
 
+/**
+ * `DspmDashboard.Region`: one "Active Sensitive Regions" region, the collected cloud rows of one
+ * `source.region` (listed when one of them has sensitive records or is classified).
+ */
+export interface DashboardRegion {
+  /** The raw region code, e.g. `eu-west-3`; the widget labels and places it. */
+  region: string;
+  datastores: number;
+  /** Rows whose scan status is CLASSIFIED. */
+  scannedDatastores: number;
+  sensitiveRecords: number;
+  /** Sensitive category labels, the most common first. */
+  sensitiveLabels: string[];
+}
+
 /** `DspmDashboard`. Environments in the order cloud, saas, endpoint, on_prem. */
 export interface DspmDashboard {
   environments: DashboardEnvironment[];
   topRisky: Record<TopRiskyTab, DatastoreRow[]>;
+  /** Most sensitive records first. */
+  regions: DashboardRegion[];
 }
 
 // ─── Document Classes (`/api/dspm/document-classes`) ────────────────────────────────────────────

@@ -14,8 +14,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The Dashboard's environment cards and Top Risky rows from the summary snapshot and the collected asset
- * rows (design 5.6.1, brief 10.1).
+ * The Dashboard's environment cards, Top Risky rows and Active Sensitive Regions from the summary snapshot
+ * and the collected asset rows (design 5.6.1, brief 10.1 and 11).
  *
  * <p>Bars are keyed by {@code source.provider} on Cloud and On-Prem and by {@code subtype} on Endpoint (the
  * OS) and on SaaS: the console's SaaS card lists drive types (Google Drive, Gmail), brief 10.1, so the
@@ -35,6 +35,9 @@ public class DashboardMapper {
 
     /** The console's endpoint bar names (brief 10.1: "Mac"). Other codes use the subtype label. */
     private static final Map<String, String> OS_BAR_LABELS = Map.of("MAC", "Mac", "WINDOWS", "Windows");
+
+    /** The scan status the console counts as a scanned datastore (Scanned DataStores, brief 11). */
+    private static final String SCANNED_STATUS = "CLASSIFIED";
 
     /** The tab's rows in collector order ({@code -severity}) with records (A6), the first 5 (A4). */
     public List<DatastoreRowMapper.MappedRow> topRows(AssetRowSnapshot snapshot) {
@@ -79,7 +82,70 @@ public class DashboardMapper {
             List<DatastoreRow> top = labelledTop == null ? null : labelledTop.get(tab);
             topRisky.put(tab.slug(), top == null ? List.of() : top);
         }
-        return new DspmDashboard(environments, topRisky);
+        return new DspmDashboard(environments, topRisky, regions(rows == null ? null : rows.get(DatastoreTab.CLOUD)));
+    }
+
+    /**
+     * "Active Sensitive Regions" (brief 11) from the collected cloud rows: one entry per {@code source.region}
+     * with a row that has sensitive records or is classified; every cloud row of that region counts. Ordered
+     * by sensitive records, then datastores, then the code. Rows without a region are skipped.
+     */
+    private static List<DspmDashboard.Region> regions(AssetRowSnapshot snapshot) {
+        if (snapshot == null || snapshot.rows() == null) {
+            return List.of();
+        }
+        Map<String, RegionSums> sums = new LinkedHashMap<>();
+        for (DatastoreRowMapper.MappedRow mapped : snapshot.rows()) {
+            DatastoreRow row = mapped == null ? null : mapped.row();
+            String region = row == null || row.source() == null ? null : row.source().region();
+            if (region == null || region.isBlank()) {
+                continue;
+            }
+            sums.computeIfAbsent(region, k -> new RegionSums()).add(row);
+        }
+        List<DspmDashboard.Region> out = new ArrayList<>();
+        sums.forEach((region, sum) -> {
+            if (sum.active) {
+                out.add(sum.toRegion(region));
+            }
+        });
+        out.sort(Comparator.comparingLong(DspmDashboard.Region::sensitiveRecords).reversed()
+                .thenComparing(Comparator.comparingLong(DspmDashboard.Region::datastores).reversed())
+                .thenComparing(DspmDashboard.Region::region));
+        return out;
+    }
+
+    /** One region's running sums; label counts keep first-seen order for ties. */
+    private static final class RegionSums {
+        private long datastores;
+        private long scanned;
+        private long records;
+        private boolean active;
+        private final Map<String, Integer> labels = new LinkedHashMap<>();
+
+        void add(DatastoreRow row) {
+            long rowRecords = recordCount(row);
+            boolean classified = row.scan() != null && SCANNED_STATUS.equals(row.scan().status());
+            datastores++;
+            records += rowRecords;
+            if (classified) {
+                scanned++;
+            }
+            active |= rowRecords > 0 || classified;
+            if (row.sensitives() != null && row.sensitives().typeLabels() != null) {
+                for (String label : row.sensitives().typeLabels()) {
+                    if (label != null) {
+                        labels.merge(label, 1, Integer::sum);
+                    }
+                }
+            }
+        }
+
+        DspmDashboard.Region toRegion(String region) {
+            List<String> ordered = new ArrayList<>(labels.keySet());
+            ordered.sort(Comparator.comparingInt((String label) -> labels.get(label)).reversed());
+            return new DspmDashboard.Region(region, datastores, scanned, records, ordered);
+        }
     }
 
     private static String filterOf(DatastoreTab tab) {

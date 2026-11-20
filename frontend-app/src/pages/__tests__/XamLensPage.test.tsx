@@ -46,6 +46,7 @@ const emptyEnvironment = (id: DashboardEnvironmentId): DashboardEnvironment => (
 const EMPTY_DASHBOARD: DspmDashboard = {
   environments: (['cloud', 'saas', 'endpoint', 'on_prem'] as const).map(emptyEnvironment),
   topRisky: { all: [], cloud: [], saas: [], endpoint: [], on_prem: [] },
+  regions: [],
 };
 
 const LocationProbe: React.FC = () => <div data-testid="location">{useLocation().pathname}</div>;

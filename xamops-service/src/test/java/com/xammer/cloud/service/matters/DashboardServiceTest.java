@@ -163,6 +163,10 @@ class DashboardServiceTest {
                 .containsExactly(tuple("S3", 60L, 2L), tuple("RDS", 0L, 1L));
         assertThat(dashboard.environments().get(1).subCategories()).extracting(DspmDashboard.SubCategory::key)
                 .containsExactly("GOOGLE_WORKSPACE", "GMAIL");
+        // Active Sensitive Regions from the cloud rows only (every synthetic row is CLASSIFIED in one region)
+        assertThat(dashboard.regions()).containsExactly(
+                new DspmDashboard.Region("test-region-1", 3, 3, 60, List.of()));
+        assertThat(service.dashboard(10L).regions()).isEqualTo(dashboard.regions());
 
         assertThat(dashboard.topRisky().keySet()).containsExactly("all", "cloud", "saas", "endpoint", "on_prem");
         assertThat(dashboard.topRisky().get("cloud")).extracting(DatastoreRow::name).hasSize(2);

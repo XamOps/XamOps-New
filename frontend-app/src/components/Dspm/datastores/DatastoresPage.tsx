@@ -29,11 +29,14 @@ import { inPageState } from '../../../utils/inPageNavigation';
  * console action (scans, row menus, bulk selection) is greyed and calls nothing.
  */
 
-/** The filters a link may seed (design 4.7): a Dashboard bar opens `?provider=` or, on Endpoint, `?os=`. */
-const URL_SEED_DIMENSIONS = ['provider', 'os'] as const;
+/**
+ * The filters a link may seed (design 4.7): a Dashboard bar opens `?provider=` or, on Endpoint, `?os=`;
+ * an Active Sensitive Regions "View All" opens `?region=` (brief 11).
+ */
+const URL_SEED_DIMENSIONS = ['provider', 'os', 'region'] as const;
 
 /**
- * The URL's `provider` and `os` as Include filters, keeping a value only when it passes its dimension's
+ * The URL's `provider`, `os` and `region` as Include filters, keeping a value only when it passes its dimension's
  * rule (`DIMENSION_VALUE_RULES`, through `isSelectable`) and `os` only on the Endpoint tab. Undefined when
  * nothing is seeded.
  */
@@ -200,7 +203,7 @@ const ReadyDatastoresPage: React.FC<{ tab: DatastoreTabSlug }> = ({ tab }) => {
   const config = DATASTORE_TAB_CONFIG[tab];
   const { kpis } = useDatastoreKpis(apiTab);
 
-  // A link's provider / OS filter (design 4.7), read once on arrival and applied to the tab it arrived
+  // A link's provider / OS / region filter (design 4.7, brief 11), read once on arrival and applied to the tab it arrived
   // on; a later tab switch drops it, so coming back to that tab starts unfiltered. The parameters are then
   // removed from the URL, so a later filter change never leaves a stale one. The removal is an in-page
   // navigation (the layout keys pages by location, so a plain replace would remount the page) and carries

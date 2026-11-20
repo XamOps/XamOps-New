@@ -1856,6 +1856,21 @@ describe('demo router — XamLens Dashboard (ROLE_XAMOPS)', () => {
         .toBe(environment.sensitiveRecords);
     }
   });
+
+  it('answers Active Sensitive Regions from the demo cloud rows, each region filtering to its own datastores', async () => {
+    const dashboard = await readDemoBody('/api/dspm/dashboard') as DspmDashboard;
+    expect(dashboard.regions.length).toBeGreaterThan(1);
+    const records = dashboard.regions.map(region => region.sensitiveRecords);
+    expect(records).toEqual([...records].sort((a, b) => b - a));
+    for (const region of dashboard.regions) {
+      const rows = (await readDemoBody(
+        `/api/dspm/datastores?tab=cloud&region=${encodeURIComponent(region.region)}&pageSize=100`,
+      ) as DspmPage<DatastoreRow>).data;
+      expect(region.datastores, region.region).toBe(rows.length);
+      expect(region.sensitiveRecords).toBe(rows.reduce((sum, row) => sum + row.sensitives.recordCount, 0));
+      expect(region.scannedDatastores).toBe(rows.filter(row => row.scan.status === 'CLASSIFIED').length);
+    }
+  });
 });
 /**
  * AC-UI-06 (AWS): every v2 path the AutoSpotting shell calls has a demo response, so a demo session

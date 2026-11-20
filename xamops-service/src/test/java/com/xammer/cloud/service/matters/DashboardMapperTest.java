@@ -34,6 +34,15 @@ class DashboardMapperTest {
         return new DatastoreRowMapper.MappedRow(row, null);
     }
 
+    /** A cloud row in an invented region with a scan status and category labels. */
+    private static DatastoreRowMapper.MappedRow regionRow(String name, String region, String scanStatus, long records,
+                                                          String... labels) {
+        DatastoreRow row = new DatastoreRow("id-" + name, null, name, "cloud", "S3", "S3",
+                new DatastoreRow.Risk(null, null, null), new DatastoreRow.Sensitives(records, List.of(labels)),
+                new DatastoreRow.Source("S3", "S3", null, region), new DatastoreRow.Scan(scanStatus, null, null), null);
+        return new DatastoreRowMapper.MappedRow(row, null);
+    }
+
     private static AssetRowSnapshot snapshot(boolean truncated, DatastoreRowMapper.MappedRow... rows) {
         return new AssetRowSnapshot(List.of(rows), rows.length, truncated);
     }
@@ -160,5 +169,34 @@ class DashboardMapperTest {
         assertThat(dashboard.topRisky().get("all")).containsExactly(labelled);
         assertThat(dashboard.topRisky().get("cloud")).containsExactly(labelled);
         assertThat(dashboard.topRisky().get("saas")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("regions: cloud rows summed per source.region, scanned = CLASSIFIED, labels by frequency, sorted")
+    void regions() {
+        Map<DatastoreTab, AssetRowSnapshot> rows = new LinkedHashMap<>();
+        rows.put(DatastoreTab.CLOUD, snapshot(false,
+                regionRow("a", "eu-west-3", "CLASSIFIED", 30, "Financial", "Personal"),
+                regionRow("b", "eu-west-3", "FAILED", 0),
+                regionRow("c", "eu-west-3", "CLASSIFIED", 5, "Personal"),
+                regionRow("d", "sa-east-1", "CLASSIFIED", 0),
+                regionRow("e", "me-south-1", "NOT_SCANNED", 0),
+                regionRow("f", "southamerica-east1", "STOPPED", 50, "Health"),
+                regionRow("g", null, "CLASSIFIED", 90, "Personal"),
+                regionRow("h", " ", "CLASSIFIED", 90)));
+        rows.put(DatastoreTab.ON_PREM, snapshot(false, regionRow("pg", "eu-west-3", "CLASSIFIED", 70)));
+        DspmDashboard dashboard = mapper.toDashboard(summary(Map.of()), rows, Map.of());
+        assertThat(dashboard.regions()).containsExactly(
+                new DspmDashboard.Region("southamerica-east1", 1, 0, 50, List.of("Health")),
+                new DspmDashboard.Region("eu-west-3", 3, 2, 35, List.of("Personal", "Financial")),
+                new DspmDashboard.Region("sa-east-1", 1, 1, 0, List.of()));
+    }
+
+    @Test
+    @DisplayName("regions: none without a cloud snapshot")
+    void regionsMissing() {
+        assertThat(mapper.toDashboard(null, null, null).regions()).isEmpty();
+        assertThat(mapper.toDashboard(null, Map.of(DatastoreTab.SAAS, snapshot(false,
+                regionRow("x", "eu-west-3", "CLASSIFIED", 4))), null).regions()).isEmpty();
     }
 }

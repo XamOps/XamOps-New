@@ -8,8 +8,8 @@
  */
 import type { DatastoreRow } from '../types/dspmDatastores';
 import type {
-  Assist, AssistList, DashboardEnvironment, DashboardEnvironmentId, DashboardSubCategory, DocumentClassList,
-  DspmDashboard, RemediationActivity, RemediationItem, TopRiskyTab,
+  Assist, AssistList, DashboardEnvironment, DashboardEnvironmentId, DashboardRegion, DashboardSubCategory,
+  DocumentClassList, DspmDashboard, RemediationActivity, RemediationItem, TopRiskyTab,
 } from '../types/dspmPages';
 import { demoDatastoreKpis, demoDatastores } from './xamlensMockData';
 
@@ -66,11 +66,46 @@ function environment(id: DashboardEnvironmentId): DashboardEnvironment {
   };
 }
 
+/**
+ * Active Sensitive Regions, as `DashboardMapper.regions`: the demo cloud rows per `source.region`, listed
+ * when one has records or is CLASSIFIED; most records first, then datastores, then the code.
+ */
+function regions(): DashboardRegion[] {
+  const byRegion = new Map<string, { region: DashboardRegion; active: boolean; labels: Map<string, number> }>();
+  for (const row of tabRows('cloud')) {
+    const code = row.source.region;
+    if (!code || code.trim() === '') continue;
+    let entry = byRegion.get(code);
+    if (!entry) {
+      entry = {
+        region: { region: code, datastores: 0, scannedDatastores: 0, sensitiveRecords: 0, sensitiveLabels: [] },
+        active: false,
+        labels: new Map(),
+      };
+      byRegion.set(code, entry);
+    }
+    const classified = row.scan.status === 'CLASSIFIED';
+    entry.region.datastores += 1;
+    entry.region.sensitiveRecords += records(row);
+    if (classified) entry.region.scannedDatastores += 1;
+    entry.active ||= records(row) > 0 || classified;
+    for (const label of row.sensitives.typeLabels) entry.labels.set(label, (entry.labels.get(label) ?? 0) + 1);
+  }
+  return [...byRegion.values()]
+    .filter(entry => entry.active)
+    .map(entry => ({
+      ...entry.region,
+      sensitiveLabels: [...entry.labels.entries()].sort((a, b) => b[1] - a[1]).map(([label]) => label),
+    }))
+    .sort((a, b) => b.sensitiveRecords - a.sensitiveRecords || b.datastores - a.datastores
+      || (a.region < b.region ? -1 : a.region > b.region ? 1 : 0));
+}
+
 /** `GET /api/dspm/dashboard`. */
 export function demoDashboard(): DspmDashboard {
   const topRisky = Object.fromEntries(TOP_RISKY_TABS.map(tab =>
     [tab, tabRows(tab).filter(row => records(row) > 0).slice(0, TOP_ROWS)])) as Record<TopRiskyTab, DatastoreRow[]>;
-  return { environments: ENVIRONMENTS.map(environment), topRisky };
+  return { environments: ENVIRONMENTS.map(environment), topRisky, regions: regions() };
 }
 
 // ─── Document Classes ───────────────────────────────────────────────────────────────────────────
