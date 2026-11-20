@@ -118,6 +118,20 @@ public final class AwsTypeSelector {
         return new Selection(result, compatible.size());
     }
 
+    /**
+     * Whether a type with {@code supported} boot modes ({@code legacy-bios}, {@code uefi}) can boot an AMI
+     * whose DescribeImages {@code BootMode} is {@code imageBootMode}. {@code uefi-preferred} (the default of
+     * every AL2023 AMI) and an unset boot mode both boot UEFI where the type supports it and legacy BIOS
+     * otherwise, so either supported mode is enough. Before phase 23 defect D-23-05 this was a plain
+     * {@code contains}, and {@code uefi-preferred} matched no type.
+     */
+    static boolean bootsImage(Set<String> supported, String imageBootMode) {
+        if (imageBootMode == null || imageBootMode.isBlank() || "uefi-preferred".equals(imageBootMode)) {
+            return supported.contains("uefi") || supported.contains("legacy-bios");
+        }
+        return supported.contains(imageBootMode);
+    }
+
     /** True when candidate C is compatible with original O under every §4.3 rule. */
     boolean isCompatible(TypeFacts o, TypeFacts c, Set<String> groupAzs, ImageFacts image, TemplateFacts template) {
         // 1. Architecture: candidate must support the AMI's architecture. Mac excluded.
@@ -158,8 +172,8 @@ public final class AwsTypeSelector {
         if (!o.nitro() && c.nitro() && !image.enaSupport()) {
             return false;
         }
-        // 7. Boot mode: candidate must support the AMI's boot mode.
-        if (!c.supportedBootModes().contains(image.bootMode())) {
+        // 7. Boot mode: candidate must be able to boot the AMI.
+        if (!bootsImage(c.supportedBootModes(), image.bootMode())) {
             return false;
         }
         // 8. Accelerators: same count and model (both none, or both equal).

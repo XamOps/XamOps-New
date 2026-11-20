@@ -72,6 +72,40 @@ class AwsTypeSelectorTest {
         assertThat(select(oneAz).types()).containsExactly("m5.large");
     }
 
+    /** D-23-05: an AL2023 AMI reports BootMode uefi-preferred; instance types list only legacy-bios/uefi. */
+    @Test
+    void aUefiPreferredAmiAcceptsTypesSupportingUefiOrLegacyBios() {
+        ImageFacts al2023 = new ImageFacts("x86_64", "uefi-preferred", true);
+        TypeFacts legacyOnly = new TypeFacts("m5a.large", 2, 8192, Set.of("x86_64"), Set.of("spot"), false, false,
+                true, Set.of("legacy-bios"), 0, null, 0, false, 3, false, true, AZS, 0.02);
+        Selection s = selector.select(original, AZS, al2023, TemplateFacts.none(),
+                List.of(type("m6i.large", 2, 8192, 0.02), legacyOnly));
+        assertThat(s.types()).containsExactlyInAnyOrder("m5.large", "m6i.large", "m5a.large");
+    }
+
+    @Test
+    void anAmiWithoutABootModeAcceptsTypesSupportingUefiOrLegacyBios() {
+        ImageFacts unset = new ImageFacts("x86_64", null, true);
+        ImageFacts blank = new ImageFacts("x86_64", "", true);
+        assertThat(selector.select(original, AZS, unset, TemplateFacts.none(),
+                List.of(type("m6i.large", 2, 8192, 0.02))).types()).contains("m6i.large");
+        assertThat(selector.select(original, AZS, blank, TemplateFacts.none(),
+                List.of(type("m6i.large", 2, 8192, 0.02))).types()).contains("m6i.large");
+    }
+
+    @Test
+    void aUefiAmiStillRejectsALegacyOnlyTypeAndALegacyAmiAUefiOnlyType() {
+        TypeFacts legacyOnly = new TypeFacts("m5a.large", 2, 8192, Set.of("x86_64"), Set.of("spot"), false, false,
+                true, Set.of("legacy-bios"), 0, null, 0, false, 3, false, true, AZS, 0.02);
+        TypeFacts uefiOnly = new TypeFacts("m7i.large", 2, 8192, Set.of("x86_64"), Set.of("spot"), false, false,
+                true, Set.of("uefi"), 0, null, 0, false, 3, false, true, AZS, 0.02);
+        assertThat(selector.select(original, AZS, new ImageFacts("x86_64", "uefi", true), TemplateFacts.none(),
+                List.of(legacyOnly, uefiOnly)).types()).containsExactlyInAnyOrder("m5.large", "m7i.large");
+        assertThat(selector.select(original, AZS, IMAGE, TemplateFacts.none(),
+                List.of(legacyOnly, uefiOnly)).types()).containsExactlyInAnyOrder("m5.large", "m5a.large");
+        assertThat(AwsTypeSelector.bootsImage(Set.of(), "uefi-preferred")).isFalse();
+    }
+
     @Test
     void aTypeWithoutSpotSupportIsFiltered() {
         TypeFacts noSpot = new TypeFacts("m5a.large", 2, 8192, Set.of("x86_64"), Set.of("on-demand"), false, false,
