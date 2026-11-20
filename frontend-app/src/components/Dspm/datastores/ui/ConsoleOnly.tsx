@@ -79,7 +79,7 @@ const Tooltip: React.FC<{ id: string; visible: boolean; placement: Placement }> 
   </span>
 );
 
-type Variant = 'primary' | 'secondary' | 'icon' | 'link' | 'card';
+type Variant = 'primary' | 'secondary' | 'icon' | 'link' | 'card' | 'menu';
 
 const VARIANT: Record<Variant, string> = {
   primary: 'gap-1.5 rounded-lg bg-[rgba(0,0,0,0.88)] px-3 py-1.5 text-xs font-semibold text-white',
@@ -87,6 +87,8 @@ const VARIANT: Record<Variant, string> = {
   icon: 'rounded-md p-1 text-[rgba(0,0,0,0.55)]',
   link: 'gap-1 text-xs font-semibold text-sky-700',
   card: 'w-full flex-col items-start gap-3 rounded-xl border border-[rgba(0,0,0,0.08)] bg-white p-5 text-left',
+  // An entry of a popover list (the More filters dimensions).
+  menu: 'w-full gap-2 rounded px-2 py-1.5 text-left text-xs text-[rgba(0,0,0,0.65)]',
 };
 
 interface ConsoleOnlyButtonProps {
@@ -105,10 +107,12 @@ export const ConsoleOnlyButton: React.FC<ConsoleOnlyButtonProps> = ({
   children, variant = 'secondary', icon, label, placement = 'bottom',
 }) => {
   const { tooltipId, visible, handlers } = useConsoleOnly();
-  // A card fills its grid cell and stacks its content, so it is a block flex box without `items-center`.
+  // A card fills its grid cell and stacks its content, so it is a block flex box without `items-center`;
+  // a menu entry fills its list row.
   const card = variant === 'card';
+  const block = card || variant === 'menu';
   return (
-    <span className={card ? 'relative flex w-full' : 'relative inline-flex'}>
+    <span className={block ? 'relative flex w-full' : 'relative inline-flex'}>
       <button
         type="button"
         aria-disabled="true"

@@ -53,56 +53,71 @@ async function loaded() {
 }
 
 describe('MisconfigurationsPage', () => {
-  it('renders the built elements and none of the left-out ones, with one GET', async () => {
+  it('renders every console element in its place, with one GET', async () => {
     await loaded();
     expect(screen.getByRole('heading', { level: 1, name: 'Misconfigurations' })).toBeInTheDocument();
+    expect(screen.getByText('Last Scan:')).toBeInTheDocument();
     expect(screen.getByText('Auto-Scan runs every 24 hours')).toBeInTheDocument();
     expect(screen.getByRole('searchbox', { name: 'Search' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Group by' })).toHaveDisplayValue('Select group by');
     expect(screen.getByRole('button', { name: /^Severity/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Status/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'More filters' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Show analytics' })).toHaveAttribute('aria-pressed', 'true');
+    for (const name of [
+      'Total Affected Resources', 'Open Misconfigurations', 'Resolved Misconfigurations', 'Open Misconfigured Resources', 'Category',
+    ]) {
+      expect(screen.getByRole('group', { name }), name).toHaveAttribute('aria-disabled', 'true');
+    }
     expect(within(table()).getAllByRole('columnheader').map(th => th.textContent)).toEqual([
-      'Misconfiguration', 'Severity', 'Affected Resources', 'Sensitives', 'Labels', 'Frameworks',
+      'Misconfiguration', 'Severity', 'Status', 'Affected Resources', 'Sensitives', 'Labels', 'Frameworks', 'Category',
     ]);
-    expect(screen.getByRole('button', { name: /Columns/ })).toHaveTextContent('Columns 6');
+    expect(screen.getByRole('button', { name: /Columns/ })).toHaveTextContent('Columns 8');
     expect(screen.getByRole('button', { name: 'Export' })).toBeInTheDocument();
     expect(screen.getByText('Showing 1 - 3 of 3')).toBeInTheDocument();
-    for (const text of ['Status', 'Category', 'Resolved Misconfigurations', 'Last 30 days', 'Open Misconfigured Resources']) {
-      expect(screen.queryByText(text), text).toBeNull();
-    }
-    expect(screen.queryByText(/Last Scan/)).toBeNull();
     expect(get).toHaveBeenCalledTimes(1);
     expect(get).toHaveBeenCalledWith('/api/dspm/misconfigurations');
   });
 
   it('lists the rows in the backend order with the Upwind badge on Upwind policies only', async () => {
     await loaded();
-    expect(titles().map(text => text.replace(/powered by.*/, ''))).toEqual([
+    expect(titles().map(text => text.replace(/Powered by Upwind$/, ''))).toEqual([
       'Bucket allows anonymous public read', 'Object access logging is turned off', 'Backups are not encrypted',
     ]);
-    expect(bodyRows().map(row => within(row).queryByAltText('Upwind') !== null)).toEqual([true, true, false]);
+    expect(bodyRows().map(row => within(row).queryByText('Powered by Upwind') !== null)).toEqual([true, true, false]);
     const first = within(bodyRows()[0]);
+    const cells = first.getAllByRole('cell');
     expect(first.getByText('High')).toBeInTheDocument();
+    expect(cells[2]).toHaveTextContent(/^Open$/);
     expect(first.getByText('4')).toBeInTheDocument();
     expect(first.getByText('4.7K')).toHaveAttribute('title', '4,700');
     expect(first.getByText('Personal')).toBeInTheDocument();
-    expect(first.getByText('SOC2')).toBeInTheDocument();
-    // One "+1" after the first label, one after the first two frameworks.
-    expect(first.getAllByText('+1').map(badge => badge.getAttribute('title'))).toEqual(['IT & Security', 'GDPR']);
+    expect(first.getByText('SOC2')).toHaveAttribute('title', 'SOC2');
+    expect(first.getByText('NIST')).toBeInTheDocument();
+    expect(cells[7]).toHaveTextContent(/^-$/);
+    // One "+ 1" after the first label, one after the first two frameworks.
+    expect(first.getAllByText('+ 1').map(badge => badge.getAttribute('title'))).toEqual(['IT & Security', 'GDPR']);
+    // Every row is Open; no row has a category.
+    expect(bodyRows().map(row => within(row).getAllByRole('cell')[2].textContent)).toEqual(['Open', 'Open', 'Open']);
+    expect(bodyRows().map(row => within(row).getAllByRole('cell')[7].textContent)).toEqual(['-', '-', '-']);
   });
 
-  it('greys both cards with "Disabled by admin" and shows none of the list totals', async () => {
+  it('greys the cards, the chart and Category with "Disabled by admin" and shows none of the list totals', async () => {
     await loaded();
-    const cards = ['Total Affected Resources', 'Open Misconfigurations'].map(name => screen.getByRole('group', { name }));
-    for (const card of cards) {
-      expect(card).toHaveAttribute('aria-disabled', 'true');
-      expect(card.textContent).not.toMatch(/\d/);
-      expect(within(card).queryByRole('button')).toBeNull();
-      fireEvent.mouseEnter(card);
+    const greyed = [
+      'Total Affected Resources', 'Open Misconfigurations', 'Resolved Misconfigurations', 'Open Misconfigured Resources', 'Category',
+    ].map(name => screen.getByRole('group', { name }));
+    for (const region of greyed) {
+      expect(region).toHaveAttribute('aria-disabled', 'true');
+      // No figure anywhere; the chart's range name is the only text with a digit.
+      expect(region.textContent?.replace('Last 30 days', '')).not.toMatch(/\d/);
+      expect(within(region).queryByRole('button')).toBeNull();
+      fireEvent.mouseEnter(region);
       expect(screen.getByRole('tooltip', { hidden: false })).toHaveTextContent('Disabled by admin');
-      fireEvent.mouseLeave(card);
+      fireEvent.mouseLeave(region);
     }
+    expect(within(screen.getByRole('group', { name: 'Open Misconfigured Resources' })).getByText('Last 30 days')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Last Scan time' })).toHaveTextContent(/^-$/);
     for (const figure of ['4242', '4,242', '7171', '7,171', '1313', '2626', '3939', '5252', '88']) {
       expect(screen.queryByText(figure), figure).toBeNull();
     }
@@ -114,9 +129,12 @@ describe('MisconfigurationsPage', () => {
     const toggle = screen.getByRole('button', { name: 'Show analytics' });
     await user.click(toggle);
     expect(toggle).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.queryByRole('group', { name: 'Total Affected Resources' })).toBeNull();
+    for (const name of ['Total Affected Resources', 'Open Misconfigured Resources', 'Category']) {
+      expect(screen.queryByRole('group', { name }), name).toBeNull();
+    }
     await user.click(toggle);
     expect(screen.getByRole('group', { name: 'Open Misconfigurations' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Category' })).toBeInTheDocument();
   });
 
   it('greys Run Scan with "Disabled by admin" and sends nothing', async () => {
@@ -149,10 +167,23 @@ describe('MisconfigurationsPage', () => {
     await user.keyboard('{Escape}');
     expect(titles()).toHaveLength(3);
 
+    await user.click(screen.getByRole('button', { name: /^Status/ }));
+    const status = screen.getByRole('dialog', { name: 'Status' });
+    expect(within(status).getAllByRole('checkbox').map(box => box.closest('label')?.textContent)).toEqual(['Select all', 'Open 3']);
+    await user.click(within(status).getByRole('checkbox', { name: /Open/ }));
+    expect(titles()).toHaveLength(3);
+    await user.keyboard('{Escape}');
+
     await user.click(screen.getByRole('button', { name: 'More filters' }));
     const more = screen.getByRole('dialog', { name: 'More filters' });
-    for (const name of ['Source', 'Framework', 'Cloud Account']) {
-      expect(within(more).getByRole('button', { name })).toBeInTheDocument();
+    expect(within(within(more).getByRole('list', { name: 'Filters' })).getAllByRole('button').map(b => b.textContent?.trim()))
+      .toEqual(['Source', 'Category', 'Framework', 'Cloud Account', 'SaaS Account']);
+    for (const name of ['Category', 'SaaS Account']) {
+      const greyed = within(more).getByRole('button', { name });
+      expect(greyed).toHaveAttribute('aria-disabled', 'true');
+      fireEvent.mouseEnter(greyed);
+      expect(within(more).getByRole('tooltip')).toHaveTextContent('Disabled by admin');
+      fireEvent.mouseLeave(greyed);
     }
     await user.click(within(more).getByRole('button', { name: 'Cloud Account' }));
     await user.click(within(more).getByRole('checkbox', { name: /example-stg/ }));
@@ -167,10 +198,15 @@ describe('MisconfigurationsPage', () => {
     const user = userEvent.setup();
     await loaded();
     const groupBy = screen.getByRole('combobox', { name: 'Group by' });
-    expect(within(groupBy).getAllByRole('option').map(o => o.textContent)).toEqual(['Select group by', 'Severity', 'Frameworks']);
+    expect(within(groupBy).getAllByRole('option').map(o => o.textContent))
+      .toEqual(['Select group by', 'Severity', 'Status', 'Category', 'Frameworks']);
     await user.selectOptions(groupBy, 'severity');
-    const headers = () => within(table()).getAllByRole('columnheader').slice(6).map(th => th.textContent);
+    const headers = () => within(table()).getAllByRole('columnheader').slice(8).map(th => th.textContent);
     expect(headers()).toEqual(['High 1', 'Medium 2']);
+    await user.selectOptions(groupBy, 'status');
+    expect(headers()).toEqual(['Open 3']);
+    await user.selectOptions(groupBy, 'category');
+    expect(headers()).toEqual(['- 3']);
     await user.selectOptions(groupBy, 'framework');
     expect(headers()).toEqual(['GDPR 1', 'NIST 2', 'SOC2 1', '- 1']);
     expect(screen.getByText('Showing 1 - 5 of 5')).toBeInTheDocument();
@@ -182,7 +218,7 @@ describe('MisconfigurationsPage', () => {
     await user.click(screen.getByRole('button', { name: /Columns/ }));
     await user.click(screen.getByRole('checkbox', { name: 'Frameworks' }));
     await user.keyboard('{Escape}');
-    expect(screen.getByRole('button', { name: /Columns/ })).toHaveTextContent('Columns 5');
+    expect(screen.getByRole('button', { name: /Columns/ })).toHaveTextContent('Columns 7');
     expect(within(table()).queryByRole('columnheader', { name: 'Frameworks' })).toBeNull();
     await user.type(screen.getByRole('searchbox', { name: 'Search' }), 'bucket');
     await user.click(screen.getByRole('button', { name: 'Export' }));
@@ -190,8 +226,8 @@ describe('MisconfigurationsPage', () => {
     const [fileName, csv] = download.mock.calls[0];
     expect(fileName).toMatch(/^misconfigurations-\d{4}-\d{2}-\d{2}\.csv$/);
     expect(csv.split('\r\n')).toEqual([
-      'Misconfiguration,Severity,Affected Resources,Sensitives,Labels',
-      'Bucket allows anonymous public read,High,4,4700,"Personal, IT & Security"',
+      'Misconfiguration,Severity,Status,Affected Resources,Sensitives,Labels,Category',
+      'Bucket allows anonymous public read,High,Open,4,4700,"Personal, IT & Security",',
     ]);
     expect(get).toHaveBeenCalledTimes(1);
   });

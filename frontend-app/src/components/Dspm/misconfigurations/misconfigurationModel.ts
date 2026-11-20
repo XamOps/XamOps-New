@@ -25,18 +25,38 @@ export const severityRank = (severity: string | null): number => SEVERITY_RANK[s
 export const severityName = (severity: string): string =>
   severity.charAt(0).toUpperCase() + severity.slice(1).toLowerCase();
 
+// ─── Status ──────────────────────────────────────────────────────────────────
+
+/**
+ * Every row's status. The per-datastore issues route lists a datastore's current policy violations and
+ * carries no status field; the console itself shows a finding without a status as Open. Resolved findings
+ * never reach XamLens.
+ */
+export const OPEN_STATUS = 'OPEN';
+export const OPEN_LABEL = 'Open';
+
 // ─── Filter dimensions ───────────────────────────────────────────────────────
 
 export const SEVERITY = 'severity';
+export const STATUS = 'status';
 export const SOURCE = 'source';
+export const CATEGORY = 'category';
 export const FRAMEWORK = 'framework';
 export const CLOUD_ACCOUNT = 'cloud_account';
+export const SAAS_ACCOUNT = 'saas_account';
 
-/** The "+ More filters" dimensions, in panel order. */
-export const MORE_FILTER_DIMENSIONS = [SOURCE, FRAMEWORK, CLOUD_ACCOUNT];
+/** The "+ More filters" dimensions, in the console's panel order. */
+export const MORE_FILTER_DIMENSIONS = [SOURCE, CATEGORY, FRAMEWORK, CLOUD_ACCOUNT, SAAS_ACCOUNT];
+
+/**
+ * More-filters dimensions with no data, drawn greyed: no row carries a category, and the page reads
+ * cloud and on-prem datastores only, so there is no SaaS account.
+ */
+export const CONSOLE_ONLY_DIMENSIONS: ReadonlySet<string> = new Set([CATEGORY, SAAS_ACCOUNT]);
 
 const DIMENSION_LABELS: Readonly<Record<string, string>> = {
-  [SEVERITY]: 'Severity', [SOURCE]: 'Source', [FRAMEWORK]: 'Framework', [CLOUD_ACCOUNT]: 'Cloud Account',
+  [SEVERITY]: 'Severity', [STATUS]: 'Status', [SOURCE]: 'Source', [CATEGORY]: 'Category', [FRAMEWORK]: 'Framework',
+  [CLOUD_ACCOUNT]: 'Cloud Account', [SAAS_ACCOUNT]: 'SaaS Account',
 };
 
 /** A dimension's name in the filter controls. */
@@ -51,6 +71,7 @@ export const sourceLabel = (source: string): string => SOURCE_LABELS[source] ?? 
 function valuesOf(row: MisconfigurationRow, dimension: string): readonly string[] {
   switch (dimension) {
     case SEVERITY: return row.severity === null ? [] : [row.severity];
+    case STATUS: return [OPEN_STATUS];
     case SOURCE: return row.source === null ? [] : [row.source];
     case FRAMEWORK: return row.frameworks;
     case CLOUD_ACCOUNT: return row.cloudAccounts;
@@ -72,8 +93,9 @@ function dimensionOf(rows: readonly MisconfigurationRow[], dimension: string): D
         continue;
       }
       const label = dimension === SEVERITY ? (row.severityLabel ?? severityName(value))
-        : dimension === SOURCE ? sourceLabel(value)
-          : value;
+        : dimension === STATUS ? OPEN_LABEL
+          : dimension === SOURCE ? sourceLabel(value)
+            : value;
       found.set(value, { value, label, count: 1 });
     }
   }
@@ -83,11 +105,11 @@ function dimensionOf(rows: readonly MisconfigurationRow[], dimension: string): D
 }
 
 /**
- * The options of Severity (highest first) and of the More-filters dimensions (A to Z), each counting the
- * policies that carry the value over all rows.
+ * The options of Severity (highest first), Status (Open) and the More-filters dimensions (A to Z), each
+ * counting the policies that carry the value over all rows. Category and SaaS Account have none.
  */
 export function misconfigurationFilterOptions(rows: readonly MisconfigurationRow[]): DatastoreFilterOptions {
-  return { dimensions: [SEVERITY, ...MORE_FILTER_DIMENSIONS].map(dimension => dimensionOf(rows, dimension)) };
+  return { dimensions: [SEVERITY, STATUS, ...MORE_FILTER_DIMENSIONS].map(dimension => dimensionOf(rows, dimension)) };
 }
 
 /** Dimension → value → label, the filter controls' label memory. */
@@ -115,13 +137,19 @@ export function filterMisconfigurations(
 
 // ─── Group By ────────────────────────────────────────────────────────────────
 
-export type GroupBy = 'none' | 'severity' | 'framework';
+export type GroupBy = 'none' | 'severity' | 'status' | 'category' | 'framework';
 
+/** The console's options, in its order. */
 export const GROUP_BY_OPTIONS: ReadonlyArray<{ value: GroupBy; label: string }> = [
   { value: 'none', label: 'Select group by' },
   { value: 'severity', label: 'Severity' },
+  { value: 'status', label: 'Status' },
+  { value: 'category', label: 'Category' },
   { value: 'framework', label: 'Frameworks' },
 ];
+
+/** The group of rows without a category: every row, the route carrying none. */
+export const NO_CATEGORY = '-';
 
 /** One table line: a policy row, and the group it is drawn under (null when not grouped). */
 export interface GroupedItem {
@@ -135,10 +163,13 @@ export const NO_FRAMEWORK = '-';
 
 /**
  * The table's lines. Ungrouped: the rows as they are. By severity: highest first, rows in order within
- * each. By framework: a policy under each of its frameworks (A to Z), those without one last under "-".
+ * each. By status: every row under "Open". By category: every row under "-". By framework: a policy
+ * under each of its frameworks (A to Z), those without one last under "-".
  */
 export function groupMisconfigurations(rows: readonly MisconfigurationRow[], groupBy: GroupBy): GroupedItem[] {
   if (groupBy === 'none') return rows.map(row => ({ row, groupKey: null, groupLabel: null }));
+  if (groupBy === 'status') return rows.map(row => ({ row, groupKey: OPEN_STATUS, groupLabel: OPEN_LABEL }));
+  if (groupBy === 'category') return rows.map(row => ({ row, groupKey: NO_CATEGORY, groupLabel: NO_CATEGORY }));
   if (groupBy === 'severity') {
     return [...rows]
       .sort((a, b) => severityRank(b.severity) - severityRank(a.severity))
@@ -173,26 +204,32 @@ export function groupSizes(items: readonly GroupedItem[]): ReadonlyMap<string, n
 
 // ─── Columns and CSV ─────────────────────────────────────────────────────────
 
-export type MisconfigurationColumnId = 'misconfiguration' | 'severity' | 'affected' | 'sensitives' | 'labels' | 'frameworks';
+export type MisconfigurationColumnId =
+  | 'misconfiguration' | 'severity' | 'status' | 'affected' | 'sensitives' | 'labels' | 'frameworks' | 'category';
 
-/** Table order; Misconfiguration is always shown. */
+/** The console's "Columns 8", in its order; Misconfiguration is always shown. */
 export const MISCONFIGURATION_COLUMNS: ReadonlyArray<{ id: MisconfigurationColumnId; label: string }> = [
   { id: 'misconfiguration', label: 'Misconfiguration' },
   { id: 'severity', label: 'Severity' },
+  { id: 'status', label: 'Status' },
   { id: 'affected', label: 'Affected Resources' },
   { id: 'sensitives', label: 'Sensitives' },
   { id: 'labels', label: 'Labels' },
   { id: 'frameworks', label: 'Frameworks' },
+  { id: 'category', label: 'Category' },
 ];
 
 function misconfigurationCell(id: MisconfigurationColumnId, row: MisconfigurationRow): CsvCell {
   switch (id) {
     case 'misconfiguration': return row.title;
     case 'severity': return row.severityLabel ?? row.severity;
+    case 'status': return OPEN_LABEL;
     case 'affected': return row.affectedResources;
     case 'sensitives': return row.sensitiveRecords;
     case 'labels': return row.labels.join(', ');
     case 'frameworks': return row.frameworks.join(', ');
+    // No row carries a category.
+    case 'category': return null;
   }
 }
 
@@ -203,13 +240,15 @@ export function misconfigurationCsv(
   return toCsv(columns.map(c => c.label), rows.map(row => columns.map(c => misconfigurationCell(c.id, row))));
 }
 
-export type AffectedColumnId = 'datastore' | 'type' | 'account' | 'sensitives' | 'labels' | 'lastScanned' | 'jira';
+export type AffectedColumnId =
+  | 'datastore' | 'type' | 'account' | 'status' | 'sensitives' | 'labels' | 'lastScanned' | 'jira';
 
 /** Table order; Affected Datastore is always shown. */
 export const AFFECTED_COLUMNS: ReadonlyArray<{ id: AffectedColumnId; label: string }> = [
   { id: 'datastore', label: 'Affected Datastore' },
   { id: 'type', label: 'Datastore Type' },
   { id: 'account', label: 'Account Name' },
+  { id: 'status', label: 'Status' },
   { id: 'sensitives', label: 'Sensitives' },
   { id: 'labels', label: 'Labels' },
   { id: 'lastScanned', label: 'Last scanned time' },
@@ -222,6 +261,8 @@ function affectedCell(id: Exclude<AffectedColumnId, 'jira'>, item: AffectedDatas
     case 'datastore': return row.name;
     case 'type': return row.subtypeLabel ?? row.subtype;
     case 'account': return row.source.accountLabel;
+    // A datastore is listed because it reports the policy now.
+    case 'status': return OPEN_LABEL;
     case 'sensitives': return row.sensitives.recordCount;
     case 'labels': return row.sensitives.typeLabels.join(', ');
     case 'lastScanned': return item.lastScannedAt === null ? null : formatListDate(item.lastScannedAt);
@@ -265,13 +306,18 @@ export function affectedAccountOptions(affected: readonly AffectedDatastore[]): 
   return [...counts].map(([value, count]) => ({ value, label: value, count })).sort(byLabel);
 }
 
-/** The affected datastores whose name contains the search and whose account is selected, in order. */
+/** The Status filter's one option: every affected datastore reports the policy now. */
+export const affectedStatusOptions = (affected: readonly AffectedDatastore[]): DatastoreFilterOption[] =>
+  affected.length === 0 ? [] : [{ value: OPEN_STATUS, label: OPEN_LABEL, count: affected.length }];
+
+/** The affected datastores whose name contains the search and that match Account Name and Status, in order. */
 export function filterAffected(
   affected: readonly AffectedDatastore[], search: string, filters: DatastoreFilterState,
 ): AffectedDatastore[] {
   const needle = search.trim().toLowerCase();
   return affected.filter(item => (needle === '' || (item.datastore.name ?? '').toLowerCase().includes(needle))
     && matchesFilters(filters, dimension => {
+      if (dimension === STATUS) return [OPEN_STATUS];
       const account = item.datastore.source.accountLabel;
       return dimension === ACCOUNT && account !== null ? [account] : [];
     }));

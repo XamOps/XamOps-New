@@ -3,6 +3,7 @@ import { Icon } from '@iconify/react';
 import type { DatastoreFilterOptions } from '../../../types/dspmDatastores';
 import type { DatastoreFilterState } from './datastoreFilters';
 import FilterOptionList from './FilterOptionList';
+import { ConsoleOnlyButton } from './ui/ConsoleOnly';
 import { usePopoverEscape } from './ui/usePopoverEscape';
 
 interface Props {
@@ -20,6 +21,8 @@ interface Props {
   local?: boolean;
   /** Local mode: which values of a dimension can be chosen, forwarded to that dimension's option list. */
   canSelectValue?: (dimension: string) => (value: string) => boolean;
+  /** Dimensions the API has no data for: listed in their place, greyed with "Disabled by admin", never opened. */
+  consoleOnly?: ReadonlySet<string>;
 }
 
 const NO_LABELS: ReadonlyMap<string, string> = new Map();
@@ -51,6 +54,7 @@ function clippingParent(el: HTMLElement): HTMLElement | null {
 
 const MoreFiltersPanel: React.FC<Props> = ({
   dimensions, labelFor, options, optionsLoading, optionsError, filters, labelMemory, onChange, local, canSelectValue,
+  consoleOnly,
 }) => {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState<string | null>(null);
@@ -64,7 +68,8 @@ const MoreFiltersPanel: React.FC<Props> = ({
   const close = useCallback(() => setOpen(false), []);
   usePopoverEscape(open, close, trigger);
 
-  const current = active !== null && dimensions.includes(active) ? active : (dimensions[0] ?? null);
+  const openable = consoleOnly ? dimensions.filter(key => !consoleOnly.has(key)) : dimensions;
+  const current = active !== null && openable.includes(active) ? active : (openable[0] ?? null);
   const dimension = current === null ? undefined : options?.dimensions.find(d => d.key === current);
 
   useEffect(() => {
@@ -137,6 +142,15 @@ const MoreFiltersPanel: React.FC<Props> = ({
         >
           <ul className="w-44 flex-shrink-0 space-y-0.5 border-r border-[rgba(0,0,0,0.06)] p-1" aria-label="Filters">
             {dimensions.map(key => {
+              if (consoleOnly?.has(key)) {
+                return (
+                  <li key={key}>
+                    <ConsoleOnlyButton variant="menu" placement="right">
+                      <span className="flex-1 truncate">{labelFor(key)}</span>
+                    </ConsoleOnlyButton>
+                  </li>
+                );
+              }
               const count = filters[key]?.values.length ?? 0;
               const selected = key === current;
               return (

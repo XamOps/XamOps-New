@@ -6,7 +6,7 @@ import MoreFiltersPanel from '../datastores/MoreFiltersPanel';
 import { MAX_SEARCH, type DatastoreFilterState } from '../datastores/datastoreFilters';
 import { SearchInput } from '../datastores/ui/SearchInput';
 import {
-  GROUP_BY_OPTIONS, MORE_FILTER_DIMENSIONS, SEVERITY, dimensionLabel, type GroupBy,
+  CONSOLE_ONLY_DIMENSIONS, GROUP_BY_OPTIONS, MORE_FILTER_DIMENSIONS, SEVERITY, STATUS, dimensionLabel, type GroupBy,
 } from './misconfigurationModel';
 
 interface Props {
@@ -27,65 +27,77 @@ interface Props {
 const NO_LABELS: ReadonlyMap<string, string> = new Map();
 
 /**
- * Search over titles, Group By, the Severity quick filter, "+ More filters" (Source, Framework, Cloud
- * Account) and the chart button that shows or hides the cards. Every filter is local: the page already
- * holds every row. Status and Category are left out: the API has neither.
+ * The console's toolbar, in its order: Search over titles, Group By, the filter icon, the pinned Severity
+ * and Status filters, "+ More filters" (Source, Category, Framework, Cloud Account, SaaS Account), then a
+ * separator and the chart button that shows or hides the analytics row. Every filter is local: the page
+ * already holds every row. Status has one option, Open; Category and SaaS Account have no data and are
+ * greyed.
  */
 const MisconfigurationToolbar: React.FC<Props> = ({
   search, onSearch, groupBy, onGroupBy, options, loading, labelMemory, filters, onFilters, analyticsShown,
   onToggleAnalytics,
 }) => {
-  const severity = options?.dimensions.find(d => d.key === SEVERITY);
+  const quickFilter = (dimension: string) => (
+    <FilterDropdown
+      label={dimensionLabel(dimension)}
+      local
+      dimension={dimension}
+      options={options === null ? null : (options.dimensions.find(d => d.key === dimension)?.options ?? [])}
+      hasMore={false}
+      filters={filters}
+      labelMemory={labelMemory.get(dimension) ?? NO_LABELS}
+      loading={loading}
+      error={false}
+      onChange={onFilters}
+    />
+  );
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <SearchInput value={search} onChange={onSearch} placeholder="Search" maxLength={MAX_SEARCH} className="w-60" />
-      <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-[rgba(0,0,0,0.6)]">
-        <span>Group By</span>
-        <select
-          aria-label="Group by"
-          value={groupBy}
-          onChange={e => onGroupBy(e.target.value as GroupBy)}
-          className="rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-2 py-1.5 text-xs font-normal text-[rgba(0,0,0,0.7)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)]"
+    <div className="flex items-start gap-4">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+        <SearchInput value={search} onChange={onSearch} placeholder="Search" maxLength={MAX_SEARCH} className="w-60" />
+        <label className="inline-flex items-center gap-2 text-sm text-[#292a2e]">
+          <span>Group By</span>
+          <Icon icon="mdi:filter-variant" width={16} className="text-[#6b6e76]" aria-hidden="true" />
+          <select
+            aria-label="Group by"
+            value={groupBy}
+            onChange={e => onGroupBy(e.target.value as GroupBy)}
+            className="rounded-[4px] border border-[#dddedd] bg-white px-2 py-1.5 text-sm text-[#292a2e] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)]"
+          >
+            {GROUP_BY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+        <Icon icon="mdi:filter-outline" width={16} className="text-[#6b6e76]" aria-hidden="true" />
+        {quickFilter(SEVERITY)}
+        {quickFilter(STATUS)}
+        <MoreFiltersPanel
+          dimensions={MORE_FILTER_DIMENSIONS}
+          labelFor={dimensionLabel}
+          options={options}
+          optionsLoading={loading}
+          optionsError={false}
+          filters={filters}
+          labelMemory={labelMemory}
+          onChange={onFilters}
+          local
+          consoleOnly={CONSOLE_ONLY_DIMENSIONS}
+        />
+      </div>
+      <div className="flex h-8 flex-shrink-0 items-center gap-4">
+        <div className="h-8 w-px bg-[#e0e0e0]" aria-hidden="true" />
+        <button
+          type="button"
+          onClick={onToggleAnalytics}
+          aria-pressed={analyticsShown}
+          aria-label="Show analytics"
+          title="Show analytics"
+          className={`inline-flex h-8 items-center rounded-[4px] border px-1.5 transition-colors ${
+            analyticsShown ? 'border-[#211be9] bg-[#ebf3ff] text-[#211be9]' : 'border-[#dddedd] bg-white text-[#6b6e76] hover:bg-[#f9f9f9]'
+          }`}
         >
-          {GROUP_BY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
-      </label>
-      <Icon icon="mdi:filter-outline" width={16} className="text-[rgba(0,0,0,0.45)]" aria-hidden="true" />
-      <FilterDropdown
-        label={dimensionLabel(SEVERITY)}
-        local
-        dimension={SEVERITY}
-        options={options === null ? null : (severity?.options ?? [])}
-        hasMore={false}
-        filters={filters}
-        labelMemory={labelMemory.get(SEVERITY) ?? NO_LABELS}
-        loading={loading}
-        error={false}
-        onChange={onFilters}
-      />
-      <MoreFiltersPanel
-        dimensions={MORE_FILTER_DIMENSIONS}
-        labelFor={dimensionLabel}
-        options={options}
-        optionsLoading={loading}
-        optionsError={false}
-        filters={filters}
-        labelMemory={labelMemory}
-        onChange={onFilters}
-        local
-      />
-      <button
-        type="button"
-        onClick={onToggleAnalytics}
-        aria-pressed={analyticsShown}
-        aria-label="Show analytics"
-        title="Show analytics"
-        className={`ml-auto inline-flex items-center rounded-lg p-1.5 transition-colors ${
-          analyticsShown ? 'bg-sky-50 text-sky-700' : 'text-[rgba(0,0,0,0.45)] hover:bg-[rgba(0,0,0,0.04)]'
-        }`}
-      >
-        <Icon icon="mdi:chart-box-outline" width={18} />
-      </button>
+          <Icon icon="mdi:chart-box-outline" width={20} />
+        </button>
+      </div>
     </div>
   );
 };

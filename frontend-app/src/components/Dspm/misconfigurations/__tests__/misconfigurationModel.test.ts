@@ -3,11 +3,12 @@ import type { DatastoreRow } from '../../../../types/dspmDatastores';
 import type { AffectedDatastore, MisconfigurationRow } from '../../../../types/dspmMisconfigurations';
 import { formatListDate } from '../../datastores/datastoreFormat';
 import {
-  ACCOUNT, AFFECTED_COLUMNS, CLOUD_ACCOUNT, FRAMEWORK, MISCONFIGURATION_COLUMNS, NO_FRAMEWORK, SEVERITY, SOURCE,
-  affectedAccountOptions, affectedCsv, affectedFileName, dimensionLabel, filterAffected, filterMisconfigurations,
+  ACCOUNT, AFFECTED_COLUMNS, CATEGORY, CLOUD_ACCOUNT, FRAMEWORK, MISCONFIGURATION_COLUMNS, NO_CATEGORY, NO_FRAMEWORK,
+  SAAS_ACCOUNT, SEVERITY, SOURCE, STATUS, affectedAccountOptions, affectedStatusOptions, affectedCsv, affectedFileName, dimensionLabel, filterAffected, filterMisconfigurations,
   groupMisconfigurations, groupSizes, isOpenableDatastore, labelMemoryOf, misconfigurationCsv,
   misconfigurationFilterOptions, misconfigurationsFileName, severityRank, sourceLabel,
 } from '../misconfigurationModel';
+import { shownFrameworks } from '../FrameworkChips';
 
 function policy(over: Partial<MisconfigurationRow> & Pick<MisconfigurationRow, 'policyId' | 'title'>): MisconfigurationRow {
   return {
@@ -72,8 +73,8 @@ describe('severity and labels', () => {
   });
 
   it('names the dimensions and the sources', () => {
-    expect([SEVERITY, SOURCE, FRAMEWORK, CLOUD_ACCOUNT].map(dimensionLabel))
-      .toEqual(['Severity', 'Source', 'Framework', 'Cloud Account']);
+    expect([SEVERITY, STATUS, SOURCE, CATEGORY, FRAMEWORK, CLOUD_ACCOUNT, SAAS_ACCOUNT].map(dimensionLabel))
+      .toEqual(['Severity', 'Status', 'Source', 'Category', 'Framework', 'Cloud Account', 'SaaS Account']);
     expect(['UPWIND', 'MATTERS', 'OTHER_VENDOR'].map(sourceLabel)).toEqual(['Upwind', 'Matters', 'OTHER_VENDOR']);
   });
 });
@@ -83,10 +84,14 @@ describe('misconfigurationFilterOptions', () => {
   const dimension = (key: string) => options.dimensions.find(d => d.key === key)!;
 
   it('lists severities highest first and the other dimensions A to Z, counting policies', () => {
-    expect(options.dimensions.map(d => d.key)).toEqual([SEVERITY, SOURCE, FRAMEWORK, CLOUD_ACCOUNT]);
+    expect(options.dimensions.map(d => d.key))
+      .toEqual([SEVERITY, STATUS, SOURCE, CATEGORY, FRAMEWORK, CLOUD_ACCOUNT, SAAS_ACCOUNT]);
     expect(dimension(SEVERITY).options).toEqual([
       { value: 'HIGH', label: 'High', count: 1 }, { value: 'MEDIUM', label: 'Medium', count: 2 },
     ]);
+    expect(dimension(STATUS).options).toEqual([{ value: 'OPEN', label: 'Open', count: 3 }]);
+    expect(dimension(CATEGORY).options).toEqual([]);
+    expect(dimension(SAAS_ACCOUNT).options).toEqual([]);
     expect(dimension(SOURCE).options).toEqual([
       { value: 'MATTERS', label: 'Matters', count: 2 }, { value: 'UPWIND', label: 'Upwind', count: 1 },
     ]);
@@ -115,6 +120,7 @@ describe('filterMisconfigurations', () => {
 
   it.each([
     [SEVERITY, ['HIGH'], ['Bucket allows public read']],
+    [STATUS, ['OPEN'], ['Bucket allows public read', 'Access logging is off', 'Backups are not encrypted']],
     [SOURCE, ['MATTERS'], ['Access logging is off', 'Backups are not encrypted']],
     [FRAMEWORK, ['NIST'], ['Bucket allows public read', 'Access logging is off']],
     [CLOUD_ACCOUNT, ['example-stg'], ['Access logging is off']],
@@ -142,6 +148,11 @@ describe('groupMisconfigurations', () => {
     expect(groupSizes(items)).toEqual(new Map([['HIGH', 1], ['MEDIUM', 2]]));
   });
 
+  it('puts every row under Open by status and under "-" by category', () => {
+    expect(groupMisconfigurations(ROWS, 'status').map(item => [item.groupKey, item.groupLabel])).toEqual(ROWS.map(() => ['OPEN', 'Open']));
+    expect(groupMisconfigurations(ROWS, 'category').map(item => item.groupKey)).toEqual(ROWS.map(() => NO_CATEGORY));
+  });
+
   it('puts a policy under each of its frameworks and those without one last under "-"', () => {
     const items = groupMisconfigurations(ROWS, 'framework');
     expect(items.map(item => [item.groupKey, item.row.title])).toEqual([
@@ -155,17 +166,17 @@ describe('CSV', () => {
   it('writes the given columns of the rows with joined labels and raw numbers', () => {
     const columns = MISCONFIGURATION_COLUMNS.filter(c => c.id !== 'severity');
     expect(misconfigurationCsv([PUBLIC, BACKUP], columns).split('\r\n')).toEqual([
-      'Misconfiguration,Affected Resources,Sensitives,Labels,Frameworks',
-      'Bucket allows public read,3,4700,"Personal, IT & Security","SOC2, NIST"',
-      'Backups are not encrypted,1,0,,',
+      'Misconfiguration,Status,Affected Resources,Sensitives,Labels,Frameworks,Category',
+      'Bucket allows public read,Open,3,4700,"Personal, IT & Security","SOC2, NIST",',
+      'Backups are not encrypted,Open,1,0,,,',
     ]);
   });
 
   it('writes the affected datastores without the Jira column', () => {
     const lines = affectedCsv(AFFECTED.slice(0, 2), AFFECTED_COLUMNS).split('\r\n');
-    expect(lines[0]).toBe('Affected Datastore,Datastore Type,Account Name,Sensitives,Labels,Last scanned time');
-    expect(lines[1]).toBe(`orders-archive,S3,example-prod,1559,Personal,"${formatListDate(1_790_000_000)}"`);
-    expect(lines[2]).toBe('ledger_db,PostgreSQL,ledger_db,0,,');
+    expect(lines[0]).toBe('Affected Datastore,Datastore Type,Account Name,Status,Sensitives,Labels,Last scanned time');
+    expect(lines[1]).toBe(`orders-archive,S3,example-prod,Open,1559,Personal,"${formatListDate(1_790_000_000)}"`);
+    expect(lines[2]).toBe('ledger_db,PostgreSQL,ledger_db,Open,0,,');
   });
 
   it('names the files by local date', () => {
@@ -175,11 +186,25 @@ describe('CSV', () => {
   });
 });
 
+describe('shownFrameworks', () => {
+  it('shows two short names, one long name, and every name when there are fewer than two', () => {
+    expect(shownFrameworks([])).toBe(0);
+    expect(shownFrameworks(['NIST SP 800-171'])).toBe(1);
+    expect(shownFrameworks(['SOC2', 'NIST', 'GDPR'])).toBe(2);
+    expect(shownFrameworks(['GDPR (General Data Protection Regulation)', 'PCI-DSS AWS'])).toBe(1);
+  });
+});
+
 describe('Affected Datastores', () => {
   it('offers the account labels with their datastore counts', () => {
     expect(affectedAccountOptions(AFFECTED)).toEqual([
       { value: 'example-prod', label: 'example-prod', count: 2 }, { value: 'ledger_db', label: 'ledger_db', count: 1 },
     ]);
+  });
+
+  it('offers Open as the one status, counting every affected datastore', () => {
+    expect(affectedStatusOptions(AFFECTED)).toEqual([{ value: 'OPEN', label: 'Open', count: 3 }]);
+    expect(affectedStatusOptions([])).toEqual([]);
   });
 
   it('filters by name and account', () => {

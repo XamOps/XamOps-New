@@ -79,7 +79,7 @@ describe('MisconfigurationDrawer', () => {
     expect(within(drawer()).getByText('High')).toBeInTheDocument();
   });
 
-  it('shows the policy id, description, remediation, the Bash fix and Learn More, and no left-out field', async () => {
+  it('shows the details card, description, remediation, the Bash fix and Learn More', async () => {
     await openDrawer();
     const d = within(drawer());
     await d.findByText('Policy ID');
@@ -93,7 +93,14 @@ describe('MisconfigurationDrawer', () => {
     expect(learnMore).toHaveAttribute('href', DETAIL.learnMore);
     expect(learnMore).toHaveAttribute('target', '_blank');
     expect(learnMore).toHaveAttribute('rel', 'noopener noreferrer');
-    for (const text of ['Misconfiguration ID', 'Category', 'Status', 'Open']) expect(d.queryByText(text), text).toBeNull();
+    // The route has no misconfiguration id (greyed) and no category; every finding is open.
+    const id = d.getByRole('group', { name: 'Misconfiguration ID' });
+    expect(id).toHaveAttribute('aria-disabled', 'true');
+    expect(id).toHaveTextContent(/^-$/);
+    fireEvent.mouseEnter(id);
+    expect(d.getByRole('tooltip')).toHaveTextContent('Disabled by admin');
+    expect(d.getByText('Category').nextElementSibling).toHaveTextContent(/^-$/);
+    expect(d.getByText('Status').nextElementSibling).toHaveTextContent(/^Open$/);
   });
 
   it('greys Push to SIEM with "Disabled by admin" and sends nothing', async () => {
@@ -107,13 +114,15 @@ describe('MisconfigurationDrawer', () => {
     expect(calls()).toEqual(['/api/dspm/misconfigurations', DETAIL_URL]);
   });
 
-  it('lists the affected datastores with search, Account Name, Columns 7, Export and Push to Jira', async () => {
+  it('lists the affected datastores with search, Account Name, Status, Columns 8, Export and Push to Jira', async () => {
     const user = await openAffected();
     const d = within(drawer());
     const table = d.getByRole('table');
     expect(within(table).getAllByRole('columnheader').map(th => th.textContent)).toEqual([
-      'Affected Datastore', 'Datastore Type', 'Account Name', 'Sensitives', 'Labels', 'Last scanned time', 'Jira',
+      'Affected Datastore', 'Datastore Type', 'Account Name', 'Status', 'Sensitives', 'Labels', 'Last scanned time', 'Jira',
     ]);
+    expect(within(table).getAllByRole('row').slice(1).map(row => within(row).getAllByRole('cell')[3].textContent))
+      .toEqual(['Open', 'Open', 'Open']);
     expect(d.getByText('Showing 1 - 3 of 3')).toBeInTheDocument();
     expect(d.getByText(formatListDate(1_790_000_000))).toBeInTheDocument();
     expect(d.getByText('1.56K')).toHaveAttribute('title', '1,559');
@@ -123,7 +132,7 @@ describe('MisconfigurationDrawer', () => {
     const jira = d.getAllByRole('button', { name: 'Push to Jira' });
     expect(jira).toHaveLength(3);
     expect(jira[0]).toHaveAttribute('aria-disabled', 'true');
-    for (const text of ['Status', 'Discovered time']) expect(d.queryByText(text), text).toBeNull();
+    expect(d.queryByText('Discovered time')).toBeNull();
 
     await user.type(d.getByRole('searchbox', { name: 'Search' }), 'EXPORTS');
     expect(d.getByText('Showing 1 - 1 of 1')).toBeInTheDocument();
@@ -139,20 +148,27 @@ describe('MisconfigurationDrawer', () => {
     await user.keyboard('{Escape}');
     expect(d.getByText('Showing 1 - 2 of 2')).toBeInTheDocument();
 
+    await user.click(d.getByRole('button', { name: /^Status/ }));
+    const status = within(screen.getByRole('dialog', { name: 'Status' }));
+    expect(status.getAllByRole('checkbox').map(box => box.closest('label')?.textContent)).toEqual(['Select all', 'Open 3']);
+    await user.click(status.getByRole('checkbox', { name: /Open/ }));
+    await user.keyboard('{Escape}');
+    expect(d.getByText('Showing 1 - 2 of 2')).toBeInTheDocument();
+
     await user.click(d.getByRole('button', { name: /Columns/ }));
-    expect(d.getByRole('button', { name: /Columns/ })).toHaveTextContent('Columns 7');
+    expect(d.getByRole('button', { name: /Columns/ })).toHaveTextContent('Columns 8');
     await user.click(d.getByRole('checkbox', { name: 'Labels' }));
     await user.keyboard('{Escape}');
-    expect(d.getByRole('button', { name: /Columns/ })).toHaveTextContent('Columns 6');
+    expect(d.getByRole('button', { name: /Columns/ })).toHaveTextContent('Columns 7');
 
     await user.click(d.getByRole('button', { name: 'Export' }));
     expect(download).toHaveBeenCalledTimes(1);
     const [fileName, csv] = download.mock.calls[0];
     expect(fileName).toMatch(new RegExp(`^misconfiguration-${DETAIL.policyId}-affected-datastores-\\d{4}-\\d{2}-\\d{2}\\.csv$`));
     expect(csv.split('\r\n')).toEqual([
-      'Affected Datastore,Datastore Type,Account Name,Sensitives,Last scanned time',
-      `orders-archive,S3,example-prod,1559,"${formatListDate(1_790_000_000)}"`,
-      'ledger_db,PostgreSQL,ledger_db,0,',
+      'Affected Datastore,Datastore Type,Account Name,Status,Sensitives,Last scanned time',
+      `orders-archive,S3,example-prod,Open,1559,"${formatListDate(1_790_000_000)}"`,
+      'ledger_db,PostgreSQL,ledger_db,Open,0,',
     ]);
     expect(drawer()).toBeInTheDocument();
   });

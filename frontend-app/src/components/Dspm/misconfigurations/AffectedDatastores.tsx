@@ -17,9 +17,10 @@ import { ConsoleOnlyButton } from '../datastores/ui/ConsoleOnly';
 import { EmptyState } from '../datastores/ui/EmptyState';
 import { SearchInput } from '../datastores/ui/SearchInput';
 import { TableFooter } from '../datastores/ui/TableFooter';
+import { OpenChip } from './ConsoleParts';
 import {
-  ACCOUNT, AFFECTED_COLUMNS, affectedAccountOptions, affectedCsv, affectedFileName, filterAffected,
-  isOpenableDatastore, type AffectedColumnId,
+  ACCOUNT, AFFECTED_COLUMNS, OPEN_LABEL, STATUS, affectedAccountOptions, affectedCsv, affectedFileName,
+  affectedStatusOptions, filterAffected, isOpenableDatastore, type AffectedColumnId,
 } from './misconfigurationModel';
 
 const DASH = <span className="text-xs text-[rgba(0,0,0,0.4)]">-</span>;
@@ -59,6 +60,8 @@ function renderCell(
           <span className="max-w-[12rem] truncate" title={row.source.accountLabel ?? undefined}>{row.source.accountLabel ?? '-'}</span>
         </span>
       );
+    case 'status':
+      return <OpenChip label={OPEN_LABEL} />;
     case 'sensitives':
       return (
         <span className={PILL} title={row.sensitives.recordCount.toLocaleString('en-US')}>
@@ -82,10 +85,10 @@ interface Props {
 }
 
 /**
- * The datastores that report the policy: a search over names, the Account Name filter, "Columns 7"
- * (Affected Datastore locked), Export of the filtered rows and client-side paging. A name with a 24-hex
- * source id is a link to the datastore drawer. The console's Status column and filter have no API data
- * and are left out; its Jira column keeps only the greyed "Push to Jira".
+ * The datastores that report the policy: a search over names, the Account Name and Status filters,
+ * "Columns 8" (Affected Datastore locked), Export of the filtered rows and client-side paging. A name
+ * with a 24-hex source id is a link to the datastore drawer. Every datastore listed reports the policy
+ * now, so its Status is Open (the filter's one option). The Jira column keeps only the greyed "Push to Jira".
  */
 const AffectedDatastores: React.FC<Props> = ({ policyId, affected, onOpenDatastore }) => {
   const [search, setSearch] = useState('');
@@ -94,8 +97,10 @@ const AffectedDatastores: React.FC<Props> = ({ policyId, affected, onOpenDatasto
 
   const options = useMemo(() => affectedAccountOptions(affected), [affected]);
   const labels = useMemo(() => new Map(options.map(option => [option.value, option.label])), [options]);
+  const statusOptions = useMemo(() => affectedStatusOptions(affected), [affected]);
+  const statusLabels = useMemo(() => new Map(statusOptions.map(option => [option.value, option.label])), [statusOptions]);
   const rows = useMemo(() => filterAffected(affected, search, filters), [affected, search, filters]);
-  const paged = usePaged(rows, `${search.trim().toLowerCase()}|${(filters[ACCOUNT]?.values ?? []).join(',')}`);
+  const paged = usePaged(rows, `${search.trim().toLowerCase()}|${JSON.stringify(filters)}`);
   const columns = AFFECTED_COLUMNS.filter((column, index) => index === 0 || !hidden.has(column.id));
 
   const exportRows = () => downloadCsv(affectedFileName(policyId, new Date()), affectedCsv(rows, columns));
@@ -113,6 +118,18 @@ const AffectedDatastores: React.FC<Props> = ({ policyId, affected, onOpenDatasto
           hasMore={false}
           filters={filters}
           labelMemory={labels}
+          loading={false}
+          error={false}
+          onChange={setFilters}
+        />
+        <FilterDropdown
+          label="Status"
+          local
+          dimension={STATUS}
+          options={statusOptions}
+          hasMore={false}
+          filters={filters}
+          labelMemory={statusLabels}
           loading={false}
           error={false}
           onChange={setFilters}

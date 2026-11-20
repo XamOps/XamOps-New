@@ -2,7 +2,8 @@
  * XamLens demo misconfiguration catalogue (ROLE_XAMOPS): the synthetic policies that derived cloud and
  * on-prem demo datastores report on their drawer's Risk tab, and that the Misconfigurations page groups.
  *
- * Every id, title, framework and text is invented for the demo. Imports types only, so both the drawer
+ * Every id, title and text is invented for the demo. Framework names follow the vendor's long names, as
+ * the live route sends them (it has no short codes). Imports types only, so both the drawer
  * data and the page data can read it without a load-order cycle.
  */
 import type { DatastoreMisconfiguration } from '../types/dspmDatastores';
@@ -45,7 +46,7 @@ const CATALOGUE: readonly CataloguePolicy[] = [
     ].join('\n'),
     cli: 'aws s3api put-public-access-block --bucket <bucket_name> --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true',
     learnMore: 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html',
-    frameworks: ['SOC2', 'NIST 800-53', 'GDPR'],
+    frameworks: ['CIS Amazon Web Services Foundations', 'NIST SP 800-171', 'GDPR (General Data Protection Regulation)'],
     providers: ['S3'],
     applies: index => index % 2 === 0,
   },
@@ -62,7 +63,7 @@ const CATALOGUE: readonly CataloguePolicy[] = [
     ].join('\n'),
     cli: 'aws s3api put-bucket-logging --bucket <bucket_name> --bucket-logging-status file://logging.json',
     learnMore: null,
-    frameworks: ['NIST 800-53'],
+    frameworks: ['NIST SP 800-171'],
     providers: ['S3'],
   },
   {
@@ -74,7 +75,7 @@ const CATALOGUE: readonly CataloguePolicy[] = [
     remediation: '1. Move clients to Entra ID authorisation.\n2. Turn off shared key access on the account.',
     cli: 'az storage account update --name <STORAGE_ACCOUNT> --resource-group <RESOURCE_GROUP> --allow-shared-key-access false',
     learnMore: null,
-    frameworks: ['SOC2'],
+    frameworks: ['Cybersecurity Maturity Model Certification (CMMC)'],
     providers: ['AZURE_BLOB'],
   },
   {
@@ -90,7 +91,7 @@ const CATALOGUE: readonly CataloguePolicy[] = [
     ].join('\n'),
     cli: 'aws ec2 enable-ebs-encryption-by-default --region <region>',
     learnMore: null,
-    frameworks: ['SOC2', 'GDPR'],
+    frameworks: ['DORA (The Digital Operational Resilience Act)', 'PCI-DSS AWS'],
     providers: ['EBS'],
   },
   {
@@ -102,7 +103,7 @@ const CATALOGUE: readonly CataloguePolicy[] = [
     remediation: '1. Create a Cloud KMS key in the dataset\'s region.\n2. Set it as the dataset\'s default `kmsKeyName`.',
     cli: null,
     learnMore: null,
-    frameworks: ['SOC2'],
+    frameworks: ['Cybersecurity Maturity Model Certification (CMMC)'],
     providers: ['BIGQUERY'],
   },
   {
@@ -126,7 +127,7 @@ const CATALOGUE: readonly CataloguePolicy[] = [
     remediation: '1. Turn on point-in-time recovery for the table.',
     cli: 'aws dynamodb update-continuous-backups --table-name <table_name> --point-in-time-recovery-specification PointInTimeRecoveryEnabled=true',
     learnMore: null,
-    frameworks: ['NIST 800-53'],
+    frameworks: ['NIST SP 800-171'],
     providers: ['DYNAMODB'],
   },
   {
@@ -138,7 +139,7 @@ const CATALOGUE: readonly CataloguePolicy[] = [
     remediation: '1. Require TLS on the server (`require_secure_transport` or `ssl = on` with `hostssl` rules).\n2. Update clients to connect with TLS.',
     cli: null,
     learnMore: null,
-    frameworks: ['GDPR', 'SOC2'],
+    frameworks: ['GDPR (General Data Protection Regulation)', 'PCI-DSS AWS'],
     providers: ['RDS', 'SELF_HOSTED_POSTGRES'],
   },
 ];

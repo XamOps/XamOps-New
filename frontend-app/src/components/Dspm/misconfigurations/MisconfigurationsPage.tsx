@@ -24,7 +24,8 @@ import {
 const NO_ROWS: MisconfigurationRow[] = [];
 
 /**
- * The ready page: header, toolbar, the two greyed cards, the table with Export and paging, and the row drawer.
+ * The ready page in the console's layout: header, toolbar, the analytics row (greyed: no API data), the
+ * table with Columns, Export and paging, and the row drawer.
  *
  * One request loads every policy; search, filters, Group By and paging run in the browser. A datastore
  * link in the drawer closes it and opens that datastore's drawer; closing that one brings the
@@ -64,7 +65,7 @@ const ReadyMisconfigurationsPage: React.FC = () => {
   const errorCopy = list.error ? datastoreErrorCopy(list.error) : null;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <MisconfigurationHeader />
       <MisconfigurationToolbar
         search={search}
@@ -79,10 +80,10 @@ const ReadyMisconfigurationsPage: React.FC = () => {
         analyticsShown={analyticsShown}
         onToggleAnalytics={() => setAnalyticsShown(shown => !shown)}
       />
-      {/* Greyed, with no figures (BUILD-BRIEF-5 §11): the list's totals are never shown. */}
+      {/* Greyed, with no figures (BUILD-BRIEF-5 §11, §12): the list's totals are never shown. */}
       {analyticsShown && <MisconfigurationAnalytics />}
 
-      <section className="min-w-0 rounded-2xl border border-[rgba(0,0,0,0.08)] bg-white">
+      <section className="min-w-0 rounded-[3px] border border-[#dddedd] bg-white">
         <MisconfigurationTable
           items={paged.items}
           groupSizes={sizes}
