@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import type { DspmStatus } from '../../../types/dspm';
 import type { DatastoreRow } from '../../../types/dspmDatastores';
@@ -19,6 +19,7 @@ import type { DrawerRow } from './drawer/DatastoreDrawer';
 import { DatastoreDrawerHost, canOpenDrawer, hasSourceId } from './DatastoreDrawerHost';
 import { TableFooter, listPageLimit } from './ui/TableFooter';
 import ScanManagementDrawer from '../scans/ScanManagementDrawer';
+import { inPageState } from '../../../utils/inPageNavigation';
 
 /**
  * XamLens Datastores: one page over every Matters datastore, with the console's tabs (All, Cloud, SaaS,
@@ -45,6 +46,26 @@ function urlSeedFilters(params: URLSearchParams, apiTab: DatastoreApiTab): Datas
     seed[dimension] = { mode: 'include', values: [value] };
   }
   return Object.keys(seed).length > 0 ? seed : undefined;
+}
+
+/** The history-state field that carries a link's seed once its parameters have left the URL. */
+const SEED_STATE = 'datastoreSeed';
+
+/**
+ * The seed parameters of this entry: the URL's while they are there, else the ones the removal carried
+ * in the history state. The page transition (App.tsx) can render the arriving route in the leaving page
+ * first; that copy removes the parameters, and the page that then mounts reads them from the state.
+ */
+function seedParams(params: URLSearchParams, state: unknown): URLSearchParams {
+  if (URL_SEED_DIMENSIONS.some(dimension => params.has(dimension))) return params;
+  const carried = (state as Record<string, unknown> | null | undefined)?.[SEED_STATE];
+  const out = new URLSearchParams();
+  if (carried === null || typeof carried !== 'object') return out;
+  for (const dimension of URL_SEED_DIMENSIONS) {
+    const value = (carried as Record<string, unknown>)[dimension];
+    if (typeof value === 'string') out.set(dimension, value);
+  }
+  return out;
 }
 
 /** The Dismiss button of the export's banner and note (review fix R12). */
@@ -181,19 +202,27 @@ const ReadyDatastoresPage: React.FC<{ tab: DatastoreTabSlug }> = ({ tab }) => {
 
   // A link's provider / OS filter (design 4.7), read once on arrival and applied to the tab it arrived
   // on; a later tab switch drops it, so coming back to that tab starts unfiltered. The parameters are then
-  // removed from the URL, so a later filter change never leaves a stale one.
+  // removed from the URL, so a later filter change never leaves a stale one. The removal is an in-page
+  // navigation (the layout keys pages by location, so a plain replace would remount the page) and carries
+  // the parameters in the history state for a page that mounts after it (`seedParams`).
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [seed, setSeed] = useState(() => ({ tab, filters: urlSeedFilters(searchParams, apiTab) }));
+  const [seed, setSeed] = useState(() => ({ tab, filters: urlSeedFilters(seedParams(searchParams, location.state), apiTab) }));
   if (seed.tab !== tab && seed.filters) setSeed({ tab, filters: undefined });
   const hasSeedParams = URL_SEED_DIMENSIONS.some(dimension => searchParams.has(dimension));
   useEffect(() => {
     if (!hasSeedParams) return;
+    const carried: Record<string, string> = {};
+    for (const dimension of URL_SEED_DIMENSIONS) {
+      const value = searchParams.get(dimension);
+      if (value !== null) carried[dimension] = value;
+    }
     setSearchParams(previous => {
       const next = new URLSearchParams(previous);
       for (const dimension of URL_SEED_DIMENSIONS) next.delete(dimension);
       return next;
-    }, { replace: true });
-  }, [hasSeedParams, setSearchParams]);
+    }, { replace: true, state: { ...inPageState(location), [SEED_STATE]: carried } });
+  }, [hasSeedParams, searchParams, setSearchParams, location]);
 
   // Scan Management (design 6.8), opened by "Manage Scans": on the Endpoint configuration from the
   // Endpoint tab, else on SaaS. "Manage Scans" takes focus again when it closes.

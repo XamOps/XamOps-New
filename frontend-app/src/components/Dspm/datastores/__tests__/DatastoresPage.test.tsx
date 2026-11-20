@@ -16,6 +16,7 @@ vi.mock('../../../../utils/csvExport', async importOriginal => ({
 import apiClient from '../../../../utils/apiClient';
 import { downloadCsv } from '../../../../utils/csvExport';
 import DatastoresPage from '../DatastoresPage';
+import { pageKeyOf } from '../../../../utils/inPageNavigation';
 
 const get = apiClient.get as unknown as ReturnType<typeof vi.fn>;
 const download = downloadCsv as unknown as ReturnType<typeof vi.fn>;
@@ -748,6 +749,59 @@ describe('DatastoresPage filter seed from the URL (design 4.7)', () => {
     expect(await within(dropdown).findByRole('checkbox', { name: /^S3/ })).toBeChecked();
     expect(within(dropdown).getByRole('combobox', { name: 'Include or exclude' })).toHaveValue('include');
     // Removing the parameter does not reset the filter.
+    expect(last(listRequests()).searchParams.get('provider')).toBe('S3');
+  });
+
+  it('keeps the seed under the app layout, which keys each page by its location', async () => {
+    // App.tsx remounts the page on a navigation with a fresh key; the parameter removal must not be one.
+    const KeyedPage = () => {
+      const location = useLocation();
+      return <div key={pageKeyOf(location)}><Harness /><SearchProbe /></div>;
+    };
+    render(
+      <MemoryRouter initialEntries={['/xamlens/datastores/cloud?provider=S3']}>
+        <Routes>
+          <Route path="/xamlens/datastores/:datastoreTab" element={<KeyedPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByText('orders-archive');
+    await waitFor(() => expect(screen.getByTestId('search')).toBeEmptyDOMElement());
+    expect(screen.getByRole('button', { name: /^Provider/ })).toHaveTextContent(/^Provider\s*1$/);
+    expect(listRequests().every(url => url.searchParams.get('provider') === 'S3')).toBe(true);
+  });
+
+  it('keeps the seed for a page that mounts after the parameters left the URL (the leaving page took them)', async () => {
+    // AnimatePresence renders the arriving route in the leaving page first; that copy removes the parameters.
+    let generation = 0;
+    const Remountable = () => {
+      const location = useLocation();
+      return (
+        <>
+          <div key={generation}><Harness /></div>
+          <span data-testid="state">{JSON.stringify(location.state)}</span>
+        </>
+      );
+    };
+    const view = render(
+      <MemoryRouter initialEntries={['/xamlens/datastores/cloud?provider=S3']}>
+        <Routes>
+          <Route path="/xamlens/datastores/:datastoreTab" element={<><Remountable /><SearchProbe /></>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByText('orders-archive');
+    await waitFor(() => expect(screen.getByTestId('search')).toBeEmptyDOMElement());
+    generation = 1;
+    view.rerender(
+      <MemoryRouter initialEntries={['/xamlens/datastores/cloud?provider=S3']}>
+        <Routes>
+          <Route path="/xamlens/datastores/:datastoreTab" element={<><Remountable /><SearchProbe /></>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByText('orders-archive');
+    expect(screen.getByRole('button', { name: /^Provider/ })).toHaveTextContent(/^Provider\s*1$/);
     expect(last(listRequests()).searchParams.get('provider')).toBe('S3');
   });
 
