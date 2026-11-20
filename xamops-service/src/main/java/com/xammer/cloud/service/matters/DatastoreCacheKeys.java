@@ -241,6 +241,34 @@ public final class DatastoreCacheKeys {
         return key("lnfiles", clientId, exposureId + ":" + skip + "-" + limit);
     }
 
+    // ── Data Lineage public path (build 7) ───────────────────────────────────────────────────────
+
+    /** {@code dspm:lnpubds:<c>:all}: the public path's whole datastore list. */
+    public static String lineagePublicDatastores(Long clientId) {
+        return key("lnpubds", clientId, "all");
+    }
+
+    /**
+     * {@code dspm:lnpubfiles:<c>:ep-<agentId>:<skip>-<limit>}: one page of an endpoint's files. The two numbers
+     * are joined by {@code -}, as in {@link #endpointScans}.
+     */
+    public static String lineagePublicEndpointFiles(Long clientId, String agentId, int skip, int limit) {
+        return key("lnpubfiles", clientId, "ep-" + agentId + ":" + skip + "-" + limit);
+    }
+
+    /**
+     * {@code dspm:lnpubfiles:<c>:<sha256 hex>}: a drive person's whole file list. The resource id is hashed: it
+     * has no fixed safe format, and keys are logged.
+     */
+    public static String lineagePublicDriveFiles(Long clientId, PublicLineageKey key) {
+        return key("lnpubfiles", clientId, sha256Hex(key.value()));
+    }
+
+    /** {@code dspm:lnpubdrv:<c>:<sha256 hex>}: a drive file's lineage asset; the doc id is hashed. */
+    public static String lineagePublicDriveAsset(Long clientId, String integrationId, String docId) {
+        return key("lnpubdrv", clientId, sha256Hex(integrationId + ":" + docId));
+    }
+
     // ── Files page and Endpoint file drawer (build 3) ────────────────────────────────────────────
 
     /** {@code dspm:fsaas:<c>:<sha256 hex>}: one SaaS tab page; the hash covers the search, filters and cursor. */

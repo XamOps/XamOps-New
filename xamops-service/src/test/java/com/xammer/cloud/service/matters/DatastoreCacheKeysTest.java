@@ -84,6 +84,11 @@ class DatastoreCacheKeysTest {
                         new LineageRowQuery(null, 110, 7, LineageFilters.NONE)),
                 DatastoreCacheKeys.lineageFiles(clientId, EXPOSURE_ID, 1, 11),
                 DatastoreCacheKeys.lineageFiles(clientId, EXPOSURE_ID, 110, 99),
+                DatastoreCacheKeys.lineagePublicDatastores(clientId),
+                DatastoreCacheKeys.lineagePublicEndpointFiles(clientId, SOURCE_ID, 1, 11),
+                DatastoreCacheKeys.lineagePublicEndpointFiles(clientId, SOURCE_ID, 110, 99),
+                DatastoreCacheKeys.lineagePublicDriveFiles(clientId, PublicLineageKey.drive(SOURCE_ID, "11")),
+                DatastoreCacheKeys.lineagePublicDriveAsset(clientId, SOURCE_ID, "99"),
                 DatastoreCacheKeys.filesSaas(clientId, SaasFileListQuery.parse(params("limit", "11", "cursor", "abc"))),
                 DatastoreCacheKeys.filesSaasOptions(clientId),
                 DatastoreCacheKeys.filesEndpoint(clientId, EndpointFileListQuery.parse(params("skip", "1", "limit", "11"))),
@@ -320,6 +325,41 @@ class DatastoreCacheKeysTest {
     }
 
     @Test
+    @DisplayName("Data Lineage public path keys have the build 7 design 5.6 shape; resource and doc ids are hashed")
+    void lineagePublicKeyShapes() {
+        PublicLineageKey drive = PublicLineageKey.drive(SOURCE_ID, "Res_Synthetic-1");
+        assertThat(DatastoreCacheKeys.lineagePublicDatastores(CLIENT)).isEqualTo("dspm:lnpubds:10:all");
+        assertThat(DatastoreCacheKeys.lineagePublicEndpointFiles(CLIENT, SOURCE_ID, 14, 7))
+                .isEqualTo("dspm:lnpubfiles:10:ep-" + SOURCE_ID + ":14-7");
+        assertThat(DatastoreCacheKeys.lineagePublicDriveFiles(CLIENT, drive))
+                .isEqualTo("dspm:lnpubfiles:10:" + DatastoreCacheKeys.sha256Hex("dr-" + SOURCE_ID + "-Res_Synthetic-1"))
+                .matches("^dspm:lnpubfiles:10:[0-9a-f]{64}$");
+        assertThat(DatastoreCacheKeys.lineagePublicDriveAsset(CLIENT, SOURCE_ID, "Doc_Synthetic-1"))
+                .isEqualTo("dspm:lnpubdrv:10:" + DatastoreCacheKeys.sha256Hex(SOURCE_ID + ":Doc_Synthetic-1"))
+                .matches("^dspm:lnpubdrv:10:[0-9a-f]{64}$");
+    }
+
+    @Test
+    @DisplayName("no doc id, resource id or name reaches a public path key; pages, people and files separate keys")
+    void noNeedleInAPublicLineageKey() {
+        PublicLineageKey drive = PublicLineageKey.drive(SOURCE_ID, "needle-resource");
+        List<String> keys = List.of(
+                DatastoreCacheKeys.lineagePublicDatastores(CLIENT),
+                DatastoreCacheKeys.lineagePublicEndpointFiles(CLIENT, SOURCE_ID, 0, 7),
+                DatastoreCacheKeys.lineagePublicDriveFiles(CLIENT, drive),
+                DatastoreCacheKeys.lineagePublicDriveAsset(CLIENT, SOURCE_ID, "needle-doc"));
+
+        assertThat(keys).allSatisfy(key -> assertThat(key).doesNotContainIgnoringCase("needle"));
+        assertThat(DatastoreCacheKeys.lineagePublicEndpointFiles(CLIENT, SOURCE_ID, 1, 10))
+                .isNotEqualTo(DatastoreCacheKeys.lineagePublicEndpointFiles(CLIENT, SOURCE_ID, 11, 0));
+        assertThat(DatastoreCacheKeys.lineagePublicDriveFiles(CLIENT, drive))
+                .isNotEqualTo(DatastoreCacheKeys.lineagePublicDriveFiles(CLIENT,
+                        PublicLineageKey.drive(SOURCE_ID, "needle-resource2")));
+        assertThat(DatastoreCacheKeys.lineagePublicDriveAsset(CLIENT, SOURCE_ID, "Doc-A"))
+                .isNotEqualTo(DatastoreCacheKeys.lineagePublicDriveAsset(CLIENT, SOURCE_ID, "Doc-a"));
+    }
+
+    @Test
     @DisplayName("the Misconfigurations snapshot key is dspm:dsmisconf:<c>:all and its client's glob evicts it")
     void misconfigurationsKey() {
         assertThat(DatastoreCacheKeys.misconfigurations(CLIENT)).isEqualTo("dspm:dsmisconf:10:all");
@@ -437,6 +477,12 @@ class DatastoreCacheKeysTest {
         DatastoreListQuery query = DatastoreListQuery.forList(params("tab", "cloud"));
         assertThat(DatastoreCacheKeys.list(CLIENT, query)).startsWith("dspm:dslist:10:");
         assertThat(DatastoreCacheKeys.list(11L, query)).startsWith("dspm:dslist:11:");
+        PublicLineageKey drive = PublicLineageKey.drive(SOURCE_ID, "Res_Synthetic-1");
+        assertThat(DatastoreCacheKeys.lineagePublicDatastores(CLIENT))
+                .isNotEqualTo(DatastoreCacheKeys.lineagePublicDatastores(11L));
+        assertThat(DatastoreCacheKeys.lineagePublicEndpointFiles(11L, SOURCE_ID, 0, 7)).startsWith("dspm:lnpubfiles:11:");
+        assertThat(DatastoreCacheKeys.lineagePublicDriveFiles(11L, drive)).startsWith("dspm:lnpubfiles:11:");
+        assertThat(DatastoreCacheKeys.lineagePublicDriveAsset(11L, SOURCE_ID, "Doc-A")).startsWith("dspm:lnpubdrv:11:");
     }
 
     @Test

@@ -5,6 +5,9 @@ import com.xammer.cloud.dto.matters.datastores.LineageCategories;
 import com.xammer.cloud.dto.matters.datastores.LineageDatastorePage;
 import com.xammer.cloud.dto.matters.datastores.LineageFilePage;
 import com.xammer.cloud.dto.matters.datastores.LineagePolicyPage;
+import com.xammer.cloud.dto.matters.datastores.PublicFileLineage;
+import com.xammer.cloud.dto.matters.datastores.PublicLineageDatastorePage;
+import com.xammer.cloud.dto.matters.datastores.PublicLineageFilePage;
 import com.xammer.cloud.dto.matters.datastores.SaasFileLineage;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.XamLensTabGuard;
@@ -14,6 +17,8 @@ import com.xammer.cloud.service.matters.LineageFilters;
 import com.xammer.cloud.service.matters.LineageParams;
 import com.xammer.cloud.service.matters.LineageRowQuery;
 import com.xammer.cloud.service.matters.LineageService;
+import com.xammer.cloud.service.matters.PublicLineageKey;
+import com.xammer.cloud.service.matters.PublicLineageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -28,7 +33,10 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * The XamLens Data Lineage page: 6 read-only GETs (build 4 design 5.2, endpoints L1 to L6).
+ * The XamLens Data Lineage page: 9 read-only GETs. L1 to L6 (build 4 design 5.2) serve the console's
+ * exposure flow behind the exposure switch; P1 to P3 under {@code /public} (build 7 design 5.2) serve the
+ * public path from the routes a project key reaches: the datastores, a datastore's files and a file's
+ * lineage, through {@link PublicLineageService}, whatever the switch says.
  *
  * <h2>Order of checks</h2>
  * Every method calls {@link XamLensTabGuard#require} first, then validates its input with
@@ -53,9 +61,12 @@ public class DspmLineageController {
             "severity", "severity_exclude", "datastoreName", "datastoreName_exclude", "label", "label_exclude");
     private static final Set<String> DATASTORES_PARAMS = Set.of("q", "skip", "limit", "severity", "severity_exclude");
     private static final Set<String> FILES_PARAMS = Set.of("skip", "limit");
+    private static final Set<String> PUBLIC_DATASTORES_PARAMS = Set.of("q", "skip", "limit");
+    private static final Set<String> PUBLIC_FILES_PARAMS = Set.of("skip", "limit");
 
     private final XamLensTabGuard guard;
     private final LineageService service;
+    private final PublicLineageService publicService;
 
     /** L1: step 0's category cards; {@code available: false} while the exposure switch is off. */
     @GetMapping("/categories")
@@ -121,6 +132,48 @@ public class DspmLineageController {
         guard.require(user);
         DatastoreParams.requireAllowed(params, NO_PARAMS);
         return ResponseEntity.ok(service.fileLineage(user.getClientId(), LineageParams.fileId(fileId)));
+    }
+
+    // ── public path (build 7) ────────────────────────────────────────────────────────────────────
+
+    /** P1: one page of the project's endpoints and drive people with lineage data; {@code limit} 1..50, default 7. */
+    @GetMapping("/public/datastores")
+    public ResponseEntity<PublicLineageDatastorePage> publicDatastores(
+            @AuthenticationPrincipal ClientUserDetails user, @RequestParam MultiValueMap<String, String> params) {
+        guard.require(user);
+        DatastoreParams.requireAllowed(params, PUBLIC_DATASTORES_PARAMS);
+        String search = DatastoreParams.search(DatastoreParams.single(params, "q"));
+        int skip = DatastoreParams.skip(DatastoreParams.single(params, "skip"));
+        int limit = LineageParams.limit(DatastoreParams.single(params, "limit"), LineageParams.MAX_ROW_LIMIT,
+                LineageParams.DEFAULT_LIMIT);
+        return ResponseEntity.ok(publicService.datastores(user.getClientId(), search, skip, limit));
+    }
+
+    /** P2: one page of a public-path datastore's files; {@code limit} 1..100, default 7. */
+    @GetMapping("/public/datastores/{datastoreId}/files")
+    public ResponseEntity<PublicLineageFilePage> publicFiles(@AuthenticationPrincipal ClientUserDetails user,
+                                                             @PathVariable String datastoreId,
+                                                             @RequestParam MultiValueMap<String, String> params) {
+        guard.require(user);
+        DatastoreParams.requireAllowed(params, PUBLIC_FILES_PARAMS);
+        PublicLineageKey key = PublicLineageKey.parse("datastoreId", datastoreId);
+        int skip = DatastoreParams.skip(DatastoreParams.single(params, "skip"));
+        int limit = LineageParams.limit(DatastoreParams.single(params, "limit"), LineageParams.MAX_FILE_LIMIT,
+                LineageParams.DEFAULT_LIMIT);
+        return ResponseEntity.ok(publicService.files(user.getClientId(), key, skip, limit));
+    }
+
+    /** P3: a public-path file's lineage; an endpoint file id is a UUID, a drive file id a document id. */
+    @GetMapping("/public/datastores/{datastoreId}/files/{fileId}/lineage")
+    public ResponseEntity<PublicFileLineage> publicFileLineage(@AuthenticationPrincipal ClientUserDetails user,
+                                                               @PathVariable String datastoreId,
+                                                               @PathVariable String fileId,
+                                                               @RequestParam MultiValueMap<String, String> params) {
+        guard.require(user);
+        DatastoreParams.requireAllowed(params, NO_PARAMS);
+        PublicLineageKey key = PublicLineageKey.parse("datastoreId", datastoreId);
+        String id = key.fileId("fileId", fileId);
+        return ResponseEntity.ok(publicService.fileLineage(user.getClientId(), key, id));
     }
 
     // ── internals ────────────────────────────────────────────────────────────────────────────────

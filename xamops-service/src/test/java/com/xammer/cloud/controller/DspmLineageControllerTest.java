@@ -13,6 +13,12 @@ import com.xammer.cloud.service.matters.LineageFilters;
 import com.xammer.cloud.service.matters.LineageRowQuery;
 import com.xammer.cloud.service.matters.LineageService;
 import com.xammer.cloud.service.matters.MattersApiException;
+import com.xammer.cloud.service.matters.PublicLineageKey;
+import com.xammer.cloud.service.matters.PublicLineageService;
+import com.xammer.cloud.dto.matters.datastores.PublicFileLineage;
+import com.xammer.cloud.dto.matters.datastores.PublicLineageDatastorePage;
+import com.xammer.cloud.dto.matters.datastores.PublicLineageFilePage;
+import com.xammer.cloud.dto.matters.datastores.SaasFileLineage;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -58,6 +64,7 @@ class DspmLineageControllerTest {
     private GlobalTabRuleReader rules;
     private UserTabAccessRepository tabs;
     private LineageService service;
+    private PublicLineageService publicService;
     private MockMvc mvc;
 
     private final ClientUserDetails xamops = principal(500L, "ROLE_XAMOPS");
@@ -108,7 +115,9 @@ class DspmLineageControllerTest {
         when(rules.rulesFor(anyLong())).thenReturn(GlobalTabRuleReader.UserRules.NONE);
         when(tabs.findTabNamesByUserId(anyLong())).thenReturn(List.of());
         service = mock(LineageService.class);
-        DspmLineageController controller = new DspmLineageController(new XamLensTabGuard(rules, tabs), service);
+        publicService = mock(PublicLineageService.class);
+        DspmLineageController controller =
+                new DspmLineageController(new XamLensTabGuard(rules, tabs), service, publicService);
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(), new MattersExceptionHandler())
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
@@ -279,5 +288,148 @@ class DspmLineageControllerTest {
                 .andExpect(jsonPath("$.code").value("BAD_UPSTREAM_RESPONSE"));
         perform(new Call(FILES)).andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ASSET_NOT_FOUND"));
+    }
+
+    // ── public path, P1 to P3 (build 7) ──────────────────────────────────────────────────────────
+
+    private static final String AGENT = "0123456789abcdef01234567";
+    private static final String INTEGRATION = "fedcba9876543210fedcba98";
+    private static final String RESOURCE = "Res_Synthetic-1";
+    private static final String DOC_ID = "Doc_Synthetic-0001";
+    private static final String PUBLIC = BASE + "/public/datastores";
+    private static final String ENDPOINT_ID = "ep-" + AGENT;
+    private static final String DRIVE_ID = "dr-" + INTEGRATION + "-" + RESOURCE;
+    private static final PublicLineageKey ENDPOINT_KEY = PublicLineageKey.endpoint(AGENT);
+    private static final PublicLineageKey DRIVE_KEY = PublicLineageKey.drive(INTEGRATION, RESOURCE);
+
+    /** Endpoints P1 to P3 of build 7 design 5.2, each with valid parameters. */
+    private static List<Call> everyPublicEndpoint() {
+        return List.of(
+                new Call(PUBLIC, "q", "lab", "skip", "7", "limit", "50"),
+                new Call(PUBLIC + "/" + ENDPOINT_ID + "/files", "skip", "7", "limit", "100"),
+                new Call(PUBLIC + "/" + DRIVE_ID + "/files/" + DOC_ID + "/lineage"));
+    }
+
+    @Test
+    @DisplayName("P1 to P3 answer 200 and pass the parsed values and the principal's client id")
+    void everyPublicEndpointAnswers() throws Exception {
+        when(publicService.datastores(10L, "lab", 7, 50)).thenReturn(new PublicLineageDatastorePage(List.of(
+                new PublicLineageDatastorePage.Datastore(ENDPOINT_ID, "ENDPOINT", "Lab Laptop", "ENDPOINT", null)),
+                1, 7, 50));
+        when(publicService.files(10L, ENDPOINT_KEY, 7, 100)).thenReturn(new PublicLineageFilePage(List.of(), 0, 7, 100));
+        when(publicService.fileLineage(10L, DRIVE_KEY, DOC_ID)).thenReturn(
+                new PublicFileLineage("DRIVE", null, SaasFileLineage.unavailable(), null));
+
+        List<Call> calls = everyPublicEndpoint();
+        perform(calls.get(0)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.rows[0].id").value(ENDPOINT_ID))
+                .andExpect(jsonPath("$.rows[0].files").isEmpty())
+                .andExpect(jsonPath("$.total").value(1));
+        perform(calls.get(1)).andExpect(status().isOk()).andExpect(jsonPath("$.rows").isEmpty());
+        perform(calls.get(2)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.kind").value("DRIVE"))
+                .andExpect(jsonPath("$.asset").isEmpty())
+                .andExpect(jsonPath("$.ownerEmail").isEmpty());
+
+        verify(publicService).datastores(10L, "lab", 7, 50);
+        verify(publicService).files(10L, ENDPOINT_KEY, 7, 100);
+        verify(publicService).fileLineage(10L, DRIVE_KEY, DOC_ID);
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    @DisplayName("public defaults: no search, skip 0, limit 7; hex lower-cased; endpoint UUID lower-cased; doc id kept")
+    void publicDefaultsAndNormalisation() throws Exception {
+        String uuid = "0000000c-0000-4000-8000-00000000000d";
+        perform(new Call(PUBLIC)).andExpect(status().isOk());
+        perform(new Call(PUBLIC, "q", "   ")).andExpect(status().isOk());
+        perform(new Call(PUBLIC + "/ep-" + AGENT.toUpperCase() + "/files")).andExpect(status().isOk());
+        perform(new Call(PUBLIC + "/dr-" + INTEGRATION.toUpperCase() + "-" + RESOURCE + "/files")).andExpect(status().isOk());
+        perform(new Call(PUBLIC + "/" + ENDPOINT_ID + "/files/" + uuid.toUpperCase() + "/lineage")).andExpect(status().isOk());
+        perform(new Call(PUBLIC + "/" + DRIVE_ID + "/files/" + DOC_ID + "/lineage")).andExpect(status().isOk());
+
+        verify(publicService, org.mockito.Mockito.times(2)).datastores(10L, null, 0, 7);
+        verify(publicService).files(10L, ENDPOINT_KEY, 0, 7);
+        verify(publicService).files(10L, DRIVE_KEY, 0, 7);
+        verify(publicService).fileLineage(10L, ENDPOINT_KEY, uuid);
+        verify(publicService).fileLineage(10L, DRIVE_KEY, DOC_ID);
+    }
+
+    @Test
+    @DisplayName("P1 to P3: a principal the guard refuses gets 403 TAB_ACCESS_DENIED, with no service call")
+    void publicGuardRefusal() throws Exception {
+        when(rules.rulesFor(500L)).thenReturn(new GlobalTabRuleReader.UserRules(List.of(TAB), List.of()));
+
+        for (Call call : everyPublicEndpoint()) {
+            perform(call).andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("TAB_ACCESS_DENIED"))
+                    .andExpect(jsonPath("$.message").value("You do not have access to XamLens."));
+        }
+        // Even an invalid request is refused by the guard first.
+        perform(new Call(PUBLIC + "/not-an-id/files", "limit", "0")).andExpect(status().isForbidden());
+        verifyNoInteractions(publicService, service);
+    }
+
+    @Test
+    @DisplayName("P1 to P3: every design 5.4 row is a 400 naming the parameter, never the value, with no service call")
+    void publicValidation() throws Exception {
+        for (Call call : everyPublicEndpoint()) {
+            expectInvalid(call.with("clientId", "99"), "clientId");
+        }
+
+        expectInvalid(new Call(PUBLIC, "q", "x".repeat(201)), "q");
+        expectInvalid(new Call(PUBLIC, "q", "a\u0007b"), "q");
+        expectInvalid(new Call(PUBLIC, "q", "a", "q", "b"), "q");
+        expectInvalid(new Call(PUBLIC, "skip", "-1"), "skip");
+        expectInvalid(new Call(PUBLIC, "skip", "10001"), "skip");
+        expectInvalid(new Call(PUBLIC, "skip", "0", "skip", "1"), "skip");
+        expectInvalid(new Call(PUBLIC, "limit", "0"), "limit");
+        expectInvalid(new Call(PUBLIC, "limit", "51"), "limit");
+        expectInvalid(new Call(PUBLIC, "category", "STALE_DATA"), "category");
+        expectInvalid(new Call(PUBLIC, "severity", "HIGH"), "severity");
+
+        String files = PUBLIC + "/" + DRIVE_ID + "/files";
+        expectInvalid(new Call(files, "limit", "101"), "limit");
+        expectInvalid(new Call(files, "limit", "x"), "limit");
+        expectInvalid(new Call(files, "skip", "x"), "skip");
+        expectInvalid(new Call(files, "q", "x"), "q");
+        expectInvalid(new Call(PUBLIC + "/" + AGENT + "/files"), "datastoreId");
+        expectInvalid(new Call(PUBLIC + "/ep-" + AGENT + "0/files"), "datastoreId");
+        expectInvalid(new Call(PUBLIC + "/dr-" + INTEGRATION + "-" + "r".repeat(65) + "/files"), "datastoreId");
+        expectInvalid(new Call(PUBLIC + "/exposure-one/files"), "datastoreId");
+
+        String uuid = "0000000c-0000-4000-8000-00000000000d";
+        expectInvalid(new Call(PUBLIC + "/" + DRIVE_ID + "/files/" + uuid + "/lineage"), "fileId");
+        expectInvalid(new Call(PUBLIC + "/" + ENDPOINT_ID + "/files/" + DOC_ID + "/lineage"), "fileId");
+        expectInvalid(new Call(PUBLIC + "/" + DRIVE_ID + "/files/" + "d".repeat(129) + "/lineage"), "fileId");
+        expectInvalid(new Call(PUBLIC + "/bad/files/" + DOC_ID + "/lineage"), "datastoreId");
+        expectInvalid(new Call(PUBLIC + "/" + DRIVE_ID + "/files/" + DOC_ID + "/lineage", "skip", "0"), "skip");
+
+        perform(new Call(PUBLIC + "/" + ENDPOINT_ID + "/files/" + DOC_ID + "/lineage"))
+                .andExpect(jsonPath("$.message").value("fileId must be a UUID for an endpoint file"));
+        perform(new Call(PUBLIC + "/" + DRIVE_ID + "/files/" + uuid + "/lineage"))
+                .andExpect(jsonPath("$.message").value("fileId must be a drive document id"));
+        perform(new Call(PUBLIC + "/needle-value/files"))
+                .andExpect(jsonPath("$.message").value("datastoreId must be a datastore of the lineage page"));
+
+        verifyNoInteractions(publicService, service);
+    }
+
+    @Test
+    @DisplayName("P1 to P3: Matters failures map through MattersExceptionHandler")
+    void publicMattersFailuresAreMapped() throws Exception {
+        when(publicService.datastores(10L, null, 0, 7)).thenThrow(new MattersApiException(
+                MattersApiException.Reason.UPSTREAM_UNAVAILABLE, "Matters returned 503"));
+        when(publicService.files(10L, ENDPOINT_KEY, 0, 7)).thenThrow(
+                new MattersApiException(MattersApiException.Reason.ASSET_NOT_FOUND, "Asset not found"));
+        when(publicService.fileLineage(eq(10L), eq(DRIVE_KEY), any())).thenThrow(
+                new MattersApiException(MattersApiException.Reason.FORBIDDEN_SCOPE, "scope"));
+
+        perform(new Call(PUBLIC)).andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_UNAVAILABLE"));
+        perform(new Call(PUBLIC + "/" + ENDPOINT_ID + "/files")).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ASSET_NOT_FOUND"));
+        perform(new Call(PUBLIC + "/" + DRIVE_ID + "/files/" + DOC_ID + "/lineage")).andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN_SCOPE"));
     }
 }
