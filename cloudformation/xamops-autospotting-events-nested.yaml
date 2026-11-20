@@ -563,6 +563,10 @@ Resources:
       - HubForwardRule
     Properties:
       ServiceToken: !GetAtt RegionFanOutFunction.Arn
+      # Bump when the fan-out code changes: CloudFormation re-invokes a custom resource only when
+      # its properties change, so without this a stack update would ship new code and never run it
+      # (D-23-02: stacks created before the RetryPolicy fix keep their target-less rules until then).
+      FanOutCodeVersion: '2'
       HubBusArn: !GetAtt AutoSpottingHubBus.Arn
       ForwardRoleArn: !GetAtt RegionalForwardRole.Arn
       RulePatterns:
