@@ -32,6 +32,7 @@ import type { DataFlowErd, DataFlowErdEdge, DataFlowErdExternalTable, DataFlowRe
 // inside functions, never while the modules load, so either may load first.
 import { demoDatastoreSource, type DemoDatastoreSource } from './xamlensMockData';
 import { demoCatalogueRisks } from './xamlensRiskCatalogue';
+import { maskSampleFor } from '../utils/sampleMask';
 
 // ─── Vocabulary ──────────────────────────────────────────────────────────────
 
@@ -87,7 +88,7 @@ function basename(path: string): string {
 const byLabel = (a: string, b: string) => a.toLowerCase().localeCompare(b.toLowerCase());
 const sortedLabels = (labels: readonly string[]) => [...new Set(labels)].sort(byLabel);
 
-/** Invented sample values per detector. The drawer renders them raw (decision D1). */
+/** Invented sample values per detector. `samples()` masks them by xamops-service's rule (build 9), as UAT does. */
 const SAMPLES: Record<string, readonly string[]> = {
   'PERSON NAME': [
     '<<Jane Doe>>', '<<John Doe>>', '<<Richard Roe>>', '<<Mary Major>>',
@@ -101,10 +102,13 @@ const SAMPLES: Record<string, readonly string[]> = {
   'HASHED SECRET KEY': ['<<$2b$12$…demo1>>', '<<$2b$12$…demo2>>'],
 };
 
-/** `n` samples of a detector, starting at `start` in its list; an unlisted detector gets numbered stand-ins. */
+/**
+ * `n` samples of a detector, starting at `start` in its list, masked as xamops-service masks them (the secret
+ * rule for IT & Security detectors, else the half rule); an unlisted detector gets numbered stand-ins.
+ */
 function samples(entity: string, start: number, n: number): string[] {
   const pool = SAMPLES[entity] ?? [`<<${entity.toLowerCase()} 1>>`, `<<${entity.toLowerCase()} 2>>`];
-  return Array.from({ length: n }, (_, k) => pool[(start + k) % pool.length]);
+  return Array.from({ length: n }, (_, k) => maskSampleFor(entity, [ENTITY_LABEL[entity]], pool[(start + k) % pool.length]));
 }
 
 const fileOccurrence = (url: string, values: string[]): DatastoreOccurrence => ({

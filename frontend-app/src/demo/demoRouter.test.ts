@@ -1256,11 +1256,28 @@ describe('demo router — XamLens Datastores page and drawer (ROLE_XAMOPS)', () 
     expect(first).toMatchObject({ entityName: 'PERSON NAME', total: 72, skip: 0, limit: 10 });
     expect(first.rows).toHaveLength(10);
     expect(first.rows[0].samples).toHaveLength(5);
-    expect(first.rows[0].samples[0]).toBe('<<Jane Doe>>');
+    expect(first.rows[0].samples[0]).toBe('<<Ja•• D••>>');
+    expect(first.rows.flatMap(r => r.samples)).not.toContain('<<Jane Doe>>');
     expect(first.rows.some(row => row.samples.length === 0)).toBe(true);
     const last = await page(70);
     expect(last).toMatchObject({ total: 72, skip: 70 });
     expect(last.rows).toHaveLength(2);
+  });
+  it('masks demo secret samples by the secret rule (build 9)', async () => {
+    const keys = await resourceOf(await sourceIdOf(S3),
+      'sensitives/occurrences?entityName=ACCESS%20KEY%20AWS&skip=0&limit=10') as DatastoreOccurrencePage;
+    const keySamples = keys.rows.flatMap(row => row.samples);
+    expect(keySamples.length).toBeGreaterThan(0);
+    expect(new Set(keySamples)).toEqual(new Set(['<<AKIA••••••>>']));
+    const sha = await resourceOf(await sourceIdOf('crm_production'),
+      'sensitives/occurrences?entityName=SHA%20KEY&skip=0&limit=10') as DatastoreOccurrencePage;
+    const shaSamples = sha.rows.flatMap(row => row.samples);
+    expect(shaSamples.length).toBeGreaterThan(0);
+    for (const value of shaSamples) {
+      const inner = Array.from(value.slice(2, -2));
+      expect(value.startsWith('<<') && value.endsWith('>>')).toBe(true);
+      expect(inner.filter(c => c !== '•').length).toBeLessThanOrEqual(4);
+    }
   });
 
   it('answers an unknown datastore or Data Flow id with 404 ASSET_NOT_FOUND', async () => {

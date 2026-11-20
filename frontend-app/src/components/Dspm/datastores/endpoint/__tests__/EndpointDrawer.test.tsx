@@ -331,7 +331,8 @@ describe('EndpointDrawer Entity View', () => {
     await entityTable(drawer);
     await user.click(within(drawer).getByRole('button', { name: 'Expand EMAIL ADDRESS' }));
 
-    const sample = await within(drawer).findByText('j***@e******.org');
+    const sample = await within(drawer).findByText('j•••@e••••••.org');
+    expect(within(drawer).queryByText('j***@e******.org')).toBeNull();
     const nested = sample.closest('table') as HTMLTableElement;
     expect(within(nested).getAllByRole('columnheader').map(header => header.textContent))
       .toEqual(['File Name', 'Matters Tags', 'File Path', 'Sample Data', 'False Positive']);
@@ -342,10 +343,11 @@ describe('EndpointDrawer Entity View', () => {
       ['entityName', 'EMAIL ADDRESS'], ['skip', '0'], ['limit', '10'], ['showFalsePositives', 'false'],
     ]);
 
-    // The samples as returned, through SampleCell: the first one, then "+N".
+    // The samples, masked, through SampleCell: the first one, then "+N".
     const first = rowOf(nested, 'notes-export.json');
     expect(sample).toHaveClass('font-mono');
     expect(within(first).getByText('+1')).toBeInTheDocument();
+    expect(within(first).queryByText('p•••@e••••••.org')).toBeNull();
     expect(within(first).queryByText('p***@e******.org')).toBeNull();
     expect(within(first).getByText('confidential')).toBeInTheDocument();
     expect(within(first).getByText('/Users/tester/projects/demo/notes-export.json')).toBeInTheDocument();
@@ -370,6 +372,7 @@ describe('EndpointDrawer Entity View', () => {
 
     // Collapsing discards the samples.
     await user.click(within(drawer).getByRole('button', { name: 'Collapse EMAIL ADDRESS' }));
+    expect(within(drawer).queryByText('••••••••')).toBeNull();
     expect(within(drawer).queryByText('********')).toBeNull();
   });
 

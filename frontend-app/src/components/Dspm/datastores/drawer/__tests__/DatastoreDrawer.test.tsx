@@ -711,19 +711,20 @@ describe('DatastoreDrawer', () => {
       const user = userEvent.setup();
       const { drawer } = renderDrawer();
       await user.click(await within(drawer).findByRole('button', { name: 'Expand EMAIL ADDRESS' }));
-      await within(drawer).findByText('<<Jane Doe>>');
+      await within(drawer).findByText('<<Ja•• D••>>');
       await user.click(within(drawer).getByRole('button', { name: 'Expand PERSON NAME' }));
       expect(within(drawer).getByRole('button', { name: 'Collapse PERSON NAME' })).toBeInTheDocument();
       expect(within(drawer).getByRole('button', { name: 'Expand EMAIL ADDRESS' })).toBeInTheDocument();
       expect(last(requestsTo('sensitives/occurrences')).searchParams.get('entityName')).toBe('PERSON NAME');
     });
 
-    it('sends showFalsePositives with every occurrence request and renders samples raw', async () => {
+    it('sends showFalsePositives with every occurrence request and renders samples masked', async () => {
       const user = userEvent.setup();
       const { drawer } = renderDrawer();
       await user.click(await within(drawer).findByRole('button', { name: 'Expand EMAIL ADDRESS' }));
 
-      expect(await within(drawer).findByText('<<Jane Doe>>')).toBeInTheDocument();
+      expect(await within(drawer).findByText('<<Ja•• D••>>')).toBeInTheDocument();
+      expect(within(drawer).queryByText('<<Jane Doe>>')).toBeNull();
       expect(within(drawer).getByText('+4')).toBeInTheDocument();
       const first = last(requestsTo('sensitives/occurrences'));
       expect(first.searchParams.get('entityName')).toBe('EMAIL ADDRESS');
@@ -748,6 +749,15 @@ describe('DatastoreDrawer', () => {
       expect(within(drawer).getByRole('button', { name: 'Collapse EMAIL ADDRESS' })).toBeInTheDocument();
     });
 
+    it('renders a sample the server already masked unchanged', async () => {
+      const user = userEvent.setup();
+      answers['sensitives/occurrences'] = url => occurrencePage(url, [occurrence({
+        fileName: 'customers.csv', url: 's3://orders-archive/exports/customers.csv', samples: ['<<Suk•••• Si•••>>'],
+      })]);
+      const { drawer } = renderDrawer();
+      await user.click(await within(drawer).findByRole('button', { name: 'Expand EMAIL ADDRESS' }));
+      expect(await within(drawer).findByText('<<Suk•••• Si•••>>')).toHaveClass('font-mono');
+    });
     it('returns an occurrence page past the end to page 1', async () => {
       const user = userEvent.setup();
       const ten = Array.from({ length: 10 }, (_, i) => occurrence({ fileName: `part-${i}.csv`, url: `s3://orders-archive/part-${i}.csv` }));
@@ -774,7 +784,8 @@ describe('DatastoreDrawer', () => {
       await within(drawer).findByText('token_digest');
       const nested = within(drawer).getAllByRole('table')[1];
       expect(headers(nested)).toEqual(['Database', 'Schema', 'Table', 'Column', 'Sample Data', 'False Positive']);
-      expect(within(nested).getAllByRole('row')[1].textContent).toContain('ledgerpublicpaymentstoken_digestab12cd34');
+      expect(within(nested).getAllByRole('row')[1].textContent).toContain('ledgerpublicpaymentstoken_digestab12••••');
+      expect(within(nested).queryByText('ab12cd34')).toBeNull();
     });
 
     it('pages File View on the server, with "Columns 6", "-" placeholders and an empty entity chip', async () => {

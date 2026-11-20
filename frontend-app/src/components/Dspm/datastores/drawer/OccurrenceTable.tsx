@@ -48,7 +48,7 @@ export const FalsePositiveCell: React.FC<{ marked: boolean }> = ({ marked }) => 
  * `/sensitives/occurrences` (skip = (page − 1) × Rows Per Page); `showFalsePositives` goes with every
  * request.
  *
- * Samples live only in this component's state: they go when the row collapses, the switch changes or
+ * Samples arrive masked by xamops-service (build 9) and live only in this component's state: they go when the row collapses, the switch changes or
  * the drawer closes, and they are rendered by `SampleCell` alone (decision D1).
  */
 const OccurrenceTable: React.FC<Props> = ({ api, entityName, showFalsePositives, database }) => {
