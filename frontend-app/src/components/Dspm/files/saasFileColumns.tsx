@@ -77,10 +77,10 @@ export function renderSaasFileCell(id: SaasFileColumnId, row: SaasFileListRow): 
     case 'name': {
       const icon = driveIconKey(row.source);
       return (
-        <span className="flex min-w-0 items-center gap-2">
+        <span className="flex min-w-0 max-w-[16.5rem] items-center gap-2">
           {fileIcon(row)}
           <span className="min-w-0">
-            <span className="block max-w-[22rem] truncate font-semibold text-[rgba(0,0,0,0.85)]" title={row.name ?? undefined}>
+            <span className="block max-w-[15rem] truncate font-semibold text-[rgba(0,0,0,0.85)]" title={row.name ?? undefined}>
               {row.name ?? '-'}
             </span>
             {(icon || row.sourceLabel) && (

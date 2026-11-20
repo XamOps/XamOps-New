@@ -303,20 +303,37 @@ describe('EndpointFileDrawer Lineage', () => {
     expect(within(panel).queryByRole('button', { name: 'More information' })).toBeNull();
   });
 
-  it("falls back to build 2's copy lanes without a lineage asset", async () => {
-    answers.lineage = () => ({ asset: null, copies: lineage({ lanes: [SELF_LANE] }) });
+  it('draws the own lane from the overview without a lineage asset, with File Created by the owner', async () => {
+    answers.lineage = () => ({ asset: null, copies: lineage({ lanes: [SELF_LANE, GMAIL_LANE] }) });
     const drawer = await renderDrawer({ initialTab: 'lineage' });
     const panel = panelOf(drawer);
     const lanes = await within(panel).findByRole('group', { name: 'Lineage lanes' });
     expect(within(panel).getByText('Trace where this file came from.')).toBeInTheDocument();
-    expect(laneKeys(lanes)).toEqual(['copy-0']);
-    expect(within(lanes).getByRole('button', { name: /^First Seen/ })).toBeInTheDocument();
-    expect(within(panel).getByText(NO_RELATED_FILES_TEXT)).toBeInTheDocument();
-    expect(within(panel).queryByRole('button', { name: 'More information' })).toBeNull();
+    expect(laneKeys(lanes)).toEqual(['endpoint-asset', 'copy-1']);
+    const own = lanes.querySelector('[data-lane="endpoint-asset"]') as HTMLElement;
+    expect(own).toHaveAttribute('data-own', 'true');
+    expect(own).toHaveTextContent(FILE_NAME);
+    expect(own).toHaveTextContent('priya');
+    expect(within(lanes).getByRole('button', { name: /^File Created/ }))
+      .toHaveTextContent(`File CreatedActor: priya · ${formatLineageTime(CREATED)}`);
+    expect(within(panel).queryByText(NO_RELATED_FILES_TEXT)).toBeNull();
   });
 
-  it('reads "No lineage recorded for this file." without an asset or a lane', async () => {
+  it('draws the own lane alone with the ⓘ when there is no asset and the copies are unavailable', async () => {
     answers.lineage = () => ({ asset: null, copies: lineage({ available: false }) });
+    const drawer = await renderDrawer({ initialTab: 'lineage' });
+    const panel = panelOf(drawer);
+    const lanes = await within(panel).findByRole('group', { name: 'Lineage lanes' });
+    expect(laneKeys(lanes)).toEqual(['endpoint-asset']);
+    expect(within(lanes).getByRole('button', { name: /^File Created/ })).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'More information' })).toBeInTheDocument();
+    expect(within(panel).getByText(NO_RELATED_FILES_TEXT)).toBeInTheDocument();
+    expect(within(panel).queryByText('No lineage recorded for this file.')).toBeNull();
+  });
+
+  it('reads "No lineage recorded for this file." without an asset, a creation time or another lane', async () => {
+    answers.overview = () => fileOverview({ fileCreatedAt: null });
+    answers.lineage = () => ({ asset: null, copies: lineage({ lanes: [SELF_LANE] }) });
     const drawer = await renderDrawer({ initialTab: 'lineage' });
     expect(await within(panelOf(drawer)).findByText('No lineage recorded for this file.')).toBeInTheDocument();
     expect(within(panelOf(drawer)).queryByRole('group', { name: 'Lineage lanes' })).toBeNull();

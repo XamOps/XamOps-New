@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EndpointFileLineage, EndpointFileLineageAsset } from '../../../../../types/dspmFiles';
-import { buildLineageLanes, showsNoRelatedFiles } from '../../saas/lineageModel';
+import { showsNoRelatedFiles } from '../../saas/lineageModel';
 import { event, lane, lineage, local } from '../../saas/__tests__/saasTestData';
 import {
   BUILT_EVENT_KEY, OWN_LANE_KEY, buildEndpointLineageLanes, eventTone, onlyBuiltEvent, type EndpointLineageSubject,
@@ -118,22 +118,53 @@ describe('buildEndpointLineageLanes with a lineage asset', () => {
 });
 
 describe('buildEndpointLineageLanes without a lineage asset', () => {
-  it("gives build 2's hash-lineage lanes, own lane included, each event toned", () => {
+  it('builds the own lane from the overview with File Created by the owner, then the other copies, each event toned', () => {
     const copies = lineage({
       lanes: [lane('copy-0', { self: true, firstSeenAt: 100 }), lane('copy-1', { firstSeenAt: 200 })],
       events: [event({ laneKey: 'copy-1', typeLabel: 'File Deleted', occurredAt: 300 })],
     });
     const lanes = buildEndpointLineageLanes(SUBJECT, { asset: null, copies });
-    const build2 = buildLineageLanes({ name: SUBJECT.name, driveType: null, owner: SUBJECT.owner, lastModifiedAt: null }, copies);
-    expect(lanes).toEqual(build2.map(l => ({ ...l, events: l.events.map(e => ({ ...e, tone: eventTone(e.type) })) })));
-    expect(lanes.map(l => [l.key, l.own])).toEqual([['copy-0', true], ['copy-1', false]]);
+    expect(lanes.map(l => [l.key, l.own])).toEqual([[OWN_LANE_KEY, true], ['copy-1', false]]);
+    expect(lanes[0]).toEqual({
+      key: OWN_LANE_KEY,
+      icon: null,
+      fileName: 'contacts.json',
+      owner: 'priya',
+      own: true,
+      events: [{
+        key: BUILT_EVENT_KEY,
+        type: 'File Created',
+        actor: 'priya',
+        actorEmail: null,
+        internal: false,
+        at: CREATED,
+        fileName: 'contacts.json',
+        channel: 'build-laptop-07',
+        tone: 'purple',
+      }],
+    });
     expect(lanes[1].events.map(e => e.tone)).toEqual(['purple', 'red']);
+    expect(onlyBuiltEvent(lanes)).toBe(false);
   });
 
-  it('draws nothing while the lineage loads or after it failed, and nothing without lanes', () => {
+  it('draws the own lane with File Created alone when the copies are unavailable', () => {
+    const lanes = buildEndpointLineageLanes(SUBJECT, { asset: null, copies: lineage({ available: false }) });
+    expect(lanes.map(l => [l.key, types(l.events)])).toEqual([[OWN_LANE_KEY, ['File Created']]]);
+    expect(onlyBuiltEvent(lanes)).toBe(true);
+    expect(showsNoRelatedFiles(lanes)).toBe(true);
+  });
+
+  it('builds no event without a creation time, and draws nothing without another lane', () => {
+    const unknown = { ...SUBJECT, fileCreatedAt: null };
+    const copies = lineage({ lanes: [lane('copy-0', { self: true }), lane('copy-1', { firstSeenAt: 200 })] });
+    const lanes = buildEndpointLineageLanes(unknown, { asset: null, copies });
+    expect(lanes.map(l => [l.key, l.events.length])).toEqual([[OWN_LANE_KEY, 0], ['copy-1', 1]]);
+    expect(buildEndpointLineageLanes(unknown, { asset: null, copies: lineage({ lanes: [lane('copy-0', { self: true })] }) }))
+      .toEqual([]);
+  });
+
+  it('draws nothing while the lineage loads or after it failed', () => {
     expect(buildEndpointLineageLanes(SUBJECT, null)).toEqual([]);
-    const lanes = buildEndpointLineageLanes(SUBJECT, { asset: null, copies: lineage() });
-    expect(lanes).toEqual([]);
-    expect(onlyBuiltEvent(lanes)).toBe(false);
+    expect(onlyBuiltEvent([])).toBe(false);
   });
 });

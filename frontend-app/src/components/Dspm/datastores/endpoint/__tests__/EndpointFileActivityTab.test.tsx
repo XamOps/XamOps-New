@@ -21,13 +21,14 @@ const resource = (data: EndpointFileActivity | null): LazyResource<EndpointFileA
 /** Each entry as [icon, label, tags, note, meta]; a missing part reads null. */
 function entries() {
   return within(screen.getByRole('list', { name: 'File activity' })).getAllByRole('listitem').map(item => {
-    const texts = [...item.querySelectorAll('p')].map(p => p.textContent);
+    const lines = [...item.querySelectorAll('p')];
+    const line = (tint: string) => lines.find(p => p.className.includes(tint))?.textContent ?? null;
     return [
       item.querySelector('[data-icon]')?.getAttribute('data-icon') ?? null,
       item.querySelector('.font-semibold')?.textContent ?? null,
       item.querySelector('.font-semibold')?.nextElementSibling?.textContent ?? null,
-      texts.length === 2 ? texts[0] : null,
-      texts[texts.length - 1],
+      line('0.6)'),
+      line('0.45)'),
     ];
   });
 }
@@ -53,7 +54,21 @@ describe('EndpointFileActivityTab', () => {
       ['mdi:minus-circle-outline', 'Tag removed', 'Internal', null, 'admin@example.com - 02 Oct 2026, 02:05 PM'],
       ['mdi:cancel', 'Tag skipped', 'Confidential', 'Skipped: the file already has a MIP label', 'admin@example.com - 02 Oct 2026, 02:05 PM'],
       ['mdi:account-outline', 'User override', 'Public', 'Written to Keywords only', 'admin@example.com - 02 Oct 2026, 02:05 PM'],
-      ['mdi:tag-outline', 'TAG_SYNCED', null, null, '- - -'],
+      ['mdi:tag-outline', 'TAG_SYNCED', null, null, null],
+    ]);
+  });
+
+  it('draws the arrow only with both tags, else the selected tag alone, and the time alone without a performer', () => {
+    const changed = { action: 'TAG_CHANGED', actionLabel: 'Tag changed', mipLabelWritten: false } as const;
+    render(<EndpointFileActivityTab activity={resource({
+      entries: [
+        entry({ ...changed, previousTag: null, selectedTag: 'Confidential', performedBy: null }),
+        entry({ ...changed, previousTag: 'Internal', selectedTag: null }),
+      ],
+    })} />);
+    expect(entries()).toEqual([
+      ['mdi:swap-horizontal', 'Tag changed', 'Confidential', 'Written to Keywords only', '02 Oct 2026, 02:05 PM'],
+      ['mdi:swap-horizontal', 'Tag changed', null, 'Written to Keywords only', 'admin@example.com - 02 Oct 2026, 02:05 PM'],
     ]);
   });
 

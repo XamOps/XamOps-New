@@ -17,13 +17,16 @@ const ACTION_ICONS: Readonly<Record<string, string>> = {
 };
 const DEFAULT_ICON = 'mdi:tag-outline';
 
-/** "<previous> -> <selected>" for a change, the previous tag for a removal, else the selected tag. */
+/**
+ * "<previous> -> <selected>" for a change with both tags (else the selected tag alone, or nothing), the
+ * previous tag for a removal, else the selected tag.
+ */
 function tagText(entry: EndpointFileActivityEntry): string | null {
   switch (entry.action) {
     case 'TAG_CHANGED':
-      return entry.previousTag === null && entry.selectedTag === null
-        ? null
-        : `${entry.previousTag ?? '-'} -> ${entry.selectedTag ?? '-'}`;
+      return entry.previousTag !== null && entry.selectedTag !== null
+        ? `${entry.previousTag} -> ${entry.selectedTag}`
+        : entry.selectedTag;
     case 'TAG_REMOVED':
       return entry.previousTag;
     default:
@@ -37,6 +40,13 @@ function noteText(entry: EndpointFileActivityEntry): string | null {
   if (entry.mipLabelWritten) return 'Written to Keywords and the MIP label';
   if (entry.keywordsWritten) return 'Written to Keywords only';
   return null;
+}
+
+/** "<performed_by> - <time>" without its missing parts; null when both are missing. */
+function metaText(entry: EndpointFileActivityEntry): string | null {
+  const parts = [entry.performedBy, entry.occurredAt === null ? null : formatConsoleDate(entry.occurredAt)]
+    .filter((part): part is string => part !== null && part !== '');
+  return parts.length === 0 ? null : parts.join(' - ');
 }
 
 /**
@@ -54,6 +64,7 @@ const EndpointFileActivityTab: React.FC<{ activity: LazyResource<EndpointFileAct
         {data.entries.map((entry, index) => {
           const tags = tagText(entry);
           const note = noteText(entry);
+          const meta = metaText(entry);
           return (
             <li key={index} className="flex items-start gap-3 px-4 py-3 text-xs">
               <span className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[rgba(0,0,0,0.05)] text-[rgba(0,0,0,0.55)]">
@@ -65,9 +76,7 @@ const EndpointFileActivityTab: React.FC<{ activity: LazyResource<EndpointFileAct
                   {tags !== null && <GreyTag>{tags}</GreyTag>}
                 </div>
                 {note !== null && <p className="text-[11px] text-[rgba(0,0,0,0.6)]">{note}</p>}
-                <p className="text-[11px] text-[rgba(0,0,0,0.45)]">
-                  {entry.performedBy ?? '-'} - {entry.occurredAt === null ? '-' : formatConsoleDate(entry.occurredAt)}
-                </p>
+                {meta !== null && <p className="text-[11px] text-[rgba(0,0,0,0.45)]">{meta}</p>}
               </div>
             </li>
           );

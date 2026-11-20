@@ -241,6 +241,21 @@ describe('EndpointFilesTab file drawer', () => {
     expect(within(next).getByRole('tab', { name: 'Sensitives' })).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('copies the path with "Copy path", by click or Enter, and opens no drawer', async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await screen.findByText('contacts.json');
+    const copy = within(tableRow('contacts.json')).getByRole('button', { name: 'Copy path' });
+    await user.click(copy);
+    await waitFor(() => expect(within(tableRow('contacts.json')).getByRole('button', { name: 'Copied' })).toBeInTheDocument());
+    await expect(navigator.clipboard.readText()).resolves.toBe('/Users/priya/Documents/contacts.json');
+    within(tableRow('empty.log')).getByRole('button', { name: 'Copy path' }).focus();
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(within(tableRow('empty.log')).getByRole('button', { name: 'Copied' })).toBeInTheDocument());
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(fileRequests('overview')).toEqual([]);
+  });
+
   it('leaves a row without a UUID id inert, with no lineage icon', async () => {
     const user = userEvent.setup();
     listAnswer = () => ({

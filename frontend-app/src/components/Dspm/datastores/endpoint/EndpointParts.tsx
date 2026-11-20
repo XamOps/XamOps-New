@@ -37,11 +37,16 @@ export const NewBadge: React.FC = () => (
   </span>
 );
 
-/** The path, truncated with its full text in a `title`, and a copy button; "-" without a path. */
+/**
+ * The path, truncated with its full text in a `title`, and a copy button; "-" without a path. The copy
+ * button's click stops at its wrapper, so in a row that opens a drawer it only copies.
+ */
 export const PathCell: React.FC<{ path: string | null }> = ({ path }) => (path ? (
   <span className="flex min-w-0 items-center gap-1">
     <span className="max-w-[16rem] truncate" title={path}>{path}</span>
-    <CopyButton text={path} label="Copy path" />
+    <span className="inline-flex" onClick={e => e.stopPropagation()}>
+      <CopyButton text={path} label="Copy path" />
+    </span>
   </span>
 ) : <>-</>);
 

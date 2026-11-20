@@ -133,17 +133,22 @@ class EndpointFileServiceTest {
     }
 
     @Test
-    @DisplayName("lineage: the asset and build 2's copies lineage for the same id, cached under feplin for 5 minutes")
+    @DisplayName("lineage: only the asset is cached under feplin for 5 minutes; build 2's copies lineage is read "
+            + "through its service on every request")
     void lineage() {
         EndpointFileLineage lineage = service.lineage(10L, FILE_ID);
-        service.lineage(10L, FILE_ID);
-        assertThat(lineage.asset()).isEqualTo(new EndpointFileLineage.Asset("notes.txt", "Team-Laptop-02", "robin",
-                1789725004L, List.of()));
+        EndpointFileLineage again = service.lineage(10L, FILE_ID);
+        EndpointFileLineage.Asset asset = new EndpointFileLineage.Asset("notes.txt", "Team-Laptop-02", "robin",
+                1789725004L, List.of());
+        assertThat(lineage.asset()).isEqualTo(asset);
+        assertThat(again.asset()).isEqualTo(asset);
         assertThat(lineage.copies()).isEqualTo(COPIES_LINEAGE);
+        assertThat(again.copies()).isEqualTo(COPIES_LINEAGE);
         verify(apiClient, times(1)).endpointLineageAsset(CREDENTIAL, FILE_ID);
-        verify(saasFileService, times(1)).lineage(10L, FILE_ID);
+        verify(saasFileService, times(2)).lineage(10L, FILE_ID);
         assertThat(cache.puts).extracting(InMemoryRedisCache.Put::key, InMemoryRedisCache.Put::minutes)
                 .containsExactly(tuple("dspm:feplin:10:" + FILE_ID, 5));
+        assertThat(cache.puts.get(0).json()).doesNotContain("copy-0");
     }
 
     @Test
@@ -154,6 +159,8 @@ class EndpointFileServiceTest {
         EndpointFileLineage lineage = service.lineage(10L, FILE_ID);
         assertThat(lineage.asset()).isNull();
         assertThat(lineage.copies()).isEqualTo(COPIES_LINEAGE);
+        assertThat(service.lineage(10L, FILE_ID).asset()).isNull();
+        verify(apiClient, times(1)).endpointLineageAsset(CREDENTIAL, FILE_ID);
 
         String failing = "0000aaaa-0000-4000-8000-00000000000e";
         when(apiClient.endpointLineageAsset(CREDENTIAL, failing))

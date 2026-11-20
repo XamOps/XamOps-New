@@ -52,7 +52,7 @@ function renderCell(column: EndpointFileColumnId, row: EndpointFileRow): React.R
   switch (column) {
     case 'fileName':
       return (
-        <span className="flex min-w-0 items-center gap-1.5">
+        <span className="flex min-w-0 max-w-[12.5rem] items-center gap-1.5">
           <FileNameCell name={row.name} extension={row.extension} title={row.path ?? row.name} />
           {isRecentlyModified(row.modifiedAt, Date.now()) && <NewBadge />}
         </span>

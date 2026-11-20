@@ -596,6 +596,15 @@ describe('EndpointDrawer File View', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('copies a path with "Copy path" in a row that opens, and opens no drawer over it', async () => {
+    const { user, table } = await openFileView();
+    await user.click(within(rowOf(table, 'deploy-checklist.md')).getByRole('button', { name: 'Copy path' }));
+    await waitFor(() => expect(within(rowOf(table, 'deploy-checklist.md')).getByRole('button', { name: 'Copied' })).toBeInTheDocument());
+    await expect(navigator.clipboard.readText()).resolves.toBe('/Users/tester/projects/demo/deploy-checklist.md');
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(fileRequests('overview')).toEqual([]);
+  });
+
   it('sends the search debounced and returns to page 1', async () => {
     const { user, drawer } = await openFileView();
     await user.click(within(drawer).getByRole('button', { name: '2' }));

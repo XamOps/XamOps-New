@@ -55,7 +55,7 @@ const EndpointFileLineageTab: React.FC<Props> = ({ name, overview, lineage }) =>
   const shown = useMemo(() => visibleLanes(lanes, query), [lanes, query]);
   const searching = query.trim() !== '';
   const noMatch = searching && shown.length > 0 && shown.every(lane => lane.events.length === 0);
-  const unavailable = loaded && (lanes.length === 0 || (answer.asset === null && answer.copies.available === false));
+  const unavailable = loaded && lanes.length === 0;
   const device = answer?.asset?.device ?? null;
 
   let body: React.ReactNode;

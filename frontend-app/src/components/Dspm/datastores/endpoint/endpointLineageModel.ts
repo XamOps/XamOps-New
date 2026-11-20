@@ -2,11 +2,12 @@
  * The Endpoint file drawer's Lineage model (plan C19). Pure. With a lineage asset, the file's own lane
  * comes first, built from the asset and its recorded events, then the hash-lineage lanes of the file's
  * copies without their own lane (the console's other lanes are inferred matches, console-only, GAP-29).
- * Without an asset, build 2's hash-lineage lanes are drawn as they are.
+ * Without an asset (the vendor's 404, which is no error), the own lane is built from the overview alone,
+ * as in the console, followed by the copies' lanes without their own.
  *
  * The own lane gets one event the vendor does not record, as in the console: "File Created" at the file's
  * creation time, else "First Seen" at the asset's first-seen time. It is left out when a recorded event
- * already is the creation.
+ * already is the creation, and without an asset when the creation time is unknown.
  */
 
 import type { SaasFileLineageEvent } from '../../../../types/dspmDrawers';
@@ -26,6 +27,9 @@ export interface EndpointLineageSubject {
 
 export const OWN_LANE_KEY = 'endpoint-asset';
 export const BUILT_EVENT_KEY = 'endpoint-built';
+
+/** A missing lineage asset (the vendor's 404): no title, device, OS user, first-seen time or events. */
+const NO_ASSET: EndpointFileLineageAsset = { title: null, device: null, osUser: null, firstSeenAt: null, events: [] };
 
 /** Recorded event types that already are the file's creation, normalised. */
 const CREATE_TYPES: ReadonlySet<string> = new Set(['create', 'created', 'file_created', 'file_create']);
@@ -82,9 +86,11 @@ const toned = (lane: LineageLaneView): LineageLaneView => ({
 /**
  * The lanes to draw, each event with its tone; none while the lineage loads or after it failed.
  *
- * With an asset: the own lane (the asset's title, else the file name; the device, else the owner, below
- * it) with the built event and the recorded events, oldest first and the built event first on a tie;
- * then the copies' lanes other than the file's own, in API order.
+ * The own lane (the asset's title, else the file name; the asset's device, else the owner, below it) with
+ * the built event and the recorded events, oldest first and the built event first on a tie; then the
+ * copies' lanes other than the file's own, in API order. Without an asset the own lane has the file name,
+ * the owner and "File Created" when the creation time is known; with neither that nor another lane,
+ * nothing is drawn.
  */
 export function buildEndpointLineageLanes(
   subject: EndpointLineageSubject, lineage: EndpointFileLineage | null,
@@ -92,15 +98,18 @@ export function buildEndpointLineageLanes(
   if (!lineage) return [];
   const copies = buildLineageLanes(
     { name: subject.name, driveType: null, owner: subject.owner, lastModifiedAt: null }, lineage.copies);
-  const { asset } = lineage;
-  if (!asset) return copies.map(toned);
+  const others = copies.filter(lane => !lane.own);
+  const found = lineage.asset;
+  const buildsCreation = found !== null || subject.fileCreatedAt !== null;
+  if (!buildsCreation && others.length === 0) return [];
+  const asset = found ?? NO_ASSET;
 
   const fileName = asset.title ?? subject.name;
   const channel = asset.device ?? subject.device;
   const recorded = asset.events.map((event, index) => recordedEvent(event, index, fileName, channel));
   const createdRecorded = asset.events.some(event =>
     event.typeLabel !== null && CREATE_TYPES.has(normalisedType(event.typeLabel)));
-  const built = createdRecorded ? [] : [builtEvent(subject, asset, fileName, channel)];
+  const built = createdRecorded || !buildsCreation ? [] : [builtEvent(subject, asset, fileName, channel)];
   const own: LineageLaneView = {
     key: OWN_LANE_KEY,
     icon: null,
@@ -109,7 +118,7 @@ export function buildEndpointLineageLanes(
     own: true,
     events: byTime([...built, ...recorded]),
   };
-  return [own, ...copies.filter(lane => !lane.own)].map(toned);
+  return [own, ...others].map(toned);
 }
 
 /** Whether the only event drawn is the built one: the title's ⓘ explains that more will appear. */

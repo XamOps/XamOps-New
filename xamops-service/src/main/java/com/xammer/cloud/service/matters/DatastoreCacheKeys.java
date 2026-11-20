@@ -273,7 +273,7 @@ public final class DatastoreCacheKeys {
         return key("fepact", clientId, fileId);
     }
 
-    /** {@code dspm:feplin:<c>:<fileId>}: the Endpoint file drawer's Lineage (own lane plus copies). */
+    /** {@code dspm:feplin:<c>:<fileId>}: the Endpoint file drawer's Lineage asset (its own lane). */
     public static String endpointFileLineage(Long clientId, String fileId) {
         return key("feplin", clientId, fileId);
     }
