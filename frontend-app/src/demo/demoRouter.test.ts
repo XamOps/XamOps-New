@@ -1820,8 +1820,8 @@ describe('demo router — XamLens Files page and Endpoint file drawer (ROLE_XAMO
     const summary = await readDemoBody(`${DS}/${mac.sourceId}/endpoint/summary`) as EndpointSummary;
     expect(summary.extensions.find(chip => chip.extension === 'docx')).toMatchObject({ label: 'DOCX', count: 1 });
   });
-  });
 });
+
 
 describe('demo router — XamLens Dashboard (ROLE_XAMOPS)', () => {
   beforeEach(() => {
