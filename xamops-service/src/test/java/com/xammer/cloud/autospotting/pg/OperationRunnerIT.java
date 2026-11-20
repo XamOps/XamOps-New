@@ -99,6 +99,33 @@ class OperationRunnerIT {
         }
     }
 
+    // ── D-23-08: a finished program whose success transition misses ends FAILED, not SUCCEEDED ──
+
+    @Test
+    void aProgramWhoseSuccessTransitionMissesEndsFailedNotSucceeded() {
+        try (PgHarness.Database db = PgHarness.emptySchema(); AnnotationConfigApplicationContext ctx = contextFor(db)) {
+            JdbcTemplate jdbc = (JdbcTemplate) ctx.getBean("beanJdbc");
+            OperationStore store = ctx.getBean(OperationStore.class);
+
+            // The group never left UNMANAGED (the phase 23 state): UNMANAGED -> ACTIVE is not an edge.
+            UUID group = insertGroup(jdbc, GroupState.UNMANAGED);
+            UUID op = insertQueuedOp(store, group, OperationKind.ENABLE, GroupState.UNMANAGED);
+            store.claimForRun(op);
+            SpotProvider provider = new ProgrammableSpotProvider(Provider.AWS,
+                    () -> new StepProgram(List.of(
+                            ScriptedStep.done("VERIFY_PRECONDITIONS", false),
+                            ScriptedStep.done("APPLY_TARGET_CONFIG", true))),
+                    () -> new StepProgram(List.of()));
+
+            runnerWith(ctx, provider).runClaimed(acquire(ctx, group), op);
+
+            assertThat(opStatus(jdbc, op)).isEqualTo("FAILED");
+            assertThat(jdbc.queryForObject("SELECT error_code FROM spot_operation WHERE id = ?", String.class, op))
+                    .isEqualTo("LIFECYCLE_TRANSITION_MISSED");
+            assertThat(groupState(jdbc, group)).isEqualTo("UNMANAGED");
+        }
+    }
+
     // ── a WAITING step frees its thread: pool size 1, two ops both progress ─────
 
     @Test

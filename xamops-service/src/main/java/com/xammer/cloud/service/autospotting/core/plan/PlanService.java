@@ -343,8 +343,9 @@ public class PlanService {
         TransitionRequest request = TransitionRequest.of(GroupState.PLANNED, "ENABLE_PLAN_CREATED",
                 Actor.user(user == null ? null : user.getId(), null), null, Instant.now());
         GroupLifecycleService.Result result = lifecycle.transitionUnderRowLock(group, request);
-        if (result == GroupLifecycleService.Result.STALE && log.isDebugEnabled()) {
-            log.debug("plan: group {} move to PLANNED missed the guard (stale)", group.getId());
+        if (result == GroupLifecycleService.Result.STALE) {
+            // WARN: a missed PLANNED move makes the plan unconfirmable (confirm requires PLANNED, D-23-07/08).
+            log.warn("plan: group {} move to PLANNED missed the guard (stale)", group.getId());
         }
     }
 

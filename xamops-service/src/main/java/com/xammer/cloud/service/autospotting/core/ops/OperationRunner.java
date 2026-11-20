@@ -524,8 +524,17 @@ public class OperationRunner {
             fallbackEffects.exitSucceeded(handle, op, group, desiredConfigWrite(op, group));
             target = null;
         }
-        if (target != null) {
-            transitionTo(handle, group, target, successReason(op), op.getId(), desiredConfigWrite(op, group));
+        if (target != null
+                && !transitionTo(handle, group, target, successReason(op), op.getId(), desiredConfigWrite(op, group))) {
+            // The cloud work is done but the group's record could not follow (stale guard or forbidden edge).
+            // Reporting SUCCEEDED here left a converted group UNMANAGED in XamOps (phase 23 defect D-23-08).
+            String from = groups.findById(group.getId()).map(g -> String.valueOf(g.getState())).orElse("missing");
+            store.finishFailed(op.getId(), "LIFECYCLE_TRANSITION_MISSED",
+                    "The cloud change finished but the group record could not move from " + from + " to " + target
+                            + ". Check the group before changing it again.");
+            audit(handle, op, group, "OP_FAILED", "FAILED", "LIFECYCLE_TRANSITION_MISSED");
+            log.warn("op {} {} FAILED: success transition {} -> {} missed", op.getId(), op.getKind(), from, target);
+            return;
         }
         store.finishSucceeded(op.getId());
         audit(handle, op, group, "OP_SUCCEEDED", "SUCCESS",
@@ -586,16 +595,20 @@ public class OperationRunner {
         return "OP_" + op.getKind().name() + "_VERIFIED";
     }
 
-    /** A guarded lifecycle transition on the group lease; a forbidden edge or a stale guard is logged. */
-    private void transitionTo(LeaseHandle handle, SpotGroup group, GroupState to, String reason, UUID op) {
-        transitionTo(handle, group, to, reason, op, null);
+    /**
+     * A guarded lifecycle transition on the group lease. Returns false when it did not happen: a stale guard
+     * (logged WARN, D-23-07) or a forbidden edge. Only the success path acts on the result; the other callers
+     * keep their behaviour.
+     */
+    private boolean transitionTo(LeaseHandle handle, SpotGroup group, GroupState to, String reason, UUID op) {
+        return transitionTo(handle, group, to, reason, op, null);
     }
 
-    private void transitionTo(LeaseHandle handle, SpotGroup group, GroupState to, String reason, UUID op,
-                              String[] desiredConfigWrite) {
+    private boolean transitionTo(LeaseHandle handle, SpotGroup group, GroupState to, String reason, UUID op,
+                                 String[] desiredConfigWrite) {
         SpotGroup fresh = groups.findById(group.getId()).orElse(group);
         if (fresh.getState() == to) {
-            return; // already there (idempotent, §2.3)
+            return true; // already there (idempotent, §2.3)
         }
         try {
             TransitionRequest request = TransitionRequest.of(to, reason, Actor.system(), op, Instant.now());
@@ -603,14 +616,17 @@ public class OperationRunner {
                 request = request.writingDesiredConfig(desiredConfigWrite[0], desiredConfigWrite[1]);
             }
             GroupLifecycleService.Result result = lifecycle.transition(handle, fresh, request);
-            if (result == GroupLifecycleService.Result.STALE && log.isDebugEnabled()) {
-                log.debug("op {} transition {} -> {} missed the guard (stale); a re-drive re-reads",
+            if (result == GroupLifecycleService.Result.STALE) {
+                log.warn("op {} transition {} -> {} missed the guard (stale); a re-drive re-reads",
                         op, fresh.getState(), to);
+                return false;
             }
+            return true;
         } catch (IllegalArgumentException forbidden) {
-            // A forbidden edge for this phase's fake programs: log, do not throw (the op still finishes).
+            // A forbidden edge for this phase's fake programs: log, do not throw.
             log.warn("op {} transition {} -> {} not allowed: {}", op, fresh.getState(), to,
                     forbidden.getMessage());
+            return false;
         }
     }
 

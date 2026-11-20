@@ -35,6 +35,11 @@ public interface SpotGroupRepository extends JpaRepository<SpotGroup, UUID> {
      * group end with exactly one row, and neither transaction fails (phase 23 defect D-23-06). Returns
      * rows inserted (0 when the other transaction won); the caller then re-reads the live row.
      */
+    // REQUIRES_NEW: the row commits before the caller's plan transaction goes on, so the lifecycle's own
+    // REQUIRES_NEW row lock (the move to PLANNED) can see it. Inside the plan transaction the uncommitted row
+    // was invisible to that lock, the PLANNED move missed, and the group stayed UNMANAGED (D-23-07).
+    @org.springframework.transaction.annotation.Transactional(
+            propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
     @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
     @org.springframework.data.jpa.repository.Query(value = "INSERT INTO spot_group"
             + " (id, provider, cloud_account_id, client_id, group_key, provider_stable_id, state, drift_status,"

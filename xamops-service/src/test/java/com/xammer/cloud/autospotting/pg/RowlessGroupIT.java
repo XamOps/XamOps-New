@@ -84,6 +84,37 @@ class RowlessGroupIT {
         }
     }
 
+    /**
+     * D-23-07: the row inserted for a first plan commits on its own, so the lifecycle's REQUIRES_NEW row lock
+     * (the move to PLANNED) sees it while the plan transaction is still open, and the group ends PLANNED.
+     */
+    @Test
+    void theFirstPlansRowIsVisibleToTheLifecycleSoTheGroupMovesToPlanned() {
+        try (PgHarness.Database db = PgHarness.emptySchema(); AnnotationConfigApplicationContext ctx = contextFor(db)) {
+            JdbcTemplate jdbc = (JdbcTemplate) ctx.getBean("beanJdbc");
+            SpotGroupRepository groups = ctx.getBean(SpotGroupRepository.class);
+            com.xammer.cloud.service.autospotting.core.lifecycle.GroupLifecycleService lifecycle =
+                    ctx.getBean(com.xammer.cloud.service.autospotting.core.lifecycle.GroupLifecycleService.class);
+            TransactionTemplate tx = new TransactionTemplate(ctx.getBean(PlatformTransactionManager.class));
+            Object result = tx.execute(s -> {
+                // As PlanService.createPlan does inside its own (still open) transaction.
+                groups.insertUnmanagedIfAbsent(UUID.randomUUID(), "AWS", 1L, 1L, KEY, null, "plan", Instant.now());
+                SpotGroup row = groups.findByProviderAndCloudAccountIdAndGroupKeyAndStateNot(
+                        Provider.AWS, 1L, KEY, GroupState.GONE).orElseThrow();
+                return lifecycle.transitionUnderRowLock(row,
+                        com.xammer.cloud.service.autospotting.core.lifecycle.GroupLifecycleService.TransitionRequest.of(
+                                GroupState.PLANNED, "ENABLE_PLAN_CREATED",
+                                com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter.Actor.system(),
+                                null, Instant.now()));
+            });
+            assertThat(result).isEqualTo(com.xammer.cloud.service.autospotting.core.lifecycle.GroupLifecycleService.Result.APPLIED);
+            assertThat(jdbc.queryForObject("SELECT state FROM spot_group WHERE group_key = ?", String.class, KEY))
+                    .isEqualTo("PLANNED");
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM spot_group_transition t JOIN spot_group g ON g.id = t.group_id"
+                    + " WHERE g.group_key = ? AND t.to_state = 'PLANNED'", Integer.class, KEY)).isEqualTo(1);
+        }
+    }
+
     @Test
     void anOpWhoseGroupHasNoRowFailsFastWithGroupMissing() {
         try (PgHarness.Database db = PgHarness.emptySchema(); AnnotationConfigApplicationContext ctx = contextFor(db)) {

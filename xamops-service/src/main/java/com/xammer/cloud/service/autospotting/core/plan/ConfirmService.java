@@ -220,6 +220,16 @@ public class ConfirmService {
             }
         }
 
+        // An ENABLE that will mutate runs only for a group its plan moved to PLANNED: the op's lifecycle
+        // transitions (PLANNED -> APPLYING -> ACTIVE) are guarded on that state, so from any other state they all
+        // miss and the cloud would change while XamOps keeps the group UNMANAGED (phase 23 defects D-23-07/08).
+        // A dry-run ENABLE plan never moves the group to PLANNED (§7.2), so it is exempt.
+        boolean dryRunConfirm = plan.isDryRun() || cmd.dryRunRequested() || switchProperties.mutationsDryRun();
+        if (plan.getKind() == OperationKind.ENABLE && !dryRunConfirm && state != GroupState.PLANNED) {
+            throw new AutoSpottingApiException(HttpStatus.CONFLICT, "AS_GROUP_NOT_PLANNED",
+                    "This group isn't waiting for this enable any more. Review a fresh plan.");
+        }
+
         // 8 (before enqueue): live fingerprint re-read (1.5 s). A mismatch marks the plan STALE; a
         // timeout still returns 202 and op step 0 repeats the check. Performed before preemption so a
         // stale plan never preempts a running op.
