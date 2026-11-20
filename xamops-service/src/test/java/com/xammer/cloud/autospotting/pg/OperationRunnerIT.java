@@ -119,10 +119,15 @@ class OperationRunnerIT {
 
             runnerWith(ctx, provider).runClaimed(acquire(ctx, group), op);
 
+            // Since D-23-10 the start guard (UNMANAGED -> APPLYING is not an edge) stops it before the first
+            // mutation; the success-transition guard stays as the second line of defence. Never SUCCEEDED,
+            // never parked forever, nothing mutated.
             assertThat(opStatus(jdbc, op)).isEqualTo("FAILED");
             assertThat(jdbc.queryForObject("SELECT error_code FROM spot_operation WHERE id = ?", String.class, op))
                     .isEqualTo("LIFECYCLE_TRANSITION_MISSED");
             assertThat(groupState(jdbc, group)).isEqualTo("UNMANAGED");
+            assertThat(jdbc.queryForObject("SELECT first_mutation_seq FROM spot_operation WHERE id = ?",
+                    Integer.class, op)).isNull();
         }
     }
 

@@ -203,6 +203,16 @@ public class OperationRunner {
             }
 
             Step step = program.at(index);
+            if (step.mutates() && startEdgeForbidden(fresh, group)) {
+                // The group is in a state this op can't start from (e.g. an ENABLE whose group never reached
+                // PLANNED). Retrying would park it forever; nothing was changed by this op, so fail it now (D-23-10).
+                String from = groups.findById(group.getId()).map(g -> String.valueOf(g.getState())).orElse("missing");
+                store.finishFailed(op.getId(), "LIFECYCLE_TRANSITION_MISSED",
+                        "The group is " + from + ", which this operation can't start from. Nothing was changed.");
+                audit(handle, fresh, group, "OP_FAILED", "FAILED", "LIFECYCLE_TRANSITION_MISSED");
+                log.warn("op {} {} FAILED before its first mutation: cannot start from {}", op.getId(), op.getKind(), from);
+                return;
+            }
             if (step.mutates() && !enterRevertingWithFirstMutation(handle, fresh, group)) {
                 // The entry transition missed its guard: nothing was changed yet, so try again at the next boundary.
                 store.park(op.getId(), WaitReason.BACKOFF, Instant.now().plus(DEFAULT_CLOUD_POLL), seq, null);
@@ -247,27 +257,51 @@ public class OperationRunner {
      * mutated: the startup pass returns it to {@code prior_state} ({@code REVERT_NOT_STARTED}, §4.6). Returns
      * false when the group is still not REVERTING afterwards, so the caller does not mutate.
      */
+    /** The state a FORWARD op enters with its first mutation, or null when it has no start transition. */
+    private static GroupState startState(SpotOperation op) {
+        if (op.getPhase() != OperationPhase.FORWARD) {
+            return null;
+        }
+        return switch (op.getKind()) {
+            case ENABLE, CONFIG_APPLY, PROFILE_CHANGE, FALLBACK_EXIT -> GroupState.APPLYING;
+            case REVERT -> GroupState.REVERTING;
+            default -> null;
+        };
+    }
+
+    /** True when the group's current state has no allowed edge to the op's start state (a retry can't help). */
+    private boolean startEdgeForbidden(SpotOperation op, SpotGroup group) {
+        GroupState start = startState(op);
+        if (start == null) {
+            return false;
+        }
+        GroupState current = groups.findById(group.getId()).map(SpotGroup::getState).orElse(group.getState());
+        return current != start
+                && !com.xammer.cloud.service.autospotting.core.lifecycle.GroupTransitions.isAllowed(current, start);
+    }
+
     private boolean enterRevertingWithFirstMutation(LeaseHandle handle, SpotOperation op, SpotGroup group) {
-        if (op.getKind() == com.xammer.cloud.domain.autospotting.OperationKind.FALLBACK_EXIT
-                && op.getPhase() == OperationPhase.FORWARD) {
+        GroupState start = startState(op);
+        if (start == null) {
+            return true; // ADOPT, FALLBACK_ENTER, ACCEPT_BASELINE, MIG_POLICY_UPDATE, compensation: no start transition
+        }
+        String reason = switch (op.getKind()) {
+            // §2.2: PLANNED --> APPLYING "enable op starts". Without it an ENABLE could never reach ACTIVE
+            // (PLANNED -> ACTIVE is not an edge; phase 23 defect D-23-10).
+            case ENABLE -> "ENABLE_STARTED";
+            // A mutated CONFIG_APPLY / PROFILE_CHANGE is APPLYING (§2.2, §4.7; fallback preemption and the
+            // health pass key on it), from ACTIVE or a drift-paused group (D-23-10, same gap).
+            case CONFIG_APPLY, PROFILE_CHANGE -> "CONFIG_APPLY_STARTED";
             // A FALLBACK_EXIT is surge-first like a conversion: FALLBACK -> APPLYING with its first mutation (§6.5).
-            SpotGroup current = groups.findById(group.getId()).orElse(group);
-            if (current.getState() == GroupState.APPLYING) {
-                return true;
-            }
-            transitionTo(handle, group, GroupState.APPLYING, "FALLBACK_EXIT_STARTED", op.getId());
-            return groups.findById(group.getId()).map(g -> g.getState() == GroupState.APPLYING).orElse(false);
-        }
-        if (op.getKind() != com.xammer.cloud.domain.autospotting.OperationKind.REVERT
-                || op.getPhase() != OperationPhase.FORWARD) {
-            return true;
-        }
+            case FALLBACK_EXIT -> "FALLBACK_EXIT_STARTED";
+            default -> "REVERT_STARTED";
+        };
         SpotGroup fresh = groups.findById(group.getId()).orElse(group);
-        if (fresh.getState() == GroupState.REVERTING) {
+        if (fresh.getState() == start) {
             return true;
         }
-        transitionTo(handle, group, GroupState.REVERTING, "REVERT_STARTED", op.getId());
-        return groups.findById(group.getId()).map(g -> g.getState() == GroupState.REVERTING).orElse(false);
+        transitionTo(handle, group, start, reason, op.getId());
+        return groups.findById(group.getId()).map(g -> g.getState() == start).orElse(false);
     }
 
     /**
