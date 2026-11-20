@@ -1,7 +1,9 @@
 package com.xammer.cloud.service.autospotting.aws;
 
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.permissions.AwsPermissionCatalog;
 import com.xammer.cloud.permissions.AwsPermissionInterceptor;
+import com.xammer.cloud.permissions.XamOpsExecutionAttributes;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -86,6 +88,39 @@ class AwsAutoSpottingClientFactoryTest {
         assertThat(AwsAutoSpottingClientFactory.READ_CALL_TIMEOUT).hasSeconds(30);
         assertThat(AwsAutoSpottingClientFactory.WRITE_ATTEMPT_TIMEOUT).hasSeconds(15);
         assertThat(AwsAutoSpottingClientFactory.WRITE_CALL_TIMEOUT).hasSeconds(45);
+    }
+
+    /**
+     * Phase 23 defect D-23-01: building real (unmocked) SDK clients through the factory threw
+     * UnsupportedOperationException, because the per-client IAM prefix was put on the unmodifiable
+     * attributes of {@code toBuilder()}. Building a client makes no AWS call.
+     */
+    @Test
+    void buildsRealReadClientsWithThePerClientPermissionAttributes() {
+        CloudAccount account = FakeAws.account();
+        AwsReadOnlyView view = factory.view(account, "us-east-1");
+
+        assertThat(view.ec2()).isNotNull();
+        var ec2Attrs = view.ec2().serviceClientConfiguration().overrideConfiguration().executionAttributes();
+        assertThat(ec2Attrs.getAttribute(XamOpsExecutionAttributes.ACCOUNT_ID)).isEqualTo(account.getAwsAccountId());
+        assertThat(ec2Attrs.getAttribute(XamOpsExecutionAttributes.REGION)).isEqualTo("us-east-1");
+        assertThat(ec2Attrs.getAttribute(XamOpsExecutionAttributes.IAM_SERVICE_PREFIX))
+                .isEqualTo(AwsPermissionCatalog.iamPrefixForClient("Ec2Client", null));
+        assertThat(view.iam().serviceClientConfiguration().overrideConfiguration().executionAttributes()
+                .getAttribute(XamOpsExecutionAttributes.IAM_SERVICE_PREFIX))
+                .isEqualTo(AwsPermissionCatalog.iamPrefixForClient("IamClient", null));
+        assertThat(view.ec2().serviceClientConfiguration().overrideConfiguration().apiCallTimeout())
+                .contains(AwsAutoSpottingClientFactory.READ_CALL_TIMEOUT);
+        verify(sts, never()).assumeRole(any(AssumeRoleRequest.class));
+    }
+
+    @Test
+    void buildsARealMutatingClientWithTheWriteTimeouts() {
+        AwsMutatingClient client = factory.mutatingClient(FakeAws.account(), "us-east-1");
+        assertThat(client).isNotNull();
+        assertThat(factory.overrideConfig(FakeAws.account(), "us-east-1", AwsSessionPolicies.Mode.WRITE,
+                "AutoScalingClient").apiCallTimeout()).contains(AwsAutoSpottingClientFactory.WRITE_CALL_TIMEOUT);
+        verify(sts, never()).assumeRole(any(AssumeRoleRequest.class));
     }
 
     @Test
