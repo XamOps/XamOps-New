@@ -18,6 +18,9 @@ export const CATEGORY_ICONS: Record<LineageCategoryId, string> = {
 /** The category node's icon. */
 export const CATEGORY_NODE_ICON = 'mdi:lock-outline';
 
+/** The project root node's icon (the public path, build 7). */
+export const ROOT_NODE_ICON = 'mdi:folder-outline';
+
 /** A policy node's icon by its target service. */
 export function policyIcon(service: string | null): string {
   switch (service) {
@@ -32,9 +35,21 @@ export function policyIcon(service: string | null): string {
 export function datastoreIcon(service: string | null): string {
   switch (service) {
     case 'ENDPOINT': return 'mdi:laptop';
+    case 'GOOGLE_DRIVE': return 'mdi:google-drive';
     case 'ONE_DRIVE': return 'mdi:microsoft-onedrive';
     case 'SHARE_POINT': return 'mdi:microsoft-sharepoint';
     default: return 'mdi:database-outline';
+  }
+}
+
+/** A datastore service's name ("Google Drive"): a drive file's lineage channel; null for others. */
+export function serviceLabel(service: string | null): string | null {
+  switch (service) {
+    case 'ENDPOINT': return 'Endpoint';
+    case 'GOOGLE_DRIVE': return 'Google Drive';
+    case 'ONE_DRIVE': return 'OneDrive';
+    case 'SHARE_POINT': return 'SharePoint';
+    default: return null;
   }
 }
 

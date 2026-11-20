@@ -41,6 +41,7 @@ const LineageInvestigation: React.FC<Props> = ({ query, category, onQuery, onUna
   const data = useLineageData(query, filters, onQuery, onUnavailable);
 
   const onNode = (level: TreeLevel, id: string) => {
+    if (level === 'root') return;
     const t = clickNode(query, level, id);
     const reset = t.cleared.filter((l): l is 'policy' | 'datastore' => l === 'policy' || l === 'datastore');
     if (reset.some(l => Object.keys(filters[l]).length > 0)) {

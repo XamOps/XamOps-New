@@ -40,7 +40,7 @@ interface Props {
 const searchKey = (text: string) => (normalizeSearch(text) ?? '').slice(0, MAX_SEARCH);
 
 /** The open level's search box: local text, sent 300 ms after the last change. */
-const LevelSearch: React.FC<{ initial: string; placeholder: string; onSearch: (text: string) => void }> = ({
+export const LevelSearch: React.FC<{ initial: string; placeholder: string; onSearch: (text: string) => void }> = ({
   initial, placeholder, onSearch,
 }) => {
   const [text, setText] = useState(initial);
@@ -59,7 +59,7 @@ const LevelSearch: React.FC<{ initial: string; placeholder: string; onSearch: (t
   return <SearchInput value={text} onChange={setText} placeholder={placeholder} maxLength={MAX_SEARCH} className="w-64" />;
 };
 
-interface RowSource<R extends { id: string | null }> {
+export interface RowSource<R extends { id: string | null }> {
   level: RowLevel;
   resource: KeyedResource<{ rows: R[]; total: number }>;
   /** The rows to draw when they differ from the answer's (searched files). */
@@ -73,7 +73,7 @@ interface RowSource<R extends { id: string | null }> {
 }
 
 /** One row of the tree: its nodes, or the loading, error or empty message in their place. */
-function rowView<R extends { id: string | null }>(source: RowSource<R>): TreeRowView {
+export function rowView<R extends { id: string | null }>(source: RowSource<R>): TreeRowView {
   const { level, resource, view, chosenId, page, q, filtered, subject } = source;
   const base = { level, nodes: [], chosen: null, prev: false, next: false };
   if (resource.error) {

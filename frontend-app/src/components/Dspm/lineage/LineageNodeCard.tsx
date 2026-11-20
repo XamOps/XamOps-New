@@ -3,18 +3,21 @@ import { Icon } from '@iconify/react';
 import type { LineageDatastore, LineageFile, LineagePolicy } from '../../../types/dspmLineage';
 import { DspmObjectIcon } from '../DspmIcons';
 import { countText, exposureCountText, formatNodeDay } from './lineageText';
-import { CATEGORY_NODE_ICON, datastoreIcon, policyIcon, severityDot } from './lineageVisuals';
+import { CATEGORY_NODE_ICON, ROOT_NODE_ICON, datastoreIcon, policyIcon, severityDot } from './lineageVisuals';
 
 /** What one tree node shows, by kind (build 4 design 6.6). */
 export type LineageNodeView =
+  | { kind: 'root'; name: string }
   | { kind: 'category'; name: string; count: number | null }
   | { kind: 'policy'; policy: LineagePolicy }
   | { kind: 'datastore'; datastore: LineageDatastore }
-  | { kind: 'file'; file: LineageFile };
+  /** `actorLine` false (a drive file, build 7) leaves out the "Actor:" line; default true. */
+  | { kind: 'file'; file: LineageFile; actorLine?: boolean };
 
 /** The node's name as drawn and as its button's accessible name. */
 export function nodeName(view: LineageNodeView): string {
   switch (view.kind) {
+    case 'root': return view.name;
     case 'category': return view.name;
     case 'policy': return view.policy.name ?? '-';
     case 'datastore': return view.datastore.name ?? '-';
@@ -49,6 +52,9 @@ const LineageNodeCard: React.FC<{ view: LineageNodeView; chosen: boolean }> = ({
   let title: React.ReactNode = <span className="block truncate font-semibold text-[rgba(0,0,0,0.85)]" title={name}>{name}</span>;
   let lines: React.ReactNode = null;
   switch (view.kind) {
+    case 'root':
+      icon = <Icon icon={ROOT_NODE_ICON} width={16} aria-hidden="true" />;
+      break;
     case 'category':
       icon = <Icon icon={CATEGORY_NODE_ICON} width={16} aria-hidden="true" />;
       lines = view.count !== null && <Chip>{exposureCountText(view.count)}</Chip>;
@@ -79,7 +85,9 @@ const LineageNodeCard: React.FC<{ view: LineageNodeView; chosen: boolean }> = ({
       icon = <DspmObjectIcon objectType="FILE" extension={file.extension} />;
       lines = (
         <>
-          <span className="block truncate text-[rgba(0,0,0,0.6)]">Actor: {file.actor ?? '-'}</span>
+          {view.actorLine !== false && (
+            <span className="block truncate text-[rgba(0,0,0,0.6)]">Actor: {file.actor ?? '-'}</span>
+          )}
           <span className="block text-[rgba(0,0,0,0.45)]">{file.modifiedAt === null ? '-' : formatNodeDay(file.modifiedAt)}</span>
         </>
       );

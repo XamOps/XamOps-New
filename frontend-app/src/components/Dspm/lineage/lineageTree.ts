@@ -21,7 +21,13 @@ export const TREE_ZOOM_MAX = 1;
 /** How far inside the band's edges the curve into it lands. */
 const BAND_INSET = 24;
 
-export type TreeLevel = 'category' | RowLevel;
+/** `root` is the public path's project node (build 7); like `category`, it has no pagers. */
+export type TreeLevel = 'root' | 'category' | RowLevel;
+
+/** Whether a tree row is one of the paged rows (not the root or the category). */
+export function isRowLevel(level: TreeLevel): level is RowLevel {
+  return level !== 'root' && level !== 'category';
+}
 
 export interface TreeRowInput {
   level: TreeLevel;
