@@ -360,7 +360,7 @@ describe('EndpointFilesTab paging', () => {
     await waitFor(() => expect(footer()).toHaveTextContent('Showing 1 - 10 of 15'));
     expect(currentPage()).toBe('1');
     expect(screen.queryByRole('alert')).toBeNull();
-    expect(location()).toHaveTextContent(/^\/xamlens\/files\/endpoint$/);
+    await waitFor(() => expect(location()).toHaveTextContent(/^\/xamlens\/files\/endpoint$/));
   });
 
   it('clears the table to "Loading files…" on a filter change and asks for skip=0', async () => {
