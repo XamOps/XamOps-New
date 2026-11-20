@@ -177,12 +177,14 @@ public class PlanService {
             // §2.1, §7.4: a MIG with no row gets an UNMANAGED row once its existence is confirmed, so the plan,
             // the op and the group lease have a home. Its state never changes and UNMANAGED stays non-billable.
             group = insertUnmanaged(account, provider, ref);
+            state = group.getState(); // the new row's UNMANAGED, so the plan's from_state is never null
         } else if (group == null && cmd.kind() != OperationKind.REVERT && !groupMissingOrUnread(body)) {
             // §2.1: a row appears with the first plan. Discovery creates rows only for legacy and marked
             // groups, so the first plan for any other group (an AWS ENABLE of a plain ASG) is rowless.
             // Without a row its plan got a synthetic group id and the confirmed op stayed QUEUED forever,
             // because nothing can lease or run a group that has no row (phase 23 defect D-23-06).
             group = insertUnmanaged(account, provider, ref);
+            state = group.getState();
         }
         if (eligibility == null) {
             eligibility = body.eligibility() != null ? body.eligibility() : EligibilityResult.eligible(List.of(), List.of());

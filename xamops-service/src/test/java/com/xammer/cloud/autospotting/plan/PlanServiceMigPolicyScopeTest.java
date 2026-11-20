@@ -98,6 +98,10 @@ class PlanServiceMigPolicyScopeTest {
                 .thenReturn(Optional.empty(), Optional.of(row));
         when(aws.createPlan(any(), any())).thenReturn(new PlanBody(null, null, null, null,
                 new EligibilityResult(List.of(), List.of(), List.of()), null, List.of(), null, null, null));
+        com.xammer.cloud.service.autospotting.spi.GroupStatus status =
+                mock(com.xammer.cloud.service.autospotting.spi.GroupStatus.class);
+        when(status.liveFingerprint()).thenReturn("fp");
+        when(aws.getStatus(any(), any())).thenReturn(status);
         try {
             service().createPlan(account("AWS"), null, new PlanService.CreateCommand(OperationKind.ENABLE, null,
                     "us-east-1/web", "aggressive", false, "k", "h", "u", null));
@@ -107,6 +111,45 @@ class PlanServiceMigPolicyScopeTest {
         verify(groups).insertUnmanagedIfAbsent(any(), org.mockito.ArgumentMatchers.eq("AWS"),
                 org.mockito.ArgumentMatchers.eq(7L), any(), org.mockito.ArgumentMatchers.eq("us-east-1/web"),
                 any(), org.mockito.ArgumentMatchers.eq("plan"), any());
+        // The plan is stored against the new row with from_state UNMANAGED (NOT NULL in spot_plan).
+        org.mockito.ArgumentCaptor<com.xammer.cloud.domain.autospotting.SpotPlan> saved =
+                org.mockito.ArgumentCaptor.forClass(com.xammer.cloud.domain.autospotting.SpotPlan.class);
+        verify(plans).saveAndFlush(saved.capture());
+        org.assertj.core.api.Assertions.assertThat(saved.getValue().getGroupId()).isEqualTo(row.getId());
+        org.assertj.core.api.Assertions.assertThat(saved.getValue().getFromState())
+                .isEqualTo(com.xammer.cloud.domain.autospotting.GroupState.UNMANAGED);
+    }
+
+    /** The GCP rowless MIG_POLICY_UPDATE path stores its plan with from_state UNMANAGED (was null, D-23-06). */
+    @Test
+    void aFirstMigPolicyUpdateForAnExistingMigStoresFromStateUnmanaged() {
+        SpotProvider gcp = mock(SpotProvider.class);
+        when(providers.find(Provider.GCP)).thenReturn(Optional.of(gcp));
+        com.xammer.cloud.domain.autospotting.SpotGroup row = new com.xammer.cloud.domain.autospotting.SpotGroup();
+        row.setId(java.util.UUID.randomUUID());
+        row.setProvider(Provider.GCP);
+        row.setState(com.xammer.cloud.domain.autospotting.GroupState.UNMANAGED);
+        row.setGroupKey("p/us-central1/mig");
+        when(groups.findByProviderAndCloudAccountIdAndGroupKeyAndStateNot(any(), any(), any(), any()))
+                .thenReturn(Optional.empty(), Optional.of(row));
+        when(gcp.createPlan(any(), any())).thenReturn(new PlanBody(null, null, null, null,
+                new EligibilityResult(List.of(), List.of(), List.of()), null, List.of(), null, null, null));
+        com.xammer.cloud.service.autospotting.spi.GroupStatus status =
+                mock(com.xammer.cloud.service.autospotting.spi.GroupStatus.class);
+        when(status.liveFingerprint()).thenReturn("fp");
+        when(gcp.getStatus(any(), any())).thenReturn(status);
+        try {
+            service().createPlan(account("GCP"), null, cmd(OperationKind.MIG_POLICY_UPDATE, "{}"));
+        } catch (RuntimeException laterStepNotStubbed) {
+            // only the stored plan is under test
+        }
+        verify(groups).insertUnmanagedIfAbsent(any(), org.mockito.ArgumentMatchers.eq("GCP"), any(), any(),
+                org.mockito.ArgumentMatchers.eq("p/us-central1/mig"), any(), any(), any());
+        org.mockito.ArgumentCaptor<com.xammer.cloud.domain.autospotting.SpotPlan> saved =
+                org.mockito.ArgumentCaptor.forClass(com.xammer.cloud.domain.autospotting.SpotPlan.class);
+        verify(plans).saveAndFlush(saved.capture());
+        org.assertj.core.api.Assertions.assertThat(saved.getValue().getFromState())
+                .isEqualTo(com.xammer.cloud.domain.autospotting.GroupState.UNMANAGED);
     }
 
     /** D-23-06: a plan that says the ASG is gone creates no row. */
