@@ -167,8 +167,7 @@ public class PlanService {
         PlanBody body = spotProvider.createPlan(planRequest, view);
         if (group == null && cmd.kind() == OperationKind.MIG_POLICY_UPDATE) {
             // The MIG must exist before a row does: a missing MIG or a failed read creates nothing.
-            if (body.eligibility() != null && body.eligibility().blockers().stream().anyMatch(c ->
-                    "GCP_MIG_NOT_FOUND".equals(c.code()) || c.errorKind() != null)) {
+            if (groupMissingOrUnread(body)) {
                 boolean missing = body.eligibility().blockers().stream().anyMatch(c -> "GCP_MIG_NOT_FOUND".equals(c.code()));
                 throw missing
                         ? new AutoSpottingApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Instance group not found.")
@@ -177,6 +176,12 @@ public class PlanService {
             }
             // §2.1, §7.4: a MIG with no row gets an UNMANAGED row once its existence is confirmed, so the plan,
             // the op and the group lease have a home. Its state never changes and UNMANAGED stays non-billable.
+            group = insertUnmanaged(account, provider, ref);
+        } else if (group == null && cmd.kind() != OperationKind.REVERT && !groupMissingOrUnread(body)) {
+            // §2.1: a row appears with the first plan. Discovery creates rows only for legacy and marked
+            // groups, so the first plan for any other group (an AWS ENABLE of a plain ASG) is rowless.
+            // Without a row its plan got a synthetic group id and the confirmed op stayed QUEUED forever,
+            // because nothing can lease or run a group that has no row (phase 23 defect D-23-06).
             group = insertUnmanaged(account, provider, ref);
         }
         if (eligibility == null) {
@@ -306,31 +311,30 @@ public class PlanService {
     }
 
     private UUID groupIdFor(SpotGroup group) {
-        // A group with no row yet has no id to reference. MIG_POLICY_UPDATE inserts an UNMANAGED row
-        // (§2.1); until the GCP program lands (Phase 26) a rowless plan uses a synthetic group id so
-        // the plan, op and lease have a home. For AWS ENABLE the group row is created by discovery
-        // before enable, so group is non-null in practice.
+        // Every non-REVERT plan for an existing group now has a row (inserted above, D-23-06). A synthetic
+        // id remains only for a plan whose group is missing or unreadable; such a plan carries that
+        // blocker, so it can't be confirmed, and a stray op on it fails fast in the dispatcher.
         return group != null ? group.getId() : UUID.randomUUID();
     }
 
+    /** True when the provider's plan says the group is gone or could not be read: no row is created then. */
+    private static boolean groupMissingOrUnread(PlanBody body) {
+        return body.eligibility() != null && body.eligibility().blockers().stream().anyMatch(c ->
+                "GCP_MIG_NOT_FOUND".equals(c.code()) || "GROUP_NOT_FOUND".equals(c.code()) || c.errorKind() != null);
+    }
+
+    /**
+     * The group's UNMANAGED row, inserted if absent. Race-safe: two concurrent first plans for one group
+     * both insert with ON CONFLICT DO NOTHING on {@code ux_spot_group_identity}, then read back the single
+     * live row (D-23-06), so neither transaction fails on a unique violation.
+     */
     private SpotGroup insertUnmanaged(CloudAccount account, Provider provider, GroupRef ref) {
-        Instant now = Instant.now();
-        SpotGroup row = new SpotGroup();
-        row.setId(UUID.randomUUID());
-        row.setProvider(provider);
-        row.setCloudAccountId(account.getId());
-        row.setClientId(account.getClient() == null ? null : account.getClient().getId());
-        row.setGroupKey(ref.groupKey());
-        row.setProviderStableId(ref.providerStableId());
-        row.setState(GroupState.UNMANAGED);
-        row.setDriftStatus(com.xammer.cloud.domain.autospotting.DriftStatus.NONE);
-        row.setConfigMode(com.xammer.cloud.domain.autospotting.ConfigMode.MANAGED);
-        row.setOwnedArtifacts("{}");
-        row.setStateChangedAt(now);
-        row.setCreatedBy("plan");
-        row.setCreatedAt(now);
-        row.setUpdatedAt(now);
-        return groups.saveAndFlush(row);
+        groups.insertUnmanagedIfAbsent(UUID.randomUUID(), provider.name(), account.getId(),
+                account.getClient() == null ? null : account.getClient().getId(), ref.groupKey(),
+                ref.providerStableId(), "plan", Instant.now());
+        return groups.findByProviderAndCloudAccountIdAndGroupKeyAndStateNot(provider, account.getId(),
+                        ref.groupKey(), GroupState.GONE)
+                .orElseThrow(() -> new IllegalStateException("UNMANAGED row for " + ref.groupKey() + " not found after insert"));
     }
 
     private void moveToPlanned(SpotGroup group, ClientUserDetails user) {

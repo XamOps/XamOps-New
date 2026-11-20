@@ -129,6 +129,17 @@ public class OperationDispatcher {
         if (dueOps.isEmpty()) {
             return;
         }
+        if (!operations.groupRowExists(groupId)) {
+            // No group row: the group lease can never be taken, so the op would stay QUEUED forever with no
+            // error (D-23-06). Nothing ran and nothing can, so finishing it FAILED needs no lease.
+            for (UUID orphan : dueOps) {
+                store.finishFailed(orphan, "GROUP_MISSING",
+                        "The group this operation targets has no record, so it can't run. Plan again.");
+                log.warn("op {} failed: group {} has no spot_group row", orphan, groupId);
+            }
+            metrics.dispatch("group_missing");
+            return;
+        }
         UUID opId = dueOps.get(0); // creation order: a preempted queued op ends before its preemptor (§4.7)
 
         // Reuse our own handle for a WAITING op we already hold (no new acquire, §3.3); else acquire.

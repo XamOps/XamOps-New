@@ -80,6 +80,51 @@ class PlanServiceMigPolicyScopeTest {
         assertThatThrownBy(() -> service().createPlan(account("GCP"), null, cmd(OperationKind.MIG_POLICY_UPDATE, "{}")))
                 .isInstanceOf(AutoSpottingApiException.class);
         verify(groups, never()).saveAndFlush(any());
+        verify(groups, never()).insertUnmanagedIfAbsent(any(), any(), any(), any(), any(), any(), any(), any());
         verify(plans, never()).saveAndFlush(any());
+    }
+
+    /** D-23-06: the first ENABLE plan for an existing ASG with no row inserts its UNMANAGED row (once). */
+    @Test
+    void aFirstAwsEnablePlanForAnExistingGroupInsertsTheUnmanagedRow() {
+        SpotProvider aws = mock(SpotProvider.class);
+        when(providers.find(Provider.AWS)).thenReturn(Optional.of(aws));
+        com.xammer.cloud.domain.autospotting.SpotGroup row = new com.xammer.cloud.domain.autospotting.SpotGroup();
+        row.setId(java.util.UUID.randomUUID());
+        row.setProvider(Provider.AWS);
+        row.setState(com.xammer.cloud.domain.autospotting.GroupState.UNMANAGED);
+        row.setGroupKey("us-east-1/web");
+        when(groups.findByProviderAndCloudAccountIdAndGroupKeyAndStateNot(any(), any(), any(), any()))
+                .thenReturn(Optional.empty(), Optional.of(row));
+        when(aws.createPlan(any(), any())).thenReturn(new PlanBody(null, null, null, null,
+                new EligibilityResult(List.of(), List.of(), List.of()), null, List.of(), null, null, null));
+        try {
+            service().createPlan(account("AWS"), null, new PlanService.CreateCommand(OperationKind.ENABLE, null,
+                    "us-east-1/web", "aggressive", false, "k", "h", "u", null));
+        } catch (RuntimeException laterStepNotStubbed) {
+            // Only the row insert is under test; steps after it need collaborators this test doesn't stub.
+        }
+        verify(groups).insertUnmanagedIfAbsent(any(), org.mockito.ArgumentMatchers.eq("AWS"),
+                org.mockito.ArgumentMatchers.eq(7L), any(), org.mockito.ArgumentMatchers.eq("us-east-1/web"),
+                any(), org.mockito.ArgumentMatchers.eq("plan"), any());
+    }
+
+    /** D-23-06: a plan that says the ASG is gone creates no row. */
+    @Test
+    void aFirstAwsPlanForAMissingGroupInsertsNoRow() {
+        SpotProvider aws = mock(SpotProvider.class);
+        when(providers.find(Provider.AWS)).thenReturn(Optional.of(aws));
+        when(groups.findByProviderAndCloudAccountIdAndGroupKeyAndStateNot(any(), any(), any(), any()))
+                .thenReturn(Optional.empty());
+        when(aws.createPlan(any(), any())).thenReturn(new PlanBody(null, null, null, null,
+                new EligibilityResult(List.of(EligibilityResult.Check.of("b-GROUP_NOT_FOUND", "GROUP_NOT_FOUND", "gone")),
+                        List.of(), List.of()), null, List.of(), null, null, null));
+        try {
+            service().createPlan(account("AWS"), null, new PlanService.CreateCommand(OperationKind.ENABLE, null,
+                    "us-east-1/web", "aggressive", false, "k", "h", "u", null));
+        } catch (RuntimeException laterStepNotStubbed) {
+            // as above
+        }
+        verify(groups, never()).insertUnmanagedIfAbsent(any(), any(), any(), any(), any(), any(), any(), any());
     }
 }
