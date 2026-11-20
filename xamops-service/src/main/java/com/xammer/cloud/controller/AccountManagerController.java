@@ -91,6 +91,12 @@ public class AccountManagerController {
     private AzureCostManagementService azureCostService;
 
     @Autowired
+    private com.xammer.cloud.service.azure.AzureClientProvider azureClientProvider;
+
+    @Autowired
+    private com.xammer.cloud.security.CloudAccountAccessService cloudAccountAccessService;
+
+    @Autowired
     private MasterDatabaseService masterDatabaseService;
 
     /** Announces a newly connected subscription so the onboarding WAR report can run. */
@@ -626,6 +632,30 @@ public class AccountManagerController {
             Optional<CloudAccount> existingAccountOpt = cloudAccountRepository
                     .findByAzureSubscriptionId(request.getSubscriptionId());
 
+            // The lookup is by subscription id across all clients, so without this check anyone
+            // submitting a subscription id already connected elsewhere replaced that
+            // organization's credentials and account name.
+            if (existingAccountOpt.isPresent()
+                    && !cloudAccountAccessService.canAccess(userDetails, existingAccountOpt.get())) {
+                logger.warn("Refusing Azure account update: subscription {} belongs to another organization",
+                        request.getSubscriptionId());
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body("This Azure subscription is already connected to XamOps under an account "
+                                + "you do not have access to.");
+            }
+
+            // Check the credentials before saving them, as the AWS flow verifies its role. A
+            // mistyped secret used to be stored as CONNECTED, and every Azure page then failed
+            // or showed empty data with no indication why.
+            String credentialProblem = azureCredentialProblem(request);
+            if (credentialProblem != null) {
+                logger.warn("Azure credential check failed for subscription {}: {}",
+                        request.getSubscriptionId(), credentialProblem);
+                return ResponseEntity.badRequest()
+                        .body("Azure rejected these credentials. Check the tenant ID, client ID and client "
+                                + "secret. Details: " + credentialProblem);
+            }
+
             boolean isNewAccount = existingAccountOpt.isEmpty();
             CloudAccount account;
             if (existingAccountOpt.isPresent()) {
@@ -660,6 +690,10 @@ public class AccountManagerController {
 
             // Save to DB (Insert or Update)
             CloudAccount savedAccount = cloudAccountRepository.save(account);
+            // The Azure client and credential are cached per subscription. Without dropping them,
+            // updated credentials took effect only after a restart, so re-connecting with a
+            // corrected secret appeared not to work.
+            azureClientProvider.evict(savedAccount.getAzureSubscriptionId());
             if (isNewAccount) {
                 grantSubUserAccess(userDetails, savedAccount);
                 // Only on a first connection. Re-saving credentials for a subscription the
@@ -709,6 +743,35 @@ public class AccountManagerController {
             logger.error("Error adding/updating Azure account", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("An unexpected error occurred while processing the account.");
+        }
+    }
+
+    /**
+     * Requests an ARM token with the submitted service principal.
+     *
+     * <p>Checks authentication only. Role assignments can take minutes to propagate after the
+     * setup script runs, so an RBAC probe here would reject correct credentials.
+     *
+     * @return null when Azure issued a token, otherwise the reason it did not
+     */
+    private String azureCredentialProblem(AzureAccountRequestDto request) {
+        try {
+            com.azure.core.credential.AccessToken token = new com.azure.identity.ClientSecretCredentialBuilder()
+                    .tenantId(request.getTenantId())
+                    .clientId(request.getClientId())
+                    .clientSecret(request.getClientSecret())
+                    .build()
+                    .getToken(new com.azure.core.credential.TokenRequestContext()
+                            .addScopes("https://management.azure.com/.default"))
+                    .block(java.time.Duration.ofSeconds(30));
+            return token == null ? "Azure returned no access token" : null;
+        } catch (Exception e) {
+            String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            int newline = message.indexOf('\n');
+            if (newline > 0) {
+                message = message.substring(0, newline);
+            }
+            return message.length() > 300 ? message.substring(0, 300) : message;
         }
     }
 

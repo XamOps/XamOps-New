@@ -209,7 +209,17 @@ export const useReservationData = ({
 
         if (!responseData.savingsPlans) responseData.savingsPlans = [];
         if (!responseData.savingsPlanRecommendations) responseData.savingsPlanRecommendations = [];
-        setData(responseData);
+        // Keep recommendations already loaded for the user's current filters. The bundled ones
+        // are always for the default filters and would overwrite them.
+        setData((prev) => ({
+          ...responseData,
+          purchaseRecommendations: prev.purchaseRecommendations.length
+            ? prev.purchaseRecommendations
+            : responseData.purchaseRecommendations ?? [],
+          savingsPlanRecommendations: prev.savingsPlanRecommendations.length
+            ? prev.savingsPlanRecommendations
+            : responseData.savingsPlanRecommendations,
+        }));
         setCachedData(cacheKey, responseData);
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') return;
@@ -248,6 +258,8 @@ export const useReservationData = ({
             ...prev,
             purchaseRecommendations: cachedRecs,
           }));
+          // A request cancelled above may have turned the flag on and now leaves it alone.
+          setIsRecsLoading(false);
           return;
         }
       }
@@ -302,7 +314,10 @@ export const useReservationData = ({
         }));
         setRecsIncomplete(true);
       } finally {
-        setIsRecsLoading(false);
+        // A cancelled request leaves the flag to the request that replaced it. Clearing it here
+        // turned the spinner off while that request was still running, so the empty table
+        // showed "Fully Optimized" until the rows arrived.
+        if (!signal.aborted) setIsRecsLoading(false);
       }
     },
     [selectedAccountId, recFilters]
@@ -325,6 +340,7 @@ export const useReservationData = ({
         const cached = getCachedData<SavingsPlanRecommendation[]>(cacheKey);
         if (cached) {
           setData((prev) => ({ ...prev, savingsPlanRecommendations: cached }));
+          setIsSpRecsLoading(false);
           return;
         }
       }
@@ -341,7 +357,8 @@ export const useReservationData = ({
         if (err instanceof DOMException && err.name === 'AbortError') return;
         setData((prev) => ({ ...prev, savingsPlanRecommendations: [] }));
       } finally {
-        setIsSpRecsLoading(false);
+        // Same as the RI fetch: only the request that is still current clears the flag.
+        if (!signal.aborted) setIsSpRecsLoading(false);
       }
     },
     [selectedAccountId, spRecFilters]

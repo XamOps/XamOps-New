@@ -24,7 +24,6 @@ import com.xammer.cloud.dto.azure.AzureAccountRequestDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.time.OffsetDateTime;
@@ -50,13 +49,15 @@ public class AzureCostManagementService {
     }
 
     /**
-     * Asynchronously sets up cost exports for a newly added Azure account.
+     * Sets up cost exports for a newly added Azure account.
      * This version assumes the PowerShell script has already created the RG and Storage Account.
      *
      * @return A Map containing the "containerName" and "directoryName" for the created export.
      */
-    @Async("gcpTaskExecutor")
-    // --- SIGNATURE CHANGED from void to Map<String, String> ---
+    // Synchronous on purpose. This carried @Async while returning a Map, and Spring's async proxy
+    // accepts only void or Future return types: every call threw "Invalid return type for async
+    // method" before the body ran, so the export was never created and onboarding always took the
+    // "cost export setup failed" branch. The caller needs the returned container and directory.
     public Map<String, String> setupCostExports(CloudAccount account, AzureAccountRequestDto request) {
         String subscriptionId = account.getAzureSubscriptionId();
         String scope = "/subscriptions/" + subscriptionId;

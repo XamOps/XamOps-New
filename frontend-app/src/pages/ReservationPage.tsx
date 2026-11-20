@@ -14,7 +14,7 @@
  * Enhanced UI with modern React components and improved visual design.
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useReservationData } from '../hooks/useReservationData';
@@ -56,14 +56,28 @@ export const ReservationPage: React.FC = () => {
   // Tab state
   const [activeTab, setActiveTab] = useTabState<TabType>('recommendations');
 
+  // True while a manual Refresh is running. The effects below skip in that window so they do
+  // not abort the forced fetches or re-request recommendations from the cache.
+  const isRefreshingRef = useRef(false);
+
+  const handleRefresh = async () => {
+    isRefreshingRef.current = true;
+    try {
+      await fetchReservationData(true);
+      await Promise.all([fetchPurchaseRecommendations(true), fetchSpRecommendations(true)]);
+    } finally {
+      isRefreshingRef.current = false;
+    }
+  };
+
   useEffect(() => {
-    if (activeTab === 'recommendations' && selectedAccountId && !isLoading) {
+    if (activeTab === 'recommendations' && selectedAccountId && !isLoading && !isRefreshingRef.current) {
       fetchPurchaseRecommendations(false);
     }
   }, [activeTab, recFilters, selectedAccountId, isLoading]);
 
   useEffect(() => {
-    if (activeTab === 'recommendations' && selectedAccountId && !isLoading) {
+    if (activeTab === 'recommendations' && selectedAccountId && !isLoading && !isRefreshingRef.current) {
       fetchSpRecommendations(false);
     }
   }, [activeTab, spRecFilters, selectedAccountId, isLoading]);
@@ -94,7 +108,7 @@ export const ReservationPage: React.FC = () => {
       <ReservationHeader
         selectedAccountId={selectedAccountId}
         isLoading={isLoading}
-        onRefresh={() => fetchReservationData(true)}
+        onRefresh={handleRefresh}
       />
 
       <div className="flex-1 p-8 space-y-6 custom-scrollbar overflow-y-auto">
@@ -189,12 +203,10 @@ export const ReservationPage: React.FC = () => {
                   isLoading={isRecsLoading}
                   isIncomplete={recsIncomplete}
                   onFilterChange={setRecFilters}
-                  onFetchRecommendations={() => fetchPurchaseRecommendations(true)}
                   spRecommendations={data.savingsPlanRecommendations ?? []}
                   spFilters={spRecFilters}
                   isSpLoading={isSpRecsLoading}
                   onSpFilterChange={setSpRecFilters}
-                  onFetchSpRecommendations={() => fetchSpRecommendations(true)}
                 />
               </div>
             )}

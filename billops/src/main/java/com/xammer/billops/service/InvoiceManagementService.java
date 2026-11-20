@@ -61,6 +61,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.math.RoundingMode;
 import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -1096,6 +1097,13 @@ public class InvoiceManagementService {
 
             document.add(table);
 
+            // The admin page's invoice summary, under the TOTAL row: what is billed at
+            // private rates, what the overall discount was taken from, the discount itself,
+            // and the taxable value. The TOTAL row alone stops at the gross charges.
+            addDetailBillSummary(document,
+                    detailBillSummary(dto, grandTotal, grouped.size(), items.size()),
+                    cols, headerBg, subtotalBg);
+
             // Says so when any line is billed at a contracted rate rather than the
             // provider's, because those lines no longer match the provider's own invoice
             // and a customer reconciling the two should know why.
@@ -1116,6 +1124,222 @@ public class InvoiceManagementService {
             throw new RuntimeException("Detail bill PDF generation failed", e);
         }
         return new ByteArrayInputStream(out.toByteArray());
+    }
+
+    /**
+     * The figures the detail bill closes with, the same ones the admin invoice page
+     * summarises the invoice with.
+     *
+     * <p>Read from the invoice's saved totals rather than recomputed from the lines, so the
+     * bill states what the page and the tax invoice state. Only the discountable and
+     * taxable values are derived, and both exactly as {@link #recalculateTotals} derives
+     * them.
+     *
+     * @param charges       everything billed, before any discount
+     * @param privatePriced the part of {@code charges} billed at a rate an admin set
+     * @param rateCount     how many such rates are applied
+     * @param shielded      the part of {@code privatePriced} an overall discount skips
+     * @param marketplace   AWS Marketplace charges, which are never discounted
+     * @param discountable  what an overall discount is taken from: the charges less the
+     *                      shielded charges and Marketplace
+     * @param discount      every discount applied, together
+     * @param holdingCost   the markup on the Marketplace charge, added after discounts
+     * @param taxable       charges less discounts, plus the holding cost
+     */
+    record DetailBillSummary(BigDecimal charges,
+                             int serviceCount,
+                             int lineCount,
+                             BigDecimal privatePriced,
+                             int rateCount,
+                             BigDecimal shielded,
+                             BigDecimal marketplace,
+                             BigDecimal discountable,
+                             BigDecimal discount,
+                             int discountCount,
+                             BigDecimal holdingCostPercent,
+                             BigDecimal holdingCost,
+                             BigDecimal taxable) {
+    }
+
+    /**
+     * @param linesTotal the bill's own TOTAL row, used only when the invoice carries no
+     *                   saved pre-discount total
+     */
+    static DetailBillSummary detailBillSummary(InvoiceDto dto, BigDecimal linesTotal,
+                                               int serviceCount, int lineCount) {
+        BigDecimal charges = Optional.ofNullable(dto.getPreDiscountTotal())
+                .orElse(Optional.ofNullable(linesTotal).orElse(BigDecimal.ZERO));
+        BigDecimal privatePriced = Optional.ofNullable(dto.getPrivatePricedTotal()).orElse(BigDecimal.ZERO);
+        BigDecimal shielded = Optional.ofNullable(dto.getDiscountShieldedTotal()).orElse(BigDecimal.ZERO);
+        BigDecimal marketplace = Optional.ofNullable(dto.getMarketplaceCharge()).orElse(BigDecimal.ZERO);
+        BigDecimal discount = Optional.ofNullable(dto.getDiscountAmount()).orElse(BigDecimal.ZERO);
+        BigDecimal holdingPct = Optional.ofNullable(dto.getMarketplaceHoldingCostPercent()).orElse(BigDecimal.ZERO);
+
+        // The base recalculateTotals takes an invoice-wide ("ALL") discount from.
+        BigDecimal discountable = charges.subtract(marketplace).subtract(shielded).max(BigDecimal.ZERO);
+        // As recalculateTotals: clamp at zero first, then add the holding cost.
+        BigDecimal holdingCost = holdingCostMargin(marketplace, holdingPct);
+        BigDecimal taxable = charges.subtract(discount).max(BigDecimal.ZERO).add(holdingCost);
+
+        int rateCount = dto.getPrivatePricing() == null ? 0 : dto.getPrivatePricing().size();
+        int discountCount = dto.getDiscounts() == null ? 0 : dto.getDiscounts().size();
+
+        return new DetailBillSummary(charges, serviceCount, lineCount, privatePriced, rateCount, shielded,
+                marketplace, discountable, discount, discountCount, holdingPct, holdingCost, taxable);
+    }
+
+    /**
+     * An amount the way the admin page prints it: {@code $9,685.51}. A non-zero amount
+     * under a cent keeps up to four decimals, because rounding it to $0.00 would hide a
+     * real charge. The minus is ASCII, which the bill's standard font can draw.
+     */
+    static String summaryUsd(BigDecimal value) {
+        BigDecimal v = Optional.ofNullable(value).orElse(BigDecimal.ZERO);
+        boolean subCent = v.signum() != 0 && v.abs().compareTo(new BigDecimal("0.01")) < 0;
+        DecimalFormat format = new DecimalFormat(subCent ? "#,##0.00##" : "#,##0.00",
+                DecimalFormatSymbols.getInstance(Locale.US));
+        format.setRoundingMode(RoundingMode.HALF_UP);
+        String amount = "$" + format.format(v.abs());
+        return v.signum() < 0 ? "-" + amount : amount;
+    }
+
+    /** What the discountable value leaves out of the charges. */
+    static String discountableNote(DetailBillSummary s) {
+        List<String> excluded = new ArrayList<>();
+        if (s.shielded().signum() > 0) {
+            // When only some private-rate charges are shielded, say so, so the figure is not
+            // taken for the whole "At private rates" amount printed above it.
+            excluded.add(summaryUsd(s.shielded())
+                    + (s.shielded().compareTo(s.privatePriced()) == 0
+                            ? " private rates consumption"
+                            : " shielded private rates consumption"));
+        }
+        if (s.marketplace().signum() > 0) {
+            excluded.add(summaryUsd(s.marketplace()) + " AWS Marketplace");
+        }
+        return excluded.isEmpty()
+                ? "The overall discount applies to all consumption"
+                : "Total consumption less " + String.join(" and ", excluded);
+    }
+
+    /** "1 rate", "2 rates". */
+    private static String plural(int count, String noun) {
+        return count + " " + noun + (count == 1 ? "" : "s");
+    }
+
+    /**
+     * Closes the detail bill with the admin page's summary. Uses the line-item table's
+     * column widths so the amounts sit under its AMOUNT column.
+     *
+     * <p>"At private rates" appears only when a rate is applied, and "Discountable value"
+     * only when something is held out of the discount or a rate is applied, as on the page.
+     * The holding cost appears only when one is set, because the taxable value includes it
+     * and the summary has to add up.
+     */
+    private void addDetailBillSummary(Document document, DetailBillSummary s, float[] cols,
+                                      DeviceRgb headerBg, DeviceRgb closingBg) {
+        Table summary = new Table(UnitValue.createPercentArray(cols)).useAllAvailableWidth();
+        summary.setMarginTop(10);
+        // Split across a page break, the summary no longer reads as one calculation.
+        summary.setKeepTogether(true);
+
+        Cell headLabel = new Cell(1, 3).setBackgroundColor(headerBg).setBorder(Border.NO_BORDER).setPadding(5);
+        headLabel.add(new Paragraph("SUMMARY").setBold().setFontSize(8).setFontColor(ColorConstants.WHITE));
+        summary.addCell(headLabel);
+        Cell headAmount = new Cell().setBackgroundColor(headerBg).setBorder(Border.NO_BORDER).setPadding(5);
+        headAmount.add(new Paragraph("AMOUNT (USD)").setBold().setFontSize(8).setFontColor(ColorConstants.WHITE)
+                .setTextAlignment(TextAlignment.RIGHT));
+        summary.addCell(headAmount);
+
+        addSummaryRow(summary, "Total consumption",
+                plural(s.serviceCount(), "service") + ", " + plural(s.lineCount(), "line"),
+                summaryUsd(s.charges()), null);
+
+        if (s.privatePriced().signum() != 0) {
+            List<String> notes = new ArrayList<>();
+            if (s.rateCount() > 0) {
+                notes.add(plural(s.rateCount(), "rate") + " applied");
+            }
+            if (s.shielded().signum() > 0) {
+                notes.add(summaryUsd(s.shielded()) + " shielded from the overall discount");
+            }
+            addSummaryRow(summary, "Private rates consumption", String.join(" \u00B7 ", notes),
+                    summaryUsd(s.privatePriced()), null);
+        }
+
+        if (s.privatePriced().signum() != 0 || s.marketplace().signum() > 0) {
+            addSummaryRow(summary, "Discountable value", discountableNote(s), summaryUsd(s.discountable()), null);
+        }
+
+        addSummaryRow(summary, "Discounts",
+                s.discountCount() > 0 ? s.discountCount() + " applied" : null,
+                summaryUsd(s.discount().negate()), null);
+
+        // The Taxable value note spells out how it was reached: the discountable value less
+        // discounts, plus each amount the discount never touched. That equals charges -
+        // discounts + holding cost, as recalculateTotals has it.
+        List<String> formula = new ArrayList<>();
+        // Starts from whichever row the reader has just seen: with no Discountable value
+        // row, the discount came straight off the total consumption.
+        formula.add(s.privatePriced().signum() != 0 || s.marketplace().signum() > 0
+                ? "Discountable value" : "Total consumption");
+        formula.add("Discounts");
+
+        if (s.shielded().signum() > 0) {
+            formula.add("Private rates consumption");
+        }
+        if (s.marketplace().signum() > 0) {
+            formula.add("AWS Marketplace");
+        }
+        if (s.holdingCost().signum() > 0) {
+            addSummaryRow(summary, "Add: Holding cost (AWS Marketplace)",
+                    trimPercent(s.holdingCostPercent()) + "% of " + summaryUsd(s.marketplace()) + " AWS Marketplace",
+                    "+" + summaryUsd(s.holdingCost()), null);
+            formula.add("Holding cost");
+        }
+
+        String how = formula.size() == 2 ? formula.get(0) + " less Discounts"
+                : formula.get(0) + " less " + formula.get(1) + ", plus "
+                        + String.join(" and ", formula.subList(2, formula.size()));
+        addSummaryRow(summary, "Taxable value", how, summaryUsd(s.taxable()), closingBg);
+
+        document.add(summary);
+    }
+
+    /**
+     * One summary line: the label, an optional note under it, and the amount.
+     *
+     * @param closingBg background for the closing line, which is also set larger and bold;
+     *                  null for every other line
+     */
+    private static void addSummaryRow(Table table, String label, String note, String amount, DeviceRgb closingBg) {
+        boolean closing = closingBg != null;
+        float size = closing ? 9f : 8f;
+        SolidBorder border = new SolidBorder(new DeviceRgb(210, 215, 230), 0.3f);
+
+        Cell labelCell = new Cell(1, 3).setBorder(border)
+                .setPaddingLeft(6).setPaddingTop(4).setPaddingBottom(4);
+        Paragraph labelText = new Paragraph(label).setFontSize(size).setMargin(0);
+        if (closing) {
+            labelText.setBold();
+        }
+        labelCell.add(labelText);
+        if (note != null && !note.isBlank()) {
+            labelCell.add(new Paragraph(note).setFontSize(7).setMargin(0).setMarginTop(1)
+                    .setFontColor(new DeviceRgb(110, 117, 135)));
+        }
+
+        Cell amountCell = new Cell().setBorder(border)
+                .setPaddingRight(6).setPaddingTop(4).setPaddingBottom(4);
+        amountCell.add(new Paragraph(amount).setBold().setFontSize(size).setMargin(0)
+                .setTextAlignment(TextAlignment.RIGHT));
+
+        if (closing) {
+            labelCell.setBackgroundColor(closingBg);
+            amountCell.setBackgroundColor(closingBg);
+        }
+        table.addCell(labelCell);
+        table.addCell(amountCell);
     }
 
     /**

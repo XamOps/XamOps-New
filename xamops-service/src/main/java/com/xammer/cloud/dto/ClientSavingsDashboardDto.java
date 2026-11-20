@@ -52,6 +52,12 @@ public class ClientSavingsDashboardDto {
     private double potentialReservationsGcp;
     private double potentialReservationsAzure;
 
+    // Everything else the provider dashboards count as potential savings: idle resources, disk
+    // rightsizing, and the AutoSpotting, spot MIG and CloudSitter estimates.
+    private double potentialOtherAws;
+    private double potentialOtherGcp;
+    private double potentialOtherAzure;
+
     // Aggregated totals
     private double realizedTotal;
     private double potentialTotal;
@@ -59,6 +65,12 @@ public class ClientSavingsDashboardDto {
 
     // Daily time series: ledger daily accrual (Spot) and EBS actions. Not billable, not realized.
     private List<DailyPoint> timeSeries;
+
+    // One row per account in scope: all of the client's accounts, or the one selected.
+    private List<AccountSavings> accounts;
+
+    // The account the figures are filtered to, or null for all accounts.
+    private Long selectedAccountId;
 
     // Metadata
     private String startDate;
@@ -77,5 +89,25 @@ public class ClientSavingsDashboardDto {
         @JsonFormat(shape = JsonFormat.Shape.STRING)
         private BigDecimal gcpSpot;
         private double awsEbs;
+    }
+
+    @Data
+    @Builder
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class AccountSavings {
+        private Long accountId;
+        private String accountName;
+        private String provider;
+        private String providerAccountId;
+        // Potential, per month
+        private double rightsizing;
+        private double reservations;
+        private double other;
+        private double potentialTotal;
+        // Realized, over the requested range
+        private double realizedTotal;
+        // Oldest snapshot behind this account's potential figures, or null when there is none
+        private String snapshotDate;
     }
 }

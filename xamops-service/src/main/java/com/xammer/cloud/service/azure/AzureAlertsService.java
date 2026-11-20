@@ -88,7 +88,13 @@ public class AzureAlertsService {
         }
 
         AzureAlertsResponse response = fetchFromMonitor(subscriptionId);
-        redisCache.put(cacheKey, response, CACHE_TTL_MINUTES);
+        // An error response carries an empty alert list. Caching it showed "no alerts" for the
+        // full TTL after Azure Monitor recovered, so only real answers are cached.
+        if (isAnswered(response)) {
+            redisCache.put(cacheKey, response, CACHE_TTL_MINUTES);
+        } else {
+            log.warn("Azure alerts fetch for {} returned {} — not caching", subscriptionId, response.getStatus());
+        }
         return response;
     }
 
@@ -213,6 +219,14 @@ public class AzureAlertsService {
     public void notifyNewAlerts(String subscriptionId) {
         try {
             AzureAlertsResponse response = getAlerts(subscriptionId, true);
+            // A failed read has an empty list. Recording that as the seen set below erased the
+            // record of what had already been emailed, so the next successful run re-sent every
+            // open alert as new.
+            if (!isAnswered(response)) {
+                log.warn("[AzureAlerts] Skipping notification for {}: alerts could not be read ({})",
+                        subscriptionId, response != null ? response.getStatus() : "no response");
+                return;
+            }
             List<AlertDto> alerts = response != null && response.getAlerts() != null
                     ? toAlertDtos(response.getAlerts())
                     : Collections.emptyList();
@@ -304,6 +318,13 @@ public class AzureAlertsService {
             case "Activity Log", "Health" -> "SECURITY";
             default                     -> "ALERT";
         };
+    }
+
+    /** True when Azure Monitor answered, whether or not there were alerts. */
+    private static boolean isAnswered(AzureAlertsResponse response) {
+        return response != null
+                && response.getStatus() != AzureAlertsResponse.Status.API_ERROR
+                && response.getStatus() != AzureAlertsResponse.Status.PERMISSION_ERROR;
     }
 
     private String mapSeverityLabel(String severity) {

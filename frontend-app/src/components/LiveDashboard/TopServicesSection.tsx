@@ -84,8 +84,13 @@ const TopServicesSection: React.FC<TopServicesSectionProps> = ({
     if (!accountId || view !== 'region') return;
     const { start, end } = getPresetDates(timePreset);
     setRegionLoading(true);
-    fetch(`/api/xamops/finops/cost-by-region?accountId=${accountId}&startDate=${start}&endDate=${end}`,
-      { credentials: 'include' })
+    // Azure has its own endpoint, with the same { region, cost } rows. The AWS one was called for
+    // Azure too, could not find an AWS account for a subscription id, and the Region view was
+    // always empty.
+    const regionUrl = provider === 'Azure'
+      ? `/api/azure/finops/cost-by-region?subscriptionId=${accountId}&startDate=${start}&endDate=${end}`
+      : `/api/xamops/finops/cost-by-region?accountId=${accountId}&startDate=${start}&endDate=${end}`;
+    fetch(regionUrl, { credentials: 'include' })
       .then(r => r.ok ? r.json() : [])
       .then((raw: RegionItem[]) => {
         setRegionData(
@@ -97,7 +102,7 @@ const TopServicesSection: React.FC<TopServicesSectionProps> = ({
       })
       .catch(() => setRegionData([]))
       .finally(() => setRegionLoading(false));
-  }, [accountId, view, timePreset]);
+  }, [accountId, view, timePreset, provider]);
 
   const chartData = view === 'service' ? serviceData : regionData;
   const loading   = isLoading || (view === 'region' && regionLoading);

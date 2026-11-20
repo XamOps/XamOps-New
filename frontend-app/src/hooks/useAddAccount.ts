@@ -383,6 +383,14 @@ export function useAddAccount(): UseAddAccountReturn {
         clientId: credentials.clientId,
         clientSecret: credentials.clientSecret,
         accountName: azureDetails.accountName,
+        // The backend creates the cost export from these and reports them missing when absent
+        // ("billing_resource_group" / "billing_storage_account_id"). They were parsed from the
+        // pasted JSON and then dropped here, so the export could never be set up from this form.
+        // Undefined values are left out of the request body, as before.
+        billingResourceGroup: credentials.billingResourceGroup,
+        billingStorageAccountId: credentials.billingStorageAccountId,
+        principalId: credentials.principalId,
+        access: credentials.access,
       };
 
       // Validate required fields

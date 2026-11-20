@@ -10,6 +10,8 @@ interface UseAzureWasteDataReturn {
   allItems: AzureWasteItem[];
   isLoading: boolean;
   isRefreshing: boolean;
+  /** Set when the last load failed. A failure used to look exactly like "no waste found". */
+  error: string | null;
   loadWasteData: (forceRefresh?: boolean) => Promise<void>;
 }
 
@@ -39,6 +41,7 @@ export const useAzureWasteData = ({
   const [wasteGroups, setWasteGroups] = useState<AzureWasteGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const isFetchingRef = useRef(false);
   const previousAccountRef = useRef<string | null>(null);
@@ -126,8 +129,14 @@ export const useAzureWasteData = ({
         setAllItems(safeItems);
         setWasteGroups(groupByType(safeItems));
         saveToCache(safeItems);
+        setError(null);
       } catch (err) {
         console.error('[Azure Waste] Fetch failed:', err);
+        setError(
+          err instanceof Error && err.message.includes('503')
+            ? 'Azure could not be scanned for this subscription. Check that its credentials are valid and its roles are assigned.'
+            : err instanceof Error ? err.message : 'Failed to load waste data'
+        );
         if (!forceRefresh) {
           setAllItems([]);
           setWasteGroups([]);
@@ -156,5 +165,5 @@ export const useAzureWasteData = ({
     }
   }, [selectedAccountId, loadWasteData]);
 
-  return { wasteGroups, allItems, isLoading, isRefreshing, loadWasteData };
+  return { wasteGroups, allItems, isLoading, isRefreshing, error, loadWasteData };
 };

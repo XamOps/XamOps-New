@@ -7,6 +7,7 @@ import com.xammer.cloud.messaging.MessageKind;
 import com.xammer.cloud.messaging.MobileNotificationDispatcher;
 import com.xammer.cloud.messaging.NotificationChannel;
 import com.xammer.cloud.repository.FinOpsReportScheduleRepository;
+import com.xammer.cloud.service.azure.AzureCostQueryService;
 import com.xammer.cloud.service.gcp.GcpCostService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,6 +41,7 @@ public class FinOpsReportSchedulingService {
     private final FinOpsReportEmailBuilder emailBuilder;
     private final FinOpsReportTextBuilder textBuilder;
     private final MobileNotificationDispatcher mobileNotificationDispatcher;
+    private final AzureCostQueryService azureCostQueryService;
 
     public FinOpsReportSchedulingService(FinOpsReportScheduleRepository scheduleRepository,
             CostService costService,
@@ -47,7 +49,8 @@ public class FinOpsReportSchedulingService {
             EmailService emailService,
             FinOpsReportEmailBuilder emailBuilder,
             FinOpsReportTextBuilder textBuilder,
-            MobileNotificationDispatcher mobileNotificationDispatcher) {
+            MobileNotificationDispatcher mobileNotificationDispatcher,
+            AzureCostQueryService azureCostQueryService) {
         this.scheduleRepository = scheduleRepository;
         this.costService = costService;
         this.gcpCostService = gcpCostService;
@@ -55,6 +58,7 @@ public class FinOpsReportSchedulingService {
         this.emailBuilder = emailBuilder;
         this.textBuilder = textBuilder;
         this.mobileNotificationDispatcher = mobileNotificationDispatcher;
+        this.azureCostQueryService = azureCostQueryService;
     }
 
     // Scheduled report time: 6:00 PM IST (12:30 UTC)
@@ -274,6 +278,13 @@ public class FinOpsReportSchedulingService {
                 } else if ("GCP".equals(account.getProvider())) {
                     logger.info("Fetching GCP cost data for account {} from {} to {}", accountId, startDate, endDate);
                     reportData = gcpCostService.getCostBreakdownByServiceAndRegionSync(accountId, startDate, endDate);
+                } else if ("Azure".equalsIgnoreCase(account.getProvider())) {
+                    // Azure schedules could be created, and a confirmation email went out, but they
+                    // fell through to "unsupported" here and no report was ever sent. lastSent then
+                    // stayed null, which made the startup catch-up re-run the whole frequency on
+                    // every restart after 18:00.
+                    logger.info("Fetching Azure cost data for account {} from {} to {}", accountId, startDate, endDate);
+                    reportData = azureCostQueryService.fetchServiceRegionCosts(account, startDate, endDate);
                 } else {
                     logger.warn("Skipping account {}: Unsupported provider {}", accountId, account.getProvider());
                     continue;

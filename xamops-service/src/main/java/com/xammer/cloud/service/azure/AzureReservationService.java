@@ -149,12 +149,20 @@ public class AzureReservationService {
             }
         }
 
-        AzureReservationData data = fetchLiveData(subscriptionId);
-        redisCache.put(cacheKey, data, CACHE_TTL_MINUTES);
+        java.util.concurrent.atomic.AtomicBoolean failed = new java.util.concurrent.atomic.AtomicBoolean(false);
+        AzureReservationData data = fetchLiveData(subscriptionId, failed);
+        // A failed read returns an empty object, which reads as "no reservations". Caching it kept
+        // showing that for the full TTL after Azure recovered.
+        if (!failed.get()) {
+            redisCache.put(cacheKey, data, CACHE_TTL_MINUTES);
+        } else {
+            log.warn("Azure reservation fetch for {} failed — not caching the empty result", subscriptionId);
+        }
         return data;
     }
 
-    private AzureReservationData fetchLiveData(String subscriptionId) {
+    private AzureReservationData fetchLiveData(String subscriptionId,
+                                               java.util.concurrent.atomic.AtomicBoolean failed) {
         AzureReservationData data = new AzureReservationData();
 
         try {
@@ -182,6 +190,7 @@ public class AzureReservationService {
             saveReservationPageSnapshot(subscriptionId, data);
 
         } catch (Exception e) {
+            failed.set(true);
             log.error("Failed to fetch reservation data for {}: {}", subscriptionId, e.getMessage(), e);
         }
 

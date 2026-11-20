@@ -124,14 +124,18 @@ export function useAzureDbOpsData(subscriptionId: string | null) {
       const summaryData = await fetchJson<DbSavingsSummary>(`${base}/summary${qp}`);
       setSummary(summaryData);
 
-      // All subsequent calls run in parallel
+      // All subsequent calls run in parallel.
+      //
+      // The summary call above refreshes the inventory, but not metrics, costs or snapshots, and
+      // these three were requested without the flag — so Refresh kept serving copies up to 12, 6
+      // and 24 hours old. The AWS DbOps hook passes it on the same calls.
       const [inv, metricsData, cost, idleData, rsData, snapData, secData, slowData, agentStats, agentMetrics] = await Promise.all([
         fetchJson<DbInstance[]>(`${base}/inventory`),
-        fetchJson<Record<string, DbMetrics>>(`${base}/metrics`),
-        fetchJson<DbCost[]>(`${base}/costs`),
+        fetchJson<Record<string, DbMetrics>>(`${base}/metrics${qp}`),
+        fetchJson<DbCost[]>(`${base}/costs${qp}`),
         fetchJson<DbIdleInstance[]>(`${base}/idle`),
         fetchJson<DbRightsizing[]>(`${base}/rightsizing`),
-        fetchJson<DbSnapshot[]>(`${base}/snapshots`),
+        fetchJson<DbSnapshot[]>(`${base}/snapshots${qp}`),
         fetchJson<DbSecurityCheck[]>(`${base}/security`),
         fetchJson<SlowQueriesResponse>(`${base}/slow-queries`),
         fetchJson<AgentQueryStat[]>(`${base}/agent-query-stats`),

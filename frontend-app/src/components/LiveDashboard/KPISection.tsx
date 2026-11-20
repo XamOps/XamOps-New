@@ -80,9 +80,11 @@ const PROVIDER_OVERRIDES: Record<string, Record<string, Partial<KPICardDef>>> = 
   },
 };
 
-// Cards a provider does not offer. AutoSpotting is AWS and GCP only.
+// Cards a provider does not offer. AutoSpotting is AWS and GCP only, and so is Flex Compute: its
+// cards read /api/flexcompute/capacity, which has no Azure data, so on Azure they showed the
+// organization's AWS Flex Compute figures under Azure labels.
 const PROVIDER_HIDDEN_CARDS: Record<string, ReadonlySet<string>> = {
-  Azure: new Set(['autoSpottingSavings', 'autoSpottingInstances']),
+  Azure: new Set(['autoSpottingSavings', 'autoSpottingInstances', 'flexComputeInstances', 'flexComputeSavings']),
 };
 // "View more" targets are declared as AWS routes on the card definitions and swapped for
 // the active provider's variant by resolveProviderLink (utils/providerRoutes). This used to

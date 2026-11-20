@@ -34,6 +34,29 @@
     animation: premium-pulse 2s infinite ease-in-out;
 }
 
+/* Client side panel: slides in from the right edge. */
+@keyframes client-panel-slide-in {
+    from {
+        transform: translateX(24px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.animate-client-panel-in {
+    animation: client-panel-slide-in 0.2s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .animate-client-panel-in {
+        animation: none;
+    }
+}
+
 /* Professional Card - Clean Paper Style */
 .premium-glass {
     background: #ffffff !important;

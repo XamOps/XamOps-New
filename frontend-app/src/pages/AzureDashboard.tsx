@@ -8,7 +8,7 @@ import { useAzureDashboardData } from '../hooks/useAzureDashboardData';
 import { mapInventoryToResources } from '../api/azureDashboardApi';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
-import type { CostHistory } from '../types/liveDashboard';
+import type { CostHistory, OptimizationData, ResourceInventory } from '../types/liveDashboard';
 
 import KPISection from '../components/LiveDashboard/KPISection';
 import SummaryCardsSection from '../components/LiveDashboard/SummaryCardsSection';
@@ -50,21 +50,17 @@ const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = (
 };
 
 const AzureDashboard: React.FC = () => {
-  const [selectedAccountIds] = useState<string[]>(() => {
-    const stored = sessionStorage.getItem('selectedAccountIds');
-    if (stored) {
-      try { return JSON.parse(stored); } catch { return []; }
-    }
-    return [];
-  });
+  // From the account context, as the AWS dashboard reads it. This was a one-time read of
+  // sessionStorage, so a subscription selected after the page mounted — the context's automatic
+  // selection on a fresh tab, which is the only selection an Azure-only user ever gets — never
+  // reached the page, and it stayed on "No Azure Subscription Selected".
+  const { selectedAccountIds, isLoading: accountsLoading } = useAccounts();
 
   const { data, loading, isRefreshing, error, refresh } = useAzureDashboardData({
     accountIds: selectedAccountIds,
     autoRefresh: true,
     refreshInterval: 60,
   });
-
-  const { isLoading: accountsLoading } = useAccounts();
   const { setActions, clearActions } = useTopbar();
 
   const timePreset: TimePreset = '30d';
@@ -105,6 +101,53 @@ const AzureDashboard: React.FC = () => {
   }), [dashboardData]);
 
   const accountId = selectedAccountIds.length === 1 ? selectedAccountIds[0] : null;
+
+  // The shared KPI cards read the AWS-shaped inventory and optimization objects. Neither was
+  // passed for Azure, so cards such as Virtual Machines, Storage Accounts, SQL Databases, Function
+  // Apps, Critical Alerts and Anomalies read 0 regardless of the subscription. Mapped from the
+  // figures this payload already carries; there is no Azure source for the per-type
+  // recommendation counts, which stay 0 as before.
+  const kpiInventory: ResourceInventory | undefined = useMemo(() => {
+    const inv = dashboardData?.resourceInventory;
+    if (!inv) return undefined;
+    return {
+      ec2Count: inv.virtualMachines || 0,
+      s3Count: inv.storageAccounts || 0,
+      rdsCount: inv.sqlDatabases || 0,
+      vpcCount: inv.virtualNetworks || 0,
+      lambdaCount: inv.functions || 0,
+      ebsCount: inv.disks || 0,
+      route53Count: inv.dnsZones || 0,
+      loadBalancerCount: inv.loadBalancers || 0,
+      ecsCount: inv.containerInstances || 0,
+      eksCount: inv.kubernetesServices || 0,
+      lightsailCount: 0,
+      amplifyCount: inv.staticWebApps || 0,
+    };
+  }, [dashboardData]);
+
+  const kpiOptimization: OptimizationData | undefined = useMemo(() => {
+    if (!dashboardData) return undefined;
+    const summary = dashboardData.optimizationSummary;
+    return {
+      summary: {
+        totalRecommendations: 0,
+        totalPotentialSavings: summary?.totalPotentialSavings || 0,
+        criticalAlerts: summary?.criticalAlertsCount || 0,
+        ec2RecommendationCount: 0,
+        ebsRecommendationCount: 0,
+        lambdaRecommendationCount: 0,
+      },
+      anomalies: (dashboardData.costAnomalies || []).map(a => ({
+        service: a.service,
+        startDate: a.startDate,
+        unexpectedSpend: a.unexpectedSpend,
+      })),
+      ec2Recommendations: [],
+      ebsRecommendations: [],
+      lambdaRecommendations: [],
+    };
+  }, [dashboardData]);
 
   const customizeButton = (
     <button onClick={() => setCustomizerOpen(true)}
@@ -231,6 +274,8 @@ const AzureDashboard: React.FC = () => {
           <KPISection
             kpiData={dashboardData.kpi as any}
             costHistory={azureCostHistory}
+            optimization={kpiOptimization}
+            resourceInventory={kpiInventory}
             totalResourcesOverride={totalResources}
             isLoading={loading.kpi}
             provider="Azure"

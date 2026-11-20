@@ -87,7 +87,15 @@ public class AzureFinOpsService {
      * Generates the main FinOps report for an Azure subscription
      */
     public AzureFinOpsReportDto getFinOpsReport(String subscriptionId) {
-        logger.info("Generating Azure FinOps report for subscription: {}", subscriptionId);
+        return getFinOpsReport(subscriptionId, false);
+    }
+
+    /**
+     * @param forceRefresh re-run the rightsizing, waste and anomaly reads instead of serving their
+     *                     cached results, as the Refresh button expects
+     */
+    public AzureFinOpsReportDto getFinOpsReport(String subscriptionId, boolean forceRefresh) {
+        logger.info("Generating Azure FinOps report for subscription: {} (forceRefresh={})", subscriptionId, forceRefresh);
 
         AzureFinOpsReportDto report = new AzureFinOpsReportDto();
         AzureFinOpsReportDto.Kpis kpis = new AzureFinOpsReportDto.Kpis();
@@ -263,7 +271,7 @@ public class AzureFinOpsService {
         // --- STEP 4: Get Rightsizing Recommendations ---
         List<AzureFinOpsReportDto.RightsizingItem> rightsizingItems = new ArrayList<>();
         try {
-            AzureRightsizingResponse rightsizingResponse = rightsizingService.getRecommendations(subscriptionId, false);
+            AzureRightsizingResponse rightsizingResponse = rightsizingService.getRecommendations(subscriptionId, forceRefresh);
             if (rightsizingResponse != null && rightsizingResponse.getRecommendations() != null) {
                 for (AzureRightsizingRecommendation r : rightsizingResponse.getRecommendations()) {
                     rightsizingItems.add(new AzureFinOpsReportDto.RightsizingItem(
@@ -288,7 +296,7 @@ public class AzureFinOpsService {
         // --- STEP 5: Get Waste Items ---
         List<AzureFinOpsReportDto.WasteItem> wasteItems = new ArrayList<>();
         try {
-            List<AzureWasteItem> wasteRaw = wasteService.getWasteItems(subscriptionId, false);
+            List<AzureWasteItem> wasteRaw = wasteService.getWasteItems(subscriptionId, forceRefresh);
             if (wasteRaw != null) {
                 for (AzureWasteItem w : wasteRaw) {
                     wasteItems.add(new AzureFinOpsReportDto.WasteItem(
@@ -360,7 +368,7 @@ public class AzureFinOpsService {
 
         // --- STEP 8: Cost anomalies ---
         try {
-            AzureCostAnomalyService.AnomalyOutcome outcome = costAnomalyService.detect(subscriptionId, false);
+            AzureCostAnomalyService.AnomalyOutcome outcome = costAnomalyService.detect(subscriptionId, forceRefresh);
             report.setCostAnomalies(outcome.anomalies());
             report.setCostAnomaliesUnavailableReason(outcome.unavailableReason());
         } catch (Exception e) {

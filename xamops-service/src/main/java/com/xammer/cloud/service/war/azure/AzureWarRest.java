@@ -30,6 +30,8 @@ public class AzureWarRest {
     private static final String ARM = "https://management.azure.com";
     private static final String SCOPE = "https://management.azure.com/.default";
     private static final Duration TIMEOUT = Duration.ofSeconds(20);
+    /** Upper bound on nextLink pages per list, so a looping cursor cannot stall a scan. */
+    private static final int MAX_PAGES = 50;
 
     private final AzureClientProvider clientProvider;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -50,11 +52,21 @@ public class AzureWarRest {
      * a materially different problem from a control actually failing.
      */
     public List<JsonNode> listValues(String subscriptionId, String path) {
-        JsonNode body = get(subscriptionId, path);
         List<JsonNode> out = new ArrayList<>();
-        JsonNode value = body.get("value");
-        if (value != null && value.isArray()) {
-            value.forEach(out::add);
+        // ARM pages long lists and returns the rest behind nextLink. Only the first page used to
+        // be read, so a subscription with more policy assignments, alerts or budgets than fit on
+        // one page was judged on a truncated list.
+        String next = path;
+        int pages = 0;
+        while (next != null && !next.isBlank() && pages < MAX_PAGES) {
+            JsonNode body = get(subscriptionId, next);
+            JsonNode value = body.get("value");
+            if (value != null && value.isArray()) {
+                value.forEach(out::add);
+            }
+            JsonNode link = body.get("nextLink");
+            next = link != null && !link.isNull() ? link.asText(null) : null;
+            pages++;
         }
         return out;
     }

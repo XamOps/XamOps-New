@@ -133,7 +133,7 @@ public class AzureBudgetService {
         log.info("Storing Azure budget '{}' (limit {} {}) for subscription {} in XamOps by user {}",
                 name, request.getBudgetLimit(), unit, subscriptionId, username);
 
-        List<AzureBudgetDto> budgets = new ArrayList<>(loadBudgets(subscriptionId));
+        List<AzureBudgetDto> budgets = new ArrayList<>(loadBudgetsForWrite(subscriptionId));
         // Create doubles as update: drop any existing budget with the same name before re-adding it,
         // so a repeated name overwrites rather than duplicates.
         budgets.removeIf(b -> name.equals(b.getBudgetName()));
@@ -155,7 +155,7 @@ public class AzureBudgetService {
                     + "digits, underscores and hyphens");
         }
 
-        List<AzureBudgetDto> budgets = new ArrayList<>(loadBudgets(subscriptionId));
+        List<AzureBudgetDto> budgets = new ArrayList<>(loadBudgetsForWrite(subscriptionId));
         boolean removed = budgets.removeIf(b -> budgetName.equals(b.getBudgetName()));
         if (removed) {
             saveBudgets(subscriptionId, budgets);
@@ -194,6 +194,33 @@ public class AzureBudgetService {
             log.warn("Could not read stored Azure budgets for {}: {}", subscriptionId, e.getMessage());
         }
         return new ArrayList<>();
+    }
+
+    /**
+     * Reads the stored list for a create or delete, failing instead of returning empty.
+     *
+     * <p>{@link #loadBudgets} turns an unreadable row into an empty list, which is right for
+     * display. A write built on that empty list replaced the whole row, so one failed read
+     * followed by a create deleted every other budget for the subscription.
+     */
+    private List<AzureBudgetDto> loadBudgetsForWrite(String subscriptionId) {
+        Optional<List<AzureBudgetDto>> cached = redisCacheService.get(BUDGET_CACHE_PREFIX + subscriptionId,
+                new TypeReference<List<AzureBudgetDto>>() {});
+        if (cached.isPresent()) {
+            return cached.get();
+        }
+        try {
+            Optional<CachedData> row = cachedDataRepository.findById(BUDGET_DB_PREFIX + subscriptionId);
+            if (row.isEmpty() || row.get().getJsonData() == null || row.get().getJsonData().isBlank()) {
+                return new ArrayList<>();
+            }
+            List<AzureBudgetDto> stored = objectMapper.readValue(row.get().getJsonData(),
+                    new TypeReference<List<AzureBudgetDto>>() {});
+            return stored != null ? stored : new ArrayList<>();
+        } catch (Exception e) {
+            throw new BudgetsUnavailableException("The stored Azure budgets could not be read, so the change "
+                    + "was not saved (saving would have overwritten them): " + e.getMessage(), false);
+        }
     }
 
     /** Persists the list to the DB (source of truth), then refreshes the Redis mirror. */

@@ -886,11 +886,13 @@ public class ReservationService {
                     "Amazon Elasticsearch Service")),
             new ReservableService("Amazon Redshift", List.of(
                     "Amazon Redshift")),
+            // Cost Explorer rejects "Amazon MemoryDB", "Amazon MemoryDB for Redis" and "Amazon
+            // DynamoDB". Its "Invalid Service" ValidationException lists the accepted values,
+            // which include the two names below (checked 2026-11-19).
             new ReservableService("Amazon MemoryDB", List.of(
-                    "Amazon MemoryDB",
-                    "Amazon MemoryDB for Redis")),
+                    "Amazon MemoryDB Service")),
             new ReservableService("Amazon DynamoDB", List.of(
-                    "Amazon DynamoDB")));
+                    "Amazon DynamoDB Service")));
 
     /**
      * Service label to the candidate string that Cost Explorer accepted, so the alias probe
@@ -960,9 +962,6 @@ public class ReservationService {
                             .lookbackPeriodInDays(LookbackPeriodInDays.fromValue(lookback))
                             .termInYears(TermInYears.fromValue(term))
                             .paymentOption(PaymentOption.fromValue(paymentOption))
-                            // Pinned explicitly rather than relying on the PAYER default, so the
-                            // scope of the result matches what the UI attributes it to.
-                            .accountScope(AccountScope.PAYER)
                             .service(serviceName);
 
             // offeringClass lives in the EC2 service specification, not on the request, and
@@ -977,7 +976,7 @@ public class ReservationService {
             }
 
             GetReservationPurchaseRecommendationResponse response =
-                    getWithThrottleRetry(ce, builder.build(), serviceName, accountId);
+                    getWithScopeFallback(ce, builder, serviceName, accountId);
 
             List<DashboardData.ReservationPurchaseRecommendation> out = new ArrayList<>();
             for (ReservationPurchaseRecommendation rec : response.recommendations()) {
@@ -1037,6 +1036,49 @@ public class ReservationService {
                 || message.contains("invalid service")
                 || message.contains("unknown service")
                 || message.contains("no reservation"));
+    }
+
+    /**
+     * Account ID to the {@link AccountScope} Cost Explorer accepted for it, so the PAYER probe
+     * fails at most once per member account per process rather than on every service.
+     */
+    private final Map<String, AccountScope> resolvedAccountScopes = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Issues the request with PAYER scope, falling back to LINKED when Cost Explorer rejects
+     * PAYER for this account.
+     *
+     * <p>PAYER covers the whole organization and is only accepted for a management (payer)
+     * account. A member account gets a 400 "Wrong AccountScope: PAYER", which previously failed
+     * every service and left the page empty. Trying PAYER first keeps organization-wide results
+     * for payer accounts; LINKED returns the member account's own recommendations.
+     */
+    private GetReservationPurchaseRecommendationResponse getWithScopeFallback(
+            CostExplorerClient ce, GetReservationPurchaseRecommendationRequest.Builder builder,
+            String serviceName, String accountId) {
+
+        AccountScope scope = resolvedAccountScopes.getOrDefault(accountId, AccountScope.PAYER);
+        try {
+            GetReservationPurchaseRecommendationResponse response = getWithThrottleRetry(
+                    ce, builder.accountScope(scope).build(), serviceName, accountId);
+            resolvedAccountScopes.putIfAbsent(accountId, scope);
+            return response;
+        } catch (AwsServiceException e) {
+            if (scope != AccountScope.PAYER || !isWrongAccountScope(e)) {
+                throw e;
+            }
+            logger.info("Cost Explorer rejected PAYER scope for account {}; using LINKED "
+                    + "(member account)", accountId);
+            GetReservationPurchaseRecommendationResponse response = getWithThrottleRetry(
+                    ce, builder.accountScope(AccountScope.LINKED).build(), serviceName, accountId);
+            resolvedAccountScopes.put(accountId, AccountScope.LINKED);
+            return response;
+        }
+    }
+
+    private boolean isWrongAccountScope(AwsServiceException e) {
+        String message = e.getMessage() == null ? "" : e.getMessage().toLowerCase();
+        return e.statusCode() == 400 && message.contains("wrong accountscope");
     }
 
     /**

@@ -268,10 +268,12 @@ export const UnifiedDashboard: React.FC = () => {
       }
     } else if (provider === 'Azure') {
       switch (mode) {
+        // Azure has its own Waste, Rightsizing and Alerts pages, as AWS and GCP do; these used to
+        // open FinOps or the dashboard instead.
         case 'resource': targetPath = '/azure-cloudlist'; break;
-        case 'waste': targetPath = '/azure-finops'; break; // Azure FinOps covers waste/savings
-        case 'savings': targetPath = '/azure-finops'; break;
-        case 'alerts': targetPath = '/azure-dashboard'; break; // Alerts on main dashboard
+        case 'waste': targetPath = '/azure-waste'; break;
+        case 'savings': targetPath = '/azure-rightsizing'; break;
+        case 'alerts': targetPath = '/azure-alerts'; break;
         default: targetPath = '/azure-dashboard';
       }
     } else {

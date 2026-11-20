@@ -343,15 +343,29 @@ public class AzureWarResourceChecks {
     /** AZURE-28 (customer-managed keys) and AZURE-29 (rotation). */
     private void checkKeyVaults(WarScanContext ctx, AzureResourceManager azure) {
         ctx.guard("Microsoft.KeyVault/vaults/read", List.of("AZURE-28", "AZURE-29"), () -> {
-            var vaults = azure.vaults().listByResourceGroup("").stream().toList();
-            // listByResourceGroup("") is not valid; enumerate via resource groups instead.
+            // Vaults can only be listed per resource group. The listByResourceGroup("") call that
+            // used to sit here sent a request with an empty group name, which ARM rejects; the
+            // exception escaped to guard() and both controls reported "Could not verify" on
+            // every scan.
             List<String> vaultNames = new ArrayList<>();
+            int groups = 0;
+            int failedGroups = 0;
+            String lastFailure = null;
             for (var group : azure.resourceGroups().list()) {
-                ctx.quiet(null, () -> {
+                groups++;
+                try {
                     azure.vaults().listByResourceGroup(group.name())
                             .forEach(v -> vaultNames.add(v.name()));
-                    return null;
-                });
+                } catch (Exception e) {
+                    failedGroups++;
+                    lastFailure = e.getMessage();
+                }
+            }
+
+            // Every group failing is a read failure, not an absence of vaults. Reporting it as
+            // "No Key Vault found" would fail the control on a permission problem.
+            if (vaultNames.isEmpty() && groups > 0 && failedGroups == groups) {
+                throw new IllegalStateException("Could not list Key Vaults in any resource group: " + lastFailure);
             }
 
             if (vaultNames.isEmpty()) {
@@ -370,8 +384,6 @@ public class AzureWarResourceChecks {
                     "Key rotation policy is set per key — confirm automatic rotation on the keys "
                             + "backing CMK encryption",
                     "Microsoft.KeyVault/vaults/keys/read"));
-            // Silence the unused local without dropping the SDK call above.
-            assert vaults != null;
         });
     }
 
@@ -433,13 +445,7 @@ public class AzureWarResourceChecks {
                                     + "stored credentials");
                         }
 
-                        String patchMode = inner.osProfile() != null
-                                && inner.osProfile().linuxConfiguration() != null
-                                && inner.osProfile().linuxConfiguration().patchSettings() != null
-                                ? String.valueOf(inner.osProfile().linuxConfiguration()
-                                        .patchSettings().patchMode())
-                                : null;
-                        if (patchMode == null || "ImageDefault".equalsIgnoreCase(patchMode)) {
+                        if (!hasAutomatedPatching(inner.osProfile())) {
                             manualPatching.add(name + " is not under automated patch management");
                         }
 
@@ -597,8 +603,11 @@ public class AzureWarResourceChecks {
     /** AZURE-12: NSG flow logs, the substrate for the mining-pool query in AZURE-81. */
     private void checkFlowLogs(WarScanContext ctx, AzureResourceManager azure) {
         ctx.guard("Microsoft.Network/networkWatchers/flowLogs/read", List.of("AZURE-12"), () -> {
-            long watchers = ctx.quiet(0L, () -> azure.networkWatchers().list().stream().count());
-            long networks = ctx.quiet(0L, () -> azure.networks().list().stream().count());
+            // Not quiet(): a failed listing defaulted to zero, so a permission error on networks
+            // read as "No virtual networks" (not applicable) and one on watchers as a failed
+            // control. Letting the exception reach guard() reports it as could-not-verify.
+            long watchers = azure.networkWatchers().list().stream().count();
+            long networks = azure.networks().list().stream().count();
 
             if (networks == 0) {
                 ctx.put("AZURE-12", WarCheckResult.notApplicable(
@@ -615,6 +624,38 @@ public class AzureWarResourceChecks {
                                     + "flow logs and Traffic Analytics are enabled on each NSG",
                             watchers, networks)));
         });
+    }
+
+    /**
+     * Whether the VM's guest OS patching is automated.
+     *
+     * <p>Only the Linux settings used to be read, so every Windows VM had no patch mode and was
+     * reported as manually patched. Windows patches automatically unless its mode is
+     * {@code Manual} or automatic updates are switched off; when no patch settings are returned
+     * Azure applies {@code AutomaticByOS}.
+     */
+    private static boolean hasAutomatedPatching(com.azure.resourcemanager.compute.models.OSProfile osProfile) {
+        if (osProfile == null) {
+            return false;
+        }
+        var linux = osProfile.linuxConfiguration();
+        if (linux != null) {
+            String mode = linux.patchSettings() != null && linux.patchSettings().patchMode() != null
+                    ? linux.patchSettings().patchMode().toString()
+                    : null;
+            return mode != null && !"ImageDefault".equalsIgnoreCase(mode);
+        }
+        var windows = osProfile.windowsConfiguration();
+        if (windows != null) {
+            if (Boolean.FALSE.equals(windows.enableAutomaticUpdates())) {
+                return false;
+            }
+            String mode = windows.patchSettings() != null && windows.patchSettings().patchMode() != null
+                    ? windows.patchSettings().patchMode().toString()
+                    : null;
+            return !"Manual".equalsIgnoreCase(mode);
+        }
+        return false;
     }
 
     /** NSG port specs are a single port, a {@code from-to} range, or {@code *}. */

@@ -71,7 +71,11 @@ public class AzureDiskRightsizingService {
             throw new IllegalArgumentException("No Azure subscription ID for account " + accountId);
         }
 
-        String cacheKey = CACHE_KEY_DISKS + accountId;
+        // Keyed on the database id whatever form the caller used. The page sends the subscription
+        // id and the dashboard sends the database id; keying on the raw value gave each its own
+        // copy, and evictDiskCaches (which uses the database id) never cleared the page's copy, so
+        // a deleted disk stayed listed for up to two hours.
+        String cacheKey = CACHE_KEY_DISKS + account.getId();
         if (!forceRefresh) {
             Optional<List<Map<String, Object>>> cached = redisCacheService.get(
                     cacheKey, new TypeReference<List<Map<String, Object>>>() {});
@@ -126,7 +130,7 @@ public class AzureDiskRightsizingService {
             action.setErrorMessage(e.getMessage());
             action.setCompletedAt(Instant.now());
             ebsVolumeActionRepository.save(action);
-            redisCacheService.evict(CACHE_KEY_DISKS + accountId);
+            redisCacheService.evict(CACHE_KEY_DISKS + account.getId());
             logger.error("[azure-disk] action {} failed for disk {}: {}", actionType, diskName, e.getMessage(), e);
             return Map.of("success", false, "error", e.getMessage());
         }
@@ -156,10 +160,22 @@ public class AzureDiskRightsizingService {
 
     public Map<String, Object> savePolicy(String accountId, Long callerClientId, DiskPolicy policy) {
         CloudAccount account = resolveAccount(accountId, callerClientId);
+        // The body is caller-supplied, including its id. Saving it as-is let a request update any
+        // policy row in the table by naming its id, reassigning another account's policy to this
+        // one. An existing id must already belong to this account.
+        if (policy.getId() != null) {
+            boolean ownPolicy = diskPolicyRepository.findById(policy.getId())
+                    .map(existing -> existing.getAccount() != null
+                            && account.getId().equals(existing.getAccount().getId()))
+                    .orElse(false);
+            if (!ownPolicy) {
+                throw new IllegalArgumentException("Policy not found for this account: " + policy.getId());
+            }
+        }
         policy.setAccount(account);
         policy.setCloudProvider("AZURE");
         diskPolicyRepository.save(policy);
-        redisCacheService.evict(CACHE_KEY_DISKS + accountId);
+        redisCacheService.evict(CACHE_KEY_DISKS + account.getId());
         return Map.of("success", true);
     }
 
@@ -360,17 +376,36 @@ public class AzureDiskRightsizingService {
         String instanceName = (String) dto.get("instanceName");
         if (instanceName == null) return;
 
-        String agentAccountKey = String.valueOf(account.getId());
-        String cacheKey = "azure-disk-agent:" + agentAccountKey + ":" + instanceName;
-        Optional<List<Map<String, Object>>> agentData = redisCacheService.get(
-                cacheKey, new TypeReference<List<Map<String, Object>>>() {});
-        logger.debug("[azure-disk] agent key={} found={}", cacheKey, agentData.isPresent());
+        // The agent stores its pushes under whatever account id it was installed with. The page's
+        // install command passes the subscription id, which is also the only id an account-scoped
+        // agent key accepts, so that key is read first. The database id is the older form and is
+        // kept as a fallback for agents installed with it.
+        List<String> candidateKeys = new ArrayList<>();
+        if (account.getAzureSubscriptionId() != null && !account.getAzureSubscriptionId().isBlank()) {
+            candidateKeys.add(account.getAzureSubscriptionId());
+        }
+        candidateKeys.add(String.valueOf(account.getId()));
+
+        String agentAccountKey = null;
+        Optional<List<Map<String, Object>>> agentData = Optional.empty();
+        for (String candidate : candidateKeys) {
+            String cacheKey = "azure-disk-agent:" + candidate + ":" + instanceName;
+            agentData = redisCacheService.get(cacheKey, new TypeReference<List<Map<String, Object>>>() {});
+            logger.debug("[azure-disk] agent key={} found={}", cacheKey, agentData.isPresent());
+            if (agentData.isPresent()) {
+                agentAccountKey = candidate;
+                break;
+            }
+        }
 
         if (agentData.isEmpty()) {
-            String seenKey = "azure-disk-agent-seen:" + agentAccountKey + ":" + instanceName;
-            Optional<Boolean> seen = redisCacheService.get(seenKey, new TypeReference<Boolean>() {});
-            if (seen.isPresent()) {
-                dto.put("agentDeployed", true);
+            for (String candidate : candidateKeys) {
+                String seenKey = "azure-disk-agent-seen:" + candidate + ":" + instanceName;
+                Optional<Boolean> seen = redisCacheService.get(seenKey, new TypeReference<Boolean>() {});
+                if (seen.isPresent()) {
+                    dto.put("agentDeployed", true);
+                    break;
+                }
             }
             return;
         }
@@ -706,6 +741,27 @@ public class AzureDiskRightsizingService {
                     "Refusing to delete disk %s: it is now attached to %s. The recommendation was stale.",
                     diskName, disk.innerModel().managedBy()));
         }
+        // The same guards the recommendation applies. They only ran when building the list, so a
+        // direct request to this endpoint could delete a disk the page would never have offered,
+        // such as a Kubernetes PersistentVolume between pod reschedules.
+        String liveState = disk.innerModel().diskState() != null
+                ? disk.innerModel().diskState().toString() : null;
+        if (isKubernetesManaged(disk.id(), disk.name(), disk.resourceGroupName(), disk.tags())) {
+            throw new IllegalStateException("Refusing to delete disk " + diskName
+                    + ": it is managed by Kubernetes and backs a PersistentVolume.");
+        }
+        if (hasProtectedTag(disk.tags())) {
+            throw new IllegalStateException("Refusing to delete disk " + diskName
+                    + ": it carries a retention or protection tag.");
+        }
+        if (isReservedState(liveState)) {
+            throw new IllegalStateException("Refusing to delete disk " + diskName
+                    + ": its state is " + liveState + ", so an operation is in progress.");
+        }
+        if (isRecentlyDetached(disk)) {
+            throw new IllegalStateException("Refusing to delete disk " + diskName + ": it was detached within the last "
+                    + DEFAULT_MIN_DETACH_AGE_DAYS + " days.");
+        }
         // Record the size so the action history shows what was removed.
         action.setOldSizeGb(disk.sizeInGB());
 
@@ -759,15 +815,27 @@ public class AzureDiskRightsizingService {
             throw new SecurityException("Unauthenticated request: no client context available");
         }
 
-        long parsedId;
-        try {
-            parsedId = Long.parseLong(accountId);
-        } catch (NumberFormatException e) {
+        if (accountId == null || accountId.isBlank()) {
             throw new IllegalArgumentException("Invalid account id: " + accountId);
         }
 
-        CloudAccount account = cloudAccountRepository.findById(parsedId)
+        // The Disk Rightsizing page sends the subscription id, because that is the id every Azure
+        // account carries in the account list. Only a numeric database id used to be accepted, so
+        // every page request failed with "Invalid account id" and the page never loaded. The
+        // database id is still accepted for the dashboard, which passes it.
+        CloudAccount account = cloudAccountRepository.findByAzureSubscriptionId(accountId.trim())
+                .or(() -> {
+                    try {
+                        return cloudAccountRepository.findById(Long.parseLong(accountId.trim()));
+                    } catch (NumberFormatException e) {
+                        return Optional.empty();
+                    }
+                })
                 .orElseThrow(() -> new IllegalArgumentException("Account not found: " + accountId));
+
+        if (!"Azure".equalsIgnoreCase(account.getProvider())) {
+            throw new IllegalArgumentException("Account not found: " + accountId);
+        }
 
         if (account.getClient() == null || !callerClientId.equals(account.getClient().getId())) {
             // Deliberately vague message: do not confirm the account exists to a caller

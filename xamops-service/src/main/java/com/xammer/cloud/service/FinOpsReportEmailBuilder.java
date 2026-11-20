@@ -56,10 +56,12 @@ public class FinOpsReportEmailBuilder {
         String generatedDate = LocalDate.now().format(DateTimeFormatter.ofPattern("MMMM dd, yyyy"));
         String providerBadge = getProviderBadge(cloudProvider);
 
-        // Currency based on cloud provider: GCP uses INR (₹), others use USD ($)
-        boolean isGcp = cloudProvider != null && cloudProvider.equalsIgnoreCase("GCP");
-        String currencySymbol = isGcp ? "₹" : "$";
-        String currencyLabel = isGcp ? "INR" : "USD";
+        // Currency based on cloud provider: GCP and Azure use INR (₹), as the Azure pages do;
+        // AWS uses USD ($)
+        boolean isInr = cloudProvider != null
+                && (cloudProvider.equalsIgnoreCase("GCP") || cloudProvider.equalsIgnoreCase("Azure"));
+        String currencySymbol = isInr ? "₹" : "$";
+        String currencyLabel = isInr ? "INR" : "USD";
 
         // --- HTML START ---
         sb.append("<!DOCTYPE html>");

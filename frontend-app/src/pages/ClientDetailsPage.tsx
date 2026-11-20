@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import apiClient from '../utils/apiClient';
 import { AlertDialog } from '../components/ui';
 import ClientDetailsSkeleton from '../components/Shared/ClientDetailsSkeleton';
@@ -612,6 +613,45 @@ const ClientDetailsPage: React.FC = () => {
         return filteredClients.slice(start, start + PAGE_SIZE);
     }, [filteredClients, currentPage]);
 
+    // ── Client side panel ────────────────────────────────────────────────────────────────
+    // Clicking a client opens its Accounts / Users / Savings tabs in a panel on the right.
+    const panelCloseButton = useRef<HTMLButtonElement>(null);
+    const panelOpener = useRef<HTMLElement | null>(null);
+
+    const closeClientPanel = useCallback(() => {
+        setExpandedClient(null);
+        setExpandedSection(null);
+    }, []);
+
+    // The panel renders from the client's row, so a refresh that moves the client off this
+    // page would leave it selected but invisible, and the next click on it would close
+    // rather than open. Clear the selection instead.
+    useEffect(() => {
+        if (expandedClient !== null && !paginatedClients.some(c => c.id === expandedClient)) {
+            closeClientPanel();
+        }
+    }, [expandedClient, paginatedClients, closeClientPanel]);
+
+    // Esc closes the panel, unless a dialog opened from inside it is on top: that dialog
+    // handles its own Esc, and one keypress should not close both.
+    useEffect(() => {
+        if (expandedClient === null) return;
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape' || activityUser !== null || pendingDeleteClient !== null) return;
+            closeClientPanel();
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [expandedClient, activityUser, pendingDeleteClient, closeClientPanel]);
+
+    // Focus moves into the panel on open and back to the row that opened it on close.
+    useEffect(() => {
+        if (expandedClient === null) return;
+        panelOpener.current = document.activeElement as HTMLElement | null;
+        panelCloseButton.current?.focus();
+        return () => panelOpener.current?.focus?.();
+    }, [expandedClient]);
+
     if (isLoading) {
         return (
             <div className="p-5" style={{ background: '#ffffff', minHeight: '100%' }}>
@@ -916,17 +956,69 @@ const ClientDetailsPage: React.FC = () => {
                                 >
                                     <i className="fas fa-trash-can text-xs"></i>
                                 </button>
-                                <div className={`w-6 h-6 rounded-md flex items-center justify-center transition-all duration-300 ${expandedClient === client.id ? 'bg-indigo-600 text-white rotate-180' : 'bg-gray-100 text-gray-400'}`}>
-                                    <i className="fas fa-chevron-down text-[9px]"></i>
+                                <div className={`w-6 h-6 rounded-md flex items-center justify-center transition-colors ${expandedClient === client.id ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                                    <i className="fas fa-chevron-right text-[9px]"></i>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Collapsible Content */}
-                        {expandedClient === client.id && (
-                            <div className="border-t border-gray-100 bg-gray-50/30">
+                        {/* Client side panel. Portalled to <body>: the row's fade-in animation uses a
+                            transform, which would otherwise pin a fixed panel inside the row. Sits at
+                            z-40 so the activity window and dialogs (z-50) open above it. */}
+                        {expandedClient === client.id && createPortal(
+                            <>
+                            <div
+                                className="fixed inset-0 lg:left-[220px] z-40 bg-black/30"
+                                onClick={closeClientPanel}
+                                aria-hidden="true"
+                            />
+                            <aside
+                                role="dialog"
+                                aria-modal="true"
+                                aria-label={`Client ${client.name}`}
+                                className="fixed inset-y-0 right-0 z-40 flex w-full flex-col bg-white border-l border-gray-200 shadow-2xl lg:w-[min(1100px,calc(100vw_-_220px))] animate-client-panel-in"
+                            >
+                            {/* Panel header: the same summary the row shows. */}
+                            <div className="flex items-center justify-between gap-4 border-b border-gray-200 px-6 py-4 shrink-0">
+                                <div className="flex items-center gap-3.5 min-w-0">
+                                    <div className="w-9 h-9 rounded-md bg-gray-100 flex items-center justify-center text-gray-600 text-sm font-semibold flex-shrink-0">
+                                        {client.name.charAt(0).toUpperCase()}
+                                    </div>
+                                    <div className="min-w-0">
+                                        <h2 className="text-sm font-semibold text-gray-900 leading-tight truncate">{client.name}</h2>
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                            <span className="text-[11px] text-gray-400 truncate">{client.email}</span>
+                                            <span className="text-gray-200">·</span>
+                                            <span className="text-[11px] text-gray-400">#{client.id}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-5 flex-shrink-0">
+                                    <div className="text-right">
+                                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest leading-none">Consumption</p>
+                                        <p className="text-base font-semibold text-gray-800 mt-1 leading-none">
+                                            ${clientTotal(client).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </p>
+                                    </div>
+                                    <div className="hidden sm:flex items-center gap-1.5">
+                                        <div className="badge-enterprise badge-enterprise-blue">{client.accounts.length} Accounts</div>
+                                        <div className="badge-enterprise badge-enterprise-purple">{client.users.length} Users</div>
+                                    </div>
+                                    <button
+                                        ref={panelCloseButton}
+                                        type="button"
+                                        onClick={closeClientPanel}
+                                        title="Close"
+                                        aria-label="Close client panel"
+                                        className="w-8 h-8 rounded-md flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                                    >
+                                        <i className="fas fa-xmark text-sm"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="flex flex-1 min-h-0 flex-col bg-gray-50/30">
                                 {/* Sub-navigation */}
-                                <div className="flex border-b border-gray-100 px-8 gap-8">
+                                <div className="flex border-b border-gray-100 px-8 gap-8 shrink-0 bg-white">
                                     <button
                                         className={`py-3 text-xs font-semibold uppercase tracking-wider transition-colors relative ${expandedSection === 'accounts' ? 'text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
                                         onClick={() => setExpandedSection('accounts')}
@@ -953,7 +1045,7 @@ const ClientDetailsPage: React.FC = () => {
                                     </button>
                                 </div>
 
-                                <div className="p-6">
+                                <div className="flex-1 overflow-y-auto p-6">
                                     {expandedSection === 'accounts' && (
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                             {client.accounts.map((acc, accIdx) => (
@@ -1020,7 +1112,15 @@ const ClientDetailsPage: React.FC = () => {
                                     )}
 
                                     {expandedSection === 'savings' && (
-                                        <ClientSavingsTab clientId={client.id} />
+                                        <ClientSavingsTab
+                                            clientId={client.id}
+                                            accounts={client.accounts.map(a => ({
+                                                id: a.id,
+                                                name: a.name,
+                                                provider: a.provider,
+                                                providerAccountId: a.providerAccountId || null,
+                                            }))}
+                                        />
                                     )}
 
                                     {expandedSection === 'users' && (() => {
@@ -1053,7 +1153,7 @@ const ClientDetailsPage: React.FC = () => {
                                         );
 
                                         return (
-                                            <div className="rounded-md border border-gray-200 bg-white overflow-hidden">
+                                            <div className="rounded-md border border-gray-200 bg-white overflow-x-auto">
                                                 <table className="w-full text-left">
                                                     <thead className="bg-gray-50 border-b border-gray-200">
                                                         <tr>
@@ -1223,6 +1323,9 @@ const ClientDetailsPage: React.FC = () => {
                                     })()}
                                 </div>
                             </div>
+                            </aside>
+                            </>,
+                            document.body,
                         )}
                     </div>
                 ))}

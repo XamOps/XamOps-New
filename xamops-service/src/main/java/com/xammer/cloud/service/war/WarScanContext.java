@@ -187,7 +187,11 @@ public class WarScanContext {
                 || lower.contains("accessdenied")
                 || lower.contains("access denied")
                 || lower.contains("explicit deny")
-                || lower.contains("no identity-based policy");
+                || lower.contains("no identity-based policy")
+                // Azure: ARM's AuthorizationFailed text. Without these an Azure role gap was
+                // filed as "blocked" and the report said granting permissions would not help.
+                || lower.contains("authorizationfailed")
+                || lower.contains("does not have authorization");
     }
 
     /** Returns {@code fallback} instead of throwing, for optional sub-lookups inside a check. */
