@@ -22,7 +22,8 @@ import type {
   SaasFileCopies, SaasFileLineage, SaasFileOverview, SaasFilePage, SaasRecords, EndpointFilePage,
 } from '../types/dspmDrawers';
 import type {
-  LineageCategories, LineageDatastorePage, LineageFilePage, LineagePolicyPage,
+  LineageCategories, LineageDatastorePage, LineageFilePage, LineagePolicyPage, PublicFileLineage,
+  PublicLineageDatastorePage, PublicLineageFilePage,
 } from '../types/dspmLineage';
 import { DEMO_LINEAGE_STEPS_DEFAULT, DEMO_LINEAGE_STEPS_KEY } from './xamlensLineageMockData';
 import type {
@@ -2402,5 +2403,142 @@ describe('demo router — XamLens datastore sync status and Scan Settings (ROLE_
       expect(response?.status, url).toBe(404);
       expect(JSON.parse(await response!.text()).code).toBe('ASSET_NOT_FOUND');
     }
+  });
+});
+
+/** Build 7 design 7 and 9.2: the public path's three routes, answered with invented data. */
+describe('demo router — XamLens Data Lineage public path (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+  afterEach(() => {
+    sessionStorage.removeItem(DEMO_LINEAGE_STEPS_KEY);
+  });
+  const PUB = '/api/dspm/lineage/public/datastores';
+  const answerOf = async (url: string) => {
+    const response = resolveDemoResponse(url);
+    expect(response, url).not.toBeNull();
+    return { status: response!.status, body: await response!.json() };
+  };
+  const datastores = (query = '') => readDemoBody(`${PUB}?${query}`) as Promise<PublicLineageDatastorePage>;
+  const filesOf = (id: string, query = '') => readDemoBody(`${PUB}/${id}/files?${query}`) as Promise<PublicLineageFilePage>;
+  const lineageOf = (id: string, fileId: string) =>
+    readDemoBody(`${PUB}/${id}/files/${encodeURIComponent(fileId)}/lineage`) as Promise<PublicFileLineage>;
+  const allDatastores = async () => (await datastores('limit=50')).rows;
+
+  it('opens with the flag unset: categories off, 9 datastores paging as 7 + 2, endpoints first', async () => {
+    expect(sessionStorage.getItem(DEMO_LINEAGE_STEPS_KEY)).toBeNull();
+    expect((await readDemoBody('/api/dspm/lineage/categories') as LineageCategories).available).toBe(false);
+    const first = await datastores('skip=0&limit=7');
+    expect(first).toMatchObject({ total: 9, skip: 0, limit: 7 });
+    expect(first.rows).toHaveLength(7);
+    expect((await datastores('skip=7&limit=7')).rows).toHaveLength(2);
+    const rows = await allDatastores();
+    expect(rows.map(row => row.kind)).toEqual([...Array(4).fill('ENDPOINT'), ...Array(5).fill('DRIVE')]);
+    expect(rows.filter(row => row.kind === 'ENDPOINT').every(row => /^ep-[0-9a-f]{24}$/.test(row.id!))).toBe(true);
+    expect(rows.filter(row => row.kind === 'DRIVE').every(row => /^dr-[0-9a-f]{24}-[A-Za-z0-9_-]{1,64}$/.test(row.id!))).toBe(true);
+    expect(rows.filter(row => row.kind === 'DRIVE').every(row => row.service === 'GOOGLE_DRIVE')).toBe(true);
+    expect(rows.filter(row => row.files === null)).toHaveLength(1);
+    expect(rows.some(row => row.files === 0)).toBe(false);
+  });
+
+  it('searches names case-insensitively, counting total after the search', async () => {
+    const page = await datastores('q=MAC&skip=0&limit=50');
+    expect(page.total).toBe(page.rows.length);
+    expect(page.total).toBeGreaterThan(0);
+    expect(page.rows.every(row => row.name!.toLowerCase().includes('mac'))).toBe(true);
+    expect(await datastores('q=nothing-matches')).toEqual({ rows: [], total: 0, skip: 0, limit: 7 });
+  });
+
+  it('answers every file list with counts that agree; one endpoint pages its 9 files as 7 + 2', async () => {
+    for (const row of await allDatastores()) {
+      const files = await filesOf(row.id!, 'skip=0&limit=100');
+      expect(files.rows, row.name!).toHaveLength(files.total);
+      if (row.files !== null) expect(files.total, row.name!).toBe(row.files);
+      if (row.kind === 'DRIVE') {
+        expect(files.total).toBeGreaterThanOrEqual(2);
+        expect(files.total).toBeLessThanOrEqual(6);
+        expect(files.rows.every(file => file.actor === null && file.createdAt === null && file.dateAt !== null)).toBe(true);
+        expect(files.rows.some(file => /[a-z]/.test(file.id!) && /[A-Z]/.test(file.id!))).toBe(true);
+      } else {
+        expect(files.rows.every(file => file.actor !== null && file.dateAt !== null)).toBe(true);
+        expect(files.rows.every(file => /^[0-9a-f-]{36}$/.test(file.id!))).toBe(true);
+      }
+    }
+    const big = (await allDatastores()).find(row => row.files === 9)!;
+    expect(big).toBeDefined();
+    expect(await filesOf(big.id!, 'skip=0&limit=7')).toMatchObject({ total: 9, skip: 0, limit: 7 });
+    expect((await filesOf(big.id!, 'skip=7&limit=7')).rows).toHaveLength(2);
+  });
+
+  it('answers each file lineage as design 7 lists it', async () => {
+    const rows = await allDatastores();
+    const endpoint = rows[0];
+    const endpointFile = (await filesOf(endpoint.id!, 'limit=100')).rows[0];
+    const ep = await lineageOf(endpoint.id!, endpointFile.id!);
+    expect(ep).toMatchObject({ kind: 'ENDPOINT', ownerEmail: null, asset: { title: endpointFile.name, device: endpoint.name } });
+    expect(ep.asset!.events.map(event => event.typeLabel)).toEqual(['File Modified', 'File Copied']);
+    expect(ep.copies.available).toBe(true);
+    expect(ep.copies.lanes.map(lane => lane.self)).toEqual([true, false]);
+
+    const endpointFiles = (await Promise.all(rows.filter(row => row.kind === 'ENDPOINT')
+      .map(row => filesOf(row.id!, 'limit=100')))).flatMap(page => page.rows);
+    expect(endpointFiles.filter(file => file.createdAt === null)).toHaveLength(1);
+
+    const drives = rows.filter(row => row.kind === 'DRIVE');
+    const answers: PublicFileLineage[] = [];
+    for (const drive of drives) {
+      for (const file of (await filesOf(drive.id!, 'limit=100')).rows) answers.push(await lineageOf(drive.id!, file.id!));
+    }
+    expect(answers.every(answer => answer.kind === 'DRIVE' && !answer.copies.available)).toBe(true);
+    expect(answers.filter(answer => answer.asset === null)).toHaveLength(1);
+    const withAsset = answers.filter(answer => answer.asset !== null);
+    expect(withAsset.every(answer => answer.ownerEmail!.endsWith('@example.com') && answer.asset!.firstSeenAt !== null)).toBe(true);
+    const types = new Set(withAsset.flatMap(answer => answer.asset!.events.map(event => event.typeLabel)));
+    expect([...types].sort()).toEqual(['Shared', 'Viewed']);
+  });
+
+  it('refuses a bad skip or limit with 400 INVALID_REQUEST', async () => {
+    const id = (await allDatastores())[0].id!;
+    for (const [url, message] of [
+      [`${PUB}?skip=-1`, 'skip must be an integer from 0 to 10000'],
+      [`${PUB}?skip=10001`, 'skip must be an integer from 0 to 10000'],
+      [`${PUB}?limit=0`, 'limit must be an integer from 1 to 50'],
+      [`${PUB}?limit=51`, 'limit must be an integer from 1 to 50'],
+      [`${PUB}/${id}/files?limit=101`, 'limit must be an integer from 1 to 100'],
+      [`${PUB}/${id}/files?skip=x`, 'skip must be an integer from 0 to 10000'],
+    ]) {
+      const { status, body } = await answerOf(url);
+      expect(status, url).toBe(400);
+      expect(body, url).toEqual({ code: 'INVALID_REQUEST', message });
+    }
+  });
+
+  it('answers unknown ids and malformed public paths with 404 ASSET_NOT_FOUND', async () => {
+    const id = (await allDatastores())[0].id!;
+    for (const url of [
+      `${PUB}/ep-000000000000000000000000/files`,
+      `${PUB}/dr-000000000000000000000000-unknown/files`,
+      `${PUB}/ep-000000000000000000000000/files/00000000-0000-4000-8000-000000000000/lineage`,
+      `${PUB}/${id}/files/00000000-0000-4000-8000-000000000000/lineage`,
+      `${PUB}/dr-000000000000000000000000-unknown/files/1NoSuchDoc/lineage`,
+      `${PUB}/exp-01-studiomac/files`,
+      `${PUB}/`,
+    ]) {
+      const { status, body } = await answerOf(url);
+      expect(status, url).toBe(404);
+      expect(body.code, url).toBe('ASSET_NOT_FOUND');
+    }
+  });
+
+  it('with the flag on, build 4 handlers still answer and the categories are available', async () => {
+    sessionStorage.setItem(DEMO_LINEAGE_STEPS_KEY, 'on');
+    expect((await readDemoBody('/api/dspm/lineage/categories') as LineageCategories).available).toBe(true);
+    const policies = await readDemoBody('/api/dspm/lineage/policies?category=SENSITIVE_FINDINGS&skip=0&limit=7') as LineagePolicyPage;
+    expect(policies).toMatchObject({ available: true, total: 9 });
+    const datastoresOn = await readDemoBody(`/api/dspm/lineage/policies/${policies.rows[0].id}/datastores`) as LineageDatastorePage;
+    expect(datastoresOn.available).toBe(true);
+    expect((await readDemoBody(`/api/dspm/lineage/datastores/${datastoresOn.rows[0].id}/files`) as LineageFilePage).available).toBe(true);
   });
 });
