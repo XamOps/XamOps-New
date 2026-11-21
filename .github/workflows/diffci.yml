@@ -1,6 +1,8 @@
 name: DiffCI Change Impact (observe only)
-# Reports which tests a PR affects. Runs no tests, skips nothing, not a required check.
+# Reports which tests a push or PR affects (see job summary). Runs no tests, skips nothing, not a required check.
 on:
+  push:
+    branches: [ main, develop ]
   pull_request:
     branches: [ main ]
 permissions:
