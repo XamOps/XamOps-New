@@ -7,14 +7,18 @@ import ch.qos.logback.classic.spi.IThrowableProxy;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.controller.DspmController;
 import com.xammer.cloud.controller.DspmDatastoreController;
 import com.xammer.cloud.controller.DspmEndpointController;
 import com.xammer.cloud.controller.DspmFilesController;
+import com.xammer.cloud.controller.DspmLineageController;
 import com.xammer.cloud.controller.DspmSaasController;
 import com.xammer.cloud.controller.advice.MattersExceptionHandler;
 import com.xammer.cloud.dto.matters.datastores.DatastoreFilterOptions;
 import com.xammer.cloud.exception.GlobalExceptionHandler;
+import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.GlobalTabRuleReader;
+import com.xammer.cloud.repository.MattersProjectMappingRepository;
 import com.xammer.cloud.repository.UserTabAccessRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.XamLensTabGuard;
@@ -56,14 +60,18 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 /**
  * Build 9 planted-marker test: every vendor sample field answers {@link #RAW}; every XamLens endpoint of the
- * Datastores, Endpoint, SaaS and Files controllers (the datastores CSV export reads the list route) is called
- * as ROLE_XAMOPS and as ROLE_SUPER_ADMIN, through the real controllers, services, mappers and an in-memory
- * cache. The raw marker must appear in no response, cache key, cached value or log event; the two
- * occurrence routes carry it masked by {@link SampleMask}.
+ * Datastores, Endpoint, SaaS, Files, Data Lineage (exposure routes switched on, and the public path) and
+ * legacy asset ({@code /api/dspm/{surface}/assets}, {@code /assets/{id}}) controllers is called (the
+ * datastores CSV export reads the list route) as ROLE_XAMOPS and as ROLE_SUPER_ADMIN, through the real
+ * controllers, services, mappers and an in-memory cache. Neither the raw marker nor its tail, in any case,
+ * may appear in a response, cache key, cached value or log event; the two occurrence routes carry it masked
+ * by {@link SampleMask}.
  */
 class XamLensSampleMaskingTest {
     private static final String RAW = "<<PLANTED-RAW-9Q4Z-SAMPLE>>";
     private static final String RAW_CORE = "PLANTED-RAW";
+    /** The marker's tail: catches a re-cased, prettified ({@code Planted Raw 9q4z …}) or head-cut leak. */
+    private static final String RAW_TAIL = "9Q4Z";
     private static final String HALF = "<<PLA••••-R••-9Q••-SA••••>>";
     private static final String SECRET = "<<PLAN•••••••••••••••••••>>";
     private static final MattersCredential CREDENTIAL =
@@ -306,8 +314,70 @@ class XamLensSampleMaskingTest {
               "events":[{"type":"FILE_COPIED","sample_matches":[{"samples":[{"match_text":"%1$s"}]}]}],
               "edges":[],"alerts":[]}}
             """.formatted(RAW);
+    // Data Lineage: the exposure routes (switch on) and the public path's drive routes.
+    private static final String EXPOSURE_FILTER_OPTIONS = """
+            {"success":true,"data":{"filter_options":{
+              "categories":[{"id":"SENSITIVE_FINDINGS","name":"Sensitive Findings"}],
+              "severities":[{"id":"HIGH","name":"high"}],
+              "datastore_names":[{"id":"store-a","name":"store-a"}],
+              "labels":[{"id":"PII","name":"PII"}],
+              "sampled_data":["%1$s"]}}}
+            """.formatted(RAW);
+    private static final String EXPOSURE_SUMMARY = """
+            {"success":true,"data":{"count":1,"policies":[{"ref_policy_id":"%2$s",
+              "policy_name":"Sensitive files shared","severity":"high","target_service":"gmail","total_exposures":2,
+              "sampled_data":["%1$s"],"samples":["%1$s"],"match_text":"%1$s"}]}}
+            """.formatted(RAW, UUID);
+    private static final String EXPOSURE_POLICY_EXPOSURES = """
+            {"success":true,"count":1,"data":[{"id":"exp-1","datastore_name":"store-a","datastore_service":"gmail",
+              "affected_files_count":2,"sampled_data":["%1$s"],"samples":["%1$s"]}]}
+            """.formatted(RAW);
+    private static final String EXPOSURE_FILES = """
+            {"success":true,"data":{"total_files":1,"files":[{"id":"%2$s","name":"Plan Draft.pdf",
+              "owner":"robin@example.test","last_modified_time":1789725004,"sampled_data":["%1$s"],
+              "sampleMatches":[{"name":"EMAIL ADDRESS","label":"PII","samples":[{"match_text":"%1$s"}]}],
+              "sensitiveEntities":[{"name":"EMAIL ADDRESS","samples":["%1$s"]}]}]}}
+            """.formatted(RAW, SAAS_FILE_ID);
+    private static final String DRIVE_USERS = """
+            {"success":true,"data":[{"resource_id":"%2$s","email":"robin@example.test","display_name":"Robin Vale",
+              "file_count":3,"sampled_data":["%1$s"]}]}
+            """.formatted(RAW, "Res_Synthetic-A");
+    private static final String DRIVE_USER_FILES = """
+            {"success":true,"data":[{"doc_id":"%2$s","title":"Plan Draft.pdf","doc_type":"pdf",
+              "last_seen":1789725004,"visibility":"EXTERNAL","sampled_data":["%1$s"],"snippet":"%1$s",
+              "sampleMatches":[{"name":"EMAIL ADDRESS","samples":[{"match_text":"%1$s"}]}]}]}
+            """.formatted(RAW, "Doc_Synthetic-0001");
+    private static final String DRIVE_ASSET = """
+            {"success":true,"data":{"asset":{"title":"Plan Draft.pdf","device":"","os_user":"robin",
+              "first_seen":1789725004,"owner_email":"robin@example.test","sampled_data":["%1$s"],"snippet":"%1$s"},
+              "events":[{"event_type":"FILE_SHARED","actor_email":"sam@example.test","timestamp":1789725004,
+                         "sample_matches":[{"samples":[{"match_text":"%1$s"}]}]}]}}
+            """.formatted(RAW);
+    /**
+     * Legacy {@code /api/v1/assets/{id}}: samples in the sensitives, the objects and their findings, and
+     * sample-shaped keys in {@code facet}, which {@link MattersAssetMapper} passes through as a map.
+     */
+    private static final String ASSET_DETAIL = """
+            {"id":"asset-1","name":"store-a","subtype":"S3","category":"cloud","resource_type":"DATASTORE",
+             "external_id":"arn:aws:s3:::store-a","lifecycle":{"status":"ACTIVE"},
+             "risk":{"level":"HIGH","score":7.5,"policy_violation_count":1},
+             "sensitives":{"record_count":5,"object_count":1,"types":["PII"],"level":"HIGH_SENSITIVITY",
+                           "samples":["%1$s"],"sampled_data":[{"value":"%1$s"}]},
+             "source":{"provider":"S3","account":"000000000000000000000001","region":"eu-west-1"},
+             "scan_status":{"status":"CLASSIFIED","last_scanned_at":1700000000},
+             "facet":{"region":"eu-west-1","cloud_account_id":"000000000001","device_users":["robin"],
+                      "drive_type":"GMAIL","total_inventories":2,
+                      "sampled_data":["%1$s"],"samples":["%1$s"],"sample":"%1$s","match_text":"%1$s",
+                      "Sample_Meta":{"inner":[{"value":"%1$s"}]}},
+             "objects":[{"id":"o-1","name":"a.csv","object_type":"FILE","source":"S3","path":"s3://store-a/a.csv",
+                         "extension":"csv","size_bytes":10,"is_sensitive":true,"sensitive_count":5,
+                         "sampled_data":[{"value":"%1$s"}],
+                         "findings":[{"entity_type":"PERSON NAME","category":"PII","count":5,"samples":["%1$s"],
+                                      "match_text":"%1$s"}]}],
+             "object_total":1}
+            """.formatted(RAW);
 
-    /** Every MattersApiClient method the four services call, answered by name. */
+    /** Every MattersApiClient method the services under test call, answered by name. */
     private static final Map<String, Function<InvocationOnMock, String>> BODIES = new HashMap<>();
 
     static {
@@ -354,6 +424,14 @@ class XamLensSampleMaskingTest {
         BODIES.put("endpointFileOverview", inv -> ENDPOINT_FILE_OVERVIEW);
         BODIES.put("endpointLineageAsset", inv -> ENDPOINT_LINEAGE_ASSET);
         BODIES.put("mipFileAuditLogs", inv -> MIP_AUDIT_LOGS);
+        BODIES.put("exposureFilterOptions", inv -> EXPOSURE_FILTER_OPTIONS);
+        BODIES.put("exposureSummary", inv -> EXPOSURE_SUMMARY);
+        BODIES.put("exposurePolicyExposures", inv -> EXPOSURE_POLICY_EXPOSURES);
+        BODIES.put("exposureFiles", inv -> EXPOSURE_FILES);
+        BODIES.put("driveLineageUsers", inv -> DRIVE_USERS);
+        BODIES.put("driveLineageUserFiles", inv -> DRIVE_USER_FILES);
+        BODIES.put("driveLineageAsset", inv -> DRIVE_ASSET);
+        BODIES.put("getAsset", inv -> ASSET_DETAIL);
     }
 
     /** One request: a path and its query parameters as name/value pairs. */
@@ -379,8 +457,43 @@ class XamLensSampleMaskingTest {
     private static final Call ENDPOINT_OCCURRENCES = new Call(ENDPOINT + "/occurrences",
             "entityName", "EMAIL ADDRESS", "skip", "10", "limit", "20", "showFalsePositives", "true");
 
-    /** The union of everyEndpoint() of the four controller tests, with their parameters. */
+    private static final String LINEAGE = "/api/dspm/lineage";
+    private static final String PUBLIC_ENDPOINT = LINEAGE + "/public/datastores/ep-" + SOURCE_ID;
+    private static final String PUBLIC_DRIVE = LINEAGE + "/public/datastores/dr-000000000000000000000001-Res_Synthetic-A";
+
+    /** Every Data Lineage route (exposure switch on) and every legacy asset route. */
+    private static List<Call> lineageAndAssetEndpoints() {
+        return List.of(
+                new Call(LINEAGE + "/categories"),
+                new Call(LINEAGE + "/filter-options", "level", "policy"),
+                new Call(LINEAGE + "/filter-options", "level", "datastore"),
+                new Call(LINEAGE + "/policies", "category", "SENSITIVE_FINDINGS", "severity", "HIGH"),
+                new Call(LINEAGE + "/policies/" + UUID + "/datastores", "severity", "HIGH"),
+                new Call(LINEAGE + "/datastores/exp-1/files"),
+                new Call(LINEAGE + "/files/" + SAAS_FILE_ID + "/lineage"),
+                new Call(LINEAGE + "/public/datastores"),
+                new Call(PUBLIC_ENDPOINT + "/files"),
+                new Call(PUBLIC_ENDPOINT + "/files/0000aaaa-0000-4000-8000-00000000000c/lineage"),
+                new Call(PUBLIC_DRIVE + "/files"),
+                new Call(PUBLIC_DRIVE + "/files/Doc_Synthetic-0001/lineage"),
+                new Call("/api/dspm/status"),
+                new Call("/api/dspm/summary"),
+                new Call("/api/dspm/summary", "category", "cloud"),
+                new Call("/api/dspm/cloud/assets", "q", "store", "provider", "S3"),
+                PROFILE_CALLS.get(0),
+                PROFILE_CALLS.get(1),
+                new Call("/api/dspm/cloud/filters"),
+                ASSET_DETAIL_CALL);
+    }
+
+    /** The union of everyEndpoint() of the four drawer/files controller tests, then the lineage and asset routes. */
     private static List<Call> everyEndpoint() {
+        List<Call> calls = new ArrayList<>(drawerAndFilesEndpoints());
+        calls.addAll(lineageAndAssetEndpoints());
+        return calls;
+    }
+
+    private static List<Call> drawerAndFilesEndpoints() {
         return List.of(
                 new Call("/api/dspm/datastores", "tab", "cloud", "provider", "S3,EBS"),
                 new Call("/api/dspm/datastores/filter-options", "tab", "cloud"),
@@ -503,6 +616,13 @@ class XamLensSampleMaskingTest {
                 cache);
         EndpointFileService endpointFileService = new EndpointFileService(resolver, api, new FilesPageMapper(),
                 saasFileService, cache);
+        LineageService lineageService = new LineageService(resolver, api, new LineageMapper(), cache,
+                saasFileService, true);
+        PublicLineageService publicLineageService = new PublicLineageService(resolver, api,
+                new PublicLineageMapper(), new FilesPageMapper(), endpointFileService, cache);
+        MattersDspmService dspmService = new MattersDspmService(resolver, api, new MattersAssetMapper(),
+                mock(MattersProjectMappingRepository.class),
+                new MattersIntegrationLabeler(api, mock(CloudAccountRepository.class), cache), cache);
 
         GlobalTabRuleReader rules = mock(GlobalTabRuleReader.class);
         UserTabAccessRepository tabs = mock(UserTabAccessRepository.class);
@@ -513,7 +633,9 @@ class XamLensSampleMaskingTest {
                         new DspmDatastoreController(guard, listService, drawerService, dataFlowService),
                         new DspmEndpointController(guard, endpointDrawerService),
                         new DspmSaasController(guard, saasDrawerService, saasFileService),
-                        new DspmFilesController(guard, filesService, endpointFileService))
+                        new DspmFilesController(guard, filesService, endpointFileService),
+                        new DspmLineageController(guard, lineageService, publicLineageService),
+                        new DspmController(dspmService, guard))
                 .setControllerAdvice(new GlobalExceptionHandler(), new MattersExceptionHandler())
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter())
@@ -545,21 +667,25 @@ class XamLensSampleMaskingTest {
 
     private void assertNoRawAnywhere(Map<Call, String> bodies) {
         assertThat(unanswered).as("JsonNode methods without a planted body").isEmpty();
-        bodies.forEach((call, body) -> assertThat(body).as("response of %s", call)
-                .doesNotContain(RAW).doesNotContain(RAW_CORE));
+        bodies.forEach((call, body) -> assertNoRaw(body, "response of " + call));
         assertThat(cache.puts).isNotEmpty().allSatisfy(put -> {
-            assertThat(put.key()).doesNotContain(RAW_CORE);
-            assertThat(put.json()).as("cached value of %s", put.key()).doesNotContain(RAW_CORE);
+            assertNoRaw(put.key(), "cache key");
+            assertNoRaw(put.json(), "cached value of " + put.key());
         });
-        assertThat(cache.gets).allSatisfy(key -> assertThat(key).doesNotContain(RAW_CORE));
+        assertThat(cache.gets).allSatisfy(key -> assertNoRaw(key, "cache get key"));
         assertThat(logs.list).as("the log capture is live").isNotEmpty().allSatisfy(event -> {
-            assertThat(event.getFormattedMessage()).doesNotContain(RAW_CORE);
-            assertThat(String.valueOf(event.getMessage())).doesNotContain(RAW_CORE);
-            assertThat(Arrays.deepToString(event.getArgumentArray())).doesNotContain(RAW_CORE);
+            assertNoRaw(event.getFormattedMessage(), "log message");
+            assertNoRaw(String.valueOf(event.getMessage()), "log pattern");
+            assertNoRaw(Arrays.deepToString(event.getArgumentArray()), "log arguments");
             for (IThrowableProxy t = event.getThrowableProxy(); t != null; t = t.getCause()) {
-                assertThat(String.valueOf(t.getMessage())).doesNotContain(RAW_CORE);
+                assertNoRaw(String.valueOf(t.getMessage()), "log throwable");
             }
         });
+    }
+
+    /** Neither the marker's head nor its tail, in any case: a verbatim, re-cased, prettified or cut leak fails. */
+    private static void assertNoRaw(String text, String what) {
+        assertThat(text).as(what).doesNotContainIgnoringCase(RAW_CORE).doesNotContainIgnoringCase(RAW_TAIL);
     }
 
     private void assertMaskedOccurrences(Map<Call, String> bodies) {
@@ -573,6 +699,51 @@ class XamLensSampleMaskingTest {
         assertThat(endpoint.path("rows").get(0).path("samples").get(0).asText()).isEqualTo(HALF);
     }
 
+    private static final Call ASSET_DETAIL_CALL = new Call("/api/dspm/assets/asset-1");
+    private static final List<Call> PROFILE_CALLS = List.of(new Call("/api/dspm/saas/assets"),
+            new Call("/api/dspm/endpoint/assets"));
+
+    /** The planted facet's sample keys carry the half-masked marker, the other keys their values. */
+    private static void assertMaskedFacet(JsonNode facet, String what) {
+        assertThat(facet.path("region").asText()).as(what).isEqualTo("eu-west-1");
+        assertThat(facet.path("drive_type").asText()).as(what).isEqualTo("GMAIL");
+        assertThat(facet.path("sampled_data").get(0).asText()).as(what).isEqualTo(HALF);
+        assertThat(facet.path("samples").get(0).asText()).as(what).isEqualTo(HALF);
+        assertThat(facet.path("sample").asText()).as(what).isEqualTo(HALF);
+        assertThat(facet.path("match_text").asText()).as(what).isEqualTo(HALF);
+        assertThat(facet.path("Sample_Meta").path("inner").get(0).path("value").asText()).as(what).isEqualTo(HALF);
+    }
+
+    /** /assets/{id} and the saas/endpoint list profiles: masked on the first read and on the cached second read. */
+    private void assertMaskedFacets(Map<Call, String> bodies) throws Exception {
+        for (int read = 1; read <= 2; read++) {
+            String detail = read == 1 ? bodies.get(ASSET_DETAIL_CALL) : perform(ASSET_DETAIL_CALL);
+            assertMaskedFacet(parse(detail).path("facet"), "asset detail facet, read " + read);
+            for (Call call : PROFILE_CALLS) {
+                String page = read == 1 ? bodies.get(call) : perform(call);
+                assertMaskedFacet(parse(page).path("data").get(0).path("profile").path("facet"),
+                        call + " profile facet, read " + read);
+            }
+        }
+        assertThat(cache.gets).as("the second reads come from the cache")
+                .contains("dspm:asset:10:asset-1");
+        assertThat(cache.puts).filteredOn(put -> put.key().startsWith("dspm:asset:")
+                        || put.key().startsWith("dspm:profile:")
+                        || put.key().startsWith("dspm:assets:") && (put.key().contains("SAAS_PRINCIPAL")
+                                || put.key().contains("ENDPOINT_HOST")))
+                .hasSizeGreaterThanOrEqualTo(4)
+                .allSatisfy(put -> assertThat(put.json()).as("cached %s", put.key()).contains(HALF));
+        assertNoRawAnywhere(bodies);
+    }
+
+    private String perform(Call call) throws Exception {
+        MvcResult result = mvc.perform(call.request()).andReturn();
+        String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(result.getResponse().getStatus()).as("%s answered %s", call, body).isEqualTo(200);
+        assertNoRaw(body, "cached response of " + call);
+        return body;
+    }
+
     @Test
     @DisplayName("ROLE_XAMOPS: no response, cache key, cached value or log event carries the raw sample")
     void xamopsNeverSeesRaw() throws Exception {
@@ -580,6 +751,7 @@ class XamLensSampleMaskingTest {
         Map<Call, String> bodies = callEverything();
         assertNoRawAnywhere(bodies);
         assertMaskedOccurrences(bodies);
+        assertMaskedFacets(bodies);
     }
 
     @Test
@@ -589,5 +761,6 @@ class XamLensSampleMaskingTest {
         Map<Call, String> bodies = callEverything();
         assertNoRawAnywhere(bodies);
         assertMaskedOccurrences(bodies);
+        assertMaskedFacets(bodies);
     }
 }
