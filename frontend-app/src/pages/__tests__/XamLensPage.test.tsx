@@ -155,15 +155,14 @@ describe('XamLensPage routing', () => {
       body: { categories: ['Group A'], rows: [{ name: 'Class A1', category: 'Group A' }] }, shows: 'Class A1',
     },
     { url: '/xamlens/assists', heading: 'Assists', endpoint: '/api/dspm/assists', body: { assists: [] }, shows: 'No assists found' },
-    {
-      url: '/xamlens/remediation', heading: 'Remediation', endpoint: '/api/dspm/remediation/activity?skip=0&limit=10',
-      body: {
-        summary: { total: 0, waitingApproval: 0, inProgressScheduled: 0, completed: 0, failed: 0 },
-        statusCounts: {}, total: 0, skip: 0, limit: 10, items: [],
-      },
-      shows: 'No remediation activity yet',
-    },
   ] as const;
+  it('sends /xamlens/remediation to All while the page is switched off, without loading its activity', async () => {
+    renderAt('/xamlens/remediation');
+    expect(await screen.findByTestId('datastores-page')).toHaveTextContent('all');
+    expect(screen.getByTestId('location')).toHaveTextContent('/xamlens/datastores/all');
+    expect(screen.queryByRole('heading', { level: 1, name: 'Remediation' })).toBeNull();
+    expect(get.mock.calls.some(([url]) => String(url).startsWith('/api/dspm/remediation'))).toBe(false);
+  });
 
   it.each(PAGES)('renders its page on $url', async ({ url, heading, endpoint, body, shows }) => {
     get.mockImplementation(async (requested: string) => {
