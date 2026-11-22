@@ -21,8 +21,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Phase 23 (D-23-10): every AWS op kind the runner drives, started from the state production leaves the group in
  * (never pre-seeded into APPLYING), with the real runner, lifecycle table and the AWS fake on PostgreSQL. Asserts
- * the final op status, the final group state and the exact transition path. MIG_POLICY_UPDATE is GCP-only and
- * ACCEPT_BASELINE makes no lifecycle change, so neither is in this AWS table.
+ * the final op status, the final group state and the exact transition path. MIG_POLICY_UPDATE is GCP-only,
+ * ACCEPT_BASELINE makes no lifecycle change, and ADOPT (UNMANAGED to LEGACY_UNCONFIRMED, no APPLYING start edge) is
+ * driven from the discovery path, so none of them is in this AWS table.
  */
 @Tag("containers")
 class AwsOpKindLifecycleIT {
@@ -118,6 +119,53 @@ class AwsOpKindLifecycleIT {
         }
         report.forEach(System.out::println);
         assertThat(mismatches).as(String.join("\n", report)).isEmpty();
+    }
+
+    /**
+     * A drift re-apply from PAUSED(DRIFT) goes PAUSED -> APPLYING -> PAUSED and must keep pause_reason and
+     * paused_from_state on both rows, or the reconciler loses the drift pause (review finding #2).
+     */
+    @Test
+    void aDriftPausedGroupKeepsItsPauseColumnsThroughAConfigApplyAndAProfileChange() {
+        List<String> problems = new ArrayList<>();
+        for (OperationKind kind : List.of(OperationKind.CONFIG_APPLY, OperationKind.PROFILE_CHANGE)) {
+            try (AwsOpsHarness h = new AwsOpsHarness(converted(4, 50, 4), kind, GroupState.PAUSED, GroupState.PAUSED,
+                    "aggressive")) {
+                h.jdbc.update("UPDATE spot_group SET pause_reason = 'DRIFT', paused_from_state = 'ACTIVE' WHERE id = ?",
+                        h.f.groupId);
+                for (int i = 1; i <= 3; i++) {
+                    h.f.spotInstances.add("i-" + (5 - i));
+                }
+                h.runner.runClaimed(h.lease, h.f.opId);
+                for (int round = 0; round < 60 && !terminal(h.opStatus()); round++) {
+                    midFlightColumns(h, kind, problems);
+                    h.f.clock.advance(Duration.ofMinutes(1));
+                    h.claimAndRun();
+                }
+                midFlightColumns(h, kind, problems);
+                List<String> path = h.jdbc.queryForList("SELECT from_state || '>' || to_state FROM spot_group_transition"
+                        + " WHERE group_id = ? ORDER BY id", String.class, h.f.groupId);
+                String row = kind + ": status=" + h.opStatus() + " error=" + h.opError() + " final=" + h.groupState()
+                        + " path=" + path + " pause=" + pauseColumns(h);
+                if (!"SUCCEEDED".equals(h.opStatus()) || !"PAUSED".equals(h.groupState())
+                        || !List.of("PAUSED>APPLYING", "APPLYING>PAUSED").equals(path)
+                        || !"DRIFT/ACTIVE".equals(pauseColumns(h))) {
+                    problems.add(row);
+                }
+            }
+        }
+        assertThat(problems).isEmpty();
+    }
+
+    private static void midFlightColumns(AwsOpsHarness h, OperationKind kind, List<String> problems) {
+        if ("APPLYING".equals(h.groupState()) && !"DRIFT/ACTIVE".equals(pauseColumns(h))) {
+            problems.add(kind + " lost its pause columns while APPLYING: " + pauseColumns(h));
+        }
+    }
+
+    private static String pauseColumns(AwsOpsHarness h) {
+        return h.jdbc.queryForObject("SELECT pause_reason || '/' || paused_from_state FROM spot_group WHERE id = ?",
+                String.class, h.f.groupId);
     }
 
     private static boolean terminal(String status) {

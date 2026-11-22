@@ -208,9 +208,10 @@ class AutoSpottingOpsBeans {
     OperationDispatcher operationDispatcher(SpotOperationRepository ops, OperationStore store, OperationRunner runner,
                                             LeaseService leaseService, LeaseRegistry registry,
                                             ThreadPoolTaskExecutor spotOpsExecutor, SpotOpsLifecycle opsLifecycle,
-                                            com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics) {
+                                            com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics,
+                                            AutoSpottingAuditWriter auditWriter) {
         return new OperationDispatcher(ops, store, runner, leaseService, registry, spotOpsExecutor,
-                opsLifecycle, metrics);
+                opsLifecycle, metrics, auditWriter);
     }
 
     @Bean

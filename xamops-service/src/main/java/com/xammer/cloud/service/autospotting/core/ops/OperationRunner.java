@@ -204,13 +204,28 @@ public class OperationRunner {
 
             Step step = program.at(index);
             if (step.mutates() && startEdgeForbidden(fresh, group)) {
-                // The group is in a state this op can't start from (e.g. an ENABLE whose group never reached
-                // PLANNED). Retrying would park it forever; nothing was changed by this op, so fail it now (D-23-10).
-                String from = groups.findById(group.getId()).map(g -> String.valueOf(g.getState())).orElse("missing");
-                store.finishFailed(op.getId(), "LIFECYCLE_TRANSITION_MISSED",
-                        "The group is " + from + ", which this operation can't start from. Nothing was changed.");
-                audit(handle, fresh, group, "OP_FAILED", "FAILED", "LIFECYCLE_TRANSITION_MISSED");
-                log.warn("op {} {} FAILED before its first mutation: cannot start from {}", op.getId(), op.getKind(), from);
+                if (fresh.getFirstMutationSeq() == null) {
+                    // The group is in a state this op can't start from (e.g. an ENABLE whose group never reached
+                    // PLANNED). Retrying would park it forever; nothing was changed by this op, so fail it now (D-23-10).
+                    String from = groups.findById(group.getId()).map(g -> String.valueOf(g.getState())).orElse("missing");
+                    store.finishFailed(op.getId(), "LIFECYCLE_TRANSITION_MISSED",
+                            "The group is " + from + ", which this operation can't start from. Nothing was changed.");
+                    audit(handle, fresh, group, "OP_FAILED", "FAILED", "LIFECYCLE_TRANSITION_MISSED");
+                    log.warn("op {} {} FAILED before its first mutation: cannot start from {}", op.getId(), op.getKind(), from);
+                    return;
+                }
+                // The op already mutated the cloud, so "Nothing was changed" would be false.
+                GroupState current = groups.findById(group.getId()).map(SpotGroup::getState).orElse(null);
+                if (current == GroupState.GONE) {
+                    store.finishFailed(op.getId(), "GROUP_DELETED", "The group was deleted while the operation was running.");
+                    audit(handle, fresh, group, "OP_FAILED", "FAILED", "GONE");
+                    log.warn("op {} {} FAILED after its first mutation: the group is GONE", op.getId(), op.getKind());
+                } else {
+                    log.warn("op {} {} already mutated and the group is {}: compensating", op.getId(), op.getKind(), current);
+                    compensateOrFail(handle, fresh, group, new StepOutcome.Failed(
+                            com.xammer.cloud.service.autospotting.spi.ErrorKind.CONFLICT, "LIFECYCLE_START_EDGE_FORBIDDEN",
+                            "The group is " + current + ", which this operation can't continue from."));
+                }
                 return;
             }
             if (step.mutates() && !enterRevertingWithFirstMutation(handle, fresh, group)) {
@@ -257,21 +272,9 @@ public class OperationRunner {
      * mutated: the startup pass returns it to {@code prior_state} ({@code REVERT_NOT_STARTED}, §4.6). Returns
      * false when the group is still not REVERTING afterwards, so the caller does not mutate.
      */
-    /** The state a FORWARD op enters with its first mutation, or null when it has no start transition. */
-    private static GroupState startState(SpotOperation op) {
-        if (op.getPhase() != OperationPhase.FORWARD) {
-            return null;
-        }
-        return switch (op.getKind()) {
-            case ENABLE, CONFIG_APPLY, PROFILE_CHANGE, FALLBACK_EXIT -> GroupState.APPLYING;
-            case REVERT -> GroupState.REVERTING;
-            default -> null;
-        };
-    }
-
     /** True when the group's current state has no allowed edge to the op's start state (a retry can't help). */
     private boolean startEdgeForbidden(SpotOperation op, SpotGroup group) {
-        GroupState start = startState(op);
+        GroupState start = OperationOutcomes.startState(op.getKind(), op.getPhase());
         if (start == null) {
             return false;
         }
@@ -281,7 +284,7 @@ public class OperationRunner {
     }
 
     private boolean enterRevertingWithFirstMutation(LeaseHandle handle, SpotOperation op, SpotGroup group) {
-        GroupState start = startState(op);
+        GroupState start = OperationOutcomes.startState(op.getKind(), op.getPhase());
         if (start == null) {
             return true; // ADOPT, FALLBACK_ENTER, ACCEPT_BASELINE, MIG_POLICY_UPDATE, compensation: no start transition
         }
@@ -648,6 +651,17 @@ public class OperationRunner {
             TransitionRequest request = TransitionRequest.of(to, reason, Actor.system(), op, Instant.now());
             if (desiredConfigWrite != null) {
                 request = request.writingDesiredConfig(desiredConfigWrite[0], desiredConfigWrite[1]);
+            }
+            // TRANSITION writes pause_reason/paused_from_state unconditionally, so a drift-paused group that
+            // passes through APPLYING and back to PAUSED must carry them across both edges (finding #2).
+            if (fresh.getState() == GroupState.PAUSED && to == GroupState.APPLYING) {
+                request = request.withPause(fresh.getPauseReason(), fresh.getPausedFromState());
+            } else if (fresh.getState() == GroupState.APPLYING && to == GroupState.PAUSED) {
+                com.xammer.cloud.domain.autospotting.PauseReason pauseReason = fresh.getPauseReason();
+                if (pauseReason == null) {
+                    pauseReason = operations.findById(op).map(SpotOperation::getPriorPauseReason).orElse(null);
+                }
+                request = request.withPause(pauseReason, fresh.getPausedFromState());
             }
             GroupLifecycleService.Result result = lifecycle.transition(handle, fresh, request);
             if (result == GroupLifecycleService.Result.STALE) {

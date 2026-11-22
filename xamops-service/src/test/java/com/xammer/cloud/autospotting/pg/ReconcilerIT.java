@@ -81,6 +81,36 @@ class ReconcilerIT {
         }
     }
 
+    /** Finding #5: an APPLYING group whose only op is terminal is stuck once past the threshold, and is counted. */
+    @Test
+    void anApplyingGroupWithOnlyATerminalOpIsCountedAsStuckOncePastTheThreshold() {
+        UUID id = insertGroup(GroupState.APPLYING, "fp-managed", ConfigMode.MANAGED, 1L, null, null);
+        var store = ctx.getBean(com.xammer.cloud.service.autospotting.core.ops.OperationStore.class);
+        UUID op = UUID.randomUUID();
+        store.insertQueued(com.xammer.cloud.service.autospotting.core.ops.OperationRecord.builder(
+                op, id, 1L, com.xammer.cloud.domain.autospotting.OperationKind.ENABLE)
+                .priorState(GroupState.UNMANAGED)
+                .compensationTarget(com.xammer.cloud.service.autospotting.core.lifecycle.CompensationTargets.forKind(
+                        com.xammer.cloud.domain.autospotting.OperationKind.ENABLE))
+                .requestedBy("tester").build());
+        store.finishFailed(op, "LIFECYCLE_TRANSITION_MISSED", "test");
+        // Recent: inside the threshold (the §4.6 preemption gap), not stuck.
+        jdbc.update("UPDATE spot_group SET state_changed_at = ? WHERE id = ?",
+                Timestamp.from(Instant.now().minusSeconds(60)), id);
+        reconciler.sweepProvider(Provider.AWS);
+        assertThat(stuckGauge()).isZero();
+        // Older than the 2 h default threshold: stuck.
+        jdbc.update("UPDATE spot_group SET state_changed_at = ? WHERE id = ?",
+                Timestamp.from(Instant.now().minusSeconds(3 * 3600)), id);
+        reconciler.sweepProvider(Provider.AWS);
+        assertThat(stuckGauge()).isEqualTo(1.0);
+    }
+
+    private double stuckGauge() {
+        return ctx.getBean(io.micrometer.core.instrument.simple.SimpleMeterRegistry.class)
+                .find("autospotting.ops.stuck").tag("provider", "aws").gauge().value();
+    }
+
     @Test
     void driftMismatch_parksGroupPausedDrift() {
         UUID id = insertActiveGroup("fp-managed", ConfigMode.MANAGED, 1L);

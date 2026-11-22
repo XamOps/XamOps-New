@@ -201,6 +201,18 @@ public class OperationStore {
         evictList(operationId);
     }
 
+    /**
+     * Finish an op {@code FAILED} and run {@code auditInTx} in the same transaction, so the audit row and the
+     * finish commit or roll back together. For an op with no group row, which has no lease to fence on.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void finishFailedWithAudit(java.util.UUID operationId, String errorCode, String errorMessage,
+                                      Runnable auditInTx) {
+        operations.finish(operationId, OperationStatus.FAILED.name(), errorCode, errorMessage, null, Instant.now());
+        auditInTx.run();
+        evictList(operationId);
+    }
+
     /** Finish an op {@code CANCELLED} with its cancel reason (§4.7). */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void finishCancelled(java.util.UUID operationId, String cancelReason) {

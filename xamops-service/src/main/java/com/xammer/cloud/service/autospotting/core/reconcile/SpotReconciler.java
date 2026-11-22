@@ -494,7 +494,15 @@ public class SpotReconciler {
         Instant threshold = Instant.now().minus(stuckThreshold);
         for (GroupState state : List.of(GroupState.APPLYING, GroupState.REVERTING)) {
             for (SpotGroup group : groups.findByProviderAndState(provider, state)) {
-                for (SpotOperation op : operations.findNonTerminalByGroup(group.getId())) {
+                List<SpotOperation> live = operations.findNonTerminalByGroup(group.getId());
+                // An APPLYING/REVERTING group with no live op is orphaned (its op ended without moving the group);
+                // count it once it has sat past the threshold, which clears the §4.6 preemption gap.
+                if (live.isEmpty() && group.getStateChangedAt() != null
+                        && group.getStateChangedAt().isBefore(threshold)) {
+                    count++;
+                    continue;
+                }
+                for (SpotOperation op : live) {
                     boolean pastDeadline = op.getDeadlineAt() != null && op.getDeadlineAt().isBefore(Instant.now());
                     boolean pastThreshold = group.getStateChangedAt() != null
                             && group.getStateChangedAt().isBefore(threshold);

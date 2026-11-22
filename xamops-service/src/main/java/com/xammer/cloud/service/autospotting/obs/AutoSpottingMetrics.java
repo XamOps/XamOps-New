@@ -250,7 +250,10 @@ public class AutoSpottingMetrics {
      * registration here means no AutoSpotting meter is ever created outside this bean (AC-OBS-01).
      */
     public void bindReconcilerGauge(String name, Provider provider, Supplier<Number> source) {
-        registry.gauge(name, Tags.of("provider", tag(provider)), source, s -> s.get().doubleValue());
+        // Strong reference: the registry otherwise holds the supplier weakly and the gauge reads NaN once the
+        // reconciler's method-reference lambda is collected.
+        io.micrometer.core.instrument.Gauge.builder(name, source, s -> s.get().doubleValue())
+                .tags(Tags.of("provider", tag(provider))).strongReference(true).register(registry);
     }
 
     /**

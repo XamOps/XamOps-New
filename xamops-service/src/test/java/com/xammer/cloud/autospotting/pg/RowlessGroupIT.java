@@ -130,4 +130,34 @@ class RowlessGroupIT {
                     .isEqualTo("GROUP_MISSING");
         }
     }
+
+    /** Finding #13: each orphan op gets its own OP_FAILED audit row and its own group_missing metric increment. */
+    @Test
+    void eachOrphanOpWritesOneAuditRowAndOneMetricIncrement() {
+        try (PgHarness.Database db = PgHarness.emptySchema(); AnnotationConfigApplicationContext ctx = contextFor(db)) {
+            JdbcTemplate jdbc = (JdbcTemplate) ctx.getBean("beanJdbc");
+            OperationStore store = ctx.getBean(OperationStore.class);
+            UUID missingGroup = UUID.randomUUID();
+            UUID op1 = insertQueuedOp(store, missingGroup, OperationKind.ENABLE, GroupState.UNMANAGED);
+            UUID op2 = insertQueuedOp(store, missingGroup, OperationKind.CONFIG_APPLY, GroupState.ACTIVE);
+            io.micrometer.core.instrument.MeterRegistry meters =
+                    ctx.getBean(io.micrometer.core.instrument.MeterRegistry.class);
+            double before = dispatchCount(meters);
+            ctx.getBean(OperationDispatcher.class).poll();
+            assertThat(opStatus(jdbc, op1)).isEqualTo("FAILED");
+            assertThat(opStatus(jdbc, op2)).isEqualTo("FAILED");
+            for (UUID op : new UUID[] {op1, op2}) {
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM autospotting_audit WHERE operation_id = ?"
+                        + " AND event_type = 'OP_FAILED' AND outcome = 'FAILED' AND group_id = ?"
+                        + " AND error_code = 'GROUP_MISSING' AND cloud_account_id = 1 AND plan_id IS NULL",
+                        Integer.class, op, missingGroup)).isEqualTo(1);
+            }
+            assertThat(dispatchCount(meters) - before).isEqualTo(2.0);
+        }
+    }
+
+    private static double dispatchCount(io.micrometer.core.instrument.MeterRegistry meters) {
+        return meters.find("autospotting.dispatch").tag("event", "group_missing").counters().stream()
+                .mapToDouble(io.micrometer.core.instrument.Counter::count).sum();
+    }
 }
