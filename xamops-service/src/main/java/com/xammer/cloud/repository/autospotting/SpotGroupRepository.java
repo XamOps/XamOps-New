@@ -32,7 +32,9 @@ public interface SpotGroupRepository extends JpaRepository<SpotGroup, UUID> {
     /**
      * Insert an UNMANAGED row for a group that has none, unless a live row for the same identity
      * already exists ({@code ux_spot_group_identity}). Race-safe: two concurrent first plans for the same
-     * group end with exactly one row, and neither transaction fails (phase 23 defect D-23-06). Returns
+     * group end with exactly one row, and neither transaction fails (phase 23 defect D-23-06). This commits in
+     * its own transaction, so an orphan UNMANAGED row left when the surrounding plan transaction later fails
+     * is accepted: it is non-billable and the next plan finds and reuses it, so no sweep is needed. Returns
      * rows inserted (0 when the other transaction won); the caller then re-reads the live row.
      */
     // REQUIRES_NEW: the row commits before the caller's plan transaction goes on, so the lifecycle's own

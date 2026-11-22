@@ -174,7 +174,8 @@ public class AwsSpotProvider implements SpotProvider {
                 .put("program", "REVERT")
                 .put("method", "RESTORE_SNAPSHOT")
                 .put("exact", snapshot.exact()));
-        return new PlanBody(current, write(target), diff, snapshot, ev.result(), rollout, estimates, floor, null, revert);
+        return new PlanBody(current, write(target), diff, snapshot, ev.result(), rollout, estimates, floor, null, revert,
+                g.arn());
     }
 
     private static ObjectNode currentNode(AwsGroupFacts g) {

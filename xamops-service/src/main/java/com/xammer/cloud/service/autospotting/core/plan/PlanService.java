@@ -28,6 +28,7 @@ import com.xammer.cloud.service.autospotting.spi.SpotProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -176,14 +177,14 @@ public class PlanService {
             }
             // §2.1, §7.4: a MIG with no row gets an UNMANAGED row once its existence is confirmed, so the plan,
             // the op and the group lease have a home. Its state never changes and UNMANAGED stays non-billable.
-            group = insertUnmanaged(account, provider, ref);
+            group = insertUnmanaged(account, provider, ref, body.providerStableId());
             state = group.getState(); // the new row's UNMANAGED, so the plan's from_state is never null
         } else if (group == null && cmd.kind() != OperationKind.REVERT && !groupMissingOrUnread(body)) {
             // §2.1: a row appears with the first plan. Discovery creates rows only for legacy and marked
             // groups, so the first plan for any other group (an AWS ENABLE of a plain ASG) is rowless.
             // Without a row its plan got a synthetic group id and the confirmed op stayed QUEUED forever,
             // because nothing can lease or run a group that has no row (phase 23 defect D-23-06).
-            group = insertUnmanaged(account, provider, ref);
+            group = insertUnmanaged(account, provider, ref, body.providerStableId());
             state = group.getState();
         }
         if (eligibility == null) {
@@ -195,6 +196,11 @@ public class PlanService {
 
         // 5. Supersede the prior OPEN plan and insert OPEN. An ENABLE moves the group to PLANNED.
         GroupState fromState = resolveFromState(group, state, cmd.kind());
+        if (group != null) {
+            // Serialize concurrent plans for one group: with no OPEN plan yet the supersede UPDATE locks nothing,
+            // so two first plans would both insert OPEN and trip the one-OPEN-plan index. Held to commit.
+            plans.lockGroupForPlan(group.getId());
+        }
         plans.supersedeOpenForGroup(groupIdFor(group));
 
         SpotPlan plan = new SpotPlan();
@@ -228,7 +234,11 @@ public class PlanService {
         // state and the ledger never sees it (PO-04).
         if (cmd.kind() == OperationKind.ENABLE && !dryRun && group != null
                 && group.getState() != GroupState.PLANNED) {
-            moveToPlanned(group, user);
+            try {
+                moveToPlanned(group, user);
+            } catch (DataIntegrityViolationException e) {
+                throw duplicateProviderAccount();
+            }
         }
 
         if (log.isDebugEnabled()) {
@@ -330,13 +340,29 @@ public class PlanService {
      * both insert with ON CONFLICT DO NOTHING on {@code ux_spot_group_identity}, then read back the single
      * live row (D-23-06), so neither transaction fails on a unique violation.
      */
-    private SpotGroup insertUnmanaged(CloudAccount account, Provider provider, GroupRef ref) {
+    private SpotGroup insertUnmanaged(CloudAccount account, Provider provider, GroupRef ref, String bodyStableId) {
+        String stableId = ref.providerStableId() != null ? ref.providerStableId() : bodyStableId;
+        if (stableId != null && groups.findByProviderAndProviderStableId(provider, stableId).stream()
+                .anyMatch(r -> isLive(r) && !(account.getId().equals(r.getCloudAccountId())
+                        && ref.groupKey().equals(r.getGroupKey())))) {
+            throw duplicateProviderAccount();
+        }
         groups.insertUnmanagedIfAbsent(UUID.randomUUID(), provider.name(), account.getId(),
                 account.getClient() == null ? null : account.getClient().getId(), ref.groupKey(),
-                ref.providerStableId(), "plan", Instant.now());
+                stableId, "plan", Instant.now());
         return groups.findByProviderAndCloudAccountIdAndGroupKeyAndStateNot(provider, account.getId(),
                         ref.groupKey(), GroupState.GONE)
                 .orElseThrow(() -> new IllegalStateException("UNMANAGED row for " + ref.groupKey() + " not found after insert"));
+    }
+
+    private static boolean isLive(SpotGroup row) {
+        return row.getState() != GroupState.GONE && row.getState() != GroupState.UNMANAGED
+                && row.getState() != GroupState.REVERTED;
+    }
+
+    private static AutoSpottingApiException duplicateProviderAccount() {
+        return new AutoSpottingApiException(HttpStatus.CONFLICT, "DUPLICATE_PROVIDER_ACCOUNT",
+                "This group is already managed through another account.");
     }
 
     private void moveToPlanned(SpotGroup group, ClientUserDetails user) {
@@ -417,7 +443,7 @@ public class PlanService {
     private static PlanBody withFeeBasis(PlanBody body, String feeBasis) {
         return new PlanBody(body.currentJson(), body.targetJson(), body.diffJson(), body.snapshotToStore(),
                 body.eligibility(), body.rollout(), body.estimates(), body.onDemandFloorJson(),
-                feeBasis, body.revertPathJson());
+                feeBasis, body.revertPathJson(), body.providerStableId());
     }
 
     /**
