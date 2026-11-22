@@ -121,10 +121,16 @@ public final class AwsTypeSelector {
     /**
      * Whether a type with {@code supported} boot modes ({@code legacy-bios}, {@code uefi}) can boot an AMI
      * whose DescribeImages {@code BootMode} is {@code imageBootMode}. {@code uefi-preferred} (the default of
-     * every AL2023 AMI) and an unset boot mode both boot UEFI where the type supports it and legacy BIOS
-     * otherwise, so either supported mode is enough. Before phase 23 defect D-23-05 this was a plain
-     * {@code contains}, and {@code uefi-preferred} matched no type.
+     * every AL2023 AMI) boots UEFI where the type supports it and legacy BIOS otherwise, so either supported
+     * mode is enough. Before phase 23 defect D-23-05 this was a plain {@code contains}, and
+     * {@code uefi-preferred} matched no type. An unset or blank mode is resolved by the caller to the
+     * architecture default ({@link #defaultBootMode}); here it is treated as flexible only as a fallback.
      */
+    /** AWS default boot mode of an AMI that sets none: arm64 boots uefi, everything else legacy-bios. */
+    static String defaultBootMode(String architecture) {
+        return "arm64".equals(architecture) ? "uefi" : "legacy-bios";
+    }
+
     static boolean bootsImage(Set<String> supported, String imageBootMode) {
         if (imageBootMode == null || imageBootMode.isBlank() || "uefi-preferred".equals(imageBootMode)) {
             return supported.contains("uefi") || supported.contains("legacy-bios");
@@ -173,7 +179,9 @@ public final class AwsTypeSelector {
             return false;
         }
         // 7. Boot mode: candidate must be able to boot the AMI.
-        if (!bootsImage(c.supportedBootModes(), image.bootMode())) {
+        String imageBoot = image.bootMode() == null || image.bootMode().isBlank()
+                ? defaultBootMode(image.architecture()) : image.bootMode();
+        if (!bootsImage(c.supportedBootModes(), imageBoot)) {
             return false;
         }
         // 8. Accelerators: same count and model (both none, or both equal).

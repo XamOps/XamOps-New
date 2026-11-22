@@ -94,6 +94,28 @@ class AwsTypeSelectorTest {
     }
 
     @Test
+    void anX86AmiWithoutABootModeRejectsAUefiOnlyTypeAndAnArmAmiAcceptsIt() {
+        TypeFacts uefiOnly = new TypeFacts("m7i.large", 2, 8192, Set.of("x86_64"), Set.of("spot"), false, false,
+                true, Set.of("uefi"), 0, null, 0, false, 3, false, true, AZS, 0.02);
+        TypeFacts armUefi = new TypeFacts("m6g.large", 2, 8192, Set.of("arm64"), Set.of("spot"), false, false,
+                true, Set.of("uefi"), 0, null, 0, false, 3, false, true, AZS, 0.02);
+        TypeFacts armOriginal = new TypeFacts("m7g.large", 2, 8192, Set.of("arm64"), Set.of("on-demand", "spot"),
+                false, false, true, Set.of("uefi"), 0, null, 0, false, 3, false, true, AZS, 0.03);
+        assertThat(selector.select(original, AZS, new ImageFacts("x86_64", null, true), TemplateFacts.none(),
+                List.of(uefiOnly)).types()).containsExactly("m5.large");
+        assertThat(selector.select(armOriginal, AZS, new ImageFacts("arm64", null, true), TemplateFacts.none(),
+                List.of(armUefi)).types()).contains("m6g.large");
+    }
+
+    @Test
+    void aUefiPreferredAmiAcceptsAUefiOnlyType() {
+        TypeFacts uefiOnly = new TypeFacts("m7i.large", 2, 8192, Set.of("x86_64"), Set.of("spot"), false, false,
+                true, Set.of("uefi"), 0, null, 0, false, 3, false, true, AZS, 0.02);
+        assertThat(selector.select(original, AZS, new ImageFacts("x86_64", "uefi-preferred", true),
+                TemplateFacts.none(), List.of(uefiOnly)).types()).contains("m7i.large");
+    }
+
+    @Test
     void aUefiAmiStillRejectsALegacyOnlyTypeAndALegacyAmiAUefiOnlyType() {
         TypeFacts legacyOnly = new TypeFacts("m5a.large", 2, 8192, Set.of("x86_64"), Set.of("spot"), false, false,
                 true, Set.of("legacy-bios"), 0, null, 0, false, 3, false, true, AZS, 0.02);

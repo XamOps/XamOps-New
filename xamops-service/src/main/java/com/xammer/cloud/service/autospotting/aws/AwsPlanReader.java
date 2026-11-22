@@ -135,9 +135,11 @@ public class AwsPlanReader {
                 .filter(b -> b.virtualName() != null && b.virtualName().startsWith("ephemeral")).count();
         boolean efa = d.networkInterfaces().stream().anyMatch(n -> "efa".equalsIgnoreCase(n.interfaceType()));
         String arch = image == null ? null : image.architectureAsString();
-        // Null when the AMI sets no BootMode: the instance then boots its type's default mode, so the type
-        // selector treats it as compatible with any type supporting uefi or legacy-bios (D-23-05).
+        // An AMI with no BootMode takes the architecture default (arm64 uefi, otherwise legacy-bios).
         String boot = image == null ? null : image.bootModeAsString();
+        if (boot == null && arch != null) {
+            boot = AwsTypeSelector.defaultBootMode(arch);
+        }
         String sha = AwsFingerprint.sha256(String.valueOf(v.versionNumber()) + "|" + d.imageId() + "|"
                 + d.instanceTypeAsString() + "|" + (market != null) + "|"
                 + (placement == null ? "" : placement.tenancyAsString()));
@@ -433,9 +435,10 @@ public class AwsPlanReader {
             withAzs.add(withAz(c, offered.getOrDefault(c.instanceType(), Set.of()), 0));
         }
         AwsTypeSelector.TypeFacts oWithAz = withAz(o, offered.getOrDefault(o.instanceType(), Set.of(azs.toArray(new String[0]))), 0);
-        AwsTypeSelector.ImageFacts image = new AwsTypeSelector.ImageFacts(
-                launch.architecture() == null ? "x86_64" : launch.architecture(),
-                launch.bootMode(), launch.enaSupport());
+        String launchArch = launch.architecture() == null ? "x86_64" : launch.architecture();
+        AwsTypeSelector.ImageFacts image = new AwsTypeSelector.ImageFacts(launchArch,
+                launch.bootMode() == null ? AwsTypeSelector.defaultBootMode(launchArch) : launch.bootMode(),
+                launch.enaSupport());
         AwsTypeSelector.TemplateFacts template = new AwsTypeSelector.TemplateFacts(launch.ephemeralMappings(),
                 launch.efaRequested(), launch.networkInterfaces(), launch.hibernation());
         // Price only the types that survive the hard filter (one batched call, cached 1 h).
