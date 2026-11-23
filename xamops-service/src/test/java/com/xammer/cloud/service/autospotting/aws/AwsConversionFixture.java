@@ -315,11 +315,17 @@ final class AwsConversionFixture {
 
     /** Plan the group with {@code profile}; also stores a plan row whose fingerprint is the live one. */
     PlanBody plan(String profile) {
+        return plan(profile, OperationKind.ENABLE, null);
+    }
+    /** As {@link #plan(String)} for {@code kind}, with the group's stored desired_config (null on a first enable). */
+    PlanBody plan(String profile, OperationKind kind, String desiredConfigJson) {
         PlanBody body = provider.createPlan(new PlanRequest(new GroupRef(
                 com.xammer.cloud.domain.autospotting.Provider.AWS, 7L, FakeAws.REGION + "/web-asg", null),
-                OperationKind.ENABLE, new Profile(profile, null)), aws.view());
-        when(facts.planLiveFingerprint(planId))
-                .thenReturn(Optional.of(AwsFingerprint.of(AwsGroupFacts.from(FakeAws.REGION, group()))));
+                kind, new Profile(profile, null),
+                new com.xammer.cloud.service.autospotting.spi.PlanOptions(null, desiredConfigJson)), aws.view());
+        // The stored plan fingerprint carries the policy exactly when the plan's target owns it (AD-08).
+        when(facts.planLiveFingerprint(planId)).thenReturn(Optional.of(AwsFingerprint.of(
+                AwsGroupFacts.from(FakeAws.REGION, group()), AwsMaintenancePolicy.owns(body.targetJson()))));
         return body;
     }
 

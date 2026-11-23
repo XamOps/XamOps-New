@@ -153,7 +153,7 @@ export const RevertDialog: React.FC<RevertDialogProps> = ({
                   <tr key={d.field} className="border-b border-gray-100">
                     <td className="py-1 pr-2">{diffFieldLabel(d.field)}</td>
                     <td className="py-1 pr-2">{diffValue(d.field, d.from, 'from')}</td>
-                    <td className="py-1">{diffValue(d.field, d.to, 'from')}</td>
+                    <td className="py-1">{diffValue(d.field, d.to, 'to')}</td>
                   </tr>
                 ))}
               </tbody>

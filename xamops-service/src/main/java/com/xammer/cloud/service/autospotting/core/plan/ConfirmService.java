@@ -336,8 +336,13 @@ public class ConfirmService {
             return FingerprintOutcome.TIMEOUT;
         }
         try {
-            String live = spotProvider.getStatus(group, new ReadOnlyCloudView() {
-            }).liveFingerprint();
+            ReadOnlyCloudView readOnly = new ReadOnlyCloudView() {
+            };
+            // Ownership comes from the plan's target (a first enable's row has no desired_config yet).
+            String live = spotProvider.liveFingerprintFor(group, targetConfigJson(plan), readOnly);
+            if (live == null) {
+                live = spotProvider.getStatus(group, readOnly).liveFingerprint();
+            }
             if (live == null || plan.getLiveFingerprint() == null) {
                 return FingerprintOutcome.TIMEOUT;
             }

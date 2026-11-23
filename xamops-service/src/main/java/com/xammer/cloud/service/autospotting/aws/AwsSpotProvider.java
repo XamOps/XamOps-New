@@ -174,7 +174,7 @@ public class AwsSpotProvider implements SpotProvider {
                 : AwsProfiles.byName(AwsProfiles.preselectedDefault());
         int spotTarget = g.desired() <= 1 ? 0 : AwsProfiles.spotCount(g.desired(), params.base(), params.percentAboveBase());
 
-        String current = write(currentNode(g));
+        String current = write(currentNode(g, ownsPolicy));
         ObjectNode target = targetNode(g, ev, params, allowBurstable, ownsPolicy);
         String diff = write(diffNode(g, target));
 
@@ -207,7 +207,7 @@ public class AwsSpotProvider implements SpotProvider {
         return write(o);
     }
 
-    private static ObjectNode currentNode(AwsGroupFacts g) {
+    private static ObjectNode currentNode(AwsGroupFacts g, boolean ownsPolicy) {
         ObjectNode n = JSON.createObjectNode();
         n.put("shape", g.mixedInstancesPolicy() ? "MIXED_INSTANCES_POLICY" : "LAUNCH_TEMPLATE");
         n.set("launchTemplate", spec(g.launchTemplate()));
@@ -220,6 +220,10 @@ public class AwsSpotProvider implements SpotProvider {
         }
         n.put("capacityRebalance", g.capacityRebalance());
         n.put("min", g.min()).put("max", g.max()).put("desired", g.desired());
+        if (ownsPolicy) {
+            // The saved prior config of a group whose policy XamOps owns carries it, so a compensation keeps 100/200.
+            n.set(AwsMaintenancePolicy.KEY, AwsMaintenancePolicy.ownedNode());
+        }
         return n;
     }
 

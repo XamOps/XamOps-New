@@ -426,7 +426,9 @@ public class PlanService {
 
     private String fingerprintOf(SpotProvider provider, SpotGroup group, ReadOnlyCloudView view, PlanBody body) {
         if (group != null) {
-            return provider.getStatus(group, view).liveFingerprint();
+            // Ownership comes from the plan's target, not the row's old desired_config (a first enable has none).
+            String fp = body == null ? null : provider.liveFingerprintFor(group, body.targetJson(), view);
+            return fp != null ? fp : provider.getStatus(group, view).liveFingerprint();
         }
         // No row: derive a stable fingerprint from the plan body's current config so confirm's re-read
         // can compare. The provider's getStatus needs a row; for a rowless plan the body's current is

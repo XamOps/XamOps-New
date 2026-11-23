@@ -3,6 +3,7 @@ package com.xammer.cloud.service.autospotting.aws.steps;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.service.autospotting.aws.AwsFingerprint;
 import com.xammer.cloud.service.autospotting.aws.AwsGroupFacts;
+import com.xammer.cloud.service.autospotting.aws.AwsMaintenancePolicy;
 import com.xammer.cloud.service.autospotting.aws.AwsProgram;
 import com.xammer.cloud.service.autospotting.aws.AwsReadOnlyView;
 import com.xammer.cloud.service.autospotting.aws.AwsStepServices;
@@ -64,10 +65,9 @@ public final class VerifyPreconditionsStep extends AwsStep {
                     "An instance refresh is running on this group. XamOps will wait for it to finish.");
         }
         Optional<String> planned = services.facts().planLiveFingerprint(program.planId());
-        String live = AwsFingerprint.of(facts);
-        // The plan's fingerprint includes the maintenance policy only when XamOps already owned it then (AD-08).
-        if (planned.isEmpty() || !(planned.get().equals(live)
-                || planned.get().equals(AwsFingerprint.of(facts, true)))) {
+        String live = AwsFingerprint.of(facts, AwsMaintenancePolicy.owns(program.config()));
+        // The plan's fingerprint includes the maintenance policy exactly when the plan's target owns it (AD-08).
+        if (planned.isEmpty() || !planned.get().equals(live)) {
             return failed(ErrorKind.VALIDATION, "PLAN_STALE",
                     "The group changed after this plan was made. Review a fresh plan.");
         }
