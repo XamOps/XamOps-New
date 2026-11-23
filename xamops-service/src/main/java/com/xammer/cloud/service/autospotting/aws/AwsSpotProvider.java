@@ -139,8 +139,20 @@ public class AwsSpotProvider implements SpotProvider {
                     "The connected account could not be found.", ErrorKind.NOT_FOUND)), List.of(), List.of());
         }
         boolean allowBurstable = options != null && options.effectiveAllowBurstable();
-        return evaluator.evaluate(account.get(), ref.groupKey(), profile, mode, allowBurstable,
+        EligibilityResult result = evaluator.evaluate(account.get(), ref.groupKey(), profile, mode, allowBurstable,
                 allowBurstable || options == null ? List.of() : options.storedBurstableAdded()).result();
+        return withoutOwnedPolicyBlocker(result, options != null && AwsMaintenancePolicy.owns(options.desiredConfigJson()));
+    }
+    /**
+     * A policy XamOps owns that a customer edited to Max=100 is corrected by the plan's own 100/200 target, so
+     * IMP_TERMINATE_FIRST (which guards a customer's policy, never rewritten) must not block that re-apply.
+     */
+    private static EligibilityResult withoutOwnedPolicyBlocker(EligibilityResult r, boolean ownsPolicy) {
+        if (!ownsPolicy || r.blockers().stream().noneMatch(b -> "IMP_TERMINATE_FIRST".equals(b.code()))) {
+            return r;
+        }
+        return new EligibilityResult(r.blockers().stream().filter(b -> !"IMP_TERMINATE_FIRST".equals(b.code())).toList(),
+                r.warnings(), r.deferred());
     }
 
     // ---- plan ----
@@ -195,7 +207,7 @@ public class AwsSpotProvider implements SpotProvider {
                 .put("program", "REVERT")
                 .put("method", "RESTORE_SNAPSHOT")
                 .put("exact", snapshot.exact()));
-        return new PlanBody(current, write(target), diff, snapshot, ev.result(), rollout, estimates, floor, null, revert,
+        return new PlanBody(current, write(target), diff, snapshot, withoutOwnedPolicyBlocker(ev.result(), ownsPolicy), rollout, estimates, floor, null, revert,
                 g.arn()).withOptions(optionsJson(allowBurstable, ev));
     }
 

@@ -257,8 +257,12 @@ public class AwsEligibilityEvaluator {
 
     /** True when the group is already converted and every type in {@code removing} is one of its live overrides. */
     private static boolean onlyRemoves(AwsGroupFacts g, List<String> removing) {
-        return removing != null && !removing.isEmpty() && g.mixedInstancesPolicy() && !g.attributeBasedOverrides()
-                && g.overrideTypes().containsAll(removing) && g.overrideTypes().size() > removing.size();
+        if (removing == null || removing.isEmpty() || !g.mixedInstancesPolicy() || g.attributeBasedOverrides()) {
+            return false;
+        }
+        long live = removing.stream().filter(g.overrideTypes()::contains).distinct().count();
+        // Some remembered type is still live (another may already be gone) and the removal leaves a nonempty list.
+        return live > 0 && g.overrideTypes().size() > live;
     }
 
     private Evaluation finish(CloudAccount account, EvalMode mode, EligibilityResult result, AutoScalingGroup raw,

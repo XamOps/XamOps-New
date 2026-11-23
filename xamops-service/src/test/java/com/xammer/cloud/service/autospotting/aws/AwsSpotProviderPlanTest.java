@@ -223,6 +223,23 @@ class AwsSpotProviderPlanTest {
         assertThat(JSON.readTree(off.targetJson()).path("overrides")).extracting(JsonNode::asText)
                 .contains("t3.micro", "t3.small").doesNotContain("t3a.micro", "t3a.small");
     }
+    /** Review fix: an owned policy a customer edited to 100/100 is corrected by the re-apply, not blocked by it. */
+    @Test
+    void anOwnedPolicyEditedToMax100DoesNotBlockTheCorrectiveReapplyButACustomersPolicyStillDoes() throws IOException {
+        var edited = software.amazon.awssdk.services.autoscaling.model.InstanceMaintenancePolicy.builder()
+                .minHealthyPercentage(100).maxHealthyPercentage(100).build();
+        String owned = "{\"instanceMaintenancePolicy\":{\"owned\":true,\"min\":100,\"max\":200}}";
+        setUp(FakeAws.asg("web-asg").instanceMaintenancePolicy(edited).build());
+        PlanBody fix = provider.createPlan(new PlanRequest(ref(), OperationKind.CONFIG_APPLY,
+                new Profile("conservative", null), new PlanOptions(null, owned)), aws.view());
+        assertThat(fix.eligibility().blockers()).extracting(c -> c.code()).doesNotContain("IMP_TERMINATE_FIRST");
+        assertThat(JSON.readTree(fix.targetJson()).at("/instanceMaintenancePolicy/max").asInt()).isEqualTo(200);
+        assertThat(provider.checkEligibility(ref(), aws.view(), new Profile("conservative", null), EvalMode.PLAN,
+                new PlanOptions(null, owned)).blockers()).extracting(c -> c.code()).doesNotContain("IMP_TERMINATE_FIRST");
+        PlanBody customer = provider.createPlan(new PlanRequest(ref(), OperationKind.CONFIG_APPLY,
+                new Profile("conservative", null), new PlanOptions(null, null)), aws.view());
+        assertThat(customer.eligibility().blockers()).extracting(c -> c.code()).contains("IMP_TERMINATE_FIRST");
+    }
     @Test
     void theBurstableOptionIsRefusedForAGroupThatIsNotBurstable() {
         setUp(FakeAws.asg("web-asg").build());

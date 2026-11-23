@@ -75,7 +75,11 @@ class AwsConfirmedOpsIT {
     }
     private static void burstableOff(List<LaunchTemplateOverrides> live, List<String> liveTypes,
                                      List<LaunchTemplateOverrides> expected) {
-        String desired = desiredWith(liveTypes, ",\"options\":{\"allowBurstable\":true,\"burstableAdded\":[\"t3a.micro\"]}");
+        burstableOff(live, liveTypes, expected, "[\"t3a.micro\"]");
+    }
+    private static void burstableOff(List<LaunchTemplateOverrides> live, List<String> liveTypes,
+                                     List<LaunchTemplateOverrides> expected, String remembered) {
+        String desired = desiredWith(liveTypes, ",\"options\":{\"allowBurstable\":true,\"burstableAdded\":" + remembered + "}");
         try (AwsOpsHarness h = new AwsOpsHarness(converted(live, null), GroupState.ACTIVE, "MANAGED", desired, null,
                 null, null)) {
             h.f.aws.burstableWorld();
@@ -99,6 +103,12 @@ class AwsConfirmedOpsIT {
     void turningBurstableOffRemovesOnlyTheTypesXamOpsAddedAndKeepsTheCustomersOverrideWithItsDetails() {
         burstableOff(List.of(T3_MICRO, CUSTOMER, T3A_MICRO), List.of("t3.micro", "m5.large", "t3a.micro"),
                 List.of(T3_MICRO, CUSTOMER));
+    }
+    /** Review fix: one remembered type already removed by the customer must not make the removal unconfirmable. */
+    @Test
+    void turningBurstableOffWhenOneRememberedTypeIsAlreadyGoneStillRemovesTheOtherOne() {
+        burstableOff(List.of(T3_MICRO, T3A_MICRO), List.of("t3.micro", "t3a.micro"), List.of(T3_MICRO),
+                "[\"t3a.micro\",\"t3a.small\"]");
     }
     @Test
     void turningBurstableOffOnASmallBurstableGroupWithNoOtherAlternativeIsNotBlockedAndSucceeds() {
