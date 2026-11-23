@@ -31,11 +31,25 @@ public final class AwsFingerprint {
 
     /** The fingerprint of a group's owned fields. */
     public static String of(AwsGroupFacts g) {
-        return sha256(canonicalJson(g));
+        return of(g, false);
+    }
+
+    /**
+     * The fingerprint of a group's owned fields. The instance maintenance policy is part of it only when
+     * XamOps owns it (design-aws.md AD-08, D-23-09): a customer's own policy is context, so editing it is
+     * never DR-2, while an edit of a policy XamOps set is.
+     */
+    public static String of(AwsGroupFacts g, boolean ownsMaintenancePolicy) {
+        return sha256(canonicalJson(g, ownsMaintenancePolicy));
     }
 
     /** The canonical JSON the fingerprint hashes (exposed for tests and the snapshot's {@code owned} block). */
     public static String canonicalJson(AwsGroupFacts g) {
+        return canonicalJson(g, false);
+    }
+
+    /** The canonical JSON, with the maintenance policy only when {@code ownsMaintenancePolicy}. */
+    public static String canonicalJson(AwsGroupFacts g, boolean ownsMaintenancePolicy) {
         Map<String, Object> m = new TreeMap<>();
         m.put("launchTemplate", g.launchTemplate() == null ? null : g.launchTemplate().idOrName());
         List<String> types = new ArrayList<>(g.overrideTypes());
@@ -50,6 +64,12 @@ public final class AwsFingerprint {
         dist.put("spotMaxPrice", g.spotMaxPrice());
         m.put("instancesDistribution", g.mixedInstancesPolicy() ? dist : null);
         m.put("capacityRebalance", g.capacityRebalance());
+        if (ownsMaintenancePolicy) {
+            Map<String, Object> policy = new TreeMap<>();
+            policy.put("min", g.minHealthyPercentage());
+            policy.put("max", g.maxHealthyPercentage());
+            m.put("instanceMaintenancePolicy", policy);
+        }
         try {
             return CANONICAL.writeValueAsString(m);
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {

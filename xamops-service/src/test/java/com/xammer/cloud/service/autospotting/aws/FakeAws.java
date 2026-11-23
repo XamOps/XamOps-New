@@ -261,6 +261,50 @@ final class FakeAws {
                 .hibernationSupported(false).currentGeneration(true).build();
     }
 
+    /**
+     * Re-stubs the happy path for a burstable original: the template resolves to t3.micro (2 vCPU, 1 GiB). The
+     * candidates are t3a.micro and t3a.small (should be chosen with the option on), t2.micro (previous generation)
+     * and t4g.micro (arm64, the AMI is x86_64), which must never be chosen.
+     */
+    FakeAws burstableWorld() {
+        doReturn(DescribeLaunchTemplateVersionsResponse.builder().launchTemplateVersions(
+                LaunchTemplateVersion.builder().versionNumber(7L).launchTemplateData(
+                        ResponseLaunchTemplateData.builder().imageId("ami-0aaa").instanceType("t3.micro").build())
+                        .build()).build()).when(ec2).describeLaunchTemplateVersions(any(DescribeLaunchTemplateVersionsRequest.class));
+        List<InstanceTypeInfo> candidates = List.of(
+                burstable("t3a.micro", 1024, "x86_64", true), burstable("t3a.small", 2048, "x86_64", true),
+                burstable("t2.micro", 1024, "x86_64", false), burstable("t4g.micro", 1024, "arm64", true));
+        doAnswer(inv -> {
+            DescribeInstanceTypesRequest r = inv.getArgument(0);
+            if (!r.instanceTypesAsStrings().isEmpty()) {
+                return DescribeInstanceTypesResponse.builder().instanceTypes(
+                        burstable(r.instanceTypesAsStrings().get(0), 1024, "x86_64", true)).build();
+            }
+            return DescribeInstanceTypesResponse.builder().instanceTypes(candidates).build();
+        }).when(ec2).describeInstanceTypes(any(DescribeInstanceTypesRequest.class));
+        List<InstanceTypeOffering> offerings = new ArrayList<>();
+        for (String t : List.of("t3.micro", "t3a.micro", "t3a.small", "t2.micro", "t4g.micro")) {
+            for (String az : List.of(AZ_A, AZ_B)) {
+                offerings.add(InstanceTypeOffering.builder().instanceType(t).location(az).locationType("availability-zone").build());
+            }
+        }
+        doReturn(DescribeInstanceTypeOfferingsResponse.builder().instanceTypeOfferings(offerings).build())
+                .when(ec2).describeInstanceTypeOfferings(any(DescribeInstanceTypeOfferingsRequest.class));
+        return this;
+    }
+
+    static InstanceTypeInfo burstable(String name, long memMib, String arch, boolean currentGeneration) {
+        return InstanceTypeInfo.builder().instanceType(name)
+                .vCpuInfo(VCpuInfo.builder().defaultVCpus(2).build())
+                .memoryInfo(MemoryInfo.builder().sizeInMiB(memMib).build())
+                .processorInfo(ProcessorInfo.builder().supportedArchitecturesWithStrings(arch).build())
+                .supportedUsageClassesWithStrings(List.of("on-demand", "spot"))
+                .burstablePerformanceSupported(true).bareMetal(false).hypervisor("nitro")
+                .supportedBootModesWithStrings("legacy-bios", "uefi")
+                .networkInfo(NetworkInfo.builder().maximumNetworkInterfaces(3).efaSupported(false).build())
+                .hibernationSupported(false).currentGeneration(currentGeneration).build();
+    }
+
     // ---- AC-PLN-01: no mutating call ----
 
     /** Every call recorded on every client is a Describe/Get/List/Simulate read. */

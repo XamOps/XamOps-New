@@ -200,6 +200,46 @@ class AwsThreeWayDiffTest {
         assertThat(r.acks()).containsExactly(AwsThreeWayDiff.ACK_LEGACY_TARGET);
     }
 
+    private static software.amazon.awssdk.services.autoscaling.model.InstanceMaintenancePolicy imp(int min, int max) {
+        return software.amazon.awssdk.services.autoscaling.model.InstanceMaintenancePolicy.builder()
+                .minHealthyPercentage(min).maxHealthyPercentage(max).build();
+    }
+
+    private static JsonNode ownedDesired() throws IOException {
+        return JSON.readTree("{\"shape\":\"MIXED_INSTANCES_POLICY\",\"overrides\":[\"m5.large\"],"
+                + "\"instanceMaintenancePolicy\":{\"owned\":true,\"min\":100,\"max\":200}}");
+    }
+
+    /** AD-08: the saved original comes back exactly: "absent" is -1/-1, a recorded policy is its own values. */
+    @Test
+    void theOwnedPolicyIsRestoredToTheSnapshotValueIncludingAbsent() throws IOException {
+        AutoScalingGroup live = converted("lt-0abc", "$Default", true, "m5.large").toBuilder()
+                .instanceMaintenancePolicy(imp(100, 200)).build();
+        JsonNode absent = AwsThreeWayDiff.compute(snapshotOf(original(), false), ownedDesired(), live, null, false)
+                .target().maintenancePolicy();
+        assertThat(absent.path("min").asInt()).isEqualTo(-1);
+        assertThat(absent.path("max").asInt()).isEqualTo(-1);
+        AutoScalingGroup hadOne = original().toBuilder().instanceMaintenancePolicy(imp(90, 150)).build();
+        JsonNode set = AwsThreeWayDiff.compute(snapshotOf(hadOne, false), ownedDesired(), live, null, false)
+                .target().maintenancePolicy();
+        assertThat(set.path("min").asInt()).isEqualTo(90);
+        assertThat(set.path("max").asInt()).isEqualTo(150);
+    }
+
+    @Test
+    void aPolicyXamOpsDidNotOwnOrAnOldSnapshotIsLeftAlone() throws IOException {
+        AutoScalingGroup live = converted("lt-0abc", "$Default", true, "m5.large").toBuilder()
+                .instanceMaintenancePolicy(imp(100, 200)).build();
+        assertThat(AwsThreeWayDiff.compute(snapshotOf(original(), false), desired("lt-0abc", "m5.large"), live, null,
+                false).target().maintenancePolicy()).as("not owned").isNull();
+        String payload = AwsSnapshotCodec.encode(FakeAws.REGION, original(), AwsSnapshotCodec.Context.none(), false)
+                .payloadJson().replace(",\"instanceMaintenancePolicy\":{\"state\":\"ABSENT\"}", "");
+        AwsSnapshotCodec.Owned old = AwsSnapshotCodec.decodeOwned(payload).orElseThrow();
+        assertThat(old.hasMaintenancePolicy()).isFalse();
+        assertThat(AwsThreeWayDiff.compute(old, ownedDesired(), live, null, false).target().maintenancePolicy())
+                .as("older snapshot").isNull();
+    }
+
     @Test
     void aSnapshotThatHadSpotIsRecognisedSoTheDrainIsSkipped() {
         assertThat(AwsThreeWayDiff.snapshotHadSpot(snapshotOf(converted("lt-0abc", "$Default", false, "m5.large"), false)))

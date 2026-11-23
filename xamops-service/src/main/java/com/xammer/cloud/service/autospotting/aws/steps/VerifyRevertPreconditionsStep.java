@@ -52,7 +52,8 @@ public final class VerifyRevertPreconditionsStep extends AwsRevertStep {
         String fingerprint = AwsFingerprint.of(facts);
         if (!inputs.compensation()) {
             Optional<String> planned = services.facts().planLiveFingerprint(program.planId());
-            if (planned.isEmpty() || !planned.get().equals(fingerprint)) {
+            if (planned.isEmpty() || !(planned.get().equals(fingerprint)
+                    || planned.get().equals(AwsFingerprint.of(facts, true)))) {
                 return failed(ErrorKind.VALIDATION, "PLAN_STALE",
                         "The group changed after this plan was made. Review a fresh revert plan.");
             }

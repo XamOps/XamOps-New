@@ -46,6 +46,9 @@ public final class AwsPriorConfig {
         ObjectNode n = JSON.createObjectNode();
         n.put("shape", o.shape());
         n.put("capacityRebalance", o.capacityRebalance());
+        if (o.hasMaintenancePolicy()) {
+            n.set(AwsMaintenancePolicy.KEY, restoreNode(o.instanceMaintenancePolicy()));
+        }
         JsonNode mip = o.mixedInstancesPolicy();
         if (mip == null) {
             if (o.launchTemplate() == null) {
@@ -79,6 +82,16 @@ public final class AwsPriorConfig {
         }
         n.set("instancesDistribution", dist);
         return Optional.of(n);
+    }
+
+    /** The snapshot's original policy as a value to write: ABSENT is -1/-1, which clears it (AD-08). */
+    static ObjectNode restoreNode(JsonNode saved) {
+        ObjectNode p = JSON.createObjectNode();
+        p.put("owned", true);
+        boolean set = "SET".equals(saved.path("state").asText());
+        p.put("min", set && saved.hasNonNull("min") ? saved.get("min").asInt() : AwsMaintenancePolicy.CLEAR);
+        p.put("max", set && saved.hasNonNull("max") ? saved.get("max").asInt() : AwsMaintenancePolicy.CLEAR);
+        return p;
     }
 
     private static Optional<JsonNode> usable(JsonNode n) {

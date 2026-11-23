@@ -81,7 +81,17 @@ public class AwsPlanReader {
 
     /** Selected types plus the figures plan creation needs. */
     public record TypePlan(AwsTypeSelector.Selection selection, boolean xenToNitro, int originalVcpu,
-                           Map<String, BigDecimal> spotMedianByType) {
+                           Map<String, BigDecimal> spotMedianByType, boolean originalBurstable,
+                           List<String> burstableAlternatives, List<String> burstableSelected) {
+        public TypePlan {
+            burstableAlternatives = burstableAlternatives == null ? List.of() : List.copyOf(burstableAlternatives);
+            burstableSelected = burstableSelected == null ? List.of() : List.copyOf(burstableSelected);
+        }
+
+        public TypePlan(AwsTypeSelector.Selection selection, boolean xenToNitro, int originalVcpu,
+                        Map<String, BigDecimal> spotMedianByType) {
+            this(selection, xenToNitro, originalVcpu, spotMedianByType, false, List.of(), List.of());
+        }
     }
 
     // ---- launch template and AMI ----
@@ -462,7 +472,21 @@ public class AwsPlanReader {
         withAzs.forEach(c -> byName.put(c.instanceType(), c));
         boolean xenToNitro = !o.nitro() && sel.types().stream().filter(t -> !t.equals(original))
                 .map(byName::get).anyMatch(c -> c != null && c.nitro());
-        return new TypePlan(sel, xenToNitro, o.vcpu(), medians);
+        // AD-09: with the option off, name the burstable types a plan with it on would add, so the customer can decide.
+        List<String> alternatives = new ArrayList<>();
+        if (o.burstable() && !selector.allowsBurstable()) {
+            AwsTypeSelector burstable = selector.withBurstable(true);
+            for (AwsTypeSelector.TypeFacts c : withAzs) {
+                if (c.burstable() && !c.instanceType().equals(original)
+                        && burstable.isCompatible(oWithAz, c, azs, image, template)) {
+                    alternatives.add(c.instanceType());
+                }
+            }
+            alternatives.sort(String::compareTo);
+        }
+        List<String> burstableSelected = sel.types().stream().filter(t -> !t.equals(original))
+                .filter(t -> byName.get(t) != null && byName.get(t).burstable()).toList();
+        return new TypePlan(sel, xenToNitro, o.vcpu(), medians, o.burstable(), alternatives, burstableSelected);
     }
 
     private static AwsTypeSelector.TypeFacts withAz(AwsTypeSelector.TypeFacts t, Set<String> azs, double price) {

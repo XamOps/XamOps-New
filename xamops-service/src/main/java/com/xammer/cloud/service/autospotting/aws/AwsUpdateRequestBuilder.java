@@ -2,6 +2,7 @@ package com.xammer.cloud.service.autospotting.aws;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import software.amazon.awssdk.services.autoscaling.model.AutoScalingGroup;
+import software.amazon.awssdk.services.autoscaling.model.InstanceMaintenancePolicy;
 import software.amazon.awssdk.services.autoscaling.model.InstancesDistribution;
 import software.amazon.awssdk.services.autoscaling.model.LaunchTemplate;
 import software.amazon.awssdk.services.autoscaling.model.LaunchTemplateOverrides;
@@ -84,11 +85,12 @@ public final class AwsUpdateRequestBuilder {
                         .build());
             }
         }
-        return UpdateAutoScalingGroupRequest.builder()
+        UpdateAutoScalingGroupRequest.Builder request = UpdateAutoScalingGroupRequest.builder()
                 .autoScalingGroupName(live.autoScalingGroupName())
                 .mixedInstancesPolicy(policy.build())
-                .capacityRebalance(target.path("capacityRebalance").asBoolean(true))
-                .build();
+                .capacityRebalance(target.path("capacityRebalance").asBoolean(true));
+        withMaintenancePolicy(request, target);
+        return request.build();
     }
 
     /**
@@ -107,11 +109,26 @@ public final class AwsUpdateRequestBuilder {
         } else {
             spec.launchTemplateName(lt.get("name").asText());
         }
-        return UpdateAutoScalingGroupRequest.builder()
+        UpdateAutoScalingGroupRequest.Builder request = UpdateAutoScalingGroupRequest.builder()
                 .autoScalingGroupName(live.autoScalingGroupName())
                 .launchTemplate(spec.build())
-                .capacityRebalance(target.path("capacityRebalance").asBoolean(false))
-                .build();
+                .capacityRebalance(target.path("capacityRebalance").asBoolean(false));
+        withMaintenancePolicy(request, target);
+        return request.build();
+    }
+
+    /**
+     * Adds {@code InstanceMaintenancePolicy} when the configuration carries a value for it (design-aws.md AD-08):
+     * 100/200 for a policy XamOps owns, or the saved original (-1/-1 clears it) for a restore. Taking it from the
+     * configuration means no program can drop it by accident, and a customer's own policy is never in the target.
+     */
+    public static void withMaintenancePolicy(UpdateAutoScalingGroupRequest.Builder request, JsonNode config) {
+        if (AwsMaintenancePolicy.hasValue(config)) {
+            JsonNode p = config.path(AwsMaintenancePolicy.KEY);
+            request.instanceMaintenancePolicy(InstanceMaintenancePolicy.builder()
+                    .minHealthyPercentage(p.get("min").asInt())
+                    .maxHealthyPercentage(p.get("max").asInt()).build());
+        }
     }
 
     /** The request fields that must never be present; empty means the request is owned-fields only. */

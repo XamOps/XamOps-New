@@ -21,6 +21,7 @@ import com.xammer.cloud.service.autospotting.spi.EligibilityResult;
 import com.xammer.cloud.service.autospotting.spi.EvalMode;
 import com.xammer.cloud.service.autospotting.spi.GroupRef;
 import com.xammer.cloud.service.autospotting.spi.PlanBody;
+import com.xammer.cloud.service.autospotting.spi.PlanOptions;
 import com.xammer.cloud.service.autospotting.spi.Profile;
 import com.xammer.cloud.service.autospotting.spi.ProviderRegistry;
 import com.xammer.cloud.service.autospotting.spi.ReadOnlyCloudView;
@@ -103,11 +104,20 @@ public class PlanService {
     /** The command a plan request carries (controller-resolved; the account is already authorized). */
     public record CreateCommand(OperationKind kind, UUID groupId, String groupRef, String profileId,
                                 boolean dryRunRequested, String idempotencyKey, String requestSha256,
-                                String createdBy, String policyEditJson) {
+                                String createdBy, String policyEditJson, Boolean allowBurstable) {
+        /** A command with a policy edit and no plan options. */
+        public CreateCommand(OperationKind kind, UUID groupId, String groupRef, String profileId,
+                             boolean dryRunRequested, String idempotencyKey, String requestSha256,
+                             String createdBy, String policyEditJson) {
+            this(kind, groupId, groupRef, profileId, dryRunRequested, idempotencyKey, requestSha256, createdBy,
+                    policyEditJson, null);
+        }
+
         /** A command without a policy edit. */
         public CreateCommand(OperationKind kind, UUID groupId, String groupRef, String profileId,
                              boolean dryRunRequested, String idempotencyKey, String requestSha256, String createdBy) {
-            this(kind, groupId, groupRef, profileId, dryRunRequested, idempotencyKey, requestSha256, createdBy, null);
+            this(kind, groupId, groupRef, profileId, dryRunRequested, idempotencyKey, requestSha256, createdBy, null,
+                    null);
         }
     }
 
@@ -161,10 +171,12 @@ public class PlanService {
 
         // A revert is never blocked by the conversion-only eligibility checks (DR-03): it takes the warnings of
         // its own plan, and the provider's restore-permission pre-check (design-core.md §7.4) is part of it.
+        // AD-09: the customer's burstable choice for this plan, and the group's last confirmed one (desired_config).
+        PlanOptions options = new PlanOptions(cmd.allowBurstable(), group == null ? null : group.getDesiredConfig());
         EligibilityResult eligibility = cmd.kind() == OperationKind.REVERT || policyChange ? null
-                : spotProvider.checkEligibility(ref, view, profile, EvalMode.PLAN);
+                : spotProvider.checkEligibility(ref, view, profile, EvalMode.PLAN, options);
         com.xammer.cloud.service.autospotting.spi.PlanRequest planRequest =
-                new com.xammer.cloud.service.autospotting.spi.PlanRequest(ref, cmd.kind(), profile);
+                new com.xammer.cloud.service.autospotting.spi.PlanRequest(ref, cmd.kind(), profile, options);
         PlanBody body = spotProvider.createPlan(planRequest, view);
         if (group == null && cmd.kind() == OperationKind.MIG_POLICY_UPDATE) {
             // The MIG must exist before a row does: a missing MIG or a failed read creates nothing.
@@ -436,6 +448,9 @@ public class PlanService {
         sb.append(",\"rollout\":").append(rolloutJson(body.rollout()));
         sb.append(",\"eligibility\":").append(eligibilityJson(body));
         sb.append(",\"estimates\":").append(estimatesJson(body));
+        if (body.optionsJson() != null) {
+            sb.append(",\"options\":").append(body.optionsJson());
+        }
         sb.append("}");
         return sb.toString();
     }
@@ -443,7 +458,7 @@ public class PlanService {
     private static PlanBody withFeeBasis(PlanBody body, String feeBasis) {
         return new PlanBody(body.currentJson(), body.targetJson(), body.diffJson(), body.snapshotToStore(),
                 body.eligibility(), body.rollout(), body.estimates(), body.onDemandFloorJson(),
-                feeBasis, body.revertPathJson(), body.providerStableId());
+                feeBasis, body.revertPathJson(), body.providerStableId(), body.optionsJson());
     }
 
     /**
@@ -465,6 +480,18 @@ public class PlanService {
                 first = false;
                 sb.append("{\"code\":\"").append(escape(b.code())).append("\",\"text\":\"")
                         .append(escape(b.text())).append("\"}");
+            }
+        }
+        sb.append("],\"warnings\":[");
+        first = true;
+        if (body.eligibility() != null) {
+            for (var w : body.eligibility().warnings()) {
+                if (!first) {
+                    sb.append(',');
+                }
+                first = false;
+                sb.append("{\"id\":\"").append(escape(w.id())).append("\",\"code\":\"").append(escape(w.code()))
+                        .append("\",\"text\":\"").append(escape(w.text())).append("\"}");
             }
         }
         return sb.append("]}").toString();

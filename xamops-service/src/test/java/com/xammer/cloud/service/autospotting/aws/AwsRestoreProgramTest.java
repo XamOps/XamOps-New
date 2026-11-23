@@ -166,6 +166,96 @@ class AwsRestoreProgramTest {
         }
     }
 
+    // ---- AD-08: the owned maintenance policy is restored exactly ----
+
+    private static final String DESIRED_OWNED = DESIRED.substring(0, DESIRED.length() - 1)
+            + ",\"instanceMaintenancePolicy\":{\"owned\":true,\"min\":100,\"max\":200}}";
+
+    private static software.amazon.awssdk.services.autoscaling.model.InstanceMaintenancePolicy imp(int min, int max) {
+        return software.amazon.awssdk.services.autoscaling.model.InstanceMaintenancePolicy.builder()
+                .minHealthyPercentage(min).maxHealthyPercentage(max).build();
+    }
+
+    private static OperationContext revertOwned(AwsConversionFixture f) {
+        SpotGroup g = row(f, GroupState.REVERTING);
+        g.setDesiredConfig(DESIRED_OWNED);
+        return new OperationContext(f.opId, OperationKind.REVERT, g, "{\"mode\":\"RESTORE\"}", null,
+                OperationPhase.FORWARD, f.planId, CompensationTarget.NONE);
+    }
+
+    private static void runAll(StepProgram p, AwsConversionFixture f) {
+        for (int i = 0; i < p.steps().size(); i++) {
+            assertThat(run(p, i, f)).as("step " + p.at(i).name()).isInstanceOf(StepOutcome.Done.class);
+        }
+    }
+
+    @Test
+    void aPolicyXamOpsSetOnAGroupThatHadNoneIsClearedWithMinusOneAtRevert() {
+        AwsConversionFixture f = fixture(converted().toBuilder().instanceMaintenancePolicy(imp(100, 200)).build(),
+                FakeAws.asg("web-asg").build());
+        runAll(f.provider.restore(revertOwned(f), null), f);
+        UpdateAutoScalingGroupRequest restore = f.updates.get(f.updates.size() - 1);
+        assertThat(restore.instanceMaintenancePolicy().minHealthyPercentage()).isEqualTo(-1);
+        assertThat(restore.instanceMaintenancePolicy().maxHealthyPercentage()).isEqualTo(-1);
+        assertThat(f.group().instanceMaintenancePolicy()).as("the original, 'absent', is back").isNull();
+        assertThat(AwsRestoreRequests.forbidden(restore)).isEmpty();
+    }
+
+    @Test
+    void aPolicyTheCustomerChangedAfterTheConversionIsKeptAndListedAsChangedOutside() throws IOException {
+        AwsConversionFixture f = fixture(converted().toBuilder().instanceMaintenancePolicy(imp(80, 150)).build(),
+                FakeAws.asg("web-asg").build());
+        runAll(f.provider.restore(revertOwned(f), null), f);
+        assertThat(f.updates.stream().anyMatch(u -> u.instanceMaintenancePolicy() != null)).isFalse();
+        assertThat(f.group().instanceMaintenancePolicy().minHealthyPercentage()).isEqualTo(80);
+        AwsSnapshotCodec.Owned owned = AwsSnapshotCodec.decodeOwned(f.snapshots.linked.payload()).orElseThrow();
+        AwsThreeWayDiff.Result diff = AwsThreeWayDiff.compute(owned, json(DESIRED_OWNED),
+                f.group().toBuilder().instanceMaintenancePolicy(imp(80, 150)).build(), null, false);
+        assertThat(diff.kept()).extracting(AwsThreeWayDiff.Kept::field).contains("instanceMaintenancePolicy");
+    }
+
+    @Test
+    void aSnapshotTakenBeforeThePolicyWasRecordedLeavesThePolicyAlone() throws IOException {
+        AutoScalingGroup live = converted().toBuilder().instanceMaintenancePolicy(imp(100, 200)).build();
+        AwsConversionFixture f = fixture(live, FakeAws.asg("web-asg").build());
+        String old = f.snapshots.linked.payload().replace(",\"instanceMaintenancePolicy\":{\"state\":\"ABSENT\"}", "");
+        assertThat(old).doesNotContain("instanceMaintenancePolicy");
+        f.snapshots.linked = new AwsSnapshotStore.Stored(UUID.randomUUID(), f.groupId, true, old, AwsFingerprint.sha256(old));
+        runAll(f.provider.restore(revertOwned(f), null), f);
+        assertThat(f.updates.stream().anyMatch(u -> u.instanceMaintenancePolicy() != null)).isFalse();
+        assertThat(f.group().instanceMaintenancePolicy().maxHealthyPercentage()).isEqualTo(200);
+    }
+
+    @Test
+    void aCustomerPolicyXamOpsNeverOwnedIsNotTouchedAtRevert() {
+        AutoScalingGroup original = FakeAws.asg("web-asg").instanceMaintenancePolicy(imp(100, 150)).build();
+        AwsConversionFixture f = fixture(converted().toBuilder().instanceMaintenancePolicy(imp(100, 150)).build(), original);
+        runAll(f.provider.restore(revert(f, "{\"mode\":\"RESTORE\"}"), null), f);
+        assertThat(f.updates.stream().anyMatch(u -> u.instanceMaintenancePolicy() != null)).isFalse();
+        assertThat(f.group().instanceMaintenancePolicy().maxHealthyPercentage()).isEqualTo(150);
+    }
+
+    @Test
+    void theRevertPlanShowsTheRestoreValueOfThePolicy() throws IOException {
+        AwsConversionFixture f = fixture(converted().toBuilder().instanceMaintenancePolicy(imp(100, 200)).build(),
+                FakeAws.asg("web-asg").build());
+        SpotGroup g = row(f, GroupState.ACTIVE);
+        g.setDesiredConfig(DESIRED_OWNED);
+        when(f.groupLookup.live(eq(Provider.AWS), eq(7L), anyString())).thenReturn(Optional.of(g));
+        PlanBody body = f.provider.createPlan(new PlanRequest(new GroupRef(Provider.AWS, 7L,
+                FakeAws.REGION + "/web-asg", null), OperationKind.REVERT, null), f.aws.view());
+        JsonNode diff = json(body.diffJson());
+        JsonNode row = null;
+        for (JsonNode d : diff) {
+            if ("instanceMaintenancePolicy".equals(d.path("field").asText())) {
+                row = d;
+            }
+        }
+        assertThat(row).isNotNull();
+        assertThat(row.path("from").asText()).isEqualTo("min 100 / max 200");
+        assertThat(row.path("to").asText()).isEqualTo("none");
+    }
+
     // ---- the program ----
 
     @Test

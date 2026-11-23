@@ -62,7 +62,11 @@ class AwsEnableEndToEndIT {
             assertThat(desired).isEqualTo(AwsConversionFixture.JSON.readTree(h.plan.targetJson()));
             assertThat(h.jdbc.queryForObject("SELECT desired_fingerprint FROM spot_group WHERE id = ?",
                     String.class, h.f.groupId))
-                    .isEqualTo(AwsFingerprint.of(AwsGroupFacts.from(FakeAws.REGION, h.f.group())));
+                    .as("the fingerprint of an owned maintenance policy includes it (AD-08)")
+                    .isEqualTo(AwsFingerprint.of(AwsGroupFacts.from(FakeAws.REGION, h.f.group()), true));
+            assertThat(desired.path("instanceMaintenancePolicy").path("owned").asBoolean()).isTrue();
+            assertThat(h.f.group().instanceMaintenancePolicy().minHealthyPercentage()).isEqualTo(100);
+            assertThat(h.f.group().instanceMaintenancePolicy().maxHealthyPercentage()).isEqualTo(200);
 
             // The snapshot was persisted by this op, linked to the group, and holds the ORIGINAL shape.
             assertThat(h.count("SELECT count(*) FROM spot_group_snapshot WHERE captured_by_op = ?", h.f.opId))
@@ -77,6 +81,10 @@ class AwsEnableEndToEndIT {
             assertThat(h.f.writeCalls()).containsExactly("updateAutoScalingGroup", "createOrUpdateTags");
             assertThat(h.f.log).containsExactly("update", "tags");
             assertThat(h.f.updates.get(0).capacityRebalance()).isTrue();
+            assertThat(h.f.updates.get(0).instanceMaintenancePolicy().minHealthyPercentage()).isEqualTo(100);
+            assertThat(h.f.updates.get(0).instanceMaintenancePolicy().maxHealthyPercentage()).isEqualTo(200);
+            assertThat(h.jdbc.queryForObject("SELECT payload->'owned'->'instanceMaintenancePolicy'->>'state'"
+                    + " FROM spot_group_snapshot WHERE captured_by_op = ?", String.class, h.f.opId)).isEqualTo("ABSENT");
             h.f.aws.assertReadOnly();
         }
     }

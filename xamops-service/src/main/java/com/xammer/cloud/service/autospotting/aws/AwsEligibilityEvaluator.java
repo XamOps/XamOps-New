@@ -91,8 +91,14 @@ public class AwsEligibilityEvaluator {
 
     /** Evaluate a group by key ({@code region/name}); the group is described here. */
     public Evaluation evaluate(CloudAccount account, String groupKey, Profile profile, EvalMode mode) {
+        return evaluate(account, groupKey, profile, mode, false);
+    }
+
+    /** As above, with the customer's per-plan burstable choice (AD-09). */
+    public Evaluation evaluate(CloudAccount account, String groupKey, Profile profile, EvalMode mode,
+                               boolean allowBurstable) {
         String[] parts = split(groupKey);
-        return evaluate(account, parts[0], parts[1], null, profile, mode, null);
+        return evaluate(account, parts[0], parts[1], null, profile, mode, null, allowBurstable);
     }
 
     /**
@@ -101,6 +107,12 @@ public class AwsEligibilityEvaluator {
      */
     public Evaluation evaluate(CloudAccount account, String region, String name, AutoScalingGroup described,
                                Profile profile, EvalMode mode, AwsReadOnlyView suppliedView) {
+        return evaluate(account, region, name, described, profile, mode, suppliedView, false);
+    }
+
+    /** The full form: {@code allowBurstable} is the customer's per-plan option (AD-09), false everywhere else. */
+    public Evaluation evaluate(CloudAccount account, String region, String name, AutoScalingGroup described,
+                               Profile profile, EvalMode mode, AwsReadOnlyView suppliedView, boolean allowBurstable) {
         AwsReadOnlyView view = suppliedView != null && region.equals(suppliedView.region())
                 ? suppliedView : views.view(account, region);
         String groupKey = region + "/" + name;
@@ -173,15 +185,19 @@ public class AwsEligibilityEvaluator {
                         v -> !v, () -> reader.openReservations(view, li.instanceType()));
                 perms = gated(account, groupKey, fingerprint, mode, "PERMISSION_MISSING", List.<String>of(),
                         List::isEmpty, () -> reader.missingPermissions(view, account.getRoleArn(), li));
+                // A pass with the option on says nothing about the option off, so the cache code differs.
+                final String typesCode = allowBurstable ? "NO_COMPATIBLE_TYPES+BURSTABLE" : "NO_COMPATIBLE_TYPES";
+                final AwsTypeSelector chosen = selector.withBurstable(allowBurstable);
                 Sig<AwsPlanReader.TypePlan> typeRead = gatedRaw(account, groupKey, fingerprint, mode,
-                        "NO_COMPATIBLE_TYPES", () -> reader.types(account, view, g, li, selector),
+                        typesCode, () -> reader.types(account, view, g, li, chosen),
                         tp -> !tp.selection().noCompatibleTypes() && !tp.selection().fewTypes() && !tp.xenToNitro());
                 if (typeRead instanceof Sig.Ok<AwsPlanReader.TypePlan> ok) {
                     typePlan = ok.value();
-                    types = Sig.ok(new TypeInfo(typePlan.selection(), typePlan.xenToNitro()));
+                    types = Sig.ok(new TypeInfo(typePlan.selection(), typePlan.xenToNitro(),
+                            typePlan.burstableAlternatives(), typePlan.burstableSelected()));
                 } else if (typeRead instanceof Sig.Failed<AwsPlanReader.TypePlan> f) {
                     types = Sig.failed(f.kind());
-                } else if (cache.isPassCached(account.getId(), groupKey, "NO_COMPATIBLE_TYPES", fingerprint)) {
+                } else if (cache.isPassCached(account.getId(), groupKey, typesCode, fingerprint)) {
                     types = Sig.ok(new TypeInfo(new AwsTypeSelector.Selection(List.of(), 99), false));
                 }
                 // Quotas: need the Spot count the profile expects and the original type's vCPU.

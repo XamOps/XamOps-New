@@ -18,6 +18,7 @@ import java.util.UUID;
  * @param groupId   an existing group's {@code spot_group.id} (mutually exclusive with {@code groupRef})
  * @param groupRef  the provider group key for a group with no row ({@code region/asgName}, etc.)
  * @param profileId the chosen profile id (conservative preselected, PO-18)
+ * @param options   optional customer choices, e.g. {@code {"allowBurstable":true}} (AWS)
  * @param policyEdit GCP only: the edited rolling-update fields of a MIG_POLICY_UPDATE or policy-only CONFIG_APPLY
  *                   ({@code {"updatePolicy":{...},"targetSize":n}}, edited fields only), else null
  */
@@ -26,10 +27,24 @@ public record PlanRequest(
         UUID groupId,
         @AsgName String groupRef,
         @Size(max = 64) String profileId,
-        java.util.Map<String, Object> policyEdit) {
+        java.util.Map<String, Object> policyEdit,
+        Options options) {
 
     /** The request without a policy edit (every kind except a GCP update-policy change). */
     public PlanRequest(String kind, UUID groupId, String groupRef, String profileId) {
-        this(kind, groupId, groupRef, profileId, null);
+        this(kind, groupId, groupRef, profileId, null, null);
+    }
+
+    /** The request with a policy edit and no options. */
+    public PlanRequest(String kind, UUID groupId, String groupRef, String profileId,
+                       java.util.Map<String, Object> policyEdit) {
+        this(kind, groupId, groupRef, profileId, policyEdit, null);
+    }
+
+    /**
+     * Customer choices for the plan (AWS only, design-aws.md AD-09). {@code allowBurstable} lets a burstable group
+     * gain other burstable types; null means "not said", so the group's last confirmed choice applies.
+     */
+    public record Options(Boolean allowBurstable) {
     }
 }

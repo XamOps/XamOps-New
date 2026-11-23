@@ -71,13 +71,80 @@ class AwsEligibilityRulesTest {
         return FakeAws.asg("web-asg");
     }
 
+    /** A customer policy that already keeps full capacity: XamOps leaves it, with no warning (AD-08). */
+    static InstanceMaintenancePolicy safePolicy() {
+        return InstanceMaintenancePolicy.builder().minHealthyPercentage(100).maxHealthyPercentage(150).build();
+    }
+
+    private static List<String> warningCodes(Inputs in) {
+        return AwsEligibilityRules.evaluate(in).warnings().stream().map(EligibilityResult.Check::code).toList();
+    }
+
+    @Test
+    void aGroupWithNoMaintenancePolicyWarnsThatItCanBrieflyRunAtTwiceItsSize() {
+        EligibilityResult r = AwsEligibilityRules.evaluate(clean(asg().build()));
+        assertThat(r.blockers()).isEmpty();
+        assertThat(r.warnings()).extracting(EligibilityResult.Check::code).contains("IMP_OVERSHOOT");
+        assertThat(r.warnings().stream().filter(w -> w.code().equals("IMP_OVERSHOOT")).findFirst().orElseThrow().text())
+                .contains("twice its desired size").contains("removes the setting when you revert");
+        // AWS reports a cleared policy as -1/-1: it counts as none.
+        assertThat(warningCodes(clean(asg().instanceMaintenancePolicy(InstanceMaintenancePolicy.builder()
+                .minHealthyPercentage(-1).maxHealthyPercentage(-1).build()).build()))).contains("IMP_OVERSHOOT");
+    }
+
+    @Test
+    void aCustomerPolicyIsNeverOverwrittenAndWarnsOnlyWhenItAllowsACapacityDip() {
+        assertThat(warningCodes(clean(asg().instanceMaintenancePolicy(safePolicy()).build())))
+                .doesNotContain("IMP_OVERSHOOT", "IMP_MIN_HEALTHY_LOW");
+        List<EligibilityResult.Check> low = AwsEligibilityRules.evaluate(clean(asg().instanceMaintenancePolicy(
+                InstanceMaintenancePolicy.builder().minHealthyPercentage(90).maxHealthyPercentage(150).build()).build()))
+                .warnings();
+        assertThat(low).extracting(EligibilityResult.Check::code).contains("IMP_MIN_HEALTHY_LOW")
+                .doesNotContain("IMP_OVERSHOOT");
+        assertThat(low.stream().filter(w -> w.code().equals("IMP_MIN_HEALTHY_LOW")).findFirst().orElseThrow().text())
+                .contains("90%").contains("does not change your policy");
+        assertThat(AwsEligibilityRules.evaluate(clean(asg().instanceMaintenancePolicy(InstanceMaintenancePolicy.builder()
+                .minHealthyPercentage(100).maxHealthyPercentage(100).build()).build())).blockers())
+                .extracting(EligibilityResult.Check::code).contains("IMP_TERMINATE_FIRST");
+    }
+
+    private static Inputs withTypes(Inputs base, TypeInfo types) {
+        return new Inputs(base.group(), base.account(), null, base.launch(), base.ecsManagedTermination(),
+                base.refreshInProgress(), base.otherFeatureInFlight(), base.missingPermissions(), base.spotQuota(),
+                base.odQuota(), base.lifecycleHooks(), base.maxDeregistrationDelay(), base.commitment(), Sig.ok(types),
+                base.openReservations());
+    }
+
+    @Test
+    void aBurstableGroupWithNoTypesIsBlockedAndToldWhichBurstableTypesWouldFit() {
+        Inputs in = withTypes(clean(asg().instanceMaintenancePolicy(safePolicy()).build()), new TypeInfo(
+                new AwsTypeSelector.Selection(List.of("t3.micro"), 1), false, List.of("t3a.micro"), List.of()));
+        EligibilityResult r = AwsEligibilityRules.evaluate(in);
+        assertThat(r.blockers()).extracting(EligibilityResult.Check::code).containsExactly("NO_COMPATIBLE_TYPES");
+        assertThat(r.blockers().get(0).text()).contains("burstable alternatives (t3a.micro)");
+    }
+
+    @Test
+    void allowedBurstableTypesCarryAnAcknowledgedCpuCreditWarning() {
+        Inputs in = withTypes(clean(asg().instanceMaintenancePolicy(safePolicy()).build()), new TypeInfo(
+                new AwsTypeSelector.Selection(List.of("t3.micro", "t3a.micro", "m5.large", "m6i.large"), 4), false,
+                List.of(), List.of("t3a.micro")));
+        EligibilityResult r = AwsEligibilityRules.evaluate(in);
+        assertThat(r.warnings()).extracting(EligibilityResult.Check::code).containsExactly("BURSTABLE_CREDITS");
+        assertThat(r.warnings().get(0).text()).contains("CPU credits").contains("t3a.micro");
+        // With the option off nothing burstable is selected, so there is no warning.
+        assertThat(warningCodes(withTypes(clean(asg().instanceMaintenancePolicy(safePolicy()).build()),
+                new TypeInfo(new AwsTypeSelector.Selection(List.of("m5.large", "m5a.large", "m6i.large", "m6a.large"), 4),
+                        false)))).doesNotContain("BURSTABLE_CREDITS");
+    }
+
     static Inputs withAsg(AutoScalingGroup g) {
         return clean(g);
     }
 
     @Test
     void aCleanGroupHasNoBlockerAndNoWarning() {
-        EligibilityResult r = AwsEligibilityRules.evaluate(clean(asg().build()));
+        EligibilityResult r = AwsEligibilityRules.evaluate(clean(asg().instanceMaintenancePolicy(safePolicy()).build()));
         assertThat(r.blockers()).isEmpty();
         assertThat(r.warnings()).isEmpty();
         assertThat(r.deferred()).isEmpty();
@@ -269,7 +336,7 @@ class AwsEligibilityRulesTest {
     @Test
     void ec2HealthWithLbHasRemediationTextAndNeedsNoAcknowledgment() {
         EligibilityResult r = AwsEligibilityRules.evaluate(clean(asg().healthCheckType("EC2")
-                .loadBalancerNames("classic-lb").build()));
+                .instanceMaintenancePolicy(safePolicy()).loadBalancerNames("classic-lb").build()));
         assertThat(r.blockers()).extracting(EligibilityResult.Check::code).containsExactly("EC2_HEALTH_WITH_LB");
         assertThat(r.blockers().get(0).text()).contains("HealthCheckType=ELB").contains("plan again");
         assertThat(r.warnings()).isEmpty();

@@ -56,7 +56,12 @@ public final class AwsSnapshotCodec {
 
     /** The owned part of a decoded payload (what revert restores). */
     public record Owned(String shape, AwsGroupFacts.LtSpec launchTemplate, boolean capacityRebalance,
-                        JsonNode mixedInstancesPolicy, String ownedFingerprint, String capturedFrom) {
+                        JsonNode mixedInstancesPolicy, String ownedFingerprint, String capturedFrom,
+                        JsonNode instanceMaintenancePolicy) {
+        /** True when the snapshot recorded the policy (older snapshots did not, and revert leaves the policy alone). */
+        public boolean hasMaintenancePolicy() {
+            return instanceMaintenancePolicy != null && instanceMaintenancePolicy.isObject();
+        }
     }
 
     /** Capture a live snapshot. {@code exact=false} (with reasons) when the original cannot be restored exactly. */
@@ -82,6 +87,15 @@ public final class AwsSnapshotCodec {
             owned.putNull("mixedInstancesPolicy");
         }
         owned.put("capacityRebalance", facts.capacityRebalance());
+        // AD-08: the original maintenance policy, including "absent", is what revert restores.
+        ObjectNode imp = owned.putObject("instanceMaintenancePolicy");
+        if (facts.minHealthyPercentage() == null && facts.maxHealthyPercentage() == null) {
+            imp.put("state", "ABSENT");
+        } else {
+            imp.put("state", "SET");
+            putInt(imp, "min", facts.minHealthyPercentage());
+            putInt(imp, "max", facts.maxHealthyPercentage());
+        }
 
         ObjectNode ctxNode = root.putObject("context");
         ctxNode.put("min", facts.min());
@@ -156,7 +170,8 @@ public final class AwsSnapshotCodec {
                     owned.path("capacityRebalance").asBoolean(false),
                     mixed.isObject() ? mixed : null,
                     root.path("ownedFingerprint").asText(null),
-                    root.path("capturedFrom").asText(null)));
+                    root.path("capturedFrom").asText(null),
+                    owned.path("instanceMaintenancePolicy").isObject() ? owned.get("instanceMaintenancePolicy") : null));
         } catch (JsonProcessingException e) {
             return Optional.empty();
         }

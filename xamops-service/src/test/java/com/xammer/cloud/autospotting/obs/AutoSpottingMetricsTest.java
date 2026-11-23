@@ -138,6 +138,25 @@ class AutoSpottingMetricsTest {
                         assertThat(FORBIDDEN_TAG.matcher(t.getKey()).find()).isFalse()));
     }
 
+    @Test
+    void everyBoundGaugeStillReportsAfterGarbageCollection() throws Exception {
+        // The sources are lambdas nobody else references; a weakly held gauge reads NaN once they are collected.
+        AtomicLong n = new AtomicLong(5);
+        metrics.bindReconcilerGauge(AutoSpottingMetrics.OPS_STUCK, Provider.AWS, () -> n.get());
+        metrics.bindLedgerLastSuccessAge("ledger", () -> n.get());
+        metrics.bindGroupStateGauge(Provider.AWS, GroupState.ACTIVE, () -> n.get());
+        metrics.bindGroupDriftGauge(Provider.AWS, DriftStatus.MATERIAL, () -> n.get());
+        for (int i = 0; i < 5; i++) {
+            System.gc();
+            Thread.sleep(50);
+        }
+        assertThat(gaugeValue(AutoSpottingMetrics.OPS_STUCK, "provider", "aws")).isEqualTo(5.0);
+        assertThat(gaugeValue(AutoSpottingMetrics.LEDGER_LAST_SUCCESS_AGE, "job", "ledger")).isEqualTo(5.0);
+        assertThat(gaugeValue(AutoSpottingMetrics.GROUPS, "provider", "aws", "state", "ACTIVE")).isEqualTo(5.0);
+        assertThat(gaugeValue(AutoSpottingMetrics.GROUPS_DRIFT, "provider", "aws", "severity", "MATERIAL"))
+                .isEqualTo(5.0);
+    }
+
     private void assertTagKeys(String meterName, String... expectedKeys) {
         Meter meter = registry.getMeters().stream()
                 .filter(m -> m.getId().getName().equals(meterName))

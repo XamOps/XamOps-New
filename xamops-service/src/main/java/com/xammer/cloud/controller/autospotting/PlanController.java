@@ -86,7 +86,7 @@ public class PlanController {
             String canonical = canonicalPlanBody(kind, request);
             CreateCommand cmd = new CreateCommand(kind, request.groupId(), request.groupRef(),
                     request.profileId(), false, key, idempotency.hash(canonical), actorName(user),
-                    policyEditJson(request));
+                    policyEditJson(request), allowBurstable(request));
             SpotPlan plan = planService.createPlan(account, user, cmd);
             return ResponseEntity.status(HttpStatus.CREATED).body(PlanDto.from(plan));
         }
@@ -156,7 +156,12 @@ public class PlanController {
     private static String canonicalPlanBody(OperationKind kind, PlanRequest r) {
         return "{\"kind\":\"" + kind.name() + "\",\"groupId\":" + json(r.groupId())
                 + ",\"groupRef\":" + json(r.groupRef()) + ",\"profileId\":" + json(r.profileId())
-                + (r.policyEdit() == null ? "" : ",\"policyEdit\":" + policyEditJson(r)) + "}";
+                + (r.policyEdit() == null ? "" : ",\"policyEdit\":" + policyEditJson(r))
+                + (allowBurstable(r) == null ? "" : ",\"allowBurstable\":" + allowBurstable(r)) + "}";
+    }
+
+    private static Boolean allowBurstable(PlanRequest r) {
+        return r.options() == null ? null : r.options().allowBurstable();
     }
 
     private static String canonicalConfirmBody(UUID planId, ConfirmRequest r) {

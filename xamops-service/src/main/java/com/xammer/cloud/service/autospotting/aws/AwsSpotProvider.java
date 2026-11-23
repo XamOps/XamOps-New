@@ -25,6 +25,7 @@ import com.xammer.cloud.service.autospotting.spi.GroupRef;
 import com.xammer.cloud.service.autospotting.spi.GroupStatus;
 import com.xammer.cloud.service.autospotting.spi.OperationContext;
 import com.xammer.cloud.service.autospotting.spi.PlanBody;
+import com.xammer.cloud.service.autospotting.spi.PlanOptions;
 import com.xammer.cloud.service.autospotting.spi.PlanRequest;
 import com.xammer.cloud.service.autospotting.spi.Profile;
 import com.xammer.cloud.service.autospotting.spi.ReadOnlyCloudView;
@@ -126,12 +127,19 @@ public class AwsSpotProvider implements SpotProvider {
 
     @Override
     public EligibilityResult checkEligibility(GroupRef ref, ReadOnlyCloudView view, Profile profile, EvalMode mode) {
+        return checkEligibility(ref, view, profile, mode, PlanOptions.none());
+    }
+
+    @Override
+    public EligibilityResult checkEligibility(GroupRef ref, ReadOnlyCloudView view, Profile profile, EvalMode mode,
+                                              PlanOptions options) {
         Optional<CloudAccount> account = account(ref.cloudAccountId());
         if (account.isEmpty()) {
             return new EligibilityResult(List.of(EligibilityResult.Check.failed("b-CHECK_FAILED-ACCOUNT",
                     "The connected account could not be found.", ErrorKind.NOT_FOUND)), List.of(), List.of());
         }
-        return evaluator.evaluate(account.get(), ref.groupKey(), profile, mode).result();
+        boolean allowBurstable = options != null && options.effectiveAllowBurstable();
+        return evaluator.evaluate(account.get(), ref.groupKey(), profile, mode, allowBurstable).result();
     }
 
     // ---- plan ----
@@ -145,8 +153,18 @@ public class AwsSpotProvider implements SpotProvider {
             return revertPrograms.plan(req, account);
         }
         Profile profile = req.profile() == null ? new Profile("conservative", null) : req.profile();
-        AwsEligibilityEvaluator.Evaluation ev = evaluator.evaluate(account, req.ref().groupKey(), profile, EvalMode.PLAN);
+        PlanOptions options = req.options();
+        AwsEligibilityEvaluator.Evaluation ev = evaluator.evaluate(account, req.ref().groupKey(), profile, EvalMode.PLAN,
+                options.effectiveAllowBurstable());
         AwsGroupFacts g = ev.group();
+        boolean originalBurstable = ev.typePlan() != null && ev.typePlan().originalBurstable();
+        if (options.explicitlyAllowsBurstable() && ev.typePlan() != null && !originalBurstable) {
+            // AD-09: the option only widens a burstable original's list; it never adds burstable to anything else.
+            throw new AutoSpottingApiException(HttpStatus.UNPROCESSABLE_ENTITY, "BURSTABLE_NOT_APPLICABLE",
+                    "This group does not use a burstable instance type, so burstable alternatives do not apply.");
+        }
+        boolean allowBurstable = options.effectiveAllowBurstable() && originalBurstable;
+        boolean ownsPolicy = AwsMaintenancePolicy.owns(options.desiredConfigJson());
         if (g == null || ev.rawGroup() == null) {
             // Not found or unreadable: the eligibility already says why; the body carries no cloud facts.
             return new PlanBody(null, null, null, null, ev.result(), null, List.of(), null, null, null);
@@ -157,7 +175,7 @@ public class AwsSpotProvider implements SpotProvider {
         int spotTarget = g.desired() <= 1 ? 0 : AwsProfiles.spotCount(g.desired(), params.base(), params.percentAboveBase());
 
         String current = write(currentNode(g));
-        ObjectNode target = targetNode(g, ev, params);
+        ObjectNode target = targetNode(g, ev, params, allowBurstable, ownsPolicy);
         String diff = write(diffNode(g, target));
 
         SnapshotPayload snapshot = snapshotFor(g, ev);
@@ -175,7 +193,18 @@ public class AwsSpotProvider implements SpotProvider {
                 .put("method", "RESTORE_SNAPSHOT")
                 .put("exact", snapshot.exact()));
         return new PlanBody(current, write(target), diff, snapshot, ev.result(), rollout, estimates, floor, null, revert,
-                g.arn());
+                g.arn()).withOptions(optionsJson(allowBurstable, ev));
+    }
+
+    /** The customer choices and what they can still choose (AD-09): the dialog's burstable control reads it. */
+    private static String optionsJson(boolean allowBurstable, AwsEligibilityEvaluator.Evaluation ev) {
+        ObjectNode o = JSON.createObjectNode();
+        o.put("allowBurstable", allowBurstable);
+        boolean applicable = ev.typePlan() != null && ev.typePlan().originalBurstable();
+        o.put("burstableApplicable", applicable);
+        o.set("burstableAlternatives", strings(ev.typePlan() == null ? List.of() : ev.typePlan().burstableAlternatives()));
+        o.set("burstableAdded", strings(ev.typePlan() == null ? List.of() : ev.typePlan().burstableSelected()));
+        return write(o);
     }
 
     private static ObjectNode currentNode(AwsGroupFacts g) {
@@ -200,7 +229,8 @@ public class AwsSpotProvider implements SpotProvider {
      * has overrides keeps them; types are added only when the list has fewer than 4 and the group does
      * not use attribute-based selection.
      */
-    private ObjectNode targetNode(AwsGroupFacts g, AwsEligibilityEvaluator.Evaluation ev, AwsProfiles.ProfileParams p) {
+    private ObjectNode targetNode(AwsGroupFacts g, AwsEligibilityEvaluator.Evaluation ev, AwsProfiles.ProfileParams p,
+                                  boolean allowBurstable, boolean ownsPolicy) {
         ObjectNode n = JSON.createObjectNode();
         n.put("shape", "MIXED_INSTANCES_POLICY");
         n.set("launchTemplate", spec(g.launchTemplate()));
@@ -221,6 +251,13 @@ public class AwsSpotProvider implements SpotProvider {
                 "lowest-price".equals(strategy) ? g.spotInstancePools() : null);
         n.set("instancesDistribution", d);
         n.put("capacityRebalance", true);
+        // AD-08: a group with no maintenance policy gets 100/200, owned by XamOps and restored at revert. A policy
+        // XamOps already owns stays owned. A customer's own policy is never in the target.
+        if (ownsPolicy || AwsMaintenancePolicy.classify(g) == AwsMaintenancePolicy.Kind.ABSENT) {
+            n.set(AwsMaintenancePolicy.KEY, AwsMaintenancePolicy.ownedNode());
+        }
+        // AD-09: remembered in desired_config.options, so the next plan starts from this choice.
+        n.putObject("options").put("allowBurstable", allowBurstable);
         return n;
     }
 
@@ -259,6 +296,12 @@ public class AwsSpotProvider implements SpotProvider {
         addDiff(diff, "spotAllocationStrategy", g.spotAllocationStrategy(), d.path("spotAllocationStrategy").asText(null));
         addDiff(diff, "capacityRebalance", String.valueOf(g.capacityRebalance()),
                 String.valueOf(target.path("capacityRebalance").asBoolean()));
+        if (AwsMaintenancePolicy.hasValue(target)) {
+            JsonNode tp = target.path(AwsMaintenancePolicy.KEY);
+            addDiff(diff, AwsMaintenancePolicy.KEY, AwsRestoreProgram.policyText(JSON.createObjectNode()
+                            .put("min", g.minHealthyPercentage()).put("max", g.maxHealthyPercentage())),
+                    "min " + tp.get("min").asInt() + " / max " + tp.get("max").asInt());
+        }
         return diff;
     }
 
@@ -384,7 +427,18 @@ public class AwsSpotProvider implements SpotProvider {
                 new AwsReadException("account", ErrorKind.NOT_FOUND));
         String[] parts = AwsEligibilityEvaluator.split(group.getGroupKey());
         AwsReadOnlyView v = viewFor(account, parts[0], view);
-        return withFallbackSignals(group, statusReader.read(v, parts[1]), v, parts[1]);
+        return withFallbackSignals(group, statusReader.read(v, parts[1],
+                AwsMaintenancePolicy.owns(group.getDesiredConfig())), v, parts[1]);
+    }
+
+    @Override
+    public String liveFingerprintFor(SpotGroup group, String desiredConfigJson, ReadOnlyCloudView view) {
+        CloudAccount account = account(group.getCloudAccountId()).orElseThrow(() ->
+                new AwsReadException("account", ErrorKind.NOT_FOUND));
+        String[] parts = AwsEligibilityEvaluator.split(group.getGroupKey());
+        AwsReadOnlyView v = viewFor(account, parts[0], view);
+        GroupStatus status = statusReader.read(v, parts[1], AwsMaintenancePolicy.owns(desiredConfigJson));
+        return status == null || !status.found() ? null : status.liveFingerprint();
     }
 
     /**

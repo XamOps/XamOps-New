@@ -266,6 +266,12 @@ final class AwsConversionFixture {
         if (r.capacityRebalance() != null) {
             b.capacityRebalance(r.capacityRebalance());
         }
+        if (r.instanceMaintenancePolicy() != null) {
+            var imp = r.instanceMaintenancePolicy();
+            boolean clear = Integer.valueOf(-1).equals(imp.minHealthyPercentage())
+                    && Integer.valueOf(-1).equals(imp.maxHealthyPercentage());
+            b.instanceMaintenancePolicy(clear ? null : imp);
+        }
         if (r.mixedInstancesPolicy() != null) {
             MixedInstancesPolicy want = r.mixedInstancesPolicy();
             MixedInstancesPolicy old = group().mixedInstancesPolicy();

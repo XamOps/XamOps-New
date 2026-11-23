@@ -603,9 +603,14 @@ public class OperationRunner {
         }
         String fingerprint = null;
         try {
+            com.xammer.cloud.service.autospotting.spi.ReadOnlyCloudView readOnly =
+                    new com.xammer.cloud.service.autospotting.spi.ReadOnlyCloudView() {
+                    };
             fingerprint = providers.find(group.getProvider())
-                    .map(p -> p.getStatus(group, new com.xammer.cloud.service.autospotting.spi.ReadOnlyCloudView() {
-                    }).liveFingerprint()).orElse(null);
+                    .map(p -> {
+                        String fp = p.liveFingerprintFor(group, op.getTargetConfig(), readOnly);
+                        return fp != null ? fp : p.getStatus(group, readOnly).liveFingerprint();
+                    }).orElse(null);
         } catch (RuntimeException e) {
             log.warn("op {} could not read the live fingerprint for desired_fingerprint: {}", op.getId(),
                     e.getClass().getSimpleName());

@@ -7,6 +7,12 @@ import { MoneyFigure } from './MoneyLabel';
 import { NOT_PRICED } from '../../../utils/formatMoney';
 import { usePlanFlow } from './usePlanFlow';
 import { warningText } from './reasons';
+import { MAINTENANCE_POLICY_FIELD, MAINTENANCE_POLICY_HELP, diffFieldLabel, diffValue } from './diffText';
+
+export const BURSTABLE_LABEL = 'Allow burstable alternatives (for example t3a for t3)';
+export const BURSTABLE_HELP =
+  'Burstable instances earn CPU credits while they are idle and spend them when they are busy. If a busy instance runs out of credits, it slows down, or in unlimited mode you are charged extra for the surplus. Burstable Spot pools are small, and different types can behave differently, so cost and speed are harder to predict. Choose this if your workload is light or comes in short bursts.';
+export const BURSTABLE_ALLOW_AND_REPLAN = 'Allow and re-plan';
 
 const KIND_TITLE: Record<string, string> = {
   ENABLE: 'Review plan',
@@ -99,8 +105,26 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
     ? isProfileBlocked(estimates.find(e => e.profile.toLowerCase() === selectedProfile))
     : false;
 
-  const blockers = row.blockers.filter(b => b.code !== 'PROFILE_NO_SPOT');
-  const warnings = flow.warningIds.map(id => ({ id, text: warningText(id, row.warnings.find(w => w.id === id)?.text) }));
+  // The plan's own blockers join the list's: a check the list defers (instance types) is only known after planning.
+  const listBlockers = row.blockers.filter(b => b.code !== 'PROFILE_NO_SPOT');
+  const planBlockers = (body?.eligibility.blockers ?? [])
+    .filter(b => !listBlockers.some(l => l.code === b.code))
+    .map(b => ({ id: `plan-${b.code}`, code: b.code, text: b.text }));
+  const blockers = [...listBlockers, ...planBlockers];
+  const warnings = flow.warningIds.map(id => ({
+    id,
+    text: warningText(
+      id,
+      body?.eligibility.warnings.find(w => w.id === id)?.text ?? row.warnings.find(w => w.id === id)?.text,
+    ),
+  }));
+  const burstable = body?.options ?? null;
+  const burstableOn = flow.allowBurstable ?? burstable?.allowBurstable ?? false;
+  const burstableOffer =
+    !burstableOn &&
+    (burstable?.burstableAlternatives?.length ?? 0) > 0 &&
+    blockers.some(b => b.code === 'NO_COMPATIBLE_TYPES');
+  const policyRow = body?.diff.some(d => d.field === MAINTENANCE_POLICY_FIELD) ?? false;
   const allAcked = warnings.every(w => flow.acked.includes(w.id));
   const fullSpotNeeded = !!plan?.requiresFullSpotOptin;
 
@@ -228,14 +252,15 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
                 <tbody>
                   {body.diff.map(d => (
                     <tr key={d.field} className="border-b border-gray-100">
-                      <td className="py-1 pr-2">{d.field}</td>
-                      <td className="py-1 pr-2">{d.from ?? '--'}</td>
-                      <td className="py-1">{d.to ?? '--'}</td>
+                      <td className="py-1 pr-2">{diffFieldLabel(d.field)}</td>
+                      <td className="py-1 pr-2">{diffValue(d.field, d.from, 'from')}</td>
+                      <td className="py-1">{diffValue(d.field, d.to, 'to')}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             )}
+            {policyRow && <p className="mt-1 text-gray-600">{MAINTENANCE_POLICY_HELP}</p>}
             <adapter.PlanTargetFields plan={plan} body={body} />
           </Section>
 
@@ -256,6 +281,19 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
                   ))}
                 </ul>
               )}
+              {burstableOffer && (
+                <div className="mb-2">
+                  <p>This group can convert if you allow burstable alternatives.</p>
+                  <button
+                    type="button"
+                    onClick={() => void flow.selectAllowBurstable(true)}
+                    disabled={flow.creating || flow.confirming}
+                    className="mt-1 rounded border border-black px-3 py-1 text-sm text-black disabled:opacity-50"
+                  >
+                    {BURSTABLE_ALLOW_AND_REPLAN}
+                  </button>
+                </div>
+              )}
               {warnings.map(w => (
                 <label key={w.id} className="mb-1 flex items-start gap-2">
                   <input
@@ -270,6 +308,24 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
             </Section>
           )}
 
+          {burstable?.burstableApplicable && (
+            <Section title="Instance types">
+              <label className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={burstableOn}
+                  onChange={e => void flow.selectAllowBurstable(e.target.checked)}
+                  disabled={flow.creating || flow.confirming}
+                  className="mt-1"
+                />
+                <span>{BURSTABLE_LABEL}</span>
+              </label>
+              <p className="mt-1 text-gray-600">{BURSTABLE_HELP}</p>
+              {(burstable.burstableAdded?.length ?? 0) > 0 && (
+                <p className="mt-1">{`Burstable types added: ${(burstable.burstableAdded ?? []).join(', ')}`}</p>
+              )}
+            </Section>
+          )}
           {body.rollout && (
             <Section title="Rollout">
               <p>

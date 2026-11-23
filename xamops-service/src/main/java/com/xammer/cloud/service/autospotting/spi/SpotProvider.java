@@ -38,6 +38,12 @@ public interface SpotProvider {
     /** Evaluate eligibility (no side effects). Never throws for ineligible or a failed check (§9.2). */
     EligibilityResult checkEligibility(GroupRef ref, ReadOnlyCloudView view, Profile profile, EvalMode mode);
 
+    /** As above, with the customer's plan options. A provider with no options ignores them. */
+    default EligibilityResult checkEligibility(GroupRef ref, ReadOnlyCloudView view, Profile profile, EvalMode mode,
+                                               PlanOptions options) {
+        return checkEligibility(ref, view, profile, mode);
+    }
+
     /** Create a plan body from a read-only view (§7.2). Deterministic for the same inputs. */
     PlanBody createPlan(PlanRequest req, ReadOnlyCloudView view);
 
@@ -52,6 +58,16 @@ public interface SpotProvider {
 
     /** The live status of a group (bounded reads; NOT_FOUND distinct from PERMISSION). */
     GroupStatus getStatus(SpotGroup group, ReadOnlyCloudView view);
+
+    /**
+     * The live fingerprint as it will read once {@code desiredConfigJson} is the group's desired_config, or null to
+     * use {@link #getStatus}. A conversion's success writes desired_config and its fingerprint together, and a
+     * provider whose fingerprint depends on ownership recorded in that config (AWS: the instance maintenance
+     * policy, AD-08) needs the new config here, not the old row.
+     */
+    default String liveFingerprintFor(SpotGroup group, String desiredConfigJson, ReadOnlyCloudView view) {
+        return null;
+    }
 
     /** A pure decision: the actions the core should execute for this group's status (no I/O). */
     List<ReconcileAction> reconcile(SpotGroup group, GroupStatus status);

@@ -16,6 +16,8 @@ import java.util.List;
  *   <li>{@code estimates}: one per profile, each with monthly savings, price sources and the
  *       {@code "Estimate"} label; an unknown price shows "Not priced", not 0 (AC-PLN-09);</li>
  *   <li>{@code onDemandFloor}, {@code feeBasis} and {@code revertPath};</li>
+ *   <li>{@code optionsJson}: the customer choices the plan was made with and what they could still choose
+ *       (AWS: {@code allowBurstable}, whether it applies, the alternatives), or null;</li>
  *   <li>{@code providerStableId}: the group's stable cloud id (ASG ARN, MIG id) read while planning, stored on
  *       a row the plan creates; null when the plan did not read one.</li>
  * </ul>
@@ -31,10 +33,19 @@ public record PlanBody(
         String onDemandFloorJson,
         String feeBasisJson,
         String revertPathJson,
-        String providerStableId) {
+        String providerStableId,
+        String optionsJson) {
 
     public PlanBody {
         estimates = estimates == null ? List.of() : List.copyOf(estimates);
+    }
+
+    /** A plan body with a provider stable id and no customer options. */
+    public PlanBody(String currentJson, String targetJson, String diffJson, SnapshotPayload snapshotToStore,
+                    EligibilityResult eligibility, Rollout rollout, List<Estimate> estimates,
+                    String onDemandFloorJson, String feeBasisJson, String revertPathJson, String providerStableId) {
+        this(currentJson, targetJson, diffJson, snapshotToStore, eligibility, rollout, estimates,
+                onDemandFloorJson, feeBasisJson, revertPathJson, providerStableId, null);
     }
 
     /** A plan body without a provider stable id (a blocked plan, or one for a group whose row already carries it). */
@@ -42,7 +53,13 @@ public record PlanBody(
                     EligibilityResult eligibility, Rollout rollout, List<Estimate> estimates,
                     String onDemandFloorJson, String feeBasisJson, String revertPathJson) {
         this(currentJson, targetJson, diffJson, snapshotToStore, eligibility, rollout, estimates,
-                onDemandFloorJson, feeBasisJson, revertPathJson, null);
+                onDemandFloorJson, feeBasisJson, revertPathJson, null, null);
+    }
+
+    /** The same body with the customer-options document ({@code {"allowBurstable":..}}, AD-09). */
+    public PlanBody withOptions(String options) {
+        return new PlanBody(currentJson, targetJson, diffJson, snapshotToStore, eligibility, rollout, estimates,
+                onDemandFloorJson, feeBasisJson, revertPathJson, providerStableId, options);
     }
 
     /** The rollout plan: how the conversion is applied and its bounds (§7.3). */

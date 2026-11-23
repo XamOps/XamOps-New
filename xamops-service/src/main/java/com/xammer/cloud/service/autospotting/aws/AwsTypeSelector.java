@@ -25,9 +25,28 @@ public final class AwsTypeSelector {
     public static final int MIN_TYPES = 2;
 
     private final int targetCount;
+    private final boolean allowBurstable;
 
     public AwsTypeSelector(int targetCount) {
+        this(targetCount, false);
+    }
+
+    /**
+     * @param allowBurstable the customer's per-plan choice (design-aws.md AD-09, F-23-04): a burstable original may
+     *                       gain burstable alternatives that pass every other rule. Off by default.
+     */
+    public AwsTypeSelector(int targetCount, boolean allowBurstable) {
         this.targetCount = Math.min(Math.max(targetCount, MIN_TYPES), MAX_TYPES);
+        this.allowBurstable = allowBurstable;
+    }
+
+    /** The same selector with the burstable option set. */
+    public AwsTypeSelector withBurstable(boolean allow) {
+        return allow == allowBurstable ? this : new AwsTypeSelector(targetCount, allow);
+    }
+
+    public boolean allowsBurstable() {
+        return allowBurstable;
     }
 
     /** The AMI facts a candidate must be compatible with (§4.3). */
@@ -167,8 +186,9 @@ public final class AwsTypeSelector {
         } else if (offeredInGroup < 2) {
             return false;
         }
-        // 5. Burstable: XamOps never adds a burstable candidate (the original may be burstable).
-        if (c.burstable()) {
+        // 5. Burstable (AD-09): never added, unless the customer allowed it and the original is burstable itself.
+        // Then a burstable candidate still has to pass every other rule (t3 gains t3a, not t2 or t4g).
+        if (c.burstable() && !(allowBurstable && o.burstable())) {
             return false;
         }
         // 6. Hypervisor/drivers: if O is Nitro, C must be Nitro; a Xen original allows Nitro only with ENA.

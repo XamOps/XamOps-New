@@ -34,6 +34,27 @@ class AwsFingerprintTest {
         return AwsFingerprint.of(AwsGroupFacts.from("ap-south-1", g));
     }
 
+    private static software.amazon.awssdk.services.autoscaling.model.InstanceMaintenancePolicy imp(int min, int max) {
+        return software.amazon.awssdk.services.autoscaling.model.InstanceMaintenancePolicy.builder()
+                .minHealthyPercentage(min).maxHealthyPercentage(max).build();
+    }
+
+    /** AD-08: a customer's policy is context, so editing it is not DR-2; a policy XamOps owns is a fingerprinted field. */
+    @Test
+    void theMaintenancePolicyMovesTheFingerprintOnlyWhenXamOpsOwnsIt() {
+        AwsGroupFacts none = AwsGroupFacts.from("ap-south-1", mixed("$Default", "m5.large").build());
+        AwsGroupFacts set = AwsGroupFacts.from("ap-south-1",
+                mixed("$Default", "m5.large").instanceMaintenancePolicy(imp(100, 200)).build());
+        AwsGroupFacts edited = AwsGroupFacts.from("ap-south-1",
+                mixed("$Default", "m5.large").instanceMaintenancePolicy(imp(50, 200)).build());
+        assertThat(AwsFingerprint.of(none)).as("not owned: same as before AD-08")
+                .isEqualTo(AwsFingerprint.of(set)).isEqualTo(AwsFingerprint.of(edited));
+        assertThat(AwsFingerprint.of(set, true)).isNotEqualTo(AwsFingerprint.of(none, true));
+        assertThat(AwsFingerprint.of(set, true)).as("a customer edit of an owned policy is drift")
+                .isNotEqualTo(AwsFingerprint.of(edited, true));
+        assertThat(AwsFingerprint.of(none)).isEqualTo(fp(mixed("$Default", "m5.large").build()));
+    }
+
     @Test
     void aLaunchTemplateVersionChangeDoesNotMoveTheFingerprint() {
         assertThat(fp(mixed("$Default", "m5.large", "m5a.large").build()))

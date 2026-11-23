@@ -41,6 +41,46 @@ class AwsTypeSelectorTest {
         assertThat(s.types()).contains("m5a.large").doesNotContain("t3.large");
     }
 
+    private static TypeFacts burstable(String name, int vcpu, long mem, boolean currentGeneration, String arch) {
+        return new TypeFacts(name, vcpu, mem, Set.of(arch), Set.of("on-demand", "spot"), true, false, true,
+                Set.of("legacy-bios", "uefi"), 0, null, 0, false, 3, false, currentGeneration, AZS, 0.01);
+    }
+
+    /** F-23-04 / AD-09: with the option off a burstable original gets no burstable candidate, as before. */
+    @Test
+    void aBurstableOriginalGainsNoBurstableTypeWhileTheOptionIsOff() {
+        TypeFacts t3 = burstable("t3.micro", 2, 1024, true, "x86_64");
+        Selection s = selector.select(t3, AZS, IMAGE, TemplateFacts.none(),
+                List.of(burstable("t3a.micro", 2, 1024, true, "x86_64")));
+        assertThat(s.types()).containsExactly("t3.micro");
+        assertThat(s.noCompatibleTypes()).isTrue();
+    }
+
+    /** AD-09: t3 gains t3a under the same vCPU and memory rules, and not t2 (previous generation) or t4g (arm64). */
+    @Test
+    void anAllowedBurstableOriginalGainsOnlyBurstableTypesThatPassEveryOtherRule() {
+        TypeFacts t3 = burstable("t3.micro", 2, 1024, true, "x86_64");
+        AwsTypeSelector allow = new AwsTypeSelector(12, true);
+        Selection s = allow.select(t3, AZS, IMAGE, TemplateFacts.none(), List.of(
+                burstable("t3a.micro", 2, 1024, true, "x86_64"),
+                burstable("t2.micro", 2, 1024, false, "x86_64"),
+                burstable("t4g.micro", 2, 1024, true, "arm64"),
+                burstable("t3a.small", 2, 2048, true, "x86_64"),
+                burstable("t3a.nano", 2, 512, true, "x86_64")));
+        assertThat(s.types()).containsExactly("t3.micro", "t3a.micro", "t3a.small");
+        assertThat(s.noCompatibleTypes()).isFalse();
+    }
+
+    /** AD-09: the option never adds a burstable type to a non-burstable original and removes nothing. */
+    @Test
+    void theBurstableOptionDoesNotAffectANonBurstableOriginal() {
+        AwsTypeSelector allow = new AwsTypeSelector(12, true);
+        Selection with = allow.select(original, AZS, IMAGE, TemplateFacts.none(),
+                List.of(type("m5a.large", 2, 8192, 0.025), burstable("t3.large")));
+        assertThat(with.types()).containsExactly("m5.large", "m5a.large");
+        assertThat(with.types()).isEqualTo(select(type("m5a.large", 2, 8192, 0.025), burstable("t3.large")).types());
+    }
+
     @Test
     void theOriginalIsAlwaysFirstAndOnlyOnce() {
         Selection s = select(type("m6i.large", 2, 8192, 0.001), type("m5a.large", 2, 8192, 0.002));

@@ -139,6 +139,22 @@ export interface PlanRequest {
   profileId?: string | null;
   /** GCP only: the edited rolling-update fields of a MIG_POLICY_UPDATE or policy-only CONFIG_APPLY plan. */
   policyEdit?: Record<string, unknown> | null;
+  /** AWS only: the customer's choices for this plan. Leaving a field out keeps the group's last confirmed choice. */
+  options?: PlanOptions | null;
+}
+
+/** AWS plan options (design-aws.md AD-09). */
+export interface PlanOptions {
+  /** Let a burstable group (t2, t3, t3a) gain other burstable instance types. Off unless the customer turns it on. */
+  allowBurstable?: boolean;
+}
+
+/** What the plan says about the options: the value used, whether they apply, and what they would add. */
+export interface PlanOptionsDoc {
+  allowBurstable?: boolean;
+  burstableApplicable?: boolean;
+  burstableAlternatives?: string[];
+  burstableAdded?: string[];
 }
 
 export interface ConfirmRequest {
@@ -178,6 +194,12 @@ export interface PlanBodyDoc {
     quota?: unknown;
   } | null;
   estimates: PlanEstimate[];
+  /** The blockers and warnings the plan itself found (the group list may not have carried them). */
+  eligibility: {
+    blockers: Array<{ code: string; text: string }>;
+    warnings: Array<{ id: string; code: string; text: string }>;
+  };
+  options: PlanOptionsDoc | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -742,6 +764,11 @@ export function parsePlanBody(plan: Pick<Plan, 'body'>): PlanBodyDoc {
     revertPath: raw.revertPath ?? null,
     rollout: raw.rollout ?? null,
     estimates: Array.isArray(raw.estimates) ? raw.estimates : [],
+    eligibility: {
+      blockers: Array.isArray(raw.eligibility?.blockers) ? raw.eligibility.blockers : [],
+      warnings: Array.isArray(raw.eligibility?.warnings) ? raw.eligibility.warnings : [],
+    },
+    options: raw.options ?? null,
   };
 }
 

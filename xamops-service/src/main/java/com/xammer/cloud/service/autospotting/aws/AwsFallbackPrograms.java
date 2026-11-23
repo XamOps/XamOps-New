@@ -70,7 +70,7 @@ public class AwsFallbackPrograms {
             if (compensating) {
                 throw new IllegalStateException("a FALLBACK_ENTER never compensates toward Spot");
             }
-            AwsProgram p = program(op, parts, JSON.createObjectNode(), false);
+            AwsProgram p = program(op, parts, ownedPolicyConfig(g), false);
             // A group that was APPLYING carries the half-applied change of the op fallback preempted.
             boolean preempting = g.getState() == GroupState.APPLYING;
             return new StepProgram(List.of(new VerifyFallbackPreconditionsStep(services, p, rules, preempting),
@@ -81,7 +81,7 @@ public class AwsFallbackPrograms {
             if (op.compensationTarget() != CompensationTarget.FALLBACK) {
                 throw new IllegalStateException("a FALLBACK_EXIT compensates to FALLBACK only");
             }
-            AwsProgram p = program(op, parts, JSON.createObjectNode(), true);
+            AwsProgram p = program(op, parts, ownedPolicyConfig(g), true);
             return new StepProgram(List.of(new FallbackUpdateStep(services, p),
                     new WaitCapacityStep(services, p, props)));
         }
@@ -93,6 +93,18 @@ public class AwsFallbackPrograms {
         AwsProgram p = program(op, parts, config, false);
         return new StepProgram(List.of(new UpdateDistributionStep(services, p), new WaitRolloutStep(services, p),
                 new VerifyTargetStep(services, p)));
+    }
+
+    /**
+     * The configuration a fallback program carries: only the maintenance policy, and only when the group's
+     * desired_config says XamOps owns it (design-aws.md AD-08), so enter, exit and their compensations send it.
+     */
+    static JsonNode ownedPolicyConfig(SpotGroup g) {
+        com.fasterxml.jackson.databind.node.ObjectNode config = JSON.createObjectNode();
+        if (AwsMaintenancePolicy.owns(g.getDesiredConfig())) {
+            config.set(AwsMaintenancePolicy.KEY, AwsMaintenancePolicy.ownedNode());
+        }
+        return config;
     }
 
     private static AwsProgram program(OperationContext op, String[] parts, JsonNode config, boolean compensating) {

@@ -65,7 +65,9 @@ public final class VerifyPreconditionsStep extends AwsStep {
         }
         Optional<String> planned = services.facts().planLiveFingerprint(program.planId());
         String live = AwsFingerprint.of(facts);
-        if (planned.isEmpty() || !planned.get().equals(live)) {
+        // The plan's fingerprint includes the maintenance policy only when XamOps already owned it then (AD-08).
+        if (planned.isEmpty() || !(planned.get().equals(live)
+                || planned.get().equals(AwsFingerprint.of(facts, true)))) {
             return failed(ErrorKind.VALIDATION, "PLAN_STALE",
                     "The group changed after this plan was made. Review a fresh plan.");
         }
@@ -77,8 +79,10 @@ public final class VerifyPreconditionsStep extends AwsStep {
             return failed(ErrorKind.VALIDATION, "FULL_SPOT_NOT_CONFIRMED",
                     "This plan runs the group on 100% Spot, which needs your explicit confirmation.");
         }
+        // The plan's burstable choice (AD-09), so a plan the customer allowed is not blocked here by the default.
+        boolean allowBurstable = program.config().path("options").path("allowBurstable").asBoolean(false);
         EligibilityResult eligibility = services.evaluator().evaluate(account.get(), program.groupKey(),
-                profileOf(), EvalMode.CONFIRM).result();
+                profileOf(), EvalMode.CONFIRM, allowBurstable).result();
         if (!eligibility.blockers().isEmpty()) {
             EligibilityResult.Check first = eligibility.blockers().get(0);
             if (first.errorKind() != null) {

@@ -48,6 +48,7 @@ public record AwsGroupFacts(
         List<String> targetGroupArns,
         List<String> loadBalancerNames,
         boolean newInstancesProtectedFromScaleIn,
+        Integer minHealthyPercentage,
         Integer maxHealthyPercentage,
         boolean warmPoolConfigured,
         List<String> terminationPolicies,
@@ -168,7 +169,10 @@ public record AwsGroupFacts(
                 subnets, new TreeSet<>(g.availabilityZones()), tags,
                 g.targetGroupARNs(), g.loadBalancerNames(),
                 Boolean.TRUE.equals(g.newInstancesProtectedFromScaleIn()),
-                g.instanceMaintenancePolicy() == null ? null : g.instanceMaintenancePolicy().maxHealthyPercentage(),
+                g.instanceMaintenancePolicy() == null ? null
+                        : AwsMaintenancePolicy.normalize(g.instanceMaintenancePolicy().minHealthyPercentage()),
+                g.instanceMaintenancePolicy() == null ? null
+                        : AwsMaintenancePolicy.normalize(g.instanceMaintenancePolicy().maxHealthyPercentage()),
                 g.warmPoolConfiguration() != null,
                 g.terminationPolicies(), suspended, instances);
     }
