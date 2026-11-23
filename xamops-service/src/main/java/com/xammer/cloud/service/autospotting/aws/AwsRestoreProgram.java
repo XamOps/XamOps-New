@@ -140,7 +140,8 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
     /**
      * What XamOps set: {@code desired_config}, plus the instance types of the latest conversion target. The
      * second matters when a revert preempts a conversion that has not finished: the cloud already holds its
-     * types, but {@code desired_config} is written only on success.
+     * types (and, when it sent it, the maintenance policy XamOps owns), but {@code desired_config} is written only on
+     * success.
      */
     static JsonNode mergeDesired(JsonNode desired, JsonNode latestTarget) {
         if (latestTarget == null || !latestTarget.isObject()) {
@@ -150,6 +151,9 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
             return latestTarget;
         }
         ObjectNode merged = desired.deepCopy();
+        if (AwsMaintenancePolicy.owns(latestTarget) && !AwsMaintenancePolicy.owns(desired)) {
+            merged.set(AwsMaintenancePolicy.KEY, latestTarget.get(AwsMaintenancePolicy.KEY).deepCopy());
+        }
         ArrayNode types = merged.putArray("overrides");
         Set<String> seen = new LinkedHashSet<>();
         for (JsonNode source : List.of(desired, latestTarget)) {

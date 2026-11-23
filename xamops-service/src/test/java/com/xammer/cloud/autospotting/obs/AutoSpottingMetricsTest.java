@@ -146,10 +146,13 @@ class AutoSpottingMetricsTest {
         metrics.bindLedgerLastSuccessAge("ledger", () -> n.get());
         metrics.bindGroupStateGauge(Provider.AWS, GroupState.ACTIVE, () -> n.get());
         metrics.bindGroupDriftGauge(Provider.AWS, DriftStatus.MATERIAL, () -> n.get());
-        for (int i = 0; i < 5; i++) {
+        // System.gc() is only a hint: wait until a canary object is really collected, so a collection did happen.
+        java.lang.ref.WeakReference<Object> canary = new java.lang.ref.WeakReference<>(new Object());
+        for (int i = 0; i < 100 && canary.get() != null; i++) {
             System.gc();
             Thread.sleep(50);
         }
+        assertThat(canary.get()).as("a garbage collection ran").isNull();
         assertThat(gaugeValue(AutoSpottingMetrics.OPS_STUCK, "provider", "aws")).isEqualTo(5.0);
         assertThat(gaugeValue(AutoSpottingMetrics.LEDGER_LAST_SUCCESS_AGE, "job", "ledger")).isEqualTo(5.0);
         assertThat(gaugeValue(AutoSpottingMetrics.GROUPS, "provider", "aws", "state", "ACTIVE")).isEqualTo(5.0);

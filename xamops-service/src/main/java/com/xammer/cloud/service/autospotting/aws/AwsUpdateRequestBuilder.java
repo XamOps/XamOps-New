@@ -27,8 +27,8 @@ import java.util.Set;
  *       overrides, plus the profile's {@code InstancesDistribution} and {@code CapacityRebalance=true}.</li>
  *   <li><b>Existing MixedInstancesPolicy:</b> {@code InstancesDistribution} and
  *       {@code CapacityRebalance} only; {@code LaunchTemplate} is omitted so the customer's overrides
- *       stay as they are. Only when the target adds instance types does the request carry the live
- *       specification and the live overrides plus the added types.</li>
+ *       stay as they are. Only when the target adds or removes instance types does the request carry the live
+ *       specification and the retained live overrides plus the added types.</li>
  * </ul>
  * Never sent: {@code DesiredCapacity}, {@code MinSize}, {@code MaxSize}, health-check fields, subnets,
  * zones, tags, and {@code SpotMaxPrice}. {@link #forbiddenFields} lets a step verify that before the
@@ -75,9 +75,17 @@ public final class AwsUpdateRequestBuilder {
                 }
             });
             List<String> added = targetTypes.stream().filter(t -> !liveTypes.contains(t)).toList();
-            if (!added.isEmpty() && liveMip.launchTemplate() != null
+            // A target that leaves out live types removes them (the customer turned the burstable option off). The
+            // retained live overrides are kept as the SDK read them, so weights and per-override specs survive.
+            boolean removes = !targetTypes.isEmpty() && liveTypes.stream().anyMatch(t -> !targetTypes.contains(t));
+            if ((!added.isEmpty() || removes) && liveMip.launchTemplate() != null
                     && liveMip.launchTemplate().launchTemplateSpecification() != null) {
-                List<LaunchTemplateOverrides> merged = new ArrayList<>(liveOverrides);
+                List<LaunchTemplateOverrides> merged = new ArrayList<>();
+                for (LaunchTemplateOverrides o : liveOverrides) {
+                    if (o.instanceType() == null || !removes || targetTypes.contains(o.instanceType())) {
+                        merged.add(o);
+                    }
+                }
                 merged.addAll(overrides(added));
                 policy.launchTemplate(LaunchTemplate.builder()
                         .launchTemplateSpecification(copySpec(liveMip.launchTemplate().launchTemplateSpecification()))

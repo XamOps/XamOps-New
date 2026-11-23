@@ -81,8 +81,15 @@ public final class VerifyPreconditionsStep extends AwsStep {
         }
         // The plan's burstable choice (AD-09), so a plan the customer allowed is not blocked here by the default.
         boolean allowBurstable = program.config().path("options").path("allowBurstable").asBoolean(false);
+        // A target that leaves out live types is the option being turned off: those removals are not "no alternative".
+        java.util.List<String> removing = new java.util.ArrayList<>();
+        java.util.List<String> targetTypes = new java.util.ArrayList<>();
+        program.config().path("overrides").forEach(n -> targetTypes.add(n.asText()));
+        if (!allowBurstable && !targetTypes.isEmpty()) {
+            facts.overrideTypes().stream().filter(t -> !targetTypes.contains(t)).forEach(removing::add);
+        }
         EligibilityResult eligibility = services.evaluator().evaluate(account.get(), program.groupKey(),
-                profileOf(), EvalMode.CONFIRM, allowBurstable).result();
+                profileOf(), EvalMode.CONFIRM, allowBurstable, removing).result();
         if (!eligibility.blockers().isEmpty()) {
             EligibilityResult.Check first = eligibility.blockers().get(0);
             if (first.errorKind() != null) {

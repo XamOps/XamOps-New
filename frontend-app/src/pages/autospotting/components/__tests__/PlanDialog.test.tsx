@@ -243,6 +243,8 @@ describe('PlanDialog', () => {
       expect(await screen.findByText(`Blocked: ${blockedText}`)).toBeInTheDocument();
       expect(screen.getByText('This group can convert if you allow burstable alternatives.')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Confirm' })).toBeDisabled();
+      // One control for the choice while the group is blocked: the button, not the checkbox as well.
+      expect(screen.queryByRole('checkbox', { name: /Allow burstable alternatives/ })).not.toBeInTheDocument();
       await user.click(screen.getByRole('button', { name: 'Allow and re-plan' }));
       await waitFor(() => expect(calls.filter(c => /\/plans$/.test(c.url))).toHaveLength(2));
       expect(last(calls.filter(c => /\/plans$/.test(c.url))).body).toMatchObject({ options: { allowBurstable: true } });

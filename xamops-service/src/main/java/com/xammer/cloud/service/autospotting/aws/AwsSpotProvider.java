@@ -139,7 +139,8 @@ public class AwsSpotProvider implements SpotProvider {
                     "The connected account could not be found.", ErrorKind.NOT_FOUND)), List.of(), List.of());
         }
         boolean allowBurstable = options != null && options.effectiveAllowBurstable();
-        return evaluator.evaluate(account.get(), ref.groupKey(), profile, mode, allowBurstable).result();
+        return evaluator.evaluate(account.get(), ref.groupKey(), profile, mode, allowBurstable,
+                allowBurstable || options == null ? List.of() : options.storedBurstableAdded()).result();
     }
 
     // ---- plan ----
@@ -155,7 +156,8 @@ public class AwsSpotProvider implements SpotProvider {
         Profile profile = req.profile() == null ? new Profile("conservative", null) : req.profile();
         PlanOptions options = req.options();
         AwsEligibilityEvaluator.Evaluation ev = evaluator.evaluate(account, req.ref().groupKey(), profile, EvalMode.PLAN,
-                options.effectiveAllowBurstable());
+                options.effectiveAllowBurstable(),
+                options.effectiveAllowBurstable() ? List.of() : options.storedBurstableAdded());
         AwsGroupFacts g = ev.group();
         boolean originalBurstable = ev.typePlan() != null && ev.typePlan().originalBurstable();
         if (options.explicitlyAllowsBurstable() && ev.typePlan() != null && !originalBurstable) {

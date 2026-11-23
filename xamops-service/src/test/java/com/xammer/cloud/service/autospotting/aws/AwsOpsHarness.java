@@ -209,8 +209,12 @@ final class AwsOpsHarness implements AutoCloseable {
 
     /** An ENABLE that already changed the group and waits for its rollout (WAITING, first mutation at step 3). */
     void startEnableInFlight(String targetJson) {
+        startInFlight(OperationKind.ENABLE, targetJson);
+    }
+    /** As {@link #startEnableInFlight} for {@code kind} (ENABLE or ADOPT); the op id is {@link #enableOpId}. */
+    void startInFlight(OperationKind kind, String targetJson) {
         jdbc.update("UPDATE spot_group SET state = 'APPLYING' WHERE id = ?", f.groupId);
-        store.insertQueued(OperationRecord.builder(enableOpId, f.groupId, 7L, OperationKind.ENABLE)
+        store.insertQueued(OperationRecord.builder(enableOpId, f.groupId, 7L, kind)
                 .priorState(GroupState.UNMANAGED)
                 .compensationTarget(com.xammer.cloud.domain.autospotting.CompensationTarget.SNAPSHOT)
                 .targetConfigJson(targetJson).requestedBy("tester").build());
@@ -218,6 +222,99 @@ final class AwsOpsHarness implements AutoCloseable {
         store.park(enableOpId, com.xammer.cloud.domain.autospotting.WaitReason.CLOUD_PROGRESS,
                 Instant.now().minusSeconds(1), 4, null);
         jdbc.update("UPDATE spot_operation SET first_mutation_seq = 3 WHERE id = ?", enableOpId);
+    }
+
+    /** Link {@code original} as the group's saved snapshot (what an ENABLE or ADOPT captured before it changed anything). */
+    void linkSnapshot(AutoScalingGroup original) {
+        UUID snapshotId = UUID.randomUUID();
+        com.xammer.cloud.service.autospotting.spi.SnapshotPayload snap = AwsSnapshotCodec.encode(FakeAws.REGION, original,
+                AwsSnapshotCodec.Context.none(), false);
+        jdbc.update("INSERT INTO spot_group_snapshot (id, group_id, provider, schema_version, exact, payload,"
+                        + " payload_sha256, captured_at, captured_by_op) VALUES (?, ?, 'AWS', ?, true, ?::jsonb, ?, ?, ?)",
+                snapshotId, f.groupId, snap.schemaVersion(), snap.payloadJson(), snap.payloadSha256(),
+                Timestamp.from(f.clock.instant()), UUID.randomUUID());
+        jdbc.update("UPDATE spot_group SET snapshot_id = ? WHERE id = ?", snapshotId, f.groupId);
+    }
+
+    /**
+     * Plan {@code request} with the real provider, store the plan OPEN the way PlanService does (body with the
+     * eligibility blockers, every warning id, the live fingerprint for the target's policy ownership), then confirm
+     * it through the real {@link com.xammer.cloud.service.autospotting.core.plan.ConfirmService}. Returns the new op id.
+     */
+    UUID planAndConfirm(com.xammer.cloud.service.autospotting.spi.PlanRequest request) {
+        PlanBody p = provider.createPlan(request, f.aws.view());
+        UUID planId = UUID.randomUUID();
+        com.fasterxml.jackson.databind.node.ObjectNode body = AwsConversionFixture.JSON.createObjectNode();
+        body.set("current", f.json(p.currentJson() == null ? "null" : p.currentJson()));
+        body.set("target", f.json(p.targetJson() == null ? "null" : p.targetJson()));
+        if (p.revertPathJson() != null) {
+            body.set("revertPath", f.json(p.revertPathJson()));
+        }
+        var blockers = body.putObject("eligibility").putArray("blockers");
+        p.eligibility().blockers().forEach(b -> blockers.addObject().put("code", b.code()).put("text", b.text()));
+        StringBuilder warnings = new StringBuilder("[");
+        List<String> warningIds = new java.util.ArrayList<>();
+        for (var w : p.eligibility().warnings()) {
+            warnings.append(warnings.length() > 1 ? "," : "").append('"').append(w.id()).append('"');
+            warningIds.add(w.id());
+        }
+        warnings.append(']');
+        Instant wall = Instant.now();
+        Instant now = wall.isAfter(f.clock.instant()) ? wall : f.clock.instant();
+        String from = groupState();
+        boolean owns = AwsMaintenancePolicy.owns(p.targetJson() == null ? null : f.json(p.targetJson()));
+        String fingerprint = AwsFingerprint.of(AwsGroupFacts.from(FakeAws.REGION, f.group()), owns);
+        jdbc.update("INSERT INTO spot_plan (id, group_id, cloud_account_id, kind, status, from_state, version,"
+                        + " schema_version, live_fingerprint, body, requires_full_spot_optin, warning_ids, dry_run,"
+                        + " created_by, created_at, expires_at) VALUES (?, ?, 7, ?, 'OPEN', ?, 1, 1, ?, ?::jsonb,"
+                        + " false, ?::jsonb, false, 'tester', ?, ?)",
+                planId, f.groupId, request.kind().name(), from, fingerprint, body.toString(), warnings.toString(),
+                Timestamp.from(now), Timestamp.from(now.plusSeconds(3600)));
+        var authorization = org.mockito.Mockito.mock(com.xammer.cloud.service.autospotting.core.AutoSpottingAuthorization.class);
+        org.mockito.Mockito.when(authorization.authorizeConfirm(org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new com.xammer.cloud.service.autospotting.core.AutoSpottingAuthorization.Decision(true,
+                        com.xammer.cloud.service.autospotting.core.AutoSpottingAuthorization.Role.CLIENT_OWNER,
+                        AutoSpottingAuditWriter.Actor.user(100L, "ROLE_USER"), false, null, null, null));
+        var confirm = new com.xammer.cloud.service.autospotting.core.plan.ConfirmService(
+                ctx.getBean(SpotPlanRepository.class), ctx.getBean(SpotGroupRepository.class),
+                ctx.getBean(SpotOperationRepository.class), store,
+                ctx.getBean(com.xammer.cloud.service.autospotting.core.ops.PreemptionService.class), authorization,
+                new com.xammer.cloud.service.autospotting.core.plan.RevertPreconditions(
+                        org.mockito.Mockito.mock(com.xammer.cloud.service.autospotting.core.switches.AutoSpottingSwitchProperties.class)),
+                ctx.getBean(SwitchService.class),
+                org.mockito.Mockito.mock(com.xammer.cloud.service.autospotting.core.switches.AutoSpottingSwitchProperties.class),
+                new ProviderRegistry(List.of(provider)), ctx.getBean(AutoSpottingAuditWriter.class),
+                org.mockito.Mockito.mock(com.xammer.cloud.service.autospotting.notify.AutoSpottingNotificationService.class));
+        com.xammer.cloud.domain.CloudAccount account = FakeAws.account();
+        com.xammer.cloud.domain.Client client = new com.xammer.cloud.domain.Client();
+        client.setId(1L);
+        account.setClient(client);
+        com.xammer.cloud.security.ClientUserDetails user = new com.xammer.cloud.security.ClientUserDetails("owner", "x",
+                List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_USER")), 1L, 100L, "t");
+        // ConfirmService carries @Transactional(REQUIRES_NEW) as a Spring bean; emulate that proxy here.
+        return new org.springframework.transaction.support.TransactionTemplate(
+                ctx.getBean(org.springframework.transaction.PlatformTransactionManager.class))
+                .execute(status -> confirm.confirm(account, user, planId,
+                        new com.xammer.cloud.service.autospotting.core.plan.ConfirmService.ConfirmCommand(1, warningIds,
+                                false, null, false, "k-" + planId, "h-" + planId))).operationId();
+    }
+
+    /** Claim {@code opId} and run it until it ends, moving the clock a minute between runs. */
+    String runToEnd(UUID opId) {
+        for (int round = 0; round < 60; round++) {
+            String status = jdbc.queryForObject("SELECT status FROM spot_operation WHERE id = ?", String.class, opId);
+            if ("SUCCEEDED".equals(status) || "FAILED".equals(status) || "CANCELLED".equals(status)) {
+                return status;
+            }
+            if (round > 0) {
+                f.clock.advance(java.time.Duration.ofMinutes(1));
+            }
+            store.claimForRun(opId);
+            runner.runClaimed(lease, opId);
+        }
+        return jdbc.queryForObject("SELECT status FROM spot_operation WHERE id = ?", String.class, opId);
     }
 
     private OperationRunner newRunner() {
@@ -267,7 +364,9 @@ final class AwsOpsHarness implements AutoCloseable {
 
     private void insertPlan(OperationKind kind) {
         Instant now = f.clock.instant();
-        String fingerprint = AwsFingerprint.of(AwsGroupFacts.from(FakeAws.REGION, f.group()));
+        // The plan's fingerprint includes the maintenance policy exactly when its target owns it (AD-08).
+        String fingerprint = AwsFingerprint.of(AwsGroupFacts.from(FakeAws.REGION, f.group()),
+                AwsMaintenancePolicy.owns(plan.targetJson()));
         String body = "{\"current\":" + plan.currentJson() + ",\"target\":" + plan.targetJson() + "}";
         jdbc.update("INSERT INTO spot_plan (id, group_id, cloud_account_id, kind, status, from_state, version,"
                         + " schema_version, live_fingerprint, body, requires_full_spot_optin, warning_ids, dry_run,"

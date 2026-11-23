@@ -310,16 +310,18 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
 
           {burstable?.burstableApplicable && (
             <Section title="Instance types">
-              <label className="flex items-start gap-2">
-                <input
-                  type="checkbox"
-                  checked={burstableOn}
-                  onChange={e => void flow.selectAllowBurstable(e.target.checked)}
-                  disabled={flow.creating || flow.confirming}
-                  className="mt-1"
-                />
-                <span>{BURSTABLE_LABEL}</span>
-              </label>
+              {!burstableOffer && (
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={burstableOn}
+                    onChange={e => void flow.selectAllowBurstable(e.target.checked)}
+                    disabled={flow.creating || flow.confirming}
+                    className="mt-1"
+                  />
+                  <span>{BURSTABLE_LABEL}</span>
+                </label>
+              )}
               <p className="mt-1 text-gray-600">{BURSTABLE_HELP}</p>
               {(burstable.burstableAdded?.length ?? 0) > 0 && (
                 <p className="mt-1">{`Burstable types added: ${(burstable.burstableAdded ?? []).join(', ')}`}</p>
