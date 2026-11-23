@@ -36,6 +36,27 @@ public final class AwsPriorConfig {
         return usable(parse(desiredConfigJson));
     }
 
+    /**
+     * The prior configuration with the maintenance policy to put back when the op's target made XamOps own one
+     * (AD-08). The linked snapshot is authoritative when it has one (an ADOPT's plan {@code current} leaves an
+     * originally absent policy out). Without it, a prior with no policy value means "it was absent", so the restore
+     * is a clear (-1/-1). A target that did not own a policy, or a prior that already carries one, is returned as is.
+     */
+    public static JsonNode withPolicyRestore(JsonNode prior, boolean targetOwnsPolicy, String snapshotPayloadJson) {
+        if (!targetOwnsPolicy || !prior.isObject()) {
+            return prior;
+        }
+        ObjectNode copy = ((ObjectNode) prior).deepCopy();
+        Optional<AwsSnapshotCodec.Owned> owned = snapshotPayloadJson == null ? Optional.empty()
+                : AwsSnapshotCodec.decodeOwned(snapshotPayloadJson);
+        if (owned.isPresent() && owned.get().hasMaintenancePolicy()) {
+            copy.set(AwsMaintenancePolicy.KEY, restoreNode(owned.get().instanceMaintenancePolicy()));
+        } else if (!AwsMaintenancePolicy.hasValue(copy)) {
+            copy.set(AwsMaintenancePolicy.KEY, restoreNode(JSON.createObjectNode().put("state", "ABSENT")));
+        }
+        return copy;
+    }
+
     /** The snapshot's owned block, converted to the target-node shape. */
     public static Optional<JsonNode> fromSnapshot(String payloadJson) {
         Optional<AwsSnapshotCodec.Owned> owned = AwsSnapshotCodec.decodeOwned(payloadJson);

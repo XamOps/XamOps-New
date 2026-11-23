@@ -170,6 +170,17 @@ describe('PlanDialog', () => {
         .toBeInTheDocument();
     });
 
+    it("shows a customer's own policy as Unchanged, without the XamOps explanation", async () => {
+      setup(planDto({
+        body: bodyWith({ diff: [{ field: 'instanceMaintenancePolicy', from: 'min 90 / max 150', to: 'unchanged' }] }),
+        warningIds: [],
+      }));
+      expect(await screen.findByText('Replacement safety (instance maintenance policy)')).toBeInTheDocument();
+      expect(screen.getByText('Min 90% / Max 150%')).toBeInTheDocument();
+      expect(screen.getByText('Unchanged')).toBeInTheDocument();
+      expect(screen.queryByText(/added by XamOps/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/briefly run up to twice its size/)).not.toBeInTheDocument();
+    });
     it('shows no policy explanation when the plan does not touch the policy', async () => {
       setup();
       await screen.findByText('What changes');

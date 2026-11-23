@@ -2,6 +2,7 @@ package com.xammer.cloud.service.autospotting.aws.steps;
 
 import com.xammer.cloud.service.autospotting.aws.AwsGroupFacts;
 import com.xammer.cloud.service.autospotting.aws.AwsLaunchInfo;
+import com.xammer.cloud.service.autospotting.aws.AwsMaintenancePolicy;
 import com.xammer.cloud.service.autospotting.aws.AwsMutatingClient;
 import com.xammer.cloud.service.autospotting.aws.AwsOwnedFields;
 import com.xammer.cloud.service.autospotting.aws.AwsProgram;
@@ -10,6 +11,7 @@ import com.xammer.cloud.service.autospotting.aws.AwsRestoreProgram;
 import com.xammer.cloud.service.autospotting.aws.AwsRestoreRequests;
 import com.xammer.cloud.service.autospotting.aws.AwsStepServices;
 import com.xammer.cloud.service.autospotting.aws.AwsThreeWayDiff;
+import com.xammer.cloud.service.autospotting.aws.AwsUpdateRequestBuilder;
 import com.xammer.cloud.service.autospotting.spi.ErrorKind;
 import com.xammer.cloud.service.autospotting.spi.StepContext;
 import com.xammer.cloud.service.autospotting.spi.StepOutcome;
@@ -123,12 +125,20 @@ public final class RestoreShapeStep extends AwsRevertStep {
         if (f.spotAllocationStrategy() != null) {
             d.spotAllocationStrategy(f.spotAllocationStrategy());
         }
-        return UpdateAutoScalingGroupRequest.builder().autoScalingGroupName(program.groupName())
+        UpdateAutoScalingGroupRequest.Builder request = UpdateAutoScalingGroupRequest.builder()
+                .autoScalingGroupName(program.groupName())
                 .capacityRebalance(target.capacityRebalance())
                 .mixedInstancesPolicy(MixedInstancesPolicy.builder()
                         .launchTemplate(LaunchTemplate.builder().launchTemplateSpecification(spec.build())
                                 .overrides(LaunchTemplateOverrides.builder().instanceType(type).build()).build())
-                        .instancesDistribution(d.build()).build()).build();
+                        .instancesDistribution(d.build()).build());
+        // The snapshot's maintenance policy (a clear when it was absent) goes in this request too, or a refused
+        // unwrap would leave the 100/200 XamOps added behind a revert that reports success (AD-08).
+        if (target.maintenancePolicy() != null) {
+            AwsUpdateRequestBuilder.withMaintenancePolicy(request, new com.fasterxml.jackson.databind.ObjectMapper()
+                    .createObjectNode().set(AwsMaintenancePolicy.KEY, target.maintenancePolicy()));
+        }
+        return request.build();
     }
 
     private static StepOutcome updated(UpdateAutoScalingGroupResponse response, String json) {

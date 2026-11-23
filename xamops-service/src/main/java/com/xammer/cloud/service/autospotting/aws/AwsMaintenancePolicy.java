@@ -93,4 +93,19 @@ public final class AwsMaintenancePolicy {
         JsonNode p = config == null ? null : config.path(KEY);
         return p != null && p.isObject() && p.hasNonNull("min") && p.hasNonNull("max");
     }
+
+    /**
+     * A policy XamOps owns that a customer edited to Max=100 is corrected by the plan's own 100/200 target, so
+     * IMP_TERMINATE_FIRST (which guards a customer's policy, never rewritten) must not block that re-apply. Used at
+     * plan time and again at step 0, so the two passes agree. A customer's policy keeps the blocker.
+     */
+    public static com.xammer.cloud.service.autospotting.spi.EligibilityResult withoutOwnedBlocker(
+            com.xammer.cloud.service.autospotting.spi.EligibilityResult r, boolean ownsPolicy) {
+        if (!ownsPolicy || r.blockers().stream().noneMatch(b -> "IMP_TERMINATE_FIRST".equals(b.code()))) {
+            return r;
+        }
+        return new com.xammer.cloud.service.autospotting.spi.EligibilityResult(
+                r.blockers().stream().filter(b -> !"IMP_TERMINATE_FIRST".equals(b.code())).toList(),
+                r.warnings(), r.deferred());
+    }
 }

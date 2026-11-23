@@ -283,7 +283,16 @@ class AwsSpotProviderPlanTest {
                 .InstanceMaintenancePolicy.builder().minHealthyPercentage(90).maxHealthyPercentage(150).build()).build());
         PlanBody body = plan("conservative");
         assertThat(JSON.readTree(body.targetJson()).has("instanceMaintenancePolicy")).isFalse();
-        assertThat(body.diffJson()).doesNotContain("instanceMaintenancePolicy");
+        // The plan says the customer's policy stays: an informational row, "unchanged" as the target (ux 3.5).
+        JsonNode row = null;
+        for (JsonNode d : JSON.readTree(body.diffJson())) {
+            if ("instanceMaintenancePolicy".equals(d.path("field").asText())) {
+                row = d;
+            }
+        }
+        assertThat(row).isNotNull();
+        assertThat(row.path("from").asText()).isEqualTo("min 90 / max 150");
+        assertThat(row.path("to").asText()).isEqualTo("unchanged");
         assertThat(body.eligibility().warnings()).extracting(c -> c.code()).contains("IMP_MIN_HEALTHY_LOW")
                 .doesNotContain("IMP_OVERSHOOT");
         JsonNode saved = JSON.readTree(body.snapshotToStore().payloadJson()).at("/owned/instanceMaintenancePolicy");

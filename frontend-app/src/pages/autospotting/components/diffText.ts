@@ -4,6 +4,7 @@
  */
 export const MAINTENANCE_POLICY_FIELD = 'instanceMaintenancePolicy';
 
+export const POLICY_UNCHANGED = 'unchanged';
 export const MAINTENANCE_POLICY_LABEL = 'Replacement safety (instance maintenance policy)';
 
 /** The line under the table that explains the policy row in everyday words. */
@@ -27,6 +28,8 @@ export function policyValue(value: string | null): string {
 /** The text of one cell of the diff table. `side` marks the column; XamOps-added values say so. */
 export function diffValue(field: string, value: string | null, side: 'from' | 'to'): string {
   if (field !== MAINTENANCE_POLICY_FIELD) return value ?? '--';
+  // A customer's own policy is never rewritten: the plan sends "unchanged" as the target (design-ux-ops.md 3.5).
+  if (side === 'to' && value === POLICY_UNCHANGED) return 'Unchanged';
   const text = policyValue(value);
   return side === 'to' && value !== null && value !== 'none' ? `${text}, added by XamOps` : text;
 }

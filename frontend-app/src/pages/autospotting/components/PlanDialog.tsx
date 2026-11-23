@@ -7,7 +7,7 @@ import { MoneyFigure } from './MoneyLabel';
 import { NOT_PRICED } from '../../../utils/formatMoney';
 import { usePlanFlow } from './usePlanFlow';
 import { warningText } from './reasons';
-import { MAINTENANCE_POLICY_FIELD, MAINTENANCE_POLICY_HELP, diffFieldLabel, diffValue } from './diffText';
+import { MAINTENANCE_POLICY_FIELD, MAINTENANCE_POLICY_HELP, POLICY_UNCHANGED, diffFieldLabel, diffValue } from './diffText';
 
 export const BURSTABLE_LABEL = 'Allow burstable alternatives (for example t3a for t3)';
 export const BURSTABLE_HELP =
@@ -124,7 +124,8 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
     !burstableOn &&
     (burstable?.burstableAlternatives?.length ?? 0) > 0 &&
     blockers.some(b => b.code === 'NO_COMPATIBLE_TYPES');
-  const policyRow = body?.diff.some(d => d.field === MAINTENANCE_POLICY_FIELD) ?? false;
+  // The explanation is about the setting XamOps adds; a customer's own policy ("unchanged") has nothing to explain.
+  const policyRow = body?.diff.some(d => d.field === MAINTENANCE_POLICY_FIELD && d.to !== POLICY_UNCHANGED) ?? false;
   const allAcked = warnings.every(w => flow.acked.includes(w.id));
   const fullSpotNeeded = !!plan?.requiresFullSpotOptin;
 

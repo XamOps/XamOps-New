@@ -141,18 +141,7 @@ public class AwsSpotProvider implements SpotProvider {
         boolean allowBurstable = options != null && options.effectiveAllowBurstable();
         EligibilityResult result = evaluator.evaluate(account.get(), ref.groupKey(), profile, mode, allowBurstable,
                 allowBurstable || options == null ? List.of() : options.storedBurstableAdded()).result();
-        return withoutOwnedPolicyBlocker(result, options != null && AwsMaintenancePolicy.owns(options.desiredConfigJson()));
-    }
-    /**
-     * A policy XamOps owns that a customer edited to Max=100 is corrected by the plan's own 100/200 target, so
-     * IMP_TERMINATE_FIRST (which guards a customer's policy, never rewritten) must not block that re-apply.
-     */
-    private static EligibilityResult withoutOwnedPolicyBlocker(EligibilityResult r, boolean ownsPolicy) {
-        if (!ownsPolicy || r.blockers().stream().noneMatch(b -> "IMP_TERMINATE_FIRST".equals(b.code()))) {
-            return r;
-        }
-        return new EligibilityResult(r.blockers().stream().filter(b -> !"IMP_TERMINATE_FIRST".equals(b.code())).toList(),
-                r.warnings(), r.deferred());
+        return AwsMaintenancePolicy.withoutOwnedBlocker(result, options != null && AwsMaintenancePolicy.owns(options.desiredConfigJson()));
     }
 
     // ---- plan ----
@@ -207,7 +196,7 @@ public class AwsSpotProvider implements SpotProvider {
                 .put("program", "REVERT")
                 .put("method", "RESTORE_SNAPSHOT")
                 .put("exact", snapshot.exact()));
-        return new PlanBody(current, write(target), diff, snapshot, withoutOwnedPolicyBlocker(ev.result(), ownsPolicy), rollout, estimates, floor, null, revert,
+        return new PlanBody(current, write(target), diff, snapshot, AwsMaintenancePolicy.withoutOwnedBlocker(ev.result(), ownsPolicy), rollout, estimates, floor, null, revert,
                 g.arn()).withOptions(optionsJson(allowBurstable, ev));
     }
 
@@ -337,6 +326,10 @@ public class AwsSpotProvider implements SpotProvider {
             addDiff(diff, AwsMaintenancePolicy.KEY, AwsRestoreProgram.policyText(JSON.createObjectNode()
                             .put("min", g.minHealthyPercentage()).put("max", g.maxHealthyPercentage())),
                     "min " + tp.get("min").asInt() + " / max " + tp.get("max").asInt());
+        } else if (AwsMaintenancePolicy.classify(g) != AwsMaintenancePolicy.Kind.ABSENT) {
+            // A customer's policy is never rewritten; the plan says so instead of staying silent (design-ux-ops 3.5).
+            addDiff(diff, AwsMaintenancePolicy.KEY, AwsRestoreProgram.policyText(JSON.createObjectNode()
+                    .put("min", g.minHealthyPercentage()).put("max", g.maxHealthyPercentage())), "unchanged");
         }
         return diff;
     }
