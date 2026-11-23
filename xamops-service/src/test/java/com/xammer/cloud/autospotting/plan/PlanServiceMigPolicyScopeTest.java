@@ -68,6 +68,21 @@ class PlanServiceMigPolicyScopeTest {
         verify(groups, never()).saveAndFlush(any());
         verify(plans, never()).saveAndFlush(any());
     }
+    /** Review fix: a plan option on GCP is 422 OPTION_NOT_APPLICABLE before any row or cloud read. */
+    @Test
+    void anOptionOnAGcpPlanIsRefusedBeforeAnyReadOrRow() {
+        SpotProvider gcp = mock(SpotProvider.class);
+        when(providers.find(Provider.GCP)).thenReturn(Optional.of(gcp));
+        PlanService.CreateCommand c = new PlanService.CreateCommand(OperationKind.ENABLE, null, "p/us-central1/mig",
+                null, false, "k", "h", "u", null, true);
+        assertThatThrownBy(() -> service().createPlan(account("GCP"), null, c))
+                .isInstanceOfSatisfying(AutoSpottingApiException.class, e -> {
+                    org.assertj.core.api.Assertions.assertThat(e.getCode()).isEqualTo("OPTION_NOT_APPLICABLE");
+                    org.assertj.core.api.Assertions.assertThat(e.getStatus().value()).isEqualTo(422);
+                });
+        verify(gcp, never()).createPlan(any(), any());
+        verify(groups, never()).insertUnmanagedIfAbsent(any(), any(), any(), any(), any(), any(), any(), any());
+    }
     @Test
     void aMissingMigCreatesNoUnmanagedRowAndNoPlan() {
         SpotProvider gcp = mock(SpotProvider.class);

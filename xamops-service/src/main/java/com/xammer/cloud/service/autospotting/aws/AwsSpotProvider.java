@@ -175,7 +175,8 @@ public class AwsSpotProvider implements SpotProvider {
         int spotTarget = g.desired() <= 1 ? 0 : AwsProfiles.spotCount(g.desired(), params.base(), params.percentAboveBase());
 
         String current = write(currentNode(g, ownsPolicy));
-        ObjectNode target = targetNode(g, ev, params, allowBurstable, ownsPolicy);
+        ObjectNode target = targetNode(g, ev, params, allowBurstable, ownsPolicy,
+                options.storedBurstableAdded());
         String diff = write(diffNode(g, target));
 
         SnapshotPayload snapshot = snapshotFor(g, ev);
@@ -234,18 +235,31 @@ public class AwsSpotProvider implements SpotProvider {
      * not use attribute-based selection.
      */
     private ObjectNode targetNode(AwsGroupFacts g, AwsEligibilityEvaluator.Evaluation ev, AwsProfiles.ProfileParams p,
-                                  boolean allowBurstable, boolean ownsPolicy) {
+                                  boolean allowBurstable, boolean ownsPolicy, List<String> storedBurstableAdded) {
         ObjectNode n = JSON.createObjectNode();
         n.put("shape", "MIXED_INSTANCES_POLICY");
         n.set("launchTemplate", spec(g.launchTemplate()));
         List<String> overrides = new ArrayList<>(g.overrideTypes());
+        List<String> burstableAdded = new ArrayList<>();
+        if (g.mixedInstancesPolicy() && !allowBurstable) {
+            // AD-09: turning the option off removes what XamOps added for it, and only that (a customer's own stay).
+            overrides.removeAll(storedBurstableAdded);
+        } else if (g.mixedInstancesPolicy()) {
+            storedBurstableAdded.stream().filter(overrides::contains).forEach(burstableAdded::add);
+        }
         List<String> selected = ev.typePlan() == null ? List.of() : ev.typePlan().selection().types();
         if (!g.mixedInstancesPolicy()) {
             overrides = new ArrayList<>(selected);
+            if (allowBurstable) {
+                selected.stream().filter(ev.typePlan().burstableSelected()::contains).forEach(burstableAdded::add);
+            }
         } else if (!g.attributeBasedOverrides() && overrides.size() < AwsTypeSelector.FEW_TYPES_THRESHOLD) {
             for (String t : selected) {
                 if (!overrides.contains(t) && overrides.size() < AwsTypeSelector.MAX_TYPES) {
                     overrides.add(t);
+                    if (allowBurstable && ev.typePlan().burstableSelected().contains(t)) {
+                        burstableAdded.add(t);
+                    }
                 }
             }
         }
@@ -261,7 +275,11 @@ public class AwsSpotProvider implements SpotProvider {
             n.set(AwsMaintenancePolicy.KEY, AwsMaintenancePolicy.ownedNode());
         }
         // AD-09: remembered in desired_config.options, so the next plan starts from this choice.
-        n.putObject("options").put("allowBurstable", allowBurstable);
+        ObjectNode opts = n.putObject("options");
+        opts.put("allowBurstable", allowBurstable);
+        if (!burstableAdded.isEmpty()) {
+            opts.set("burstableAdded", strings(burstableAdded));
+        }
         return n;
     }
 

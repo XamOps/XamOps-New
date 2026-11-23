@@ -32,6 +32,20 @@ public record PlanOptions(Boolean allowBurstable, String desiredConfigJson) {
         }
     }
 
+    /** The burstable types XamOps added in the last confirmed plan (desired_config.options.burstableAdded). */
+    public java.util.List<String> storedBurstableAdded() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (desiredConfigJson == null || desiredConfigJson.isBlank()) {
+            return out;
+        }
+        try {
+            JSON.readTree(desiredConfigJson).path("options").path("burstableAdded")
+                    .forEach(n -> out.add(n.asText()));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            out.clear();
+        }
+        return out;
+    }
     /** Request value, else the stored choice, else false. */
     public boolean effectiveAllowBurstable() {
         return allowBurstable != null ? allowBurstable : storedAllowBurstable();

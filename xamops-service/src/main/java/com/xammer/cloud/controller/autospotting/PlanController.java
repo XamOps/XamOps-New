@@ -81,6 +81,9 @@ public class PlanController {
         CloudAccount account = accountAccessService.requireAccess(user, accountId);
         String key = idempotency.requireKey(idemKey);
         OperationKind kind = parseKind(request.kind());
+        if (request.options() != null && !request.options().unknown().isEmpty()) {
+            throw new AutoSpottingApiException(HttpStatus.BAD_REQUEST, "OPTION_UNKNOWN", "This option is not known.");
+        }
         try (AutoSpottingMdc.Scope ignored = AutoSpottingMdc.builder()
                 .cloudAccountId(account.getId()).open()) {
             String canonical = canonicalPlanBody(kind, request);

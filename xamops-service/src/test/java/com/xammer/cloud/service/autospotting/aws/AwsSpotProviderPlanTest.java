@@ -199,6 +199,30 @@ class AwsSpotProviderPlanTest {
         assertThat(off.eligibility().blockers()).extracting(c -> c.code()).contains("NO_COMPATIBLE_TYPES");
     }
 
+    /** Review fix: turning the option off removes the types XamOps added for it, and only those. */
+    @Test
+    void turningBurstableOffRemovesTheTypesXamOpsAddedAndKeepsTheCustomersOwn() throws IOException {
+        setUp(FakeAws.asg("web-asg").build());
+        aws.burstableWorld();
+        PlanBody on = plan("conservative", new PlanOptions(true, null));
+        JsonNode onTarget = JSON.readTree(on.targetJson());
+        assertThat(onTarget.at("/options/burstableAdded")).extracting(JsonNode::asText)
+                .containsExactly("t3a.micro", "t3a.small");
+        // The group now runs the converted overrides plus a type the customer added by hand.
+        String remembered = "{\"options\":" + onTarget.get("options") + "}";
+        setUp(FakeAws.asg("web-asg").launchTemplate((software.amazon.awssdk.services.autoscaling.model.LaunchTemplateSpecification) null)
+                .mixedInstancesPolicy(software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy.builder()
+                        .launchTemplate(software.amazon.awssdk.services.autoscaling.model.LaunchTemplate.builder()
+                                .launchTemplateSpecification(software.amazon.awssdk.services.autoscaling.model.LaunchTemplateSpecification.builder()
+                                        .launchTemplateId("lt-0abc").version("$Default").build())
+                                .overrides(java.util.stream.Stream.of("t3.micro", "t3a.micro", "t3a.small", "t3.small")
+                                        .map(t -> software.amazon.awssdk.services.autoscaling.model.LaunchTemplateOverrides.builder().instanceType(t).build())
+                                        .toList()).build()).build()).build());
+        aws.burstableWorld();
+        PlanBody off = plan("conservative", new PlanOptions(false, remembered));
+        assertThat(JSON.readTree(off.targetJson()).path("overrides")).extracting(JsonNode::asText)
+                .contains("t3.micro", "t3.small").doesNotContain("t3a.micro", "t3a.small");
+    }
     @Test
     void theBurstableOptionIsRefusedForAGroupThatIsNotBurstable() {
         setUp(FakeAws.asg("web-asg").build());

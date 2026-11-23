@@ -246,4 +246,22 @@ class AwsThreeWayDiffTest {
                 .isTrue();
         assertThat(AwsThreeWayDiff.snapshotHadSpot(snapshotOf(original(), false))).isFalse();
     }
+    /** Review fix: an adopted legacy group's XamOps-owned 100/200 is cleared at revert, a later customer edit is kept. */
+    @Test
+    void aReconstructedLegacySnapshotClearsTheOwnedPolicyUnlessTheCustomerChangedIt() throws IOException {
+        AutoScalingGroup legacyAtAdopt = converted("lt-0abc", "$Default", true, "m5.large", "m5a.large");
+        AutoScalingGroup live = legacyAtAdopt.toBuilder().instanceMaintenancePolicy(imp(100, 200)).build();
+        AwsThreeWayDiff.Result unchanged = AwsThreeWayDiff.compute(snapshotOf(legacyAtAdopt, true), ownedDesired(),
+                live, null, false);
+        assertThat(unchanged.exact()).isFalse();
+        assertThat(unchanged.target().maintenancePolicy().path("min").asInt()).isEqualTo(-1);
+        assertThat(unchanged.target().maintenancePolicy().path("max").asInt()).isEqualTo(-1);
+        assertThat(AwsRestoreRequests.restore("web-asg", unchanged.target()).instanceMaintenancePolicy()
+                .minHealthyPercentage()).isEqualTo(-1);
+        AutoScalingGroup edited = legacyAtAdopt.toBuilder().instanceMaintenancePolicy(imp(100, 150)).build();
+        AwsThreeWayDiff.Result kept = AwsThreeWayDiff.compute(snapshotOf(legacyAtAdopt, true), ownedDesired(), edited,
+                null, false);
+        assertThat(kept.target().maintenancePolicy()).isNull();
+        assertThat(kept.kept()).extracting(AwsThreeWayDiff.Kept::field).contains("instanceMaintenancePolicy");
+    }
 }

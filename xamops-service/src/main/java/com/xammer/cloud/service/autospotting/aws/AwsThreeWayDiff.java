@@ -123,7 +123,9 @@ public final class AwsThreeWayDiff {
         AwsGroupFacts l = AwsGroupFacts.from("", live);
         List<Override> liveOverrides = liveOverrides(live);
         if (AwsSnapshotCodec.CAPTURED_RECONSTRUCTED.equals(snapshot.capturedFrom())) {
-            return legacy(l, liveOverrides);
+            List<Kept> legacyKept = new ArrayList<>();
+            JsonNode legacyPolicy = policyRestore(snapshot, desired, l, acceptedNames(accepted), legacyKept);
+            return legacy(l, liveOverrides, legacyPolicy, legacyKept);
         }
         Set<String> acceptedNames = acceptedNames(accepted);
         boolean standaloneSnapshot = "LAUNCH_TEMPLATE".equals(snapshot.shape());
@@ -257,6 +259,10 @@ public final class AwsThreeWayDiff {
      * the policy has a single override and no customer-set base, else the policy at B=0, P=100. Always inexact.
      */
     static Result legacy(AwsGroupFacts l, List<Override> liveOverrides) {
+        return legacy(l, liveOverrides, null, List.of());
+    }
+    /** The same, also carrying the maintenance policy restore (AD-08): an adopted group's 100/200 is XamOps's. */
+    static Result legacy(AwsGroupFacts l, List<Override> liveOverrides, JsonNode policy, List<Kept> kept) {
         Target target;
         if (!l.mixedInstancesPolicy()) {
             target = new Target("LAUNCH_TEMPLATE", l.launchTemplate(), List.of(), null, l.capacityRebalance());
@@ -267,7 +273,12 @@ public final class AwsThreeWayDiff {
                     new Distribution(l.onDemandAllocationStrategy(), 0, 100, l.spotAllocationStrategy(),
                             l.spotInstancePools(), l.spotMaxPrice()), l.capacityRebalance());
         }
-        return new Result(target, List.of(), List.of(LEGACY_RECONSTRUCTED), List.of(ACK_LEGACY_TARGET), List.of(), false);
+        if (policy != null) {
+            target = new Target(target.shape(), target.template(), target.overrides(), target.distribution(),
+                    target.capacityRebalance(), policy);
+        }
+        return new Result(target, List.copyOf(kept), List.of(LEGACY_RECONSTRUCTED), List.of(ACK_LEGACY_TARGET),
+                List.of(), false);
     }
 
     // ---- readers ----

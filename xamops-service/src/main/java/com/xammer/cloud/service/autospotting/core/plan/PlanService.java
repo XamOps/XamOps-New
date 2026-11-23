@@ -135,6 +135,11 @@ public class PlanService {
             throw new AutoSpottingApiException(HttpStatus.CONFLICT, "AS_KIND_NOT_SUPPORTED",
                     "This plan kind is not supported for this cloud.");
         }
+        // 0b. Plan options are AWS-only (design-core.md §7.3): any option on GCP is refused before any row or cloud read.
+        if (provider == Provider.GCP && cmd.allowBurstable() != null) {
+            throw new AutoSpottingApiException(HttpStatus.UNPROCESSABLE_ENTITY, "OPTION_NOT_APPLICABLE",
+                    "This option does not apply to this cloud.");
+        }
         // 1. Resolve the group and its state (null = no row yet).
         SpotGroup group = resolveGroup(account, provider, cmd);
         GroupState state = group == null ? null : group.getState();
