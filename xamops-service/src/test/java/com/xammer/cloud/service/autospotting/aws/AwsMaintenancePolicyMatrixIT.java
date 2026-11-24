@@ -229,6 +229,11 @@ class AwsMaintenancePolicyMatrixIT {
             rows.add(row("FALLBACK_ENTER / " + s + " / success", () -> fallbackEnter(s, afterEnter)));
             rows.add(row("FALLBACK_EXIT / " + s + " / success", () -> fallbackExit(s, afterEnter)));
         }
+        // FALLBACK_ENTER preempting the first CONFIG_APPLY that gives the group XamOps' policy (review follow-up 1).
+        rows.add(row("FALLBACK_ENTER preempting CONFIG_APPLY that adds the policy / success, no drift on next sweep",
+                () -> fallbackPreemptsPolicyOwningConfigApply(false)));
+        rows.add(row("FALLBACK_ENTER preempting CONFIG_APPLY that adds the policy / policy removed meanwhile, "
+                + "fallback re-applies it, no drift on next sweep", () -> fallbackPreemptsPolicyOwningConfigApply(true)));
         return rows.stream().map(r -> Arguments.of(r));
     }
 
@@ -342,6 +347,52 @@ class AwsMaintenancePolicyMatrixIT {
             assertThat(runToEnd(h, h.f.opId)).as("op outcome (error " + h.opError() + ")").isEqualTo("SUCCEEDED");
             assertThat(h.groupState()).isEqualTo("ACTIVE");
             assertPolicy(h, expected);
+        }
+    }
+
+    /**
+     * A confirmed CONFIG_APPLY adds XamOps' 100/200 to a group with none and is preempted after its mutation by a
+     * FALLBACK_ENTER. The fallback is hashed and sent with the preempted target's ownership, so the next sweep (which
+     * reads ownership from the deferred desired_config) sees no drift.
+     */
+    private static void fallbackPreemptsPolicyOwningConfigApply(boolean policyRemovedMeanwhile) {
+        AutoScalingGroup live = converted(null, 50, 5, 4);
+        try (AwsOpsHarness h = new AwsOpsHarness(live, GroupState.ACTIVE, "MANAGED", desired(50, false), null, null,
+                null)) {
+            UUID configOp = h.planAndConfirm(request(OperationKind.CONFIG_APPLY, desired(50, false)));
+            h.store.claimForRun(configOp);
+            h.runner.runClaimed(h.lease, configOp);
+            assertThat(h.f.group().instanceMaintenancePolicy()).as("the config apply wrote XamOps' policy").isNotNull();
+            assertThat(h.groupState()).as("the mutated config op leaves the group APPLYING").isEqualTo("APPLYING");
+            if (policyRemovedMeanwhile) {
+                h.f.replaceGroup(h.f.group().toBuilder().instanceMaintenancePolicy((InstanceMaintenancePolicy) null).build());
+            }
+            h.f.replaceGroup(withInstances(h.f.group(), 4));
+            UUID fallback = UUID.randomUUID();
+            h.store.insertQueued(com.xammer.cloud.service.autospotting.core.ops.OperationRecord
+                    .builder(fallback, h.f.groupId, 7L, OperationKind.FALLBACK_ENTER)
+                    .priorState(GroupState.APPLYING)
+                    .compensationTarget(com.xammer.cloud.service.autospotting.core.lifecycle.CompensationTargets
+                            .forKind(OperationKind.FALLBACK_ENTER))
+                    .requestedBy("system:fallback").build());
+            h.jdbc.update("UPDATE spot_operation SET status = 'CANCELLED', cancel_reason = 'PREEMPTED_BY_FALLBACK',"
+                    + " preempted_by_op = ?, finished_at = now() WHERE id = ?", fallback, configOp);
+            h.store.claimForRun(fallback);
+            h.runner.runClaimed(h.lease, fallback);
+            assertThat(h.jdbc.queryForObject("SELECT error_code FROM spot_operation WHERE id = ?", String.class,
+                    fallback)).as("fallback error").isNull();
+            assertThat(h.groupState()).isEqualTo("FALLBACK");
+            assertPolicy(h, imp(100, 200));
+            com.xammer.cloud.domain.autospotting.SpotGroup row = h.ctx.getBean(
+                    com.xammer.cloud.repository.autospotting.SpotGroupRepository.class).findById(h.f.groupId).orElseThrow();
+            assertThat(AwsMaintenancePolicy.owns(row.getDesiredConfig())).as("the deferred target owns the policy").isTrue();
+            for (int i = 0; i < 2; i++) {
+                var status = h.provider.getStatus(row, h.f.aws.view());
+                assertThat(new com.xammer.cloud.service.autospotting.core.reconcile.DriftClassifier()
+                        .classify(row, status, false, false, false, false, false, false).code())
+                        .as("drift on sweep " + (i + 1))
+                        .isEqualTo(com.xammer.cloud.service.autospotting.core.reconcile.DriftClassifier.Code.NONE);
+            }
         }
     }
 }
