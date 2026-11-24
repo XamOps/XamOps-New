@@ -229,6 +229,9 @@ class AwsMaintenancePolicyMatrixIT {
             rows.add(row("FALLBACK_ENTER / " + s + " / success", () -> fallbackEnter(s, afterEnter)));
             rows.add(row("FALLBACK_EXIT / " + s + " / success", () -> fallbackExit(s, afterEnter)));
         }
+        // A customer policy with Max only: AWS API reference documents no default Min, so it warns and is never rewritten.
+        rows.add(row("CONFIG_APPLY / CUSTOMER Max-only policy / IMP_MIN_HEALTHY_LOW shown, policy untouched, success",
+                () -> customerMaxOnlyConfigApply()));
         // FALLBACK_ENTER preempting the first CONFIG_APPLY that gives the group XamOps' policy (review follow-up 1).
         rows.add(row("FALLBACK_ENTER preempting CONFIG_APPLY that adds the policy / success, no drift on next sweep",
                 () -> fallbackPreemptsPolicyOwningConfigApply(false)));
@@ -393,6 +396,30 @@ class AwsMaintenancePolicyMatrixIT {
                         .as("drift on sweep " + (i + 1))
                         .isEqualTo(com.xammer.cloud.service.autospotting.core.reconcile.DriftClassifier.Code.NONE);
             }
+        }
+    }
+
+    /**
+     * Review follow-up 3. The AWS API reference for InstanceMaintenancePolicy says Min and Max must both be given and
+     * documents no default for an omitted Min, so a Max-only customer policy is treated as possibly allowing a dip.
+     */
+    private static void customerMaxOnlyConfigApply() {
+        InstanceMaintenancePolicy maxOnly = InstanceMaintenancePolicy.builder().maxHealthyPercentage(150).build();
+        try (AwsOpsHarness h = new AwsOpsHarness(converted(maxOnly, 50, 4, 4), GroupState.ACTIVE, "MANAGED",
+                desired(50, false), null, null, null)) {
+            for (int i = 1; i <= 3; i++) {
+                h.f.spotInstances.add("i-" + (5 - i));
+            }
+            UUID op = h.planAndConfirm(request(OperationKind.CONFIG_APPLY, desired(50, false)));
+            assertThat(h.jdbc.queryForObject("SELECT warning_ids::text FROM spot_plan WHERE group_id = ?"
+                    + " AND kind = 'CONFIG_APPLY'", String.class, h.f.groupId))
+                    .as("the plan shows the capacity-dip warning").contains("w-imp-min-healthy-low")
+                    .doesNotContain("w-imp-overshoot");
+            assertThat(runToEnd(h, op)).as("op outcome (error " + h.jdbc.queryForList(
+                    "SELECT error_code FROM spot_operation WHERE id = ?", String.class, op) + ")").isEqualTo("SUCCEEDED");
+            InstanceMaintenancePolicy live = h.f.group().instanceMaintenancePolicy();
+            assertThat(live.maxHealthyPercentage()).as("the customer's policy is not rewritten").isEqualTo(150);
+            assertThat(live.minHealthyPercentage()).isNull();
         }
     }
 }

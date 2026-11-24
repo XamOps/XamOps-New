@@ -322,10 +322,15 @@ public final class AwsEligibilityRules {
                     + "billed. XamOps sets this to keep your capacity from dipping, and removes the setting when "
                     + "you revert.", String.valueOf(g.desired())));
         } else if (policyKind == AwsMaintenancePolicy.Kind.CUSTOMER_LOW_MIN) {
-            warnings.add(warning("IMP_MIN_HEALTHY_LOW", "Your maintenance policy allows capacity to drop to "
-                    + g.minHealthyPercentage() + "% during replacements, so this group can briefly run below its "
-                    + "desired size while XamOps changes it. XamOps does not change your policy.",
-                    String.valueOf(g.minHealthyPercentage())));
+            boolean minSet = g.minHealthyPercentage() != null;
+            warnings.add(warning("IMP_MIN_HEALTHY_LOW", minSet
+                    ? "Your maintenance policy allows capacity to drop to " + g.minHealthyPercentage()
+                    + "% during replacements, so this group can briefly run below its desired size while XamOps "
+                    + "changes it. XamOps does not change your policy."
+                    : "Your maintenance policy has no minimum healthy percentage set, so capacity may dip during "
+                    + "replacement and this group can briefly run below its desired size while XamOps changes it. "
+                    + "XamOps does not change your policy.",
+                    minSet ? String.valueOf(g.minHealthyPercentage()) : "unset"));
         }
         if (g.defaultInstanceWarmup() == null) {
             warnings.add(warning("NO_INSTANCE_WARMUP", "No default instance warm-up is set, so a new instance is "

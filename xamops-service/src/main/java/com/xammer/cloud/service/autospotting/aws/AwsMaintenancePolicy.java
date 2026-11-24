@@ -34,10 +34,16 @@ public final class AwsMaintenancePolicy {
         TERMINATE_FIRST,
         /** {@code Min = 100}: the customer already keeps full capacity. Left as is. */
         CUSTOMER_SAFE,
-        /** {@code Min < 100}: the customer allows a dip. Left as is, with a warning. */
+        /** {@code Min < 100}, or Min omitted (see {@link #classify}): the customer may allow a dip. Left as is, with a warning. */
         CUSTOMER_LOW_MIN
     }
 
+    /**
+     * Max=100 is TERMINATE_FIRST, both fields absent (or -1/-1) is ABSENT, and only a Min of 100 is capacity-safe.
+     * A Min that is omitted while Max is set counts as possibly low (CUSTOMER_LOW_MIN): the AWS API reference for
+     * InstanceMaintenancePolicy (https://docs.aws.amazon.com/autoscaling/ec2/APIReference/API_InstanceMaintenancePolicy.html)
+     * says both must be specified and documents no default for an omitted MinHealthyPercentage, so none is assumed.
+     */
     public static Kind classify(Integer min, Integer max) {
         Integer mn = normalize(min);
         Integer mx = normalize(max);
@@ -47,7 +53,7 @@ public final class AwsMaintenancePolicy {
         if (mx != null && mx == 100) {
             return Kind.TERMINATE_FIRST;
         }
-        if (mn != null && mn < 100) {
+        if (mn == null || mn < 100) {
             return Kind.CUSTOMER_LOW_MIN;
         }
         return Kind.CUSTOMER_SAFE;

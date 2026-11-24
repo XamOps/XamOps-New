@@ -108,6 +108,23 @@ class AwsEligibilityRulesTest {
                 .extracting(EligibilityResult.Check::code).contains("IMP_TERMINATE_FIRST");
     }
 
+    /** AWS API reference InstanceMaintenancePolicy: no documented default for an omitted Min, so none is assumed. */
+    @Test
+    void awsApiReferenceDocumentsNoDefaultSoACustomerPolicyWithMaxOnlyWarnsThatCapacityMayDip() {
+        List<EligibilityResult.Check> maxOnly = AwsEligibilityRules.evaluate(clean(asg().instanceMaintenancePolicy(
+                InstanceMaintenancePolicy.builder().maxHealthyPercentage(150).build()).build())).warnings();
+        assertThat(maxOnly).extracting(EligibilityResult.Check::code).contains("IMP_MIN_HEALTHY_LOW")
+                .doesNotContain("IMP_OVERSHOOT");
+        assertThat(maxOnly.stream().filter(w -> w.code().equals("IMP_MIN_HEALTHY_LOW")).findFirst().orElseThrow().text())
+                .contains("no minimum healthy percentage set").contains("capacity may dip")
+                .doesNotContain("%").contains("does not change your policy");
+        // Both absent and -1/-1 stay "no policy".
+        assertThat(AwsMaintenancePolicy.classify(null, null)).isEqualTo(AwsMaintenancePolicy.Kind.ABSENT);
+        assertThat(AwsMaintenancePolicy.classify(-1, -1)).isEqualTo(AwsMaintenancePolicy.Kind.ABSENT);
+        assertThat(AwsMaintenancePolicy.classify(null, 150)).isEqualTo(AwsMaintenancePolicy.Kind.CUSTOMER_LOW_MIN);
+        assertThat(AwsMaintenancePolicy.classify(100, null)).isEqualTo(AwsMaintenancePolicy.Kind.CUSTOMER_SAFE);
+    }
+
     private static Inputs withTypes(Inputs base, TypeInfo types) {
         return new Inputs(base.group(), base.account(), null, base.launch(), base.ecsManagedTermination(),
                 base.refreshInProgress(), base.otherFeatureInFlight(), base.missingPermissions(), base.spotQuota(),
