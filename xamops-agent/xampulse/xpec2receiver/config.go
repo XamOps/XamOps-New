@@ -25,6 +25,10 @@ type Config struct {
 	IMDSTimeout  time.Duration `mapstructure:"imds_timeout"`
 	// Listen reads the listening sockets from /proc/net (for the exposure check: what a security group could expose).
 	Listen bool `mapstructure:"listen"`
+	// Kernel reads the OS limits from /proc: open file handles, local ports in use, TCP retransmissions and
+	// listen-queue overflows. ProcessFiles adds each process near its own open-file limit (reads /proc/<pid>/fd).
+	Kernel       bool `mapstructure:"kernel"`
+	ProcessFiles bool `mapstructure:"process_files"`
 	// ProcRoot is where /proc is mounted (tests, or a collector running in a container with the host's /proc).
 	ProcRoot string `mapstructure:"proc_root"`
 }
@@ -39,6 +43,8 @@ func defaultConfig() *Config {
 		ENADrivers:       []string{"ena"},
 		IMDS:             true,
 		Listen:           true,
+		Kernel:           true,
+		ProcessFiles:     true,
 		IMDSEndpoint:     "http://169.254.169.254",
 		IMDSTimeout:      time.Second,
 		ProcRoot:         "/proc",
@@ -56,7 +62,7 @@ func (c *Config) Validate() error {
 			return errors.New("imds_timeout must be between 0 and 10s")
 		}
 	}
-	if (c.PSI || c.Listen) && !strings.HasPrefix(c.ProcRoot, "/") {
+	if (c.PSI || c.Listen || c.Kernel) && !strings.HasPrefix(c.ProcRoot, "/") {
 		return errors.New("proc_root must be an absolute path")
 	}
 	if c.ENA && len(c.ENADrivers) == 0 {

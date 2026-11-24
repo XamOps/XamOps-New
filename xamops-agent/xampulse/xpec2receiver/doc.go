@@ -18,6 +18,16 @@
 //   - xp.net.listening (Gauge 1, {socket}; attributes protocol=tcp|udp, port, bind=all|loopback|address, address).
 //     Listening TCP sockets and bound UDP sockets below 32768 from /proc/net, for the exposure check (what a
 //     security group rule could expose). No process names: mapping sockets to processes needs root.
+//   - xp.fs.file_handles (Gauge, {file}; attribute state=allocated|max). From /proc/sys/fs/file-nr: open file
+//     handles in the whole system and fs.file-max.
+//   - xp.process.open_files (Gauge, {file}; attributes pid, name, limit). Each process holding at least half of its
+//     own soft open-file limit (ulimit -n), at most 20, fullest first: the usual cause of "Too many open files".
+//   - xp.net.local_ports (Gauge, {port}; attribute state=used|range). Distinct local TCP ports in use inside
+//     net.ipv4.ip_local_port_range, and the size of that range: outgoing connections fail when it runs out.
+//   - xp.tcp.segments (Sum, cumulative, monotonic, {segment}; attribute type=out|retrans). From /proc/net/snmp:
+//     the retransmitted share is packet loss or delay between this host and its peers.
+//   - xp.tcp.listen_queue (Sum, cumulative, monotonic, {connection}; attribute event=overflow|drop). From
+//     /proc/net/netstat: connections dropped because a listening socket's accept queue was full.
 //
 // Every source is optional: a host without PSI, without an ENA interface, or not on EC2 simply produces no points
 // for that source (logged once), never an error every interval. ethtool statistics and /proc/pressure are readable

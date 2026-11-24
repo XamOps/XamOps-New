@@ -77,3 +77,28 @@ func TestRealKernelListening(t *testing.T) {
 		t.Fatalf("not found in /proc/net: %v; read %+v", want, socks)
 	}
 }
+
+// TestRealKernelLimits reads the OS-limit sources from this machine's /proc (Throttle Radar checks 9 to 12). Off by
+// default like TestRealKernel; run with XP_REAL_PROC=1 on Linux (as root to see every process's open files):
+//
+//	GOOS=linux go test -c -o xpec2.test && XP_REAL_PROC=1 ./xpec2.test -test.run TestRealKernelLimits -test.v
+func TestRealKernelLimits(t *testing.T) {
+	if os.Getenv("XP_REAL_PROC") == "" {
+		t.Skip("set XP_REAL_PROC=1 to read this kernel's /proc")
+	}
+	k, err := readKernel("/proc", true)
+	if err != nil {
+		t.Fatalf("kernel: %v", err)
+	}
+	if !k.HaveFiles || k.FileMax <= 0 || k.FilesAllocated <= 0 {
+		t.Fatalf("file-nr: %+v", k)
+	}
+	if !k.HavePorts || k.PortsRange <= 0 {
+		t.Fatalf("local ports: %+v", k)
+	}
+	if !k.HaveTCP || !k.HaveListen {
+		t.Fatalf("snmp / netstat: %+v", k)
+	}
+	t.Logf("files %v of %v; local ports %v of %v; tcp out %v retrans %v; listen overflows %v drops %v; processes near limit %d",
+		k.FilesAllocated, k.FileMax, k.PortsUsed, k.PortsRange, k.OutSegs, k.RetransSegs, k.ListenOverflows, k.ListenDrops, len(k.Processes))
+}
