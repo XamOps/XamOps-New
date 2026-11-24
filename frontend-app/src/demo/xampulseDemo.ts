@@ -211,7 +211,17 @@ function lanesFor(h: DemoHost): XpLane[] {
 /** Generator values (0..100) as megabytes per second, expressed in bytes per second. */
 const mb = (pts: [number, number][]): [number, number][] => pts.map(([t, v]) => [t, v * 1024 * 1024]);
 
-function hostSummary(id: string, from: number, to: number): XpHostSummary {
+/** The demo's "usual" range: the generator's daily wave without noise or drift, give or take most of its amplitude. */
+function demoBand(base: number, amp: number, from: number, to: number, stepMs: number): [number, number, number][] {
+  const out: [number, number, number][] = [];
+  for (let t = from; t <= to; t += stepMs) {
+    const mid = base + Math.sin((t / 3_600_000) * Math.PI / 6) * amp;
+    out.push([t, Math.max(0, mid - amp * 0.8), Math.min(100, mid + amp * 0.8)]);
+  }
+  return out;
+}
+
+function hostSummary(id: string, from: number, to: number, compareOffsetSec?: number): XpHostSummary {
   const i = hostIndex(id);
   const h = HOSTS[i];
   const step = Math.max(MIN, Math.floor((to - from) / 120));
@@ -237,11 +247,23 @@ function hostSummary(id: string, from: number, to: number): XpHostSummary {
   s['xp.pressure{resource=io,level=some}'] = series(530 + i, h.name === 'demo-db-1' ? 21 : 1.5, 2, from, to, step);
   s['xp.pressure{resource=io,level=full}'] = series(540 + i, h.name === 'demo-db-1' ? 14 : 0.6, 1.5, from, to, step);
   if (h.name === 'demo-web-1') s['xp.ena.allowance_exceeded{allowance=pps}'] = series(550, 1.2, 1.1, from, to, step);
+  // Normal range for CPU and memory (demo-web-3's CPU and demo-api-2's memory drift out of it), and the same window
+  // a day or a week earlier, moved onto today's axis, when a comparison is asked for.
+  const bands = { 'system.cpu.utilization': demoBand(h.cpu, 10, from, to, step), 'system.memory.utilization': demoBand(h.mem, 4, from, to, step) };
+  const off = compareOffsetSec && compareOffsetSec > 0 ? compareOffsetSec * 1000 : 0;
+  const shift = (pts: [number, number][]): [number, number][] => pts.map(([t, v]) => [t + off, v]);
+  const compare = off ? {
+    'system.cpu.utilization': shift(series(600 + i, h.cpu, 10, from - off, to - off, step)),
+    'system.memory.utilization': shift(series(610 + i, h.mem, 4, from - off, to - off, step)),
+    'system.network.io{direction=receive}': shift(mb(series(620 + i, 40, 25, from - off, to - off, step))),
+    'system.network.io{direction=transmit}': shift(mb(series(630 + i, 28, 18, from - off, to - off, step))),
+  } : undefined;
   return {
     host: hostRow(h, i), lanes: lanesFor(h), series: s,
     recentErrors: pool().filter((r) => r.instanceId === id && (r.severity === 'ERROR' || r.severity === 'WARN')).slice(0, 6),
     events: eventsFor(from, to).filter((e) => e.resource === id || e.resource === ''),
     openIncidents: h.health === 'CRIT' ? [incidents()[0]] : [],
+    bands, ...(compare ? { compare, compareOffsetSec } : {}),
   };
 }
 
@@ -351,6 +373,12 @@ function limits(id: string, from: number, to: number): XpHostLimits {
       detail: 'The container hit its CPU limit (--cpus / cpu quota); requests were delayed even though the host may have idle CPU.',
       fix: "Raise the container's CPU limit, or reduce its CPU use; the host's own CPU chart will not show this.", evidence: { throttled_ratio: 0.41, periods: Math.round(secs * 10), throttled_periods: Math.round(secs * 4.1) } });
   }
+  if (h.name === 'demo-api-2') {
+    limited.add('file_handles');
+    findings.push({ severity: 'WARNING', code: 'file_handles_process', source: 'KERNEL', title: 'java has 870 of its 1024 open files in use',
+      detail: 'At its limit it gets "Too many open files" (EMFILE): new connections and file opens fail, often as timeouts.',
+      fix: 'Look for a leak (the count keeps climbing), or raise its limit (LimitNOFILE in its systemd unit, or ulimit -n).', evidence: { open: 870, limit: 1024, fill: 870 / 1024, pid: 4121 } });
+  }
   if (h.name === 'demo-db-1') {
     limited.add('psi');
     findings.push({ severity: 'WARNING', code: 'psi_io_full', source: 'KERNEL', title: 'Every task was stalled on disk I/O 14% of the time',
@@ -363,6 +391,9 @@ function limits(id: string, from: number, to: number): XpHostLimits {
     h.name.startsWith('demo-db') ? { code: 'container_cpu', label: 'Container CPU limits', state: 'NOT_MEASURED', note: 'No container throttling data: no containers with a CPU limit, Docker not enabled in Setup, or the agent predates this check.' } : sig('container_cpu', 'Container CPU limits'),
     sig('conntrack_table', 'Connection-tracking table'), sig('spot', 'Spot interruption notices'),
     { code: 'ebs', label: 'EBS volume and instance limits', state: 'NOT_MEASURED', note: 'Not fetched for this range: press Refresh in the AWS section to read the EBS exceeded checks (Nitro instances).' },
+    // The OS limits (Throttle Radar 8 to 12), as agent 1.3.0 reports them.
+    sig('inodes', 'Filesystem inodes'), sig('file_handles', 'Open-file limits'), sig('local_ports', 'Local ports for outgoing connections'),
+    sig('tcp_retransmits', 'TCP retransmissions'), sig('listen_queue', 'Listen-queue overflows'),
   ];
   findings.sort((a, b) => (a.severity === 'CRITICAL' ? 0 : 1) - (b.severity === 'CRITICAL' ? 0 : 1));
   return { instanceId: id, from: iso(from), to: iso(to), findings, signals };
@@ -663,11 +694,11 @@ function overview(): XpOverview {
   };
 }
 
+/** Only insight kinds the backend produces for real accounts: no RIGHTSIZING until a job creates it from measured use. */
 function insights(): XpInsight[] {
   return [
     { id: 'i1', kind: 'WHAT_CHANGED', severity: 'HIGH', title: 'Error rate tripled after the api v2.14.0 deploy', body: 'Errors went from 1.1 to 3.4 per minute within 10 minutes of the deploy on demo-api-1 and demo-api-2.', accountId: ACCOUNT_ID, evidence: [{ kind: 'EVENT', label: 'Deploy api v2.14.0', deepLink: '/xampulse/logs?q=severity%3Aerror&range=6h' }], confidence: 'HIGH', asOf: iso(nowMs()) },
     { id: 'i2', kind: 'NEW_PATTERN', severity: 'MEDIUM', title: 'New log pattern: OutOfMemoryError', body: 'Seen 38 times on demo-api-2 since 25 minutes ago. It did not appear in the previous 7 days.', accountId: ACCOUNT_ID, instanceId: 'i-demo0005', evidence: [{ kind: 'LOG', label: 'Open pattern', deepLink: '/xampulse/logs?q=OutOfMemoryError&range=1h' }], confidence: 'HIGH', asOf: iso(nowMs()) },
-    { id: 'i3', kind: 'RIGHTSIZING', severity: 'LOW', title: 'demo-web-1 and demo-web-2 look oversized', body: 'P95 CPU is below 55% and P95 memory below 60% over 30 days.', accountId: ACCOUNT_ID, evidence: [], confidence: 'MEDIUM', asOf: iso(nowMs()) },
     { id: 'i4', kind: 'COST', severity: 'INFO', title: 'nginx access logs are 61% of your log volume', body: 'Health-check requests (GET /healthz) make up 40% of those lines. You can drop them at the source.', accountId: ACCOUNT_ID, evidence: [], confidence: 'HIGH', asOf: iso(nowMs()) },
   ];
 }
@@ -805,7 +836,7 @@ export async function demoRequest<T>(method: string, path: string, query?: Recor
     if (host[2] === 'cost') return costFor(id, Date.parse(String(q.from)), Date.parse(String(q.to))) as T;
     if (host[2] === 'limits') return limits(id, Date.parse(String(q.from)), Date.parse(String(q.to))) as T;
     if (host[2] === 'changes') return changesFor(id, Date.parse(String(q.from)), Date.parse(String(q.to))) as T;
-    return (host[2] === 'summary' ? hostSummary(id, Date.parse(String(q.from)), Date.parse(String(q.to))) : processes(id)) as T;
+    return (host[2] === 'summary' ? hostSummary(id, Date.parse(String(q.from)), Date.parse(String(q.to)), q.compareOffsetSec ? Number(q.compareOffsetSec) : undefined) : processes(id)) as T;
   }
   const inc = /^POST \/alerts\/incidents\/(\d+)\/(ack|snooze|resolve|comment)$/.exec(key);
   if (inc) {

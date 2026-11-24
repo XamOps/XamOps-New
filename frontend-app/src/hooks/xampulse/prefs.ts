@@ -3,10 +3,11 @@ import { useSyncExternalStore } from 'react';
 /** Per-user XamPulse display preferences, persisted in localStorage under xp:prefs:v1. */
 export type XpThemePref = 'system' | 'light' | 'dark';
 export type XpDensity = 'comfortable' | 'compact';
-export interface XpPrefs { theme: XpThemePref; density: XpDensity; logWrap: boolean }
+/** bands: draw the learned normal range behind charts that have one (on by default). */
+export interface XpPrefs { theme: XpThemePref; density: XpDensity; logWrap: boolean; bands: boolean }
 
 export const PREFS_KEY = 'xp:prefs:v1';
-export const DEFAULT_PREFS: XpPrefs = { theme: 'light', density: 'comfortable', logWrap: false };
+export const DEFAULT_PREFS: XpPrefs = { theme: 'light', density: 'comfortable', logWrap: false, bands: true };
 
 /** Parses stored JSON, ignoring anything that is not a known value. */
 export function parsePrefs(raw: string | null): XpPrefs {
@@ -19,6 +20,7 @@ export function parsePrefs(raw: string | null): XpPrefs {
       theme: o.theme === 'light' || o.theme === 'dark' || o.theme === 'system' ? o.theme : DEFAULT_PREFS.theme,
       density: o.density === 'compact' || o.density === 'comfortable' ? o.density : DEFAULT_PREFS.density,
       logWrap: typeof o.logWrap === 'boolean' ? o.logWrap : DEFAULT_PREFS.logWrap,
+      bands: typeof o.bands === 'boolean' ? o.bands : DEFAULT_PREFS.bands,
     };
   } catch {
     return DEFAULT_PREFS;

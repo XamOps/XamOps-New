@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import type { XpScope } from '../../types/xampulse';
+import { parseCompare, type CompareMode } from '../../utils/xampulse/compare';
 import { isRangePreset, rangeMs, type RangePreset } from '../../utils/xampulse/format';
 import { useXpAccounts } from './useXamPulseQueries';
 
@@ -17,7 +18,7 @@ export interface ViewState {
   absTo: string | null;
   live: boolean;
   q: string;
-  compare: boolean;
+  compare: CompareMode;
 }
 
 export const DEFAULT_RANGE: RangePreset = '1h';
@@ -36,7 +37,7 @@ export function parseViewState(sp: URLSearchParams): ViewState {
     absTo: absolute ? to : null,
     live: sp.get('live') === '1',
     q: sp.get('q') ?? '',
-    compare: sp.get('compare') === '1',
+    compare: parseCompare(sp.get('compare')),
   };
 }
 
@@ -55,7 +56,7 @@ export function serializeViewState(s: Partial<ViewState>, base?: URLSearchParams
   }
   if ('live' in s) setOrDelete('live', s.live ? '1' : null);
   if ('q' in s) setOrDelete('q', s.q ? s.q : null);
-  if ('compare' in s) setOrDelete('compare', s.compare ? '1' : null);
+  if ('compare' in s) setOrDelete('compare', s.compare && s.compare !== 'off' ? s.compare : null);
   return sp;
 }
 

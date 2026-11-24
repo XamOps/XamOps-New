@@ -2,6 +2,9 @@ import React, { useMemo, useState } from 'react';
 import { ChartLine, Plus, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useViewContext } from '../../hooks/xampulse/useViewContext';
+import { usePrefs } from '../../hooks/xampulse/prefs';
+import { ChartControls } from '../../components/XamPulse/charts/ChartControls';
+import { compareLabel, compareOffsetSec, type CompareMode } from '../../utils/xampulse/compare';
 import { useMetricCatalog, useMetricQuery } from '../../hooks/xampulse/useXamPulseQueries';
 import { Card, EmptyState, ErrorState, SkeletonBlock, PageHead } from '../../components/XamPulse/ui/ui';
 import { SERIES_COLORS, TimeSeriesChart, type ChartSeries } from '../../components/XamPulse/charts/TimeSeriesChart';
@@ -59,10 +62,10 @@ export function parseFilters(text: string): XpMetricFilter[] {
   });
 }
 
-export function buildMetricRequest(scope: XpScope, rows: SeriesRow[], compare: boolean, band: boolean): XpMetricQueryRequest | null {
+export function buildMetricRequest(scope: XpScope, rows: SeriesRow[], compare: CompareMode, band: boolean): XpMetricQueryRequest | null {
   const valid = rows.filter((r) => r.metric.trim() !== '');
   if (valid.length === 0) return null;
-  const spanSec = Math.round((Date.parse(scope.to) - Date.parse(scope.from)) / 1000);
+  const offset = compareOffsetSec(compare, Date.parse(scope.from), Date.parse(scope.to));
   return {
     scope,
     series: valid.map((r) => {
@@ -70,7 +73,7 @@ export function buildMetricRequest(scope: XpScope, rows: SeriesRow[], compare: b
       return { metric: r.metric.trim(), agg: r.agg, ...(groupBy.length ? { groupBy } : {}), ...(parseFilters(r.filter).length ? { filters: parseFilters(r.filter) } : {}) };
     }),
     ...(band ? { band: 'ANOMALY' as const } : {}),
-    ...(compare ? { compareOffsetSec: spanSec } : {}),
+    ...(offset ? { compareOffsetSec: offset } : {}),
   };
 }
 
@@ -80,7 +83,7 @@ const MetricsTab: React.FC = () => {
   const ctx = useViewContext();
   const navigate = useNavigate();
   const [rows, setRows] = useState<SeriesRow[]>([DEFAULT_ROW]);
-  const [band, setBand] = useState(false);
+  const band = usePrefs().bands;
   const [saved, setSaved] = useState(false);
   const catalog = useMetricCatalog(ctx.effectiveAccountIds[0], '');
   const req = useMemo(() => buildMetricRequest(ctx.scope, rows, ctx.compare, band), [ctx.scope, rows, ctx.compare, band]);
@@ -96,12 +99,12 @@ const MetricsTab: React.FC = () => {
       const group = groups.get(groupKey) ?? { key: groupKey, unit: seriesUnit, ratio, series: [], metrics: [] };
       const color = SERIES_COLORS[index % SERIES_COLORS.length];
       group.series.push({ key: `s${index}`, name: label(series), points: series.points, band: series.band, color });
-      if (series.compare) group.series.push({ key: `c${index}`, name: `${label(series)} (previous)`, points: series.compare, dashed: true, color });
+      if (series.compare) group.series.push({ key: `c${index}`, name: `${label(series)}, ${compareLabel(ctx.compare) ?? 'previous period'}`, points: series.compare, dashed: true, color });
       group.metrics.push(series);
       groups.set(groupKey, group);
     });
     return Array.from(groups.values());
-  }, [q.data, catalog.data]);
+  }, [q.data, catalog.data, ctx.compare]);
 
   const update = (id: number, patch: Partial<SeriesRow>) => setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   const updateMetric = (id: number, metric: string) => {
@@ -113,8 +116,7 @@ const MetricsTab: React.FC = () => {
   return (
     <>
       <PageHead icon={ChartLine} title="Metrics Explorer" sub="Plot any agent metric across hosts. Drag across a chart to zoom the whole page to that window." actions={<>
-        <button type="button" className="xp-btn" aria-pressed={ctx.compare} onClick={() => ctx.update({ compare: !ctx.compare })}>Compare to previous period</button>
-        <button type="button" className="xp-btn" aria-pressed={band} onClick={() => setBand(!band)}>Normal range band</button>
+        <ChartControls id="xp-metrics-compare" />
       </>} />
       <Card title="Chart" id="xp-mchart">
         {!req && <EmptyState title="Choose a metric" body="Pick one from the builder below. Try system.cpu.utilization or system.memory.utilization." />}

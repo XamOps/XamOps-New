@@ -38,10 +38,17 @@ export function useHosts(accountIds: number[], params: HostListParams = {}): Use
   });
 }
 
-export function useHostSummary(accountId: number | undefined, instanceId: string | undefined, from: string, to: string): UseQueryResult<XpHostSummary, XpApiError> {
+/** compareOffsetSec: also read the main series that many seconds earlier, for the dashed "compare" line. */
+export function useHostSummary(accountId: number | undefined, instanceId: string | undefined, from: string, to: string, compareOffsetSec?: number): UseQueryResult<XpHostSummary, XpApiError> {
   return useQuery<XpHostSummary, XpApiError>({
-    ...base, queryKey: ['xp', demoKey(), 'host', accountId, instanceId, from, to], enabled: accountId !== undefined && !!instanceId,
-    queryFn: () => xampulseApi.hostSummary(accountId as number, instanceId as string, from, to),
+    ...base, queryKey: ['xp', demoKey(), 'host', accountId, instanceId, from, to, compareOffsetSec ?? null], enabled: accountId !== undefined && !!instanceId,
+    queryFn: () => xampulseApi.hostSummary(accountId as number, instanceId as string, from, to, compareOffsetSec),
+    // Turning the comparison on or off keeps today's charts on screen while it loads; another host or range never
+    // shows the previous one's numbers.
+    placeholderData: (previous, previousQuery) => {
+      const k = previousQuery?.queryKey;
+      return k && k[3] === accountId && k[4] === instanceId && k[5] === from && k[6] === to ? previous : undefined;
+    },
   });
 }
 

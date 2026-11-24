@@ -112,8 +112,8 @@ export const xampulseApi = {
   accounts: () => xpGet<XpAccountRef[]>('/accounts'),
   overview: (accountIds: number[], from: string, to: string) => xpGet<XpOverview>('/overview', { accountIds, from, to }),
   hosts: (q: { accountIds: number[]; q?: string; state?: string; page?: number; size?: number; sort?: string }) => xpGet<XpPage<XpHostRow>>('/hosts', q),
-  hostSummary: (accountId: number, instanceId: string, from: string, to: string) =>
-    xpGet<XpHostSummary>(`/hosts/${encodeURIComponent(instanceId)}/summary`, { accountId, from, to }),
+  hostSummary: (accountId: number, instanceId: string, from: string, to: string, compareOffsetSec?: number) =>
+    xpGet<XpHostSummary>(`/hosts/${encodeURIComponent(instanceId)}/summary`, { accountId, from, to, ...(compareOffsetSec ? { compareOffsetSec } : {}) }),
   // Throttle Radar: limits hit in the range, from agent data and CloudWatch data already fetched. No billed call.
   hostLimits: (accountId: number, instanceId: string, from: string, to: string) =>
     xpGet<XpHostLimits>(`/hosts/${encodeURIComponent(instanceId)}/limits`, { accountId, from, to }),

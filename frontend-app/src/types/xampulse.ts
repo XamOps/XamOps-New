@@ -55,6 +55,11 @@ export interface XpHostSummary {
   lanes: XpLane[];
   series: Record<string, [number, number][]>;
   recentErrors: XpLogRow[]; events: XpEvent[]; openIncidents: XpIncident[];
+  /** Learned normal range per series key, [t, low, high] in the series' unit; only keys with a baseline. */
+  bands?: Record<string, [number, number, number][]>;
+  /** The main series compareOffsetSec earlier, already moved onto today's time axis. */
+  compare?: Record<string, [number, number][]>;
+  compareOffsetSec?: number;
 }
 export interface XpProcessRow { pid: number; name: string; user?: string; cpuPct: number; memPct: number; memBytes?: number; threads?: number }
 /**

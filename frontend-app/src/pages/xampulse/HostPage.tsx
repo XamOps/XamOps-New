@@ -12,7 +12,10 @@ import { QueryBoundary } from '../../components/XamPulse/ui/QueryBoundary';
 import { AwsPanel } from '../../components/XamPulse/hosts/AwsPanel';
 import { ThrottleRadar } from '../../components/XamPulse/hosts/ThrottleRadar';
 import { ChangeList, changeMarkers } from '../../components/XamPulse/hosts/ChangeList';
-import { TimeSeriesChart, type ChartSeries } from '../../components/XamPulse/charts/TimeSeriesChart';
+import { SERIES_COLORS, TimeSeriesChart, type ChartSeries } from '../../components/XamPulse/charts/TimeSeriesChart';
+import { ChartControls } from '../../components/XamPulse/charts/ChartControls';
+import { usePrefs } from '../../hooks/xampulse/prefs';
+import { compareLabel, compareOffsetSec } from '../../utils/xampulse/compare';
 import { Sparkline } from '../../components/XamPulse/charts/Visuals';
 import { formatAgo, formatBytes, formatClock, formatPct, formatRate } from '../../utils/xampulse/format';
 import { cpuVerdict } from '../../utils/xampulse/cpuVerdict';
@@ -66,6 +69,29 @@ const HealthLanes: React.FC<{ lanes: XpLane[]; onSelect: (id: SectionId) => void
 /** Change markers shown on every chart of the page (deploys, restarts, reboots, package changes...). */
 const MarkersContext = createContext<{ t: number; label: string }[]>([]);
 
+/** The learned normal range and the "compare with" series for the page's main charts. */
+export interface ChartExtras { bands?: XpHostSummary['bands']; compare?: XpHostSummary['compare']; showBands: boolean; compareLabel: string | null }
+const ExtrasContext = createContext<ChartExtras>({ showBands: false, compareLabel: null });
+
+/**
+ * Adds the normal range (shaded behind the line) and the comparison (dashed, same colour, "CPU, last week") to every
+ * series whose key has them. `scale` converts both the way the series was converted (load divided per vCPU).
+ */
+export function withExtras(series: ChartSeries[], x: ChartExtras, scale?: (v: number) => number): ChartSeries[] {
+  const out: ChartSeries[] = [];
+  series.forEach((s, i) => {
+    const color = s.color ?? SERIES_COLORS[i % SERIES_COLORS.length];
+    const band = x.showBands ? x.bands?.[s.key] : undefined;
+    out.push({ ...s, color, ...(band?.length ? { band: scale ? band.map(([t, l, h]): [number, number, number] => [t, scale(l), scale(h)]) : band } : {}) });
+    const cmp = x.compareLabel ? x.compare?.[s.key] : undefined;
+    if (cmp?.length) {
+      out.push({ key: `${s.key}~compare`, name: `${s.name}, ${x.compareLabel}`, dashed: true, color,
+        points: scale ? cmp.map(([t, v]): [number, number] => [t, scale(v)]) : cmp });
+    }
+  });
+  return out;
+}
+
 const containerPath = xamPulseContainerPath;
 
 /** One chart card. `missing` explains an absent signal; otherwise an empty range says "No data for this range". */
@@ -103,8 +129,9 @@ const CpuSection: React.FC<{ m: XpHostSummary['series']; psiCpu: ChartSeries[]; 
           hint="Stacked by state: the top edge is total busy CPU. User = your application, system = kernel, I/O wait = waiting on disk, steal = AWS taking cycles." />
         {load.length
           ? <ChartCard title="Load per vCPU" series={load} format={(x) => x.toFixed(2)} refLines={[{ value: 1, label: '1.0 = all vCPUs busy' }]}
+              extras scale={(x) => x / (vcpus as number)}
               hint={`Runnable tasks per vCPU (${vcpus} vCPU${vcpus === 1 ? '' : 's'}). Above 1.0, work is queuing for a CPU.`} />
-          : <ChartCard title="Load average" series={rawLoad} format={(x) => x.toFixed(2)} hint="The vCPU count is not reported, so load is not divided per vCPU." />}
+          : <ChartCard title="Load average" series={rawLoad} format={(x) => x.toFixed(2)} extras hint="The vCPU count is not reported, so load is not divided per vCPU." />}
         <ChartCard title="Run queue" series={runQueue} format={(x) => x.toFixed(0)}
           hint="Processes running or ready to run, and those blocked waiting on disk. Many blocked = storage is the bottleneck." />
         <ChartCard title="CPU pressure" series={psiCpu} format={pct} max={100} missing={PSI_MISSING}
@@ -135,13 +162,18 @@ const CpuSection: React.FC<{ m: XpHostSummary['series']; psiCpu: ChartSeries[]; 
   );
 };
 
-const ChartCard: React.FC<{ title: string; series: ChartSeries[]; format: (v: number) => string; max?: number; missing?: string; hint?: string; stacked?: boolean; refLines?: { value: number; label: string }[] }> = ({ title, series, format, max, missing, hint, stacked, refLines }) => {
+const ChartCard: React.FC<{ title: string; series: ChartSeries[]; format: (v: number) => string; max?: number; missing?: string; hint?: string; stacked?: boolean; refLines?: { value: number; label: string }[];
+  /** Draw the normal range and the comparison for series that have them; `scale` converts them like the series. */
+  extras?: boolean; scale?: (v: number) => number }> = ({ title, series: raw, format, max, missing, hint, stacked, refLines, extras, scale }) => {
   const ctx = useViewContext();
   const markers = useContext(MarkersContext);
+  const x = useContext(ExtrasContext);
+  const series = extras ? withExtras(raw, x, scale) : raw;
+  const banded = series.some((s) => s.band?.length);
   const brush = (a: number, b: number) => ctx.update({ range: null, absFrom: new Date(a).toISOString(), absTo: new Date(b).toISOString() });
   return (
     <Card title={title}>
-      {hint && <p className="xp-muted" style={{ margin: '0 0 8px', fontSize: 12 }}>{hint}</p>}
+      {(hint || banded) && <p className="xp-muted" style={{ margin: '0 0 8px', fontSize: 12 }}>{hint}{hint && banded ? ' ' : ''}{banded ? 'Shaded: the range this host usually stays in at this hour of the week.' : ''}</p>}
       {series.length === 0
         ? <p className="xp-muted" style={{ margin: 0 }}>{missing ?? 'No data for this range.'}</p>
         : <TimeSeriesChart showLegend series={series} height={180} format={format} yMax={max} markers={markers} onBrush={brush} ariaLabel={title} fromMs={ctx.fromMs} toMs={ctx.toMs}
@@ -219,6 +251,13 @@ const Investigate: React.FC<{ accountId: number; instanceId: string; onSelect: (
   );
 };
 
+/** Says once, on the overview, why there is no shaded range yet (instead of silently drawing none). */
+const NormalRangeNote: React.FC<{ s: XpHostSummary }> = ({ s }) => {
+  const x = useContext(ExtrasContext);
+  if (!x.showBands || Object.keys(s.bands ?? {}).length > 0) return null;
+  return <p className="xp-hint" style={{ margin: 0 }}>No normal range yet. XamPulse learns it from this host's own history: the daily rhythm after three days of data, the weekly one after three weeks.</p>;
+};
+
 const Section: React.FC<{ id: SectionId; s: XpHostSummary; accountId: number; changes?: XpChange[]; onSelect: (id: SectionId) => void }> = ({ id, s, accountId, changes, onSelect }) => {
   const ctx = useViewContext();
   const m = s.series;
@@ -242,11 +281,12 @@ const Section: React.FC<{ id: SectionId; s: XpHostSummary; accountId: number; ch
       return (
         <>
           <HealthLanes lanes={s.lanes} onSelect={onSelect} />
+          <NormalRangeNote s={s} />
           <div className="xp-grid xp-grid--charts">
-            <ChartCard title="CPU" series={cpu} format={pct} max={100} />
-            <ChartCard title="Memory and swap" series={mem} format={pct} max={100} />
+            <ChartCard title="CPU" series={cpu} format={pct} max={100} extras />
+            <ChartCard title="Memory and swap" series={mem} format={pct} max={100} extras />
             <ChartCard title="Pressure" series={psiAll} format={pct} max={100} missing={PSI_MISSING} hint={psiHint} />
-            <ChartCard title="Network" series={net} format={bytesPerSec} />
+            <ChartCard title="Network" series={net} format={bytesPerSec} extras />
           </div>
           <Card title="What changed" id="xp-hchg" actions={<button type="button" className="xp-btn" onClick={() => onSelect('changes')}>All changes</button>}>
             {changes ? <ChangeList changes={changes} limit={3} containerLink={(n) => containerPath(s.host.instanceId, n, accountId)} /> : <SkeletonBlock height={80} />}
@@ -273,7 +313,7 @@ const Section: React.FC<{ id: SectionId; s: XpHostSummary; accountId: number; ch
     case 'memory':
       return (
         <div className="xp-grid xp-grid--2">
-          <ChartCard title="Memory and swap" series={mem} format={pct} max={100} />
+          <ChartCard title="Memory and swap" series={mem} format={pct} max={100} extras />
           <ChartCard title="Memory pressure" series={psiMem} format={pct} max={100} missing={PSI_MISSING}
             hint="Some: at least one task waited for memory. All: every task did (reclaim or swap thrashing)." />
         </div>
@@ -293,7 +333,7 @@ const Section: React.FC<{ id: SectionId; s: XpHostSummary; accountId: number; ch
     case 'network':
       return (
         <div className="xp-grid xp-grid--2">
-          <ChartCard title="Network" series={net} format={bytesPerSec} hint="The instance's own interfaces only (no loopback, bridges or container veths)." />
+          <ChartCard title="Network" series={net} format={bytesPerSec} extras hint="The instance's own interfaces only (no loopback, bridges or container veths)." />
           <ChartCard title="AWS network allowances exceeded" series={ena} format={perSec} missing={ENA_MISSING}
             hint="Packets per second that EC2 queued or dropped because the instance went over an allowance. Any value above zero is a limit." />
         </div>
@@ -335,7 +375,11 @@ const HostPage: React.FC = () => {
     if (Number.isInteger(requestedAccount) && requestedAccount > 0) return allowed.some((account) => account.cloudAccountId === requestedAccount) ? requestedAccount : undefined;
     return ctx.effectiveAccountIds.length === 1 ? ctx.effectiveAccountIds[0] : undefined;
   }, [accounts.data, requestedAccount, ctx.effectiveAccountIds]);
-  const summary = useHostSummary(accountId, instanceId, ctx.from, ctx.to);
+  const prefs = usePrefs();
+  const offset = compareOffsetSec(ctx.compare, ctx.fromMs, ctx.toMs);
+  const summary = useHostSummary(accountId, instanceId, ctx.from, ctx.to, offset);
+  const extras = useMemo<ChartExtras>(() => ({ bands: summary.data?.bands, compare: summary.data?.compare, showBands: prefs.bands,
+    compareLabel: offset && summary.data?.compareOffsetSec === offset ? compareLabel(ctx.compare) : null }), [summary.data, prefs.bands, offset, ctx.compare]);
   // The XamOps top bar would title-case the URL's last segment ("I 056a..."); show the host's name instead.
   const topbar = useOptionalTopbarDispatch();
   const hostTitle = summary.data?.host.name ?? instanceId ?? null;
@@ -371,6 +415,7 @@ const HostPage: React.FC = () => {
           {h && <StatusPill health={h.health} />}
           {instanceId.startsWith('i-demo') && <DemoPill />}
           <span className="xp-spacer" />
+          {summary.data && <ChartControls id="xp-host-compare" />}
           {summary.data && accountId !== undefined && section !== 'investigate' && (
             <button type="button" className="xp-btn xp-btn--sm" onClick={() => select('investigate')}
               title="Check limits, changes, saturation, errors and peers for this range">
@@ -407,7 +452,9 @@ const HostPage: React.FC = () => {
         {summary.error && !notFound && <ErrorState error={summary.error} onRetry={() => { void summary.refetch(); }} />}
         {summary.data && accountId !== undefined && (
           <MarkersContext.Provider value={markers}>
-            <Section id={section} s={summary.data} accountId={accountId} changes={changes.data} onSelect={select} />
+            <ExtrasContext.Provider value={extras}>
+              <Section id={section} s={summary.data} accountId={accountId} changes={changes.data} onSelect={select} />
+            </ExtrasContext.Provider>
           </MarkersContext.Provider>
         )}
       </div>

@@ -84,7 +84,8 @@ export const RuleEditor: React.FC<Props> = ({ initial, channels, onSaved, onCanc
           <div className="xp-field"><label htmlFor="r-tag">Tag matcher (optional)</label><input id="r-tag" className="xp-input xp-input--mono" value={rule.scope.tag ?? ''} onChange={(e) => setRule({ ...rule, scope: { ...rule.scope, tag: e.target.value || undefined } })} placeholder="environment=production" /></div>
           <div className="xp-field"><label htmlFor="r-group">Group by labels</label><input id="r-group" className="xp-input xp-input--mono" value={rule.grouping.by.join(', ')} onChange={(e) => setRule({ ...rule, grouping: { ...rule.grouping, by: e.target.value.split(',').map((value) => value.trim()).filter(Boolean) } })} /></div>
           <div className="xp-field"><label htmlFor="r-dedupe">Repeat window</label><input id="r-dedupe" className="xp-input" value={rule.grouping.dedupeWindow} onChange={(e) => setRule({ ...rule, grouping: { ...rule.grouping, dedupeWindow: e.target.value } })} /></div>
-          <label className="xp-row"><input type="checkbox" checked={rule.routing.createTicket} onChange={(e) => setRule({ ...rule, routing: { ...rule.routing, createTicket: e.target.checked } })} />Create a ticket when this rule fires</label>
+          {/* No "create a ticket" option: the server refuses it until ticketing is built (RuleCompiler), and XamPulse
+              never offers what it cannot do. routing.createTicket stays false. */}
           <div className="xp-field"><label htmlFor="r-runbook">Runbook URL (optional)</label><input id="r-runbook" type="url" className="xp-input" value={rule.routing.runbookUrl ?? ''} onChange={(e) => setRule({ ...rule, routing: { ...rule.routing, runbookUrl: e.target.value || undefined } })} placeholder="https://…" /></div>
         </div>
       </details>

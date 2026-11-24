@@ -9,24 +9,28 @@ const row: SeriesRow = { id: 1, metric: 'system.cpu.utilization', agg: 'avg', by
 
 describe('buildMetricRequest', () => {
   it('builds group-by and filters', () => {
-    const r = buildMetricRequest(scope, [row], false, false);
+    const r = buildMetricRequest(scope, [row], 'off', false);
     expect(r?.series[0]).toEqual({ metric: 'system.cpu.utilization', agg: 'avg', groupBy: ['instance_id'], filters: [{ k: 'state', op: '=', v: 'steal' }, { k: 'mountpoint', op: '!=', v: '/boot' }] });
     expect(r).not.toHaveProperty('compareOffsetSec');
   });
   it('adds compareOffsetSec equal to the range and the anomaly band', () => {
-    const r = buildMetricRequest(scope, [row], true, true);
+    const r = buildMetricRequest(scope, [row], 'prev', true);
     expect(r?.compareOffsetSec).toBe(3600);
     expect(r?.band).toBe('ANOMALY');
   });
+  it('compares with yesterday or last week whatever the range', () => {
+    expect(buildMetricRequest(scope, [row], 'day', false)?.compareOffsetSec).toBe(86_400);
+    expect(buildMetricRequest(scope, [row], 'week', false)?.compareOffsetSec).toBe(604_800);
+  });
   it('returns null with no metric and ignores malformed filters', () => {
-    expect(buildMetricRequest(scope, [{ ...row, metric: ' ' }], false, false)).toBeNull();
+    expect(buildMetricRequest(scope, [{ ...row, metric: ' ' }], 'off', false)).toBeNull();
     expect(parseFilters('nonsense, a=~b.*')).toEqual([{ k: 'a', op: '=~', v: 'b.*' }]);
   });
 });
 
 describe('metric explorer correctness', () => {
   it('splits by a label on top of one line per host', () => {
-    const r = buildMetricRequest(scope, [{ ...row, filter: '', splitBy: 'state' }], false, false);
+    const r = buildMetricRequest(scope, [{ ...row, filter: '', splitBy: 'state' }], 'off', false);
     expect(r?.series[0].groupBy).toEqual(['instance_id', 'state']);
   });
 

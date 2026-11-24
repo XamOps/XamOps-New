@@ -35,11 +35,17 @@ describe('prefs', () => {
 
 describe('view context URL round trip', () => {
   it('parses and serialises accounts, range, query and flags', () => {
-    const sp = new URLSearchParams('accounts=1,2&range=6h&q=error&live=1&compare=1&region=us-east-1');
+    const sp = new URLSearchParams('accounts=1,2&range=6h&q=error&live=1&compare=week&region=us-east-1');
     const s = parseViewState(sp);
-    expect(s).toMatchObject({ accountIds: [1, 2], range: '6h', q: 'error', live: true, compare: true, region: 'us-east-1' });
+    expect(s).toMatchObject({ accountIds: [1, 2], range: '6h', q: 'error', live: true, compare: 'week', region: 'us-east-1' });
     const out = serializeViewState({ accountIds: s.accountIds, range: s.range, q: s.q, live: s.live, compare: s.compare, region: s.region });
     expect(parseViewState(out)).toEqual(s);
+  });
+  it('reads an old compare=1 link as "previous period" and drops compare when off', () => {
+    expect(parseViewState(new URLSearchParams('compare=1')).compare).toBe('prev');
+    expect(parseViewState(new URLSearchParams('compare=nonsense')).compare).toBe('off');
+    expect(serializeViewState({ compare: 'off' }, new URLSearchParams('compare=day')).has('compare')).toBe(false);
+    expect(serializeViewState({ compare: 'day' }).get('compare')).toBe('day');
   });
   it('prefers a valid absolute range and ignores an inverted one', () => {
     const abs = parseViewState(new URLSearchParams('from=2026-01-01T00:00:00Z&to=2026-01-01T01:00:00Z'));
