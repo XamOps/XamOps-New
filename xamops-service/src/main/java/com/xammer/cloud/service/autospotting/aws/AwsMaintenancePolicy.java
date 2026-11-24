@@ -42,7 +42,8 @@ public final class AwsMaintenancePolicy {
      * Max=100 is TERMINATE_FIRST, both fields absent (or -1/-1) is ABSENT, and only a Min of 100 is capacity-safe.
      * A Min that is omitted while Max is set counts as possibly low (CUSTOMER_LOW_MIN): the AWS API reference for
      * InstanceMaintenancePolicy (https://docs.aws.amazon.com/autoscaling/ec2/APIReference/API_InstanceMaintenancePolicy.html)
-     * says both must be specified and documents no default for an omitted MinHealthyPercentage, so none is assumed.
+     * says both must be specified and documents no default for an omitted MinHealthyPercentage, so none is assumed. The 90% default belongs to the
+     * instance-refresh structure RefreshPreferences.MinHealthyPercentage, a different AWS API, and does not apply here.
      */
     public static Kind classify(Integer min, Integer max) {
         Integer mn = normalize(min);

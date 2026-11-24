@@ -353,6 +353,32 @@ class AwsMaintenancePolicyMatrixIT {
         }
     }
 
+    /** The production SpotReconciler over the harness context and the harness's AWS provider. */
+    private static com.xammer.cloud.service.autospotting.core.reconcile.SpotReconciler realSweep(AwsOpsHarness h) {
+        var c = h.ctx;
+        var metrics = c.getBean(com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics.class);
+        var store = new com.xammer.cloud.repository.autospotting.ReconcilerStore(c.getBean(javax.sql.DataSource.class));
+        var healthPass = new com.xammer.cloud.service.autospotting.core.reconcile.HealthPass(
+                c.getBean(com.xammer.cloud.repository.autospotting.SpotOperationRepository.class),
+                c.getBean(com.xammer.cloud.service.autospotting.core.ops.PreemptionService.class), store, metrics,
+                c.getBean(com.xammer.cloud.service.autospotting.core.reconcile.FallbackEnqueuer.class));
+        var lifecycle = c.getBean(com.xammer.cloud.service.autospotting.core.lifecycle.GroupLifecycleService.class);
+        return new com.xammer.cloud.service.autospotting.core.reconcile.SpotReconciler(
+                new com.xammer.cloud.service.autospotting.spi.ProviderRegistry(java.util.List.of(h.provider)),
+                c.getBean(com.xammer.cloud.repository.autospotting.SpotGroupRepository.class),
+                c.getBean(com.xammer.cloud.repository.autospotting.SpotOperationRepository.class),
+                c.getBean(com.xammer.cloud.repository.autospotting.SpotPlanRepository.class),
+                new com.xammer.cloud.service.autospotting.core.reconcile.SweepOrder(store, 200), store,
+                c.getBean(com.xammer.cloud.service.autospotting.core.switches.SwitchService.class),
+                new com.xammer.cloud.service.autospotting.core.reconcile.SwitchPauseApplier(
+                        c.getBean(com.xammer.cloud.repository.autospotting.AutoSpottingSwitchRepository.class), lifecycle),
+                new com.xammer.cloud.service.autospotting.core.reconcile.DriftClassifier(),
+                new com.xammer.cloud.service.autospotting.core.reconcile.GoneDetector(), healthPass, lifecycle,
+                c.getBean(com.xammer.cloud.service.autospotting.core.lease.LeaseService.class),
+                c.getBean(com.xammer.cloud.service.autospotting.core.lease.LeaseRegistry.class), null,
+                c.getBean(com.xammer.cloud.service.autospotting.core.lease.LeaseProperties.class), metrics,
+                java.time.Duration.ofHours(2));
+    }
     /**
      * A confirmed CONFIG_APPLY adds XamOps' 100/200 to a group with none and is preempted after its mutation by a
      * FALLBACK_ENTER. The fallback is hashed and sent with the preempted target's ownership, so the next sweep (which
@@ -396,6 +422,14 @@ class AwsMaintenancePolicyMatrixIT {
                         .as("drift on sweep " + (i + 1))
                         .isEqualTo(com.xammer.cloud.service.autospotting.core.reconcile.DriftClassifier.Code.NONE);
             }
+            // The real reconciler sweep (lease, getStatus, drift classification, pause) on the persisted group.
+            h.ctx.getBean(com.xammer.cloud.service.autospotting.core.lease.LeaseService.class).releaseGroup(h.lease);
+            realSweep(h).sweepProvider(com.xammer.cloud.domain.autospotting.Provider.AWS);
+            row = h.ctx.getBean(com.xammer.cloud.repository.autospotting.SpotGroupRepository.class)
+                    .findById(h.f.groupId).orElseThrow();
+            assertThat(row.getState().name()).as("no drift pause on the next sweep").isEqualTo("FALLBACK");
+            assertThat(row.getPauseReason()).isNull();
+            assertThat(row.getDriftStatus().name()).isEqualTo("NONE");
         }
     }
 
