@@ -101,13 +101,13 @@ const ConnectedResourcesModal: React.FC<Props> = ({
         // Add labels present on parent but missing from child
         const toAdd = sourceLabels.filter(l => !currentIds.has(l.id));
         for (const label of toAdd) {
-          await assignLabel({ accountId, labelId: label.id, resources: [ref] });
+          await assignLabel({ accountId, labelId: label.id, resources: [ref], source: 'CLOUD_LIST' });
         }
 
         // Remove labels present on child but no longer on parent
         const toRemove = currentLabels.filter(l => !parentIds.has(l.id));
         for (const label of toRemove) {
-          await removeLabel({ accountId, labelId: label.id, resources: [ref] });
+          await removeLabel({ accountId, labelId: label.id, resources: [ref], source: 'CLOUD_LIST' });
         }
 
         if (toAdd.length > 0 || toRemove.length > 0) {

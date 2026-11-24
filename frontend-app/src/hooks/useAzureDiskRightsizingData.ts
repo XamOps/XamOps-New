@@ -29,6 +29,12 @@ export interface AzureDisk {
   estimatedSavings: number;
 }
 
+/** Body returned by POST /api/azure/disks/action/{accountId}. Failures arrive as HTTP 200 with success=false. */
+export interface AzureDiskActionResult {
+  success: boolean;
+  error?: string;
+}
+
 export interface AzureDiskAction {
   id: number;
   volumeId: string;
@@ -51,7 +57,7 @@ interface UseAzureDiskRightsizingDataReturn {
   isRefreshing: boolean;
   error: string | null;
   fetchDisks: (forceRefresh?: boolean) => Promise<void>;
-  applyAction: (diskName: string, resourceGroup: string, actionType: string, targetSizeGb?: number) => Promise<void>;
+  applyAction: (diskName: string, resourceGroup: string, actionType: string, targetSizeGb?: number) => Promise<AzureDiskActionResult | undefined>;
   refreshAll: () => Promise<void>;
 }
 
@@ -102,13 +108,19 @@ export function useAzureDiskRightsizingData(selectedAccountId: string | null): U
   const applyAction = useCallback(async (
     diskName: string, resourceGroup: string, actionType: string, targetSizeGb?: number
   ) => {
-    if (!selectedAccountId) return;
-    await apiClient.post(`/api/azure/disks/action/${selectedAccountId}`, {
+    if (!selectedAccountId) return undefined;
+    const result = await apiClient.post<AzureDiskActionResult>(`/api/azure/disks/action/${selectedAccountId}`, {
       diskName, resourceGroup, actionType, targetSizeGb
     });
     sessionStorage.removeItem(getDiskCacheKey(selectedAccountId));
     await fetchDisks(true);
     await fetchHistory();
+    // The backend reports a failed action as HTTP 200 with success=false. Ignoring the body made
+    // the page announce "applied" for actions Azure had refused.
+    if (result && result.success === false) {
+      throw new Error(result.error || 'The action failed');
+    }
+    return result;
   }, [selectedAccountId, fetchDisks, fetchHistory]);
 
   const refreshAll = useCallback(async () => {

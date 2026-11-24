@@ -3,6 +3,8 @@ package com.xammer.billops.repository;
 import com.xammer.billops.domain.UserPlatformConnection;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,7 +21,8 @@ public interface UserPlatformConnectionRepository extends JpaRepository<UserPlat
     /** Removes all messaging-platform links (Slack/Teams/GChat) for this user on deletion. */
     @Modifying
     @Transactional
-    void deleteByUserId(Long userId);
+    @Query("DELETE FROM UserPlatformConnection c WHERE c.userId = :userId")
+    void deleteByUserId(@Param("userId") Long userId);
 
     /** Used by inbound webhook handlers to resolve which XamOps user sent the reply */
     Optional<UserPlatformConnection> findByChannelIdAndPlatform(String channelId, String platform);

@@ -269,20 +269,20 @@ const ResourceLabelsPage: React.FC = () => {
   useEffect(() => { load(); }, [load]);
 
   const handleCreate = async (name: string, color: string, description: string) => {
-    await createLabel({ name, color, description });
+    await createLabel({ name, color, description, source: 'LABELS_PAGE' });
     setShowForm(false);
     load();
   };
 
   const handleUpdate = async (name: string, color: string, description: string) => {
     if (!editing) return;
-    await updateLabel(editing.id, { name, color, description });
+    await updateLabel(editing.id, { name, color, description, source: 'LABELS_PAGE' });
     setEditing(undefined);
     load();
   };
 
   const handleDelete = async (id: number) => {
-    await deleteLabel(id);
+    await deleteLabel(id, 'LABELS_PAGE');
     setDeleteConfirmId(null);
     if (expandedLabelId === id) setExpandedLabelId(null);
     load();

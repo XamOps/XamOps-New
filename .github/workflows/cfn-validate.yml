@@ -13,10 +13,12 @@ on:
   push:
     paths:
       - 'cloudformation/**'
+      - 'scripts/autospotting/**'
       - '.github/workflows/cfn-validate.yml'
   pull_request:
     paths:
       - 'cloudformation/**'
+      - 'scripts/autospotting/**'
       - '.github/workflows/cfn-validate.yml'
 
 permissions:
@@ -36,8 +38,14 @@ jobs:
           python-version: '3.12'
 
       - name: Install cfn-lint
-        run: pip install cfn-lint
+        # Pinned: an unpinned cfn-lint adds rules over time and turns a green main red with no
+        # template change. Bump deliberately, with the findings diff in the PR.
+        run: pip install cfn-lint==1.57.2
 
+      - name: Check AutoSpotting event patterns and the forwarder (AC-EVT-01, AC-ONB-03)
+        # Replays recorded sample events against the rule patterns and runs the forwarder code
+        # against a stub queue. PyYAML is installed with cfn-lint.
+        run: python3 scripts/autospotting/check_event_patterns.py
       - name: Lint templates
         run: |
           cfn-lint \
@@ -53,4 +61,5 @@ jobs:
             cloudformation/xamops-xampulse.yml \
             cloudformation/xamops-xampulse-uat.yml \
             cloudformation/xamops-xampulse-region.yml \
-            cloudformation/xamops-xampulse-region-uat.yml
+            cloudformation/xamops-xampulse-region-uat.yml \
+            cloudformation/xamops-autospotting-events-nested.yaml

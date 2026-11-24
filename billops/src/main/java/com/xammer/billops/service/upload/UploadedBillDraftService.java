@@ -2,10 +2,7 @@ package com.xammer.billops.service.upload;
 
 import com.xammer.billops.domain.Client;
 import com.xammer.billops.domain.CloudAccount;
-import com.xammer.billops.domain.UserCloudAccountAccess;
-import com.xammer.billops.repository.UserCloudAccountAccessRepository;
 import com.xammer.billops.service.AdminAccessScope;
-import com.xammer.cloud.domain.AppUser;
 import com.xammer.billops.dto.UploadedBillPreviewDto;
 import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
@@ -38,7 +35,9 @@ import java.util.regex.Pattern;
  *
  * <p>The bill's account does not have to be onboarded. An invoice has to belong to a
  * cloud account and a client, so when none exists for the bill's account ID one is added
- * -- billing only, with no role or credentials, so nothing is ever read from it.
+ * -- invoice only, with no role or credentials, so nothing is ever read from it. Those
+ * accounts, and the clients made for them, are excluded from every list but the Billing
+ * pages by the repositories themselves.
  */
 @Service
 public class UploadedBillDraftService {
@@ -58,7 +57,6 @@ public class UploadedBillDraftService {
     private final ClientRepository clientRepository;
     private final AccountAccessHelper accountAccessHelper;
     private final AdminAccessScope adminAccessScope;
-    private final UserCloudAccountAccessRepository userCloudAccountAccessRepository;
     private final InvoiceManagementService invoiceManagementService;
 
     public UploadedBillDraftService(AwsBillPdfParser parser,
@@ -66,14 +64,12 @@ public class UploadedBillDraftService {
                                     ClientRepository clientRepository,
                                     AccountAccessHelper accountAccessHelper,
                                     AdminAccessScope adminAccessScope,
-                                    UserCloudAccountAccessRepository userCloudAccountAccessRepository,
                                     InvoiceManagementService invoiceManagementService) {
         this.parser = parser;
         this.cloudAccountRepository = cloudAccountRepository;
         this.clientRepository = clientRepository;
         this.accountAccessHelper = accountAccessHelper;
         this.adminAccessScope = adminAccessScope;
-        this.userCloudAccountAccessRepository = userCloudAccountAccessRepository;
         this.invoiceManagementService = invoiceManagementService;
     }
 
@@ -181,7 +177,7 @@ public class UploadedBillDraftService {
         }
 
         return invoiceManagementService.createDraftFromUploadedBill(account, period, includeIrn, bill,
-                file.getOriginalFilename());
+                file.getOriginalFilename(), accountAccessHelper.currentAppUserId());
     }
 
     /**
@@ -189,17 +185,10 @@ public class UploadedBillDraftService {
      * no role or credentials, under the client the admin chose -- an existing one, one
      * found by name, or a new one.
      *
-     * <p>An admin whose access is limited is given access to the account they just added,
-     * so the draft isn't created and then hidden from the person who created it. How depends
-     * on how they are limited:
-     * <ul>
-     *   <li>By a Cloud Account Access list (or, for a sub-user, by an empty one): the account
-     *       is ticked on that list.</li>
-     *   <li>A sub-admin with no list, scoped by the clients they own: the client is made
-     *       theirs if it has no owner. Adding a list entry instead would switch them to
-     *       list mode and cut them off from every other account they see.</li>
-     * </ul>
-     * Nothing else about their access changes.
+     * <p>The account is invoice-only: it is kept out of every account and client list except the
+     * Billing pages (see {@code CloudAccountRepository}). The admin who uploaded the bill is
+     * recorded on the invoice, and that, not an entry on their access list, is what lets an
+     * admin with limited access see their own draft.
      */
     private CloudAccount createBillingOnlyAccount(String awsAccountId, NewAccountDetails details) {
         if (!AWS_ACCOUNT_ID.matcher(awsAccountId).matches()) {
@@ -208,30 +197,7 @@ public class UploadedBillDraftService {
         }
         NewAccountDetails d = details != null ? details : new NewAccountDetails(null, null, null);
 
-        AppUser uploader = null;
-        boolean scopedByOwnedClients = false;
-        if (accountAccessHelper.getAllowedDbIds() != null) {
-            uploader = adminAccessScope.currentUser();
-            if (uploader == null || uploader.getId() == null) {
-                throw new UploadedBillException(HttpStatus.FORBIDDEN,
-                        "Account " + awsAccountId + " isn't set up in BillOps, and your user couldn't be identified "
-                                + "to give you access to it. Sign in again and retry.");
-            }
-            boolean hasList = !userCloudAccountAccessRepository.findCloudAccountIdsByUserId(uploader.getId()).isEmpty();
-            scopedByOwnedClients = !hasList && "ROLE_BILLOPS_ADMIN_SUB".equals(uploader.getRole());
-        }
-
         Client client = resolveClient(awsAccountId, d);
-        if (scopedByOwnedClients) {
-            if (client.getOwnerAdminId() == null) {
-                client.setOwnerAdminId(uploader.getId());
-                client = clientRepository.save(client);
-            } else if (!client.getOwnerAdminId().equals(uploader.getId())) {
-                throw new UploadedBillException(HttpStatus.FORBIDDEN,
-                        "Client \"" + client.getName() + "\" is managed by another admin. Choose one of your "
-                                + "clients, or a new client name.");
-            }
-        }
         String name = d.accountName() != null && !d.accountName().isBlank()
                 ? d.accountName().trim() : defaultAccountName(awsAccountId);
 
@@ -245,38 +211,43 @@ public class UploadedBillDraftService {
         CloudAccount saved = cloudAccountRepository.save(account);
         logger.info("[BillUpload] Added invoice-only AWS account {} ('{}') under client '{}' (id={})",
                 awsAccountId, saved.getAccountName(), client.getName(), client.getId());
-
-        if (uploader != null && !scopedByOwnedClients) {
-            userCloudAccountAccessRepository.save(new UserCloudAccountAccess(uploader, saved));
-            logger.info("[BillUpload] Gave uploader '{}' (id={}) access to the new account {}",
-                    uploader.getUsername(), uploader.getId(), awsAccountId);
-        }
-        if (uploader != null) {
-            Set<Long> nowAllowed = accountAccessHelper.getAllowedDbIds();
-            if (nowAllowed != null && !nowAllowed.contains(saved.getId())) {
-                // Created and saved, but the uploader's scope still doesn't reach it -- e.g. the
-                // signed-in id and the username resolve to different app_user rows. Logged so the
-                // draft going missing from their list can be traced; the draft itself is fine.
-                logger.warn("[BillUpload] Account {} (id={}) is still outside uploader '{}''s access after the grant",
-                        awsAccountId, saved.getId(), uploader.getUsername());
-            }
-        }
         return saved;
     }
 
+    /**
+     * The client the new account goes under: the one chosen, one found by name, or a new one.
+     *
+     * <p>An admin whose access is limited may use an existing client only if it is one of
+     * theirs, or one that exists only for uploaded bills (anyone may reuse those; they hold
+     * nothing else). Otherwise typing another customer's name would attach an account to a
+     * client they cannot see.
+     */
     private Client resolveClient(String awsAccountId, NewAccountDetails d) {
+        Client client;
         if (d.clientId() != null) {
-            return clientRepository.findById(d.clientId()).orElseThrow(() ->
+            client = clientRepository.findById(d.clientId()).orElseThrow(() ->
                     new UploadedBillException(HttpStatus.BAD_REQUEST, "That client no longer exists. Choose another."));
+        } else {
+            String name = d.clientName() != null && !d.clientName().isBlank()
+                    ? d.clientName().trim() : defaultAccountName(awsAccountId);
+            Client existing = clientRepository.findByName(name); // Names are unique: the same name is the same client.
+            if (existing == null) {
+                return clientRepository.save(new Client(clip(name)));
+            }
+            client = existing;
         }
-        String name = d.clientName() != null && !d.clientName().isBlank()
-                ? d.clientName().trim() : defaultAccountName(awsAccountId);
-        Client existing = clientRepository.findByName(name);
-        if (existing != null) {
-            return existing; // Client names are unique; the same name is the same client.
+
+        if (accountAccessHelper.getAllowedDbIds() != null) {
+            Set<Long> myClients = adminAccessScope.clientIdsForCurrentUser();
+            boolean mine = myClients != null && myClients.contains(client.getId());
+            boolean invoiceOnlyClient = cloudAccountRepository.findInvoiceOnlyClientIds().contains(client.getId());
+            if (!mine && !invoiceOnlyClient) {
+                throw new UploadedBillException(HttpStatus.FORBIDDEN,
+                        "You don't have access to client \"" + client.getName() + "\". Choose one of your clients, "
+                                + "or enter a new client name.");
+            }
         }
-        Client client = new Client(clip(name));
-        return clientRepository.save(client);
+        return client;
     }
 
     private static String defaultAccountName(String awsAccountId) {
@@ -331,8 +302,15 @@ public class UploadedBillDraftService {
         }
     }
 
-    /** Sub-users may only bill the accounts they are assigned; primary admins see all. */
+    /**
+     * Sub-users may only bill the accounts they are assigned; primary admins see all. An
+     * invoice-only account is open to any admin who can upload: it holds no data, and the
+     * drafts on it are each visible only to whoever uploaded them.
+     */
     private boolean canAccess(CloudAccount account) {
+        if (account.isInvoiceOnly()) {
+            return true;
+        }
         Set<Long> allowed = accountAccessHelper.getAllowedDbIds();
         return allowed == null || allowed.contains(account.getId());
     }

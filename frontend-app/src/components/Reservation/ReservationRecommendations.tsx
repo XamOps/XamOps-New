@@ -14,12 +14,10 @@ interface ReservationRecommendationsProps {
   /** True when at least one reservable service could not be queried. */
   isIncomplete?: boolean;
   onFilterChange: (filters: RecommendationFilters) => void;
-  onFetchRecommendations: () => void;
   spRecommendations: SavingsPlanRecommendation[];
   spFilters: SpRecommendationFilters;
   isSpLoading: boolean;
   onSpFilterChange: (filters: SpRecommendationFilters) => void;
-  onFetchSpRecommendations: () => void;
 }
 
 type RecTab = 'ri' | 'sp';
@@ -45,12 +43,10 @@ const ReservationRecommendations: React.FC<ReservationRecommendationsProps> = ({
   isLoading,
   isIncomplete = false,
   onFilterChange,
-  onFetchRecommendations,
   spRecommendations,
   spFilters,
   isSpLoading,
   onSpFilterChange,
-  onFetchSpRecommendations,
 }) => {
   const [recTab, setRecTab] = useState<RecTab>('ri');
 
@@ -70,6 +66,9 @@ const ReservationRecommendations: React.FC<ReservationRecommendationsProps> = ({
     );
   };
 
+  // The dropdowns only update the filters; ReservationPage refetches when they change. Fetching
+  // here as well sent a second request with the previous filters, and cancelling it turned the
+  // spinner off early, so the empty table flashed "Fully Optimized".
   const handleRiFilterUpdate = (key: keyof RecommendationFilters, value: string) => {
     onFilterChange({ ...filters, [key]: value });
   };
@@ -133,14 +132,14 @@ const ReservationRecommendations: React.FC<ReservationRecommendationsProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
                 <label className={labelCls}>Term Length</label>
-                <select value={filters.term} onChange={(e) => { handleRiFilterUpdate('term', e.target.value); onFetchRecommendations(); }} className={selectCls}>
+                <select value={filters.term} onChange={(e) => handleRiFilterUpdate('term', e.target.value)} className={selectCls}>
                   <option value="ONE_YEAR">1 Year</option>
                   <option value="THREE_YEARS">3 Years</option>
                 </select>
               </div>
               <div>
                 <label className={labelCls}>Payment Option</label>
-                <select value={filters.paymentOption} onChange={(e) => { handleRiFilterUpdate('paymentOption', e.target.value); onFetchRecommendations(); }} className={selectCls}>
+                <select value={filters.paymentOption} onChange={(e) => handleRiFilterUpdate('paymentOption', e.target.value)} className={selectCls}>
                   <option value="NO_UPFRONT">No Upfront</option>
                   <option value="PARTIAL_UPFRONT">Partial Upfront</option>
                   <option value="ALL_UPFRONT">All Upfront</option>
@@ -148,7 +147,7 @@ const ReservationRecommendations: React.FC<ReservationRecommendationsProps> = ({
               </div>
               <div>
                 <label className={labelCls}>Lookback Period</label>
-                <select value={filters.lookback} onChange={(e) => { handleRiFilterUpdate('lookback', e.target.value); onFetchRecommendations(); }} className={selectCls}>
+                <select value={filters.lookback} onChange={(e) => handleRiFilterUpdate('lookback', e.target.value)} className={selectCls}>
                   <option value="SEVEN_DAYS">Past 7 Days</option>
                   <option value="THIRTY_DAYS">Past 30 Days</option>
                   <option value="SIXTY_DAYS">Past 60 Days</option>
@@ -156,7 +155,7 @@ const ReservationRecommendations: React.FC<ReservationRecommendationsProps> = ({
               </div>
               <div>
                 <label className={labelCls}>Offering Class</label>
-                <select value={filters.offeringClass} onChange={(e) => { handleRiFilterUpdate('offeringClass', e.target.value); onFetchRecommendations(); }} className={selectCls}>
+                <select value={filters.offeringClass} onChange={(e) => handleRiFilterUpdate('offeringClass', e.target.value)} className={selectCls}>
                   <option value="STANDARD">Standard</option>
                   <option value="CONVERTIBLE">Convertible</option>
                 </select>
@@ -283,7 +282,7 @@ const ReservationRecommendations: React.FC<ReservationRecommendationsProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
                 <label className={labelCls}>Plan Type</label>
-                <select value={spFilters.spType} onChange={(e) => { handleSpFilterUpdate('spType', e.target.value); onFetchSpRecommendations(); }} className={selectCls}>
+                <select value={spFilters.spType} onChange={(e) => handleSpFilterUpdate('spType', e.target.value)} className={selectCls}>
                   <option value="COMPUTE_SP">Compute SP</option>
                   <option value="EC2_INSTANCE_SP">EC2 Instance SP</option>
                   <option value="SAGEMAKER_SP">SageMaker SP</option>
@@ -291,14 +290,14 @@ const ReservationRecommendations: React.FC<ReservationRecommendationsProps> = ({
               </div>
               <div>
                 <label className={labelCls}>Term Length</label>
-                <select value={spFilters.term} onChange={(e) => { handleSpFilterUpdate('term', e.target.value); onFetchSpRecommendations(); }} className={selectCls}>
+                <select value={spFilters.term} onChange={(e) => handleSpFilterUpdate('term', e.target.value)} className={selectCls}>
                   <option value="ONE_YEAR">1 Year</option>
                   <option value="THREE_YEARS">3 Years</option>
                 </select>
               </div>
               <div>
                 <label className={labelCls}>Payment Option</label>
-                <select value={spFilters.paymentOption} onChange={(e) => { handleSpFilterUpdate('paymentOption', e.target.value); onFetchSpRecommendations(); }} className={selectCls}>
+                <select value={spFilters.paymentOption} onChange={(e) => handleSpFilterUpdate('paymentOption', e.target.value)} className={selectCls}>
                   <option value="NO_UPFRONT">No Upfront</option>
                   <option value="PARTIAL_UPFRONT">Partial Upfront</option>
                   <option value="ALL_UPFRONT">All Upfront</option>
@@ -306,7 +305,7 @@ const ReservationRecommendations: React.FC<ReservationRecommendationsProps> = ({
               </div>
               <div>
                 <label className={labelCls}>Lookback Period</label>
-                <select value={spFilters.lookback} onChange={(e) => { handleSpFilterUpdate('lookback', e.target.value); onFetchSpRecommendations(); }} className={selectCls}>
+                <select value={spFilters.lookback} onChange={(e) => handleSpFilterUpdate('lookback', e.target.value)} className={selectCls}>
                   <option value="SEVEN_DAYS">Past 7 Days</option>
                   <option value="THIRTY_DAYS">Past 30 Days</option>
                   <option value="SIXTY_DAYS">Past 60 Days</option>

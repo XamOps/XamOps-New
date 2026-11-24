@@ -27,6 +27,7 @@ import java.util.concurrent.ThreadPoolExecutor;
  *   <tr><td>{@code spotTaskScheduler}</td><td>3 threads</td><td>{@code spot-sched-}</td></tr>
  *   <tr><td>{@code spotJobsExecutor}</td><td>3/3, queue 10</td><td>{@code spot-jobs-}</td></tr>
  *   <tr><td>{@code spotLeaseHeartbeat}</td><td>1 thread</td><td>{@code spot-lease-hb}</td></tr>
+ *   <tr><td>{@code spotSqsListener}</td><td>1/1, no queue</td><td>{@code spot-sched-sqs}</td></tr>
  * </table>
  *
  * <p>Every executor and scheduler gets the existing {@code tenantTaskDecorator}
@@ -37,8 +38,8 @@ import java.util.concurrent.ThreadPoolExecutor;
  * <p>The {@code spotJobsExecutor} queue is bounded (10) with {@code AbortPolicy}: a full queue
  * rejects the submit, and {@code JobRunner} turns that into
  * {@code autospotting.job.skipped{job,reason=busy}} without running anything on the caller's thread.
- * The {@code spotSqsListener} bean (design-core.md §4.2) arrives with the AWS SQS listener in a later
- * phase.
+ * The {@code spotSqsListener} bean (design-core.md §4.2, one thread, prefix {@code spot-sched-sqs}) carries
+ * the AWS event listener's long-poll loop and nothing else.
  */
 @Configuration
 public class AutoSpottingExecutorConfig {
@@ -140,5 +141,26 @@ public class AutoSpottingExecutorConfig {
         scheduler.setAwaitTerminationSeconds(5);
         scheduler.initialize();
         return scheduler;
+    }
+
+    /**
+     * The AWS event listener's long-poll loop (design-aws.md §9.6, FR-EVT-04). One thread outside
+     * {@code spotTaskScheduler}, {@code spotJobsExecutor} and the dispatcher, so a 20 s receive never holds a
+     * scheduler or job thread. The prefix {@code spot-sched-sqs} keeps AC-SPN-13's thread-name assertion.
+     */
+    @Bean
+    public ThreadPoolTaskExecutor spotSqsListener(TaskDecorator tenantTaskDecorator,
+                                                  AutoSpottingMdcTaskDecorator mdcDecorator) {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(0);
+        executor.setThreadNamePrefix("spot-sched-sqs");
+        executor.setTaskDecorator(spotDecorator(tenantTaskDecorator, mdcDecorator));
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(25);
+        executor.initialize();
+        return executor;
     }
 }

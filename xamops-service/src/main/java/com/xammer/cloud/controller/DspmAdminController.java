@@ -1,6 +1,7 @@
 package com.xammer.cloud.controller;
 
 import com.xammer.cloud.domain.MattersAccessAudit;
+import com.xammer.cloud.domain.MattersProjectMapping;
 import com.xammer.cloud.dto.matters.DspmAuditView;
 import com.xammer.cloud.dto.matters.DspmClientOption;
 import com.xammer.cloud.dto.matters.DspmMappingAdminView;
@@ -97,11 +98,20 @@ public class DspmAdminController {
      * {@code Cache-Control: no-store} because the request body carries a live credential and this
      * response echoes its metadata. The same precaution the Upwind onboarding endpoints take for
      * responses containing a sensor secret.
+     *
+     * A save that clears the verdict (a new mapping, a new key, a new project) is verified straight
+     * away, and the response carries that verdict. So a key without the PLATFORM scope is
+     * {@code FORBIDDEN} from the moment it is saved, rather than "not verified" until someone clicks
+     * Verify. The two service calls are two transactions: the save is committed before Matters is
+     * called, so a failed or unreachable verification cannot undo it.
      */
     @PutMapping("/mappings/{clientId}")
     public ResponseEntity<DspmMappingAdminView> saveMapping(@PathVariable Long clientId,
                                                             @RequestBody DspmMappingRequest request) {
         DspmMappingAdminView view = adminService.saveMapping(clientId, request, currentOperator());
+        if (MattersProjectMapping.STATUS_UNVERIFIED.equals(view.connectionStatus())) {
+            view = adminService.verifyMapping(clientId);
+        }
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .body(view);

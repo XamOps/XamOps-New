@@ -112,9 +112,16 @@ public class StackDiagnosisService {
      * @param updatable   whether an update could proceed today, permissions included
      * @param detail      a sentence naming the cause, written for the person reading the screen
      * @param remedy      the single next action, or null when none applies
+     * @param templateVersion the stack's {@code TemplateVersion} output when the stack was read and
+     *                    carries one, else null
      */
     public record Diagnosis(Verdict verdict, String stackId, String stackName, String stackRegion,
-                            String stackStatus, boolean updatable, String detail, String remedy) {
+                            String stackStatus, boolean updatable, String detail, String remedy,
+                            String templateVersion) {
+        public Diagnosis(Verdict verdict, String stackId, String stackName, String stackRegion,
+                         String stackStatus, boolean updatable, String detail, String remedy) {
+            this(verdict, stackId, stackName, stackRegion, stackStatus, updatable, detail, remedy, null);
+        }
     }
 
     /**
@@ -135,6 +142,11 @@ public class StackDiagnosisService {
             account.setStackId(diagnosis.stackId());
             account.setStackName(diagnosis.stackName());
             account.setStackRegion(diagnosis.stackRegion());
+        }
+        // Nothing wrote this column before. A stack that was read and carries the marker sets it; a
+        // diagnosis that could not read the stack leaves it alone (null stays "never established").
+        if (diagnosis.templateVersion() != null) {
+            account.setStackTemplateVersion(diagnosis.templateVersion());
         }
         cloudAccountRepository.save(account);
 
@@ -337,6 +349,23 @@ public class StackDiagnosisService {
 
     /** Turns a CloudFormation status into a verdict about whether an update could run. */
     private Diagnosis classify(Stack stack, String region) {
+        Diagnosis d = classifyStatus(stack, region);
+        String version = templateVersionOf(stack);
+        return version == null ? d : new Diagnosis(d.verdict(), d.stackId(), d.stackName(), d.stackRegion(),
+                d.stackStatus(), d.updatable(), d.detail(), d.remedy(), version);
+    }
+    /** The {@code TemplateVersion} output ({@code rw-YYYY.MM.N}), or null when the stack has none. */
+    static String templateVersionOf(Stack stack) {
+        if (!stack.hasOutputs()) {
+            return null;
+        }
+        return stack.outputs().stream()
+                .filter(o -> "TemplateVersion".equals(o.outputKey()))
+                .map(o -> o.outputValue())
+                .filter(v -> v != null && v.matches("rw-\\d{4}\\.\\d{1,2}\\.\\d{1,3}"))
+                .findFirst().orElse(null);
+    }
+    private Diagnosis classifyStatus(Stack stack, String region) {
         String status = stack.stackStatusAsString();
 
         if (status.endsWith("_IN_PROGRESS")) {

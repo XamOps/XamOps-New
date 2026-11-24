@@ -7,6 +7,8 @@
 export type CloudProvider = 'AWS' | 'GCP' | 'Azure';
 
 export interface Account {
+  /** The numeric XamOps account id (cloud_account.id), which the AutoSpotting v2 API takes. */
+  dbId?: number;
   id: string;
   name: string;
   provider: CloudProvider;

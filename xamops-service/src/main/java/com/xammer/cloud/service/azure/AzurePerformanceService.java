@@ -94,8 +94,17 @@ public class AzurePerformanceService {
         }
 
         AzurePerformanceResponse response = fetchFromAdvisor(subscriptionId);
-        redisCache.put(cacheKey, response, CACHE_TTL_MINUTES);
-        saveToDb(dbKey, response);
+        // Cache only an answer Advisor actually gave, as AzureSecurityService does. Errors carry
+        // a score of 100 and no insights; caching one replaced the last good result with "all
+        // healthy" and kept serving it from Redis and the DB snapshot after Advisor recovered.
+        boolean answered = response.getStatus() != AzurePerformanceResponse.Status.API_ERROR
+                && response.getStatus() != AzurePerformanceResponse.Status.PERMISSION_ERROR;
+        if (answered) {
+            redisCache.put(cacheKey, response, CACHE_TTL_MINUTES);
+            saveToDb(dbKey, response);
+        } else {
+            log.warn("Azure performance fetch for {} returned {} — not caching", subscriptionId, response.getStatus());
+        }
         return response;
     }
 

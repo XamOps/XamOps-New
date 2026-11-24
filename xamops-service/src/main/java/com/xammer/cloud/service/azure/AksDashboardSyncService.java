@@ -92,8 +92,27 @@ public class AksDashboardSyncService {
         List<AksDashboardCache> entries = cacheRepository.findAll();
         logger.info("AKS sync: found {} cached cluster(s) to refresh", entries.size());
 
-        int success = 0, fail = 0;
+        int success = 0, fail = 0, removed = 0;
         for (AksDashboardCache entry : entries) {
+            // A cluster deleted in Azure stayed in this table for good: the dashboard build
+            // swallowed the 404, the empty result was saved back and counted as a success, and
+            // every startup and nightly run logged the same error again. The EKS cache drops a
+            // cluster that is gone; this does the same, on a definite 404 only.
+            if (!aksDashboardService.clusterExists(
+                    entry.getSubscriptionId(), entry.getResourceGroup(), entry.getClusterName())) {
+                try {
+                    cacheRepository.delete(entry);
+                    removed++;
+                    logger.info("AKS sync: cluster {}/{} (resource group {}) no longer exists in Azure — "
+                            + "removed its cached dashboard",
+                            entry.getSubscriptionId(), entry.getClusterName(), entry.getResourceGroup());
+                } catch (Exception e) {
+                    fail++;
+                    logger.warn("AKS sync: could not remove cached dashboard for deleted cluster {}/{}: {}",
+                            entry.getSubscriptionId(), entry.getClusterName(), e.getMessage());
+                }
+                continue;
+            }
             try {
                 syncClusterDashboard(entry.getSubscriptionId(), entry.getClusterName(), entry.getResourceGroup());
                 success++;
@@ -103,7 +122,7 @@ public class AksDashboardSyncService {
                         entry.getSubscriptionId(), entry.getClusterName(), e.getMessage());
             }
         }
-        logger.info("AKS sync complete: {} succeeded, {} failed", success, fail);
+        logger.info("AKS sync complete: {} succeeded, {} failed, {} removed", success, fail, removed);
     }
 
     /**

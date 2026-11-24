@@ -2,22 +2,41 @@ import React, { useEffect } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useDspmStatus } from '../hooks/useDspmData';
-import { xamLensTab } from '../constants/xamlensTabs';
+import {
+  LEGACY_XAMLENS_SEGMENTS, XAMLENS_FILES_HOME, XAMLENS_HOME, XAMLENS_PAGE_TABS, datastoreTab, filesTab,
+  type XamLensPageTab,
+} from '../constants/xamlensTabs';
 import PoweredByProvider from '../components/XamSecure/PoweredByProvider';
-import DspmAssetsTab from '../components/Dspm/DspmAssetsTab';
+import DatastoresPage from '../components/Dspm/datastores/DatastoresPage';
+import MisconfigurationsPage from '../components/Dspm/misconfigurations/MisconfigurationsPage';
+import FilesPage from '../components/Dspm/files/FilesPage';
 import DspmStatusTab from '../components/Dspm/DspmStatusTab';
+import DataLineagePage from '../components/Dspm/lineage/DataLineagePage';
+import DashboardPage from '../components/Dspm/dashboard/DashboardPage';
+import DocumentClassesPage from '../components/Dspm/catalog/DocumentClassesPage';
+import AssistsPage from '../components/Dspm/management/AssistsPage';
+import RemediationPage from '../components/Dspm/management/RemediationPage';
 
 /**
- * XamLens: where sensitive data lives across cloud datastores, SaaS accounts and endpoints.
+ * XamLens: where sensitive data lives across cloud datastores, SaaS accounts, endpoints and on-prem
+ * databases.
  *
  * Backed by Matters.ai through the DSPM add-on. Not scoped by the sidebar account picker, unlike
- * XamSecure: Matters rows carry a Matters integration id rather than a cloud account number, so each
- * tab's Account filter is the equivalent control. There is no account guard here for the same reason,
- * which also means a customer without cloud accounts can still use it.
+ * XamSecure: Matters rows carry a Matters integration id rather than a cloud account number, so the
+ * Source / Account filter is the equivalent control. There is no account guard here for the same
+ * reason, which also means a customer without cloud accounts can still use it.
+ *
+ * Routes: `/xamlens/datastores/:datastoreTab` is the Datastores page; `/xamlens/dashboard` the
+ * Dashboard; `/xamlens/files/:filesTab` the Files page (`/xamlens/files` and an unknown tab land on
+ * SaaS); `/xamlens/misconfigurations` the Misconfigurations page; `/xamlens/data-lineage` the Data
+ * Lineage page; `/xamlens/document-classes`, `/xamlens/assists` and `/xamlens/remediation` their pages
+ * (Remediation only while `XAMLENS_REMEDIATION_ENABLED` is on; otherwise it lands on All);
+ * `/xamlens/connection` the connection status. The old `/xamlens/cloud`, `/saas` and
+ * `/endpoint` links land on the matching Datastores tab, and any other segment on All.
  */
 const XamLensPage: React.FC = () => {
-  const { tab } = useParams<{ tab?: string }>();
-  const def = xamLensTab(tab);
+  const { tab, datastoreTab: datastoreSlug, filesTab: filesSlug } =
+    useParams<{ tab?: string; datastoreTab?: string; filesTab?: string }>();
   const { setTitle, setTitleAdornment } = useTopbar();
   // Fetched once per visit rather than per tab: the route element is reused across tab changes.
   const { status, statusLoading, reloadStatus } = useDspmStatus();
@@ -29,7 +48,26 @@ const XamLensPage: React.FC = () => {
     return () => { setTitle(null); setTitleAdornment(null); };
   }, [setTitle, setTitleAdornment]);
 
-  if (!def) return <Navigate to="/xamlens/cloud" replace />;
+  const filesDef = filesSlug === undefined ? undefined : filesTab(filesSlug);
+  if (filesSlug !== undefined && !filesDef) return <Navigate to={XAMLENS_FILES_HOME} replace />;
+  if (filesSlug === undefined && datastoreSlug === undefined && tab === 'files') {
+    return <Navigate to={XAMLENS_FILES_HOME} replace />;
+  }
+  const def = datastoreSlug === undefined ? undefined : datastoreTab(datastoreSlug);
+  if (datastoreSlug !== undefined && !def) return <Navigate to={XAMLENS_HOME} replace />;
+
+  const connection = datastoreSlug === undefined && tab === 'connection';
+  const misconfigurations = datastoreSlug === undefined && tab === 'misconfigurations';
+  const lineage = datastoreSlug === undefined && tab === 'data-lineage';
+  const page = datastoreSlug === undefined && (XAMLENS_PAGE_TABS as ReadonlyArray<string>).includes(tab ?? '')
+    ? tab as XamLensPageTab
+    : undefined;
+  if (datastoreSlug === undefined && !connection && !misconfigurations && !lineage && !filesDef && !page) {
+    const legacy = tab !== undefined && Object.prototype.hasOwnProperty.call(LEGACY_XAMLENS_SEGMENTS, tab)
+      ? LEGACY_XAMLENS_SEGMENTS[tab]
+      : undefined;
+    return <Navigate to={legacy ? `/xamlens/datastores/${legacy}` : XAMLENS_HOME} replace />;
+  }
 
   return (
     <main className="flex-1 flex flex-col min-h-screen bg-white">
@@ -38,13 +76,32 @@ const XamLensPage: React.FC = () => {
         {statusLoading && (
           <p className="py-16 text-center text-sm text-gray-400">Loading XamLens…</p>
         )}
-        {!statusLoading && status && def.surface && (
-          // Keyed by surface so filters, paging and search reset between tabs: a provider=S3 filter
-          // means nothing on Endpoint.
-          <DspmAssetsTab key={def.surface} surface={def.surface} status={status} onRetry={reloadStatus} />
+        {!statusLoading && status && def && (
+          <DatastoresPage tab={def.slug} status={status} onRetry={reloadStatus} />
         )}
-        {!statusLoading && status && def.id === 'connection' && (
+        {!statusLoading && status && misconfigurations && (
+          <MisconfigurationsPage status={status} onRetry={reloadStatus} />
+        )}
+        {!statusLoading && status && filesDef && (
+          <FilesPage tab={filesDef.slug} status={status} onRetry={reloadStatus} />
+        )}
+        {!statusLoading && status && connection && (
           <DspmStatusTab status={status} onRetry={reloadStatus} />
+        )}
+        {!statusLoading && status && lineage && (
+          <DataLineagePage status={status} onRetry={reloadStatus} />
+        )}
+        {!statusLoading && status && page === 'dashboard' && (
+          <DashboardPage status={status} onRetry={reloadStatus} />
+        )}
+        {!statusLoading && status && page === 'document-classes' && (
+          <DocumentClassesPage status={status} onRetry={reloadStatus} />
+        )}
+        {!statusLoading && status && page === 'assists' && (
+          <AssistsPage status={status} onRetry={reloadStatus} />
+        )}
+        {!statusLoading && status && page === 'remediation' && (
+          <RemediationPage status={status} onRetry={reloadStatus} />
         )}
       </div>
     </main>

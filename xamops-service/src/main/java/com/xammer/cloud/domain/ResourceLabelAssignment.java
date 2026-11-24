@@ -1,6 +1,7 @@
 package com.xammer.cloud.domain;
 
 import jakarta.persistence.*;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
@@ -40,6 +41,16 @@ public class ResourceLabelAssignment {
     @JoinColumn(name = "label_id", nullable = false)
     private ResourceLabel label;
 
+    /**
+     * The share of the resource's cost this label takes, 0–100 with two decimals.
+     *
+     * <p>Null means the whole resource — what every row written before percentages existed
+     * means, and what the plain assign endpoint still writes. The shares on one resource add up
+     * to at most 100; the rest is unallocated.
+     */
+    @Column(name = "split_percent", precision = 5, scale = 2)
+    private BigDecimal splitPercent;
+
     @Column(name = "tagged_by", length = 100)
     private String taggedBy;
 
@@ -66,6 +77,9 @@ public class ResourceLabelAssignment {
 
     public ResourceLabel getLabel() { return label; }
     public void setLabel(ResourceLabel label) { this.label = label; }
+
+    public BigDecimal getSplitPercent() { return splitPercent; }
+    public void setSplitPercent(BigDecimal splitPercent) { this.splitPercent = splitPercent; }
 
     public String getTaggedBy() { return taggedBy; }
     public void setTaggedBy(String taggedBy) { this.taggedBy = taggedBy; }

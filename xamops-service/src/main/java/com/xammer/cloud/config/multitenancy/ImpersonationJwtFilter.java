@@ -188,22 +188,6 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
             UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                     userDetails, null, userDetails.getAuthorities());
 
-            SecurityContext ctx = SecurityContextHolder.createEmptyContext();
-            ctx.setAuthentication(auth);
-            SecurityContextHolder.setContext(ctx);
-            // So the ASYNC/ERROR dispatches of this request are authenticated too.
-            securityContextRepository.saveContext(ctx, request, response);
-
-            // Set ImpersonationContext so AccountManagerController filters
-            // accounts to only those permitted for this user
-            ImpersonationContext.setImpersonatedUserId(userId);
-
-            // Store allowedAccountIds in request attribute for downstream use
-            String allowedAccountIds = claims.get("allowedAccountIds", String.class);
-            if (allowedAccountIds != null && !allowedAccountIds.isEmpty()) {
-                request.setAttribute("impersonation.allowedAccountIds", allowedAccountIds);
-            }
-
             // Which admin is driving, so activity recorded during this request can be
             // attributed to them rather than counted as the customer's own usage.
             //
@@ -223,6 +207,29 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
             }
             request.setAttribute(ATTR_ACTOR_USER_ID, actorUserId);
 
+            // The same admin, for MattersAuditService, which records them as the actor of the
+            // XamLens reads made on this request. Older tokens lack actorUsername and actorRole,
+            // and some lack actorUserId too; they are recorded with what they carry, an operator
+            // whose name or role is unknown, and are never rejected for it.
+            auth.setDetails(new ImpersonatingOperator(actorUserId,
+                    stringClaim(claims, "actorUsername"), stringClaim(claims, "actorRole")));
+
+            SecurityContext ctx = SecurityContextHolder.createEmptyContext();
+            ctx.setAuthentication(auth);
+            SecurityContextHolder.setContext(ctx);
+            // So the ASYNC/ERROR dispatches of this request are authenticated too.
+            securityContextRepository.saveContext(ctx, request, response);
+
+            // Set ImpersonationContext so AccountManagerController filters
+            // accounts to only those permitted for this user
+            ImpersonationContext.setImpersonatedUserId(userId);
+
+            // Store allowedAccountIds in request attribute for downstream use
+            String allowedAccountIds = claims.get("allowedAccountIds", String.class);
+            if (allowedAccountIds != null && !allowedAccountIds.isEmpty()) {
+                request.setAttribute("impersonation.allowedAccountIds", allowedAccountIds);
+            }
+
         } catch (JwtException | IllegalArgumentException e) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json");
@@ -235,5 +242,10 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
         } finally {
             ImpersonationContext.clear();
         }
+    }
+
+    /** A string claim, or null when the token does not carry one. */
+    private static String stringClaim(Claims claims, String name) {
+        return claims.get(name) instanceof String value ? value : null;
     }
 }

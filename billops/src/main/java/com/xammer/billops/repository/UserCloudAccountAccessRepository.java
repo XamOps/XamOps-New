@@ -17,7 +17,8 @@ public interface UserCloudAccountAccessRepository extends JpaRepository<UserClou
 
     @Modifying
     @Transactional
-    void deleteByUserId(Long userId);
+    @Query("DELETE FROM UserCloudAccountAccess uca WHERE uca.user.id = :userId")
+    void deleteByUserId(@Param("userId") Long userId);
 
     @Query("SELECT uca.cloudAccount.id FROM UserCloudAccountAccess uca WHERE uca.user.id = :userId")
     List<Long> findCloudAccountIdsByUserId(@Param("userId") Long userId);

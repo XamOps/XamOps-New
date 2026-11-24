@@ -25,6 +25,11 @@ export interface AzureCredentials {
   clientId: string;
   clientSecret: string;
   accountName: string;
+  /** Optional fields the backend reads from the setup output (AzureAccountRequestDto). */
+  billingResourceGroup?: string;
+  billingStorageAccountId?: string;
+  principalId?: string;
+  access?: string;
 }
 
 export interface JenkinsDetails {

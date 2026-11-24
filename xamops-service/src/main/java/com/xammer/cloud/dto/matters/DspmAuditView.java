@@ -14,7 +14,8 @@ import java.time.Instant;
  * @param actorType    {@code CUSTOMER}, {@code OPERATOR} or {@code SYSTEM}. The field to scan first: a
  *                     customer reading their own inventory is routine, an operator reading it is the
  *                     event worth looking at.
- * @param impersonated whether the read happened through a super-admin impersonated session.
+ * @param impersonated whether the read happened through impersonation (an admin's "view as user" or
+ *                     BillOps Login-As), as {@code MattersAccessAudit.impersonated} describes.
  */
 public record DspmAuditView(
         Long id,

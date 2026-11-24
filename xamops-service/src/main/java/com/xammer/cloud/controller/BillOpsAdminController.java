@@ -1338,11 +1338,18 @@ public class BillOpsAdminController {
             @PathVariable Long clientId,
             @RequestParam(required = false) String preset,
             @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate) {
+            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) Long accountId) {
 
         LocalDate[] range = resolveSavingsRange(preset, startDate, endDate);
-        ClientSavingsDashboardDto dto = clientSavingsService.getSavings(clientId, range[0], range[1]);
-        return ResponseEntity.ok(dto);
+        try {
+            return ResponseEntity.ok(clientSavingsService.getSavings(clientId, accountId, range[0], range[1]));
+        } catch (java.util.NoSuchElementException e) {
+            // The account belongs to another client (or doesn't exist): answer as if it doesn't
+            // exist, so this endpoint can't be used to read another client's savings.
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.NOT_FOUND, "Account not found for this client");
+        }
     }
 
     private LocalDate[] resolveSavingsRange(String preset, String startDate, String endDate) {

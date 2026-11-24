@@ -116,6 +116,16 @@ public class User {
             columnDefinition = "boolean default true")
     private boolean emailNotificationsEnabled = true;
 
+    /**
+     * The AutoSpotting email opt-out (design-ux-ops.md section 7.3, PO-24). Separate from
+     * {@link #emailNotificationsEnabled}, which is the security-mail switch: a user may mute one and keep the
+     * other. It silences non-mandatory AutoSpotting notices only; failure notices are always sent.
+     * {@code columnDefinition} carries the default for the same reason the field above does.
+     */
+    @Column(name = "autospotting_email_enabled", nullable = false,
+            columnDefinition = "boolean default true")
+    private boolean autospottingEmailEnabled = true;
+
     public void setEnabled(boolean b) {
         // TODO Auto-generated method stub
         throw new UnsupportedOperationException("Unimplemented method 'setEnabled'");

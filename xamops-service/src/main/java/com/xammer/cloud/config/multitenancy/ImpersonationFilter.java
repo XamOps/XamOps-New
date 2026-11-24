@@ -24,6 +24,10 @@ public class ImpersonationFilter implements Filter {
 
     public static final String IMPERSONATION_HEADER = "X-Impersonate-User";
 
+    private static final String SUPER_ADMIN = "ROLE_SUPER_ADMIN";
+
+    private static final String BILLOPS_ADMIN = "ROLE_BILLOPS_ADMIN";
+
     @Autowired
     private UserRepository userRepository;
 
@@ -66,11 +70,28 @@ public class ImpersonationFilter implements Filter {
                         UsernamePasswordAuthenticationToken impersonatedAuth = new UsernamePasswordAuthenticationToken(
                                 targetDetails, null, targetDetails.getAuthorities());
 
+                        // Decided on the identity that authenticated this request, not on the session
+                        // marker, so a BillOps admin or a Login-As JWT (billops never mints one for
+                        // ROLE_SUPER_ADMIN) is never taken for a super admin.
+                        Authentication admin = originalContext.getAuthentication();
+                        boolean superAdmin = isSuperAdmin(admin);
+                        ImpersonatingOperator operator = operatorOf(admin);
+                        if (operator != null) {
+                            // Who is driving, for MattersAuditService. On the Authentication rather than
+                            // in a ThreadLocal, so a copied security context (MattersDspmService's
+                            // profile pool) carries it too.
+                            impersonatedAuth.setDetails(operator);
+                        }
+
                         // Use a FRESH SecurityContext so the original session-backed context
                         // object is never mutated. The original is restored in the finally block.
                         SecurityContext impersonatedContext = SecurityContextHolder.createEmptyContext();
                         impersonatedContext.setAuthentication(impersonatedAuth);
                         SecurityContextHolder.setContext(impersonatedContext);
+
+                        // XamLensTabGuard lets a super admin's "view as user" through whatever the
+                        // target's role or tab rules. Cleared below.
+                        ImpersonationContext.setStartedBySuperAdmin(superAdmin);
                     });
                 } catch (NumberFormatException e) {
                     // Ignore invalid headers
@@ -87,6 +108,45 @@ public class ImpersonationFilter implements Filter {
             // HTTP session — not the impersonated user's auth.
             SecurityContextHolder.setContext(originalContext);
         }
+    }
+
+    /** Whether {@code auth}, the request's own authentication before the swap, holds ROLE_SUPER_ADMIN. */
+    private static boolean isSuperAdmin(Authentication auth) {
+        return hasAuthority(auth, SUPER_ADMIN);
+    }
+
+    private static boolean hasAuthority(Authentication auth, String authority) {
+        return auth != null && auth.isAuthenticated() && auth.getAuthorities().stream()
+                .anyMatch(a -> authority.equals(a.getAuthority()));
+    }
+
+    /**
+     * The operator behind this header impersonation, judged on {@code auth}, the request's own
+     * authentication before the swap:
+     * <ul>
+     *   <li>a Login-As request names its admin in the details {@link ImpersonationJwtFilter} set, and keeps
+     *       them when it also carries X-Impersonate-User and an admin's session cookie. Checked first, as
+     *       the token's subject can itself be a BillOps admin;</li>
+     *   <li>a super admin or a BillOps admin, the two roles {@link #isAllowedToImpersonate} admits, is the
+     *       operator, with that role.</li>
+     * </ul>
+     * Null for anything else, which the audit records as before.
+     */
+    private static ImpersonatingOperator operatorOf(Authentication auth) {
+        if (auth == null || !auth.isAuthenticated()) {
+            return null;
+        }
+        if (auth.getDetails() instanceof ImpersonatingOperator loginAs) {
+            return loginAs;
+        }
+        String role = isSuperAdmin(auth) ? SUPER_ADMIN
+                : hasAuthority(auth, BILLOPS_ADMIN) ? BILLOPS_ADMIN
+                : null;
+        if (role == null) {
+            return null;
+        }
+        Long id = auth.getPrincipal() instanceof ClientUserDetails details ? details.getId() : null;
+        return new ImpersonatingOperator(id, auth.getName(), role);
     }
 
     /**

@@ -222,8 +222,12 @@ export const useMyProfile = () => {
         throw new Error(text || `HTTP ${response.status}`);
       }
 
+      const isUpdate = Boolean(payload.id);
       await fetchTeamUsers();
       cancelEdit();
+      alert(isUpdate
+        ? 'Team member updated successfully!'
+        : `Team member added successfully! A welcome email has been sent to ${payload.email}.`);
     } catch (err) {
       console.error('Save failed:', err);
       alert('Failed to save: ' + (err instanceof Error ? err.message : 'Unknown error'));

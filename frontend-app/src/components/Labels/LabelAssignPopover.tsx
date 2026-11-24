@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { ResourceLabel, ResourceRef } from '../../types/resourceLabels';
+import type { LabelChangeSource, ResourceLabel, ResourceRef } from '../../types/resourceLabels';
 import { assignLabel, removeLabel, createLabel } from '../../services/resourceLabelsApi';
 
 interface Props {
@@ -10,6 +10,8 @@ interface Props {
   onChanged: (resourceId: string, updatedLabels: ResourceLabel[]) => void;
   onClose: () => void;
   onLabelCreated?: (label: ResourceLabel) => void;
+  /** Which screen the change is recorded as coming from in the label history. */
+  source?: LabelChangeSource;
 }
 
 const QUICK_COLORS = ['#6366f1','#8b5cf6','#ec4899','#ef4444','#f97316','#eab308','#22c55e','#06b6d4','#3b82f6','#64748b'];
@@ -22,6 +24,8 @@ const LabelAssignPopover: React.FC<Props> = ({
   onChanged,
   onClose,
   onLabelCreated,
+  // Every caller today is the Cloud List or its connected-resources modal.
+  source = 'CLOUD_LIST',
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState('');
@@ -50,10 +54,10 @@ const LabelAssignPopover: React.FC<Props> = ({
     setBusy(label.id);
     try {
       if (assignedIds.has(label.id)) {
-        await removeLabel({ accountId, labelId: label.id, resources: [resource] });
+        await removeLabel({ accountId, labelId: label.id, resources: [resource], source });
         onChanged(resource.resourceId, assignedLabels.filter(l => l.id !== label.id));
       } else {
-        await assignLabel({ accountId, labelId: label.id, resources: [resource] });
+        await assignLabel({ accountId, labelId: label.id, resources: [resource], source });
         onChanged(resource.resourceId, [...assignedLabels, label]);
       }
     } finally {
@@ -66,10 +70,10 @@ const LabelAssignPopover: React.FC<Props> = ({
     setCreating(true);
     setCreateError('');
     try {
-      const created = await createLabel({ name: newName.trim(), color: newColor });
+      const created = await createLabel({ name: newName.trim(), color: newColor, source });
       onLabelCreated?.(created);
       // Immediately assign the new label to this resource
-      await assignLabel({ accountId, labelId: created.id, resources: [resource] });
+      await assignLabel({ accountId, labelId: created.id, resources: [resource], source });
       onChanged(resource.resourceId, [...assignedLabels, created]);
       setNewName('');
       setNewColor('#6366f1');

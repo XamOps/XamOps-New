@@ -149,9 +149,21 @@ class AutoSpottingReconcileBeans {
     }
 
     @Bean
+    com.xammer.cloud.repository.autospotting.NotificationStore notificationStore(DataSource dataSource) {
+        return new com.xammer.cloud.repository.autospotting.NotificationStore(dataSource);
+    }
+
+    @Bean
+    com.xammer.cloud.service.autospotting.notify.AutoSpottingNotificationService notificationService(
+            com.xammer.cloud.repository.autospotting.NotificationStore store, AuditRedactor redactor) {
+        return new com.xammer.cloud.service.autospotting.notify.AutoSpottingNotificationService(store, redactor);
+    }
+
+    @Bean
     GroupLifecycleService groupLifecycleService(FencedTx fencedTx, SpotGroupLifecycleRepository lifecycle,
-                                                AutoSpottingAuditWriter auditWriter) {
-        return new GroupLifecycleService(fencedTx, lifecycle, auditWriter);
+                                                AutoSpottingAuditWriter auditWriter,
+            com.xammer.cloud.service.autospotting.notify.AutoSpottingNotificationService notifications) {
+        return new GroupLifecycleService(fencedTx, lifecycle, auditWriter, notifications);
     }
 
     @Bean
@@ -161,6 +173,18 @@ class AutoSpottingReconcileBeans {
         return new OperationStore(ops, steps, fencedTx, redactor);
     }
 
+    @Bean
+    com.xammer.cloud.service.autospotting.core.FallbackProperties fallbackProperties() {
+        return com.xammer.cloud.service.autospotting.core.FallbackProperties.defaults();
+    }
+    @Bean
+    com.xammer.cloud.service.autospotting.core.reconcile.FallbackEnqueuer fallbackEnqueuer(
+            SpotOperationRepository ops, PreemptionService preemption, OperationStore store,
+            com.xammer.cloud.service.autospotting.core.FallbackProperties props, AutoSpottingAuditWriter audit,
+            com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics, SwitchService switches) {
+        return new com.xammer.cloud.service.autospotting.core.reconcile.FallbackEnqueuer(ops, preemption, store, props,
+                audit, metrics, switches);
+    }
     @Bean
     PreemptionService preemptionService(SpotOperationRepository ops, SpotGroupLifecycleRepository lifecycle) {
         return new PreemptionService(ops, lifecycle);
@@ -199,8 +223,9 @@ class AutoSpottingReconcileBeans {
 
     @Bean
     HealthPass healthPass(SpotOperationRepository ops, PreemptionService preemption, ReconcilerStore store,
-                          com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics) {
-        return new HealthPass(ops, preemption, store, metrics);
+                          com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics,
+                          com.xammer.cloud.service.autospotting.core.reconcile.FallbackEnqueuer fallback) {
+        return new HealthPass(ops, preemption, store, metrics, fallback);
     }
 
     @Bean(destroyMethod = "shutdown")
@@ -232,13 +257,15 @@ class AutoSpottingReconcileBeans {
 
     @Bean
     SpotReconciler spotReconciler(ProviderRegistry providers, SpotGroupRepository groups,
-                                  SpotOperationRepository operations, SweepOrder sweepOrder,
+                                  SpotOperationRepository operations,
+                                  com.xammer.cloud.repository.autospotting.SpotPlanRepository plans,
+                                  SweepOrder sweepOrder,
                                   ReconcilerStore reconcilerStore, SwitchService switchService,
                                   SwitchPauseApplier switchPauseApplier, DriftClassifier driftClassifier,
                                   GoneDetector goneDetector, HealthPass healthPass, GroupLifecycleService lifecycle,
                                   LeaseService leaseService, LeaseRegistry registry, JobRunner jobRunner,
                                   LeaseProperties leaseProperties, com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics metrics) {
-        return new SpotReconciler(providers, groups, operations, sweepOrder, reconcilerStore, switchService,
+        return new SpotReconciler(providers, groups, operations, plans, sweepOrder, reconcilerStore, switchService,
                 switchPauseApplier, driftClassifier, goneDetector, healthPass, lifecycle, leaseService, registry,
                 jobRunner, leaseProperties, metrics, Duration.ofHours(2));
     }

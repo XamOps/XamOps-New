@@ -77,6 +77,11 @@ public class SpotGroupLifecycleRepository {
                     + "  occurred_at, effective_at)"
                     + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
+    // The fallback fingerprint (design-aws.md §5.2, §6.4): written in the same fenced transaction as the transition
+    // into FALLBACK, cleared when a FALLBACK_EXIT succeeds. Not part of the guarded transition UPDATE.
+    static final String SET_FALLBACK_FINGERPRINT =
+            "UPDATE spot_group SET fallback_fingerprint = ? WHERE id = ?";
+
     // The group's latest transition effective_at (by id), for the clamp. Null when none exists yet.
     static final String LATEST_EFFECTIVE_AT =
             "SELECT effective_at FROM spot_group_transition WHERE group_id = ? ORDER BY id DESC LIMIT 1";
@@ -177,5 +182,10 @@ public class SpotGroupLifecycleRepository {
                 operationId,
                 Timestamp.from(occurredAt),
                 Timestamp.from(effectiveAt));
+    }
+    /** Set (or clear, with null) {@code fallback_fingerprint}; runs inside the caller's fenced transaction. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public int setFallbackFingerprint(UUID groupId, String fingerprint) {
+        return jdbc.update(SET_FALLBACK_FINGERPRINT, fingerprint, groupId);
     }
 }

@@ -1,5 +1,6 @@
 package com.xammer.cloud.service.matters;
 
+import com.xammer.cloud.config.multitenancy.ImpersonatingOperator;
 import com.xammer.cloud.domain.MattersAccessAudit;
 import com.xammer.cloud.security.ClientUserDetails;
 import jakarta.servlet.http.HttpServletRequest;
@@ -87,6 +88,15 @@ public class MattersAuditService {
      * from the caller's role rather than from which endpoint was hit, so an operator who reaches
      * customer data through an impersonated session is still recorded as an operator.
      *
+     * Under impersonation the principal is the viewed user, and the operator driving it is the
+     * Authentication's details, an {@link ImpersonatingOperator}. {@code ImpersonationFilter} sets it
+     * for a super admin's or a BillOps admin's "view as user" ({@code X-Impersonate-User}), and
+     * {@code ImpersonationJwtFilter} for BillOps Login-As, from the token's actor claims. The row
+     * records that operator as an OPERATOR with {@code impersonated} set, and keeps the viewed user's
+     * client, which is the credential's. A Login-As token minted before billops named the admin
+     * records what it carries: the admin's id, or {@code ImpersonationJwtFilter.ACTOR_UNKNOWN}, with
+     * no username or role.
+     *
      * No authentication at all means a scheduled or internal caller, recorded as SYSTEM rather than
      * left blank, so an unattributed row is never ambiguous between "system" and "we failed to look".
      */
@@ -94,6 +104,15 @@ public class MattersAuditService {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {
             row.setActorType(ACTOR_SYSTEM);
+            return;
+        }
+
+        if (auth.getDetails() instanceof ImpersonatingOperator operator) {
+            row.setActorUserId(operator.userId());
+            row.setActorUsername(operator.username());
+            row.setActorRole(operator.role());
+            row.setActorType(ACTOR_OPERATOR);
+            row.setImpersonated(true);
             return;
         }
 

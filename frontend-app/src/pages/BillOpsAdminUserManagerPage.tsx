@@ -782,17 +782,7 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                                 />
                                 <Icon icon="mdi:cloud-outline" width={13} color="rgba(0,0,0,0.45)" />
                                 <span className="flex flex-col min-w-0">
-                                  <span className="flex items-center gap-1.5 min-w-0">
-                                    <span className="text-[11px] font-medium text-[rgba(0,0,0,0.7)] truncate">{acc.name}</span>
-                                    {acc.invoiceOnly && (
-                                      <span
-                                        className="flex-shrink-0 px-1.5 py-px rounded border border-cyan-200 bg-cyan-50 text-[9px] font-semibold uppercase tracking-wide text-cyan-700"
-                                        title="Added from an uploaded AWS bill, for invoicing only. BillOps has no access to this AWS account."
-                                      >
-                                        Invoice only
-                                      </span>
-                                    )}
-                                  </span>
+                                  <span className="text-[11px] font-medium text-[rgba(0,0,0,0.7)] truncate">{acc.name}</span>
                                   <span className="text-[10px] text-[rgba(0,0,0,0.4)] truncate">
                                     {/* Client first on the cross-client list: it is what
                                         disambiguates two accounts both called "prod". Absent on

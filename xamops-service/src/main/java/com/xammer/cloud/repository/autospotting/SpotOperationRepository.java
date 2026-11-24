@@ -96,6 +96,10 @@ public interface SpotOperationRepository extends JpaRepository<SpotOperation, UU
             nativeQuery = true)
     List<UUID> findDueOpIdsForGroup(@Param("groupId") UUID groupId, @Param("now") Instant now);
 
+    /** Whether the op's group has a {@code spot_group} row (no row: nothing can lease or run it, D-23-06). */
+    @Query(value = "SELECT EXISTS (SELECT 1 FROM spot_group WHERE id = :groupId)", nativeQuery = true)
+    boolean groupRowExists(@Param("groupId") UUID groupId);
+
     /**
      * The distinct group ids with at least one due op (QUEUED, or WAITING that is due), so the
      * dispatcher polls only groups with work. Ordered by the oldest due op first, so no group
@@ -202,6 +206,22 @@ public interface SpotOperationRepository extends JpaRepository<SpotOperation, UU
             + " ORDER BY created_at DESC LIMIT 1",
             nativeQuery = true)
     Optional<SpotOperation> findLatestByGroup(@Param("groupId") UUID groupId);
+
+    /**
+     * Every real (not dry-run) FALLBACK_ENTER and FALLBACK_EXIT of a group, oldest first. The daily cap, the exit
+     * backoff and the re-entry rule are all read from this history (design-aws.md §6.5), so no new column or
+     * table is needed.
+     */
+    @Query(value = "SELECT * FROM spot_operation WHERE group_id = :groupId"
+            + " AND kind IN ('FALLBACK_ENTER','FALLBACK_EXIT') AND dry_run = false ORDER BY created_at ASC",
+            nativeQuery = true)
+    List<SpotOperation> findFallbackOpsByGroup(@Param("groupId") UUID groupId);
+
+    /** The CONFIG_APPLY / PROFILE_CHANGE a fallback preempted: its confirmed change is applied at exit (core §2.4). */
+    @Query(value = "SELECT * FROM spot_operation WHERE preempted_by_op = :opId"
+            + " AND kind IN ('CONFIG_APPLY','PROFILE_CHANGE') ORDER BY created_at DESC",
+            nativeQuery = true)
+    List<SpotOperation> findConfigOpsPreemptedBy(@Param("opId") UUID opId);
 
     // ── preemption (plan-phase-07.md task 7.3, design-core.md §4.7) ─────────────
 

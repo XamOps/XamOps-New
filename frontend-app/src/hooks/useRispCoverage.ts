@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import apiClient from '../utils/apiClient';
+import { getCommitmentCoverage, legacyRispCoveragePath, type RispCoverageBody } from '../api/autospottingApi';
 
 export interface RiCoverage {
   instanceType: string;
@@ -21,7 +22,11 @@ export interface RispCoverageData {
   spCoverages: SpCoverage[];
 }
 
-export const useRispCoverage = (accountId: string | null) => {
+/**
+ * `accountId` is the AWS account id the legacy page uses. With `v2AccountId` (the XamOps account id) the
+ * shell's Commitments view reads the v2 endpoint instead; the legacy page keeps its old path until Phase 36.
+ */
+export const useRispCoverage = (accountId: string | null, v2AccountId?: number | null) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<RispCoverageData>({
@@ -33,7 +38,7 @@ export const useRispCoverage = (accountId: string | null) => {
   });
 
   const fetchRispCoverage = useCallback(async () => {
-    if (!accountId) {
+    if (!accountId && v2AccountId == null) {
       setError('No account ID provided');
       return;
     }
@@ -42,9 +47,10 @@ export const useRispCoverage = (accountId: string | null) => {
     setError(null);
 
     try {
-      const response = await apiClient.get(
-        `/api/autospotting/analytics/risp-coverage/${accountId}`
-      );
+      const response: RispCoverageBody & Record<string, any> =
+        v2AccountId != null
+          ? await getCommitmentCoverage(v2AccountId)
+          : await apiClient.get(legacyRispCoveragePath(accountId as string));
 
       // Transform backend snake_case to camelCase
       const transformedData: RispCoverageData = {
@@ -64,14 +70,13 @@ export const useRispCoverage = (accountId: string | null) => {
       };
 
       setData(transformedData);
-      console.log('✅ RI/SP Coverage Data loaded:', transformedData);
     } catch (err: any) {
-      console.error('❌ Error loading RI/SP coverage data:', err);
+      console.error('Error loading RI/SP coverage data:', err);
       setError(err.message || 'Failed to load RI/SP coverage data');
     } finally {
       setLoading(false);
     }
-  }, [accountId]);
+  }, [accountId, v2AccountId]);
 
   return {
     loading,

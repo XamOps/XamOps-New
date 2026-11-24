@@ -136,6 +136,7 @@ public class UserManagementController {
                 deriveAccountId(ca),
                 ca.getClient() != null ? ca.getClient().getId() : null,
                 ca.getClient() != null ? ca.getClient().getName() : null);
+        // Invoice-only accounts never get here: the repository leaves them out of these lists.
         dto.setInvoiceOnly(ca.isInvoiceOnly());
         return dto;
     }
@@ -193,10 +194,44 @@ public class UserManagementController {
         }
     }
 
+    /**
+     * Deletes a user after releasing every row that references it (see
+     * {@code AppUserService.deleteUser}).
+     *
+     * <p>Failures used to escape as a bare HTTP 500, so the UI could only say "Delete Failed /
+     * HTTP 500" and the blocking table was invisible without server logs. A foreign key the
+     * cleanup does not yet cover now comes back as 409 naming the constraint and table, and is
+     * logged with the root cause, so the missing cleanup can be added directly.
+     */
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
-        service.deleteUser(id);
-        return ResponseEntity.noContent().build();
+    public ResponseEntity<?> deleteUser(@PathVariable Long id) {
+        try {
+            service.deleteUser(id);
+            return ResponseEntity.noContent().build();
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            String cause = rootCauseMessage(e);
+            log.error("Deleting user {} failed on a database constraint: {}", id, cause, e);
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "message", "This user is still referenced by other data and could not be deleted. " + cause));
+        } catch (RuntimeException e) {
+            if ("User not found".equals(e.getMessage())) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", "User not found"));
+            }
+            String cause = rootCauseMessage(e);
+            log.error("Deleting user {} failed: {}", id, cause, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "message", "Could not delete user: " + cause));
+        }
+    }
+
+    /** Innermost exception message — for a FK violation this is PostgreSQL's constraint/table detail. */
+    private static String rootCauseMessage(Throwable e) {
+        Throwable t = e;
+        while (t.getCause() != null && t.getCause() != t) {
+            t = t.getCause();
+        }
+        String msg = t.getMessage();
+        return msg != null ? msg.trim() : t.getClass().getSimpleName();
     }
 
     /** Request body for moving a user to a different client. */

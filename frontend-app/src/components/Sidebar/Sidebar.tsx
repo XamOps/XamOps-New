@@ -16,9 +16,9 @@ import NavSection from './NavSection';
 import SubNav from './SubNav';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useXamTabAccess } from '../../contexts/XamTabAccessContext';
-import { makeBillopsTabGate } from '../../constants/billopsAdminTabs';
+import { DSPM_ADMIN_ROLES, makeBillopsTabGate } from '../../constants/billopsAdminTabs';
 import { XAMSECURE_SIDEBAR_TABS } from '../../constants/xamsecureTabs';
-import { XAMLENS_SIDEBAR_TABS } from '../../constants/xamlensTabs';
+import { XAMLENS_HOME, XAMLENS_SIDEBAR_TABS } from '../../constants/xamlensTabs';
 import { XAMPULSE_TABS } from '../../constants/xampulseTabs';
 import { ClusterSectionsNav } from '../CloudK8s/shared/ClusterSectionsNav';
 import clsx from 'clsx';
@@ -311,11 +311,13 @@ const Sidebar: React.FC = () => {
                   {isTabAllowed('agreement-admin') && <NavItem href="/billops-admin-agreements" icon="fas fa-file-signature" label="Agreement" isActive={isActive('/billops-admin-agreements')} />}
                   {isTabAllowed('autospotting-admin') && <NavItem href="/autospotting-admin" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/autospotting-admin')} />}
                   {isTabAllowed('historical-billing') && <NavItem href="/billops-admin-historical-billing" icon="fas fa-history" label="Historical Billing" isActive={isActive('/billops-admin-historical-billing')} />}
+                  {isTabAllowed('autospotting-billing') && <NavItem href="/billops-admin-autospotting" icon="fas fa-file-contract" label="AutoSpotting Billing" isActive={isActive('/billops-admin-autospotting')} />}
                   {isTabAllowed('client-intake') && <NavItem href="/billops-client-intake" icon="fas fa-clipboard-list" label="Client Intake" isActive={isActive('/billops-client-intake')} />}
                   {/* DSPM add-on administration: org -> Matters project mappings, the per-customer API
                       keys and the access audit trail. Sits next to Accounts because it is the other
-                      place a customer's entitlements are granted. */}
-                  {isTabAllowed('dspm-admin') && <NavItem href="/dspm-admin" icon="fas fa-database" label="XamLens" isActive={isActive('/dspm-admin')} />}
+                      place a customer's entitlements are granted. Shown only to the roles its API
+                      admits, so not to BillOps sub-admins. */}
+                  {isTabAllowed('dspm-admin') && hasAnyRole(DSPM_ADMIN_ROLES) && <NavItem href="/dspm-admin" icon="fas fa-database" label="XamLens" isActive={isActive('/dspm-admin')} />}
                 </>
               )}
             </>
@@ -375,7 +377,7 @@ const Sidebar: React.FC = () => {
                 {selectedAccountDisplay.provider === 'GCP' && (
                   <>
                     {isXamTabAllowed('finops-cloudsitter') && <NavItem href="/gcp-cloudsitter" icon="fas fa-clock" label="CloudSitter" isActive={isActive('/gcp-cloudsitter')} />}
-                    {isXamTabAllowed('finops-autospotting') && <NavItem href="/gcp-autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/gcp-autospotting')} />}
+                    {isXamTabAllowed('finops-autospotting') && <NavItem href="/gcp-autospotting" icon="" iconSrc="/icons/gcp-compute-engine.png" label="AutoSpotting" isActive={isActive('/gcp-autospotting')} />}
                   </>
                 )}
                 {selectedAccountDisplay.provider === 'Azure' && (
@@ -441,7 +443,7 @@ const Sidebar: React.FC = () => {
                 {isXamTabAllowed('secops-xamlens') && (
                   <>
                     <NavItem
-                      href="/xamlens/cloud"
+                      href={XAMLENS_HOME}
                       icon="fas fa-eye"
                       label="XamLens"
                       badge={xamLensLocked ? 'Locked' : undefined}
@@ -449,14 +451,25 @@ const Sidebar: React.FC = () => {
                       isActive={isActive('/xamlens')}
                     />
                     <SubNav isOpen={location.pathname.startsWith('/xamlens')} dark={theme === 'dark'}>
-                      {XAMLENS_SIDEBAR_TABS.map((t) => (
-                        <NavItem
-                          key={t.id}
-                          href={`/xamlens/${t.id}`}
-                          icon={t.icon}
-                          label={t.label}
-                          isActive={location.pathname === `/xamlens/${t.id}`}
-                        />
+                      {XAMLENS_SIDEBAR_TABS.map((t, i) => (
+                        <React.Fragment key={t.id}>
+                          {/* The console's section label ("DATA INVENTORY"), once, before its first entry. Muted
+                              but above 4.5:1 on the sidebar in both themes. */}
+                          {t.section && t.section !== XAMLENS_SIDEBAR_TABS[i - 1]?.section && (
+                            <p className={clsx(
+                              'px-2.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-widest',
+                              theme === 'dark' ? 'text-[rgba(255,255,255,0.5)]' : 'text-[rgba(0,0,0,0.55)]'
+                            )}>
+                              {t.section}
+                            </p>
+                          )}
+                          <NavItem
+                            href={t.href}
+                            icon={t.icon}
+                            label={t.label}
+                            isActive={location.pathname.startsWith(t.activePrefix)}
+                          />
+                        </React.Fragment>
                       ))}
                     </SubNav>
                   </>

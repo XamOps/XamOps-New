@@ -59,7 +59,8 @@ class OperationRunnerIT {
                 ctx.getBean(AutoSpottingAuditWriter.class),
                 ctx.getBean(SwitchService.class),
                 ctx.getBean(SpotOpsLifecycle.class),
-                new ProviderRegistry(List.of(provider)));
+                new ProviderRegistry(List.of(provider)),
+                ctx.getBean(com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics.class));
     }
 
     private static LeaseHandle acquire(AnnotationConfigApplicationContext ctx, UUID groupId) {
@@ -95,6 +96,145 @@ class OperationRunnerIT {
             // first_mutation_seq set by APPLY_TARGET_CONFIG (seq 2).
             assertThat(jdbc.queryForObject("SELECT first_mutation_seq FROM spot_operation WHERE id = ?",
                     Integer.class, op)).isEqualTo(2);
+        }
+    }
+
+    // ── D-23-08: a finished program whose success transition misses ends FAILED, not SUCCEEDED ──
+
+    @Test
+    void aProgramWhoseSuccessTransitionMissesEndsFailedNotSucceeded() {
+        try (PgHarness.Database db = PgHarness.emptySchema(); AnnotationConfigApplicationContext ctx = contextFor(db)) {
+            JdbcTemplate jdbc = (JdbcTemplate) ctx.getBean("beanJdbc");
+            OperationStore store = ctx.getBean(OperationStore.class);
+
+            // The group never left UNMANAGED (the phase 23 state): UNMANAGED -> ACTIVE is not an edge.
+            UUID group = insertGroup(jdbc, GroupState.UNMANAGED);
+            UUID op = insertQueuedOp(store, group, OperationKind.ENABLE, GroupState.UNMANAGED);
+            store.claimForRun(op);
+            SpotProvider provider = new ProgrammableSpotProvider(Provider.AWS,
+                    () -> new StepProgram(List.of(
+                            ScriptedStep.done("VERIFY_PRECONDITIONS", false),
+                            ScriptedStep.done("APPLY_TARGET_CONFIG", true))),
+                    () -> new StepProgram(List.of()));
+
+            runnerWith(ctx, provider).runClaimed(acquire(ctx, group), op);
+
+            // Since D-23-10 the start guard (UNMANAGED -> APPLYING is not an edge) stops it before the first
+            // mutation; the success-transition guard stays as the second line of defence. Never SUCCEEDED,
+            // never parked forever, nothing mutated.
+            assertThat(opStatus(jdbc, op)).isEqualTo("FAILED");
+            assertThat(jdbc.queryForObject("SELECT error_code FROM spot_operation WHERE id = ?", String.class, op))
+                    .isEqualTo("LIFECYCLE_TRANSITION_MISSED");
+            assertThat(groupState(jdbc, group)).isEqualTo("UNMANAGED");
+            assertThat(jdbc.queryForObject("SELECT first_mutation_seq FROM spot_operation WHERE id = ?",
+                    Integer.class, op)).isNull();
+        }
+    }
+
+    // ── D-23-08: a program that mutated and then lost its success edge ends FAILED, not SUCCEEDED ──
+    @Test
+    void aMutatedProgramWhoseSuccessTransitionMissesEndsFailedNotSucceeded() {
+        try (PgHarness.Database db = PgHarness.emptySchema(); AnnotationConfigApplicationContext ctx = contextFor(db)) {
+            JdbcTemplate jdbc = (JdbcTemplate) ctx.getBean("beanJdbc");
+            OperationStore store = ctx.getBean(OperationStore.class);
+            UUID group = insertGroup(jdbc, GroupState.PLANNED);
+            UUID op = insertQueuedOp(store, group, OperationKind.ENABLE, GroupState.UNMANAGED);
+            store.claimForRun(op);
+            // The mutating step flips the group row to FAILED behind the runner's back, so APPLYING -> ACTIVE
+            // has no edge when the program ends.
+            com.xammer.cloud.service.autospotting.spi.Step flipsGroup = new GroupFlippingStep(jdbc, group);
+            SpotProvider provider = new ProgrammableSpotProvider(Provider.AWS,
+                    () -> new StepProgram(List.of(ScriptedStep.done("VERIFY_PRECONDITIONS", false), flipsGroup)),
+                    () -> new StepProgram(List.of()));
+            runnerWith(ctx, provider).runClaimed(acquire(ctx, group), op);
+            assertThat(opStatus(jdbc, op)).isEqualTo("FAILED");
+            assertThat(jdbc.queryForObject("SELECT error_code FROM spot_operation WHERE id = ?", String.class, op))
+                    .isEqualTo("LIFECYCLE_TRANSITION_MISSED");
+            assertThat(jdbc.queryForObject("SELECT first_mutation_seq FROM spot_operation WHERE id = ?",
+                    Integer.class, op)).isEqualTo(1);
+            assertThat(groupState(jdbc, group)).isEqualTo("FAILED");
+        }
+    }
+
+    // ── finding #3: a mutated op that meets a forbidden start edge is not "nothing was changed" ──
+    @Test
+    void aMutatedOpWhoseGroupIsGoneFailsGroupDeletedWithoutCompensation() {
+        try (PgHarness.Database db = PgHarness.emptySchema(); AnnotationConfigApplicationContext ctx = contextFor(db)) {
+            JdbcTemplate jdbc = (JdbcTemplate) ctx.getBean("beanJdbc");
+            OperationStore store = ctx.getBean(OperationStore.class);
+            UUID group = insertGroup(jdbc, GroupState.GONE);
+            UUID op = insertQueuedOp(store, group, OperationKind.ENABLE, GroupState.UNMANAGED);
+            store.claimForRun(op);
+            jdbc.update("UPDATE spot_operation SET step_seq = 1, first_mutation_seq = 1 WHERE id = ?", op);
+            runnerWith(ctx, mutatingProvider()).runClaimed(acquire(ctx, group), op);
+            assertThat(opStatus(jdbc, op)).isEqualTo("FAILED");
+            assertThat(opPhase(jdbc, op)).isEqualTo("FORWARD");
+            assertThat(jdbc.queryForObject("SELECT error_code FROM spot_operation WHERE id = ?", String.class, op))
+                    .isEqualTo("GROUP_DELETED");
+            assertThat(groupState(jdbc, group)).isEqualTo("GONE");
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM autospotting_audit WHERE operation_id = ?"
+                    + " AND event_type = 'OP_FAILED'", Integer.class, op)).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void aMutatedOpWhoseGroupIsFailedTakesTheCompensationPath() {
+        try (PgHarness.Database db = PgHarness.emptySchema(); AnnotationConfigApplicationContext ctx = contextFor(db)) {
+            JdbcTemplate jdbc = (JdbcTemplate) ctx.getBean("beanJdbc");
+            OperationStore store = ctx.getBean(OperationStore.class);
+            UUID group = insertGroup(jdbc, GroupState.FAILED);
+            UUID op = insertQueuedOp(store, group, OperationKind.ENABLE, GroupState.UNMANAGED);
+            store.claimForRun(op);
+            jdbc.update("UPDATE spot_operation SET step_seq = 1, first_mutation_seq = 1 WHERE id = ?", op);
+            runnerWith(ctx, mutatingProvider()).runClaimed(acquire(ctx, group), op);
+            assertThat(opPhase(jdbc, op)).isEqualTo("COMPENSATING");
+            assertThat(jdbc.queryForObject("SELECT error_code FROM spot_operation WHERE id = ?", String.class, op))
+                    .isNotEqualTo("LIFECYCLE_TRANSITION_MISSED");
+        }
+    }
+
+    private static SpotProvider mutatingProvider() {
+        return new ProgrammableSpotProvider(Provider.AWS,
+                () -> new StepProgram(List.of(
+                        ScriptedStep.done("VERIFY_PRECONDITIONS", false),
+                        ScriptedStep.done("APPLY_TARGET_CONFIG", true))),
+                () -> new StepProgram(List.of(ScriptedStep.done("RESTORE_SNAPSHOT", true))));
+    }
+
+    /** A mutating step that, once executed, sets the group row to FAILED over JDBC. */
+    static final class GroupFlippingStep implements com.xammer.cloud.service.autospotting.spi.Step {
+        private final JdbcTemplate jdbc;
+        private final UUID groupId;
+
+        GroupFlippingStep(JdbcTemplate jdbc, UUID groupId) {
+            this.jdbc = jdbc;
+            this.groupId = groupId;
+        }
+
+        @Override
+        public String name() {
+            return "APPLY_TARGET_CONFIG";
+        }
+
+        @Override
+        public boolean mutates() {
+            return true;
+        }
+
+        @Override
+        public StepOutcome execute(com.xammer.cloud.service.autospotting.spi.StepContext ctx) {
+            jdbc.update("UPDATE spot_group SET state = 'FAILED' WHERE id = ?", groupId);
+            return new StepOutcome.Done("{}", List.of("req"));
+        }
+
+        @Override
+        public StepOutcome probe(com.xammer.cloud.service.autospotting.spi.StepContext ctx) {
+            return execute(ctx);
+        }
+
+        @Override
+        public String describeIntent(com.xammer.cloud.service.autospotting.spi.StepContext ctx) {
+            return "flip group";
         }
     }
 

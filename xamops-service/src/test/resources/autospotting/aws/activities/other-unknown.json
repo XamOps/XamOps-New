@@ -1,0 +1,6 @@
+{
+  "matcherId": null,
+  "failureClass": "OTHER",
+  "statusMessage": "Invalid IAM Instance Profile name: app-profile. Launching EC2 instance failed.",
+  "note": "recorded-style fixture; V-AWS-16 replaces it with a real sample in Phase 23"
+}

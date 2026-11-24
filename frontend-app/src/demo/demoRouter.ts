@@ -20,9 +20,19 @@ import * as identity from './xamopsIdentityMockData';
 import * as billops from './billopsAdminMockData';
 import * as xamsecure from './xamsecureMockData';
 import * as xamlens from './xamlensMockData';
+import * as xamlensDrawer from './xamlensDrawerMockData';
+import * as saasDrawer from './xamlensSaasDrawerMockData';
+import * as endpointDrawer from './xamlensEndpointDrawerMockData';
+import * as xamlensRisks from './xamlensRisksMockData';
+import * as lineage from './xamlensLineageMockData';
+import * as publicLineage from './xamlensLineagePublicMockData';
+import * as files from './xamlensFilesMockData';
+import * as xamlensPages from './xamlensPagesMockData';
+import * as xamlensScans from './xamlensScansMockData';
 import type { DspmSurface } from '../hooks/useDspmData';
 import * as soc2 from './soc2MockData';
 import * as war from './warMockData';
+import * as spot from './autospottingDemoData';
 
 /** Reads a query-string value off a URL that may be relative. */
 function param(url: string, name: string): string {
@@ -52,6 +62,41 @@ function makeResponse(data: unknown, status = 200): Response {
   });
 }
 
+/** A DSPM error body, `{code, message}`, as the backend's DSPM routes answer one. */
+function makeDspmError(status: number, code: string, message: string): Response {
+  return makeResponse({ code, message }, status);
+}
+
+/** A cloud or on-prem datastore's drawer resources (design 7.1). */
+const DATASTORE_RESOURCE =
+  /^\/api\/dspm\/datastores\/([0-9a-f]{24})\/(overview|scan-status|sensitives|sensitives\/files|sensitives\/occurrences|risks|access-graph|scan-history|data-flow\/databases)$/;
+/** A cloud or on-prem datastore's scan extras: the info card's sync status and the Scan Settings layer (design 7). */
+const DATASTORE_SCAN_RESOURCE =
+  /^\/api\/dspm\/datastores\/([0-9a-f]{24})\/(sync-status|scan-settings|scan-settings\/databases)$/;
+/** The Data Flow routes below a database, schema or table, the diagrams and a table's relations among them. */
+const DATA_FLOW_RESOURCE = /^\/api\/dspm\/data-flow\/(databases|schemas|tables)\/([0-9a-f-]{36})\/(schemas|tables|columns|erd|relations)$/;
+/** A SaaS datastore's drawer resources (design 7.1). */
+const SAAS_RESOURCE = /^\/api\/dspm\/datastores\/([0-9a-f]{24})\/saas\/(detail|records|files|scan-summary)$/;
+/** A SaaS file's drawer resources. */
+const SAAS_FILE_RESOURCE = /^\/api\/dspm\/saas-files\/([0-9a-f]{24})\/(overview|activity|lineage|copies)$/;
+/** A policy of the XamLens Misconfigurations page, by the backend's policy id pattern. */
+const MISCONFIGURATION_POLICY = /^\/api\/dspm\/misconfigurations\/policies\/([A-Za-z0-9][A-Za-z0-9_.-]{0,127})$/;
+/** An endpoint's drawer resources. */
+const ENDPOINT_RESOURCE =
+  /^\/api\/dspm\/datastores\/([0-9a-f]{24})\/endpoint\/(overview|filter-options|summary|sensitives|occurrences|files|scans)$/;
+/** The Data Lineage page's id routes (build 4 design 7.1). */
+const LINEAGE_POLICY_DATASTORES = /^\/api\/dspm\/lineage\/policies\/([0-9a-f-]{36})\/datastores$/;
+const LINEAGE_DATASTORE_FILES = /^\/api\/dspm\/lineage\/datastores\/([A-Za-z0-9-]{1,64})\/files$/;
+const LINEAGE_FILE_LINEAGE = /^\/api\/dspm\/lineage\/files\/([0-9a-f-]{24,36})\/lineage$/;
+/** The public path's routes (build 7 design 7): the datastores, one datastore's files, one file's lineage. */
+const LINEAGE_PUBLIC_DATASTORES = /^\/api\/dspm\/lineage\/public\/datastores$/;
+const LINEAGE_PUBLIC_FILES =
+  /^\/api\/dspm\/lineage\/public\/datastores\/(ep-[0-9a-f]{24}|dr-[0-9a-f]{24}-[A-Za-z0-9_-]{1,64})\/files$/;
+const LINEAGE_PUBLIC_FILE_LINEAGE =
+  /^\/api\/dspm\/lineage\/public\/datastores\/(ep-[0-9a-f]{24}|dr-[0-9a-f]{24}-[A-Za-z0-9_-]{1,64})\/files\/([A-Za-z0-9_-]{1,128})\/lineage$/;
+/** An Endpoint file drawer's resources (the Files page). */
+const ENDPOINT_FILE_RESOURCE = /^\/api\/dspm\/endpoint-files\/([0-9a-f-]{36})\/(overview|activity|lineage|copies)$/;
+
 const AUTOSPOTTING_ADMIN_PREFIX = '/api/xamops/autospotting-admin/';
 
 /**
@@ -60,7 +105,21 @@ const AUTOSPOTTING_ADMIN_PREFIX = '/api/xamops/autospotting-admin/';
  * AutoSpotting customer's real name and savings. Lists are empty and totals 0, which both pages
  * render as "no data"; any other path under the prefix is a 404.
  */
-function routeAutoSpottingAdmin(url: string): Response {
+function routeAutoSpottingAdmin(url: string, method = 'GET', body?: string): Response {
+  const m = method.toUpperCase();
+  const path = url.slice(url.indexOf(AUTOSPOTTING_ADMIN_PREFIX) + AUTOSPOTTING_ADMIN_PREFIX.length).split('?')[0];
+  // Operator views (Phase 14): switches, stuck operations, pause and resume. Demo fixtures only.
+  if (path === 'switches' && m === 'GET') return makeResponse(spot.demoSwitches());
+  const sw = /^switches\/([^/]+)$/.exec(path);
+  if (sw && m === 'PUT') {
+    const change = parseJson(body) as { engaged: boolean; expectedVersion: number; reason: string };
+    const next = spot.setDemoSwitch(decodeURIComponent(sw[1]), change);
+    return next ? makeResponse(next) : makeNotFound();
+  }
+  if (path === 'operations' && m === 'GET') return makeResponse(spot.demoOperatorOperations());
+  const pr = /^groups\/([^/]+)\/(pause|resume)$/.exec(path);
+  if (pr && m === 'POST')
+    return makeResponse({ groupId: decodeURIComponent(pr[1]), state: pr[2] === 'pause' ? 'PAUSED' : 'ACTIVE' });
   if (url.includes(`${AUTOSPOTTING_ADMIN_PREFIX}total-savings`))
     return makeResponse({ totalSavings: 0, legacyUnverifiedTotal: 0, activeSpotInstances: 0 });
   if (
@@ -71,6 +130,62 @@ function routeAutoSpottingAdmin(url: string): Response {
   )
     return makeResponse([]);
   return makeNotFound();
+}
+
+function parseJson(body?: string): unknown {
+  try {
+    return body ? JSON.parse(body) : {};
+  } catch {
+    return {};
+  }
+}
+
+const V2_PREFIX = '/api/autospotting/v2/';
+
+/**
+ * Every v2 path the AutoSpotting shell calls (AC-UI-06, AWS and the GCP demo project): config, groups, detail, plan for all
+ * profiles, confirm (a scripted operation that ends ACTIVE), revert, analytics, activity and commitments.
+ * An unknown v2 path is a 404 problem body, never the generic empty object.
+ */
+function routeAutoSpottingV2(url: string, method: string, body?: string): Response {
+  const m = method.toUpperCase();
+  const path = url.slice(url.indexOf(V2_PREFIX) + V2_PREFIX.length - 1).split('?')[0];
+  if (path === '/config' && m === 'GET') return makeResponse(spot.demoAutoSpottingConfig);
+  const cloud = spot.demoProviderOf(/^\/accounts\/([^/]+)/.exec(path)?.[1]);
+  if (/^\/accounts\/[^/]+\/groups\/potential$/.test(path) && m === 'GET') return makeResponse(spot.demoPotential(cloud));
+  if (/^\/accounts\/[^/]+\/groups$/.test(path) && m === 'GET') return makeResponse(spot.demoGroupList(cloud));
+  const group = /^\/accounts\/[^/]+\/groups\/([^/]+)$/.exec(path);
+  if (group && m === 'GET') {
+    const detail = spot.demoGroupDetail(decodeURIComponent(group[1]));
+    return detail ? makeResponse(detail) : makeResponse({ code: 'NOT_FOUND', detail: 'Group not found.' }, 404);
+  }
+  if (/^\/accounts\/[^/]+\/plans$/.test(path) && m === 'POST') {
+    const req = parseJson(body) as { kind?: string; groupId?: string | null; groupRef?: string | null };
+    return makeResponse(spot.demoCreatePlan(req.groupId ?? req.groupRef ?? null, req.kind ?? 'ENABLE'), 201);
+  }
+  const plan = /^\/accounts\/[^/]+\/plans\/([^/]+)$/.exec(path);
+  if (plan && m === 'GET') {
+    const found = spot.demoGetPlan(decodeURIComponent(plan[1]));
+    return found ? makeResponse(found) : makeResponse({ code: 'NOT_FOUND', detail: 'Plan not found.' }, 404);
+  }
+  const confirm = /^\/accounts\/[^/]+\/plans\/([^/]+)\/confirm$/.exec(path);
+  if (confirm && m === 'POST') {
+    const started = spot.demoConfirm(decodeURIComponent(confirm[1]));
+    return started ? makeResponse(started, 202) : makeResponse({ code: 'NOT_FOUND', detail: 'Plan not found.' }, 404);
+  }
+  const op = /^\/accounts\/[^/]+\/operations\/([^/]+)$/.exec(path);
+  if (op && m === 'GET') {
+    const found = spot.demoOperation(decodeURIComponent(op[1]));
+    return found ? makeResponse(found) : makeResponse({ code: 'NOT_FOUND', detail: 'Operation not found.' }, 404);
+  }
+  if (/^\/accounts\/[^/]+\/analytics$/.test(path) && m === 'GET')
+    return makeResponse(spot.demoAnalytics(param(url, 'from') || '2026-10-22', param(url, 'to') || '2026-11-20', cloud));
+  if (/^\/accounts\/[^/]+\/audit$/.test(path) && m === 'GET') return makeResponse(spot.demoAudit(cloud));
+  if (/^\/accounts\/[^/]+\/commitments\/coverage$/.test(path) && m === 'GET') return makeResponse(spot.demoCommitmentCoverage);
+  if (/^\/accounts\/[^/]+\/commitments\/settings$/.test(path) && m === 'GET') return makeResponse(spot.demoCommitmentSettings());
+  if (/^\/accounts\/[^/]+\/commitments\/settings\/risp-respect$/.test(path) && m === 'PUT')
+    return makeResponse(spot.saveDemoCommitmentSettings(parseJson(body) as Partial<{ respectRiSpCommitments: boolean; riSpUtilizationThreshold: number }>));
+  return makeResponse({ code: 'NOT_FOUND', detail: 'No demo response for this path.' }, 404);
 }
 
 function routeXamops(url: string, method = 'GET', body?: string): Response | null {
@@ -720,7 +835,7 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   // AutoSpotting admin reads: mocked, never passed through (see routeAutoSpottingAdmin). Must come
   // before the catch-all below, whose {} would break the pages' arrays.
   if (url.includes(AUTOSPOTTING_ADMIN_PREFIX))
-    return routeAutoSpottingAdmin(url);
+    return routeAutoSpottingAdmin(url, method, body);
 
   // Any other /api/xamops/* — empty fallback
   if (url.includes('/api/xamops/'))
@@ -738,6 +853,9 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   if (url.includes('/api/ebs/'))
     return makeResponse([]);
 
+  // AutoSpotting v2 (the shell): every path the shell calls has a fixture (task 14.4).
+  if (url.includes(V2_PREFIX))
+    return routeAutoSpottingV2(url, method, body);
   // AutoSpotting — uses /api/autospotting/ (not /api/xamops/)
   if (url.includes('/api/autospotting/costs/history'))
     return makeResponse(xamops.demoAutoSpottingHistory);
@@ -1103,6 +1221,93 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   if (url.includes('/api/xamsecure/'))
     return makeResponse({});
 
+  // XamLens Misconfigurations page and its drawer. Answered here, so the /api/dspm/ catch-all never
+  // gives them {}; any other path under the prefix is a 404, as the backend's unknown policy is.
+  if (url.includes('/api/dspm/misconfigurations')) {
+    const path = new URL(url, 'http://localhost').pathname;
+    if (path === '/api/dspm/misconfigurations')
+      return makeResponse(xamlensRisks.demoMisconfigurationList());
+    const policy = path.match(MISCONFIGURATION_POLICY);
+    const detail = policy ? xamlensRisks.demoMisconfigurationDetail(decodeURIComponent(policy[1])) : null;
+    if (detail) return makeResponse(detail);
+    return makeDspmError(404, 'ASSET_NOT_FOUND', 'That misconfiguration could not be found.');
+  }
+
+  // XamLens Data Lineage page (build 4 design 7.1). Every path under /api/dspm/lineage/ is answered
+  // here: a body, a 400 for a refused parameter, or a 404, never the /api/dspm/ catch-all and its {}.
+  if (url.includes('/api/dspm/lineage/')) {
+    const path = new URL(url, 'http://localhost').pathname;
+    const datastores = path.match(LINEAGE_POLICY_DATASTORES);
+    const datastoreFiles = path.match(LINEAGE_DATASTORE_FILES);
+    const fileLineage = path.match(LINEAGE_FILE_LINEAGE);
+    const publicFiles = path.match(LINEAGE_PUBLIC_FILES);
+    const publicFileLineage = path.match(LINEAGE_PUBLIC_FILE_LINEAGE);
+    const body = path === '/api/dspm/lineage/categories' ? lineage.demoLineageCategories()
+      : path === '/api/dspm/lineage/filter-options' ? lineage.demoLineageFilterOptions(url)
+        : path === '/api/dspm/lineage/policies' ? lineage.demoLineagePolicies(url)
+          : datastores ? lineage.demoLineageDatastores(datastores[1], url)
+            : datastoreFiles ? lineage.demoLineageFiles(datastoreFiles[1], url)
+              : fileLineage ? lineage.demoLineageFileLineage(fileLineage[1])
+                : LINEAGE_PUBLIC_DATASTORES.test(path) ? publicLineage.demoPublicDatastores(url)
+                  : publicFiles ? publicLineage.demoPublicFiles(publicFiles[1], url)
+                    : publicFileLineage ? publicLineage.demoPublicFileLineage(publicFileLineage[1], publicFileLineage[2])
+                      : null;
+    if (lineage.isDemoLineageInvalid(body)) return makeDspmError(400, 'INVALID_REQUEST', body.message);
+    if (body) return makeResponse(body);
+    return makeDspmError(404, 'ASSET_NOT_FOUND', 'That lineage item could not be found.');
+  }
+
+  // XamLens Datastores and Files pages and their drawers (design 7.1). Ahead of the block below, so neither its
+  // /api/dspm/assets/{id} matcher nor the /api/dspm/ catch-all answers these paths: a {} would break
+  // every table that reads an array.
+  if (url.includes('/api/dspm/datastores') || url.includes('/api/dspm/data-flow/') || url.includes('/api/dspm/saas-files/')
+    || url.includes('/api/dspm/files/') || url.includes('/api/dspm/endpoint-files/')) {
+    const path = new URL(url, 'http://localhost').pathname;
+    if (path === '/api/dspm/datastores')
+      return makeResponse(xamlens.demoDatastores(url));
+    if (path === '/api/dspm/datastores/filter-options')
+      return makeResponse(xamlens.demoDatastoreFilterOptions(url));
+    if (path === '/api/dspm/datastores/kpis')
+      return makeResponse(xamlens.demoDatastoreKpis(url));
+    if (path === '/api/dspm/files/saas')
+      return makeResponse(files.demoSaasFiles(url));
+    if (path === '/api/dspm/files/saas/filter-options')
+      return makeResponse(files.demoSaasFileOptions(url));
+    if (path === '/api/dspm/files/endpoint')
+      return makeResponse(files.demoEndpointFiles(url));
+    if (path === '/api/dspm/files/endpoint/filter-options')
+      return makeResponse(files.demoEndpointFileOptions());
+    const scanResource = path.match(DATASTORE_SCAN_RESOURCE);
+    if (scanResource) {
+      const answer = xamlensScans.demoDatastoreScanResource(
+        scanResource[1], scanResource[2] as xamlensScans.DemoDatastoreScanKind);
+      if (answer) return makeResponse(answer);
+    }
+    const resource = path.match(DATASTORE_RESOURCE);
+    const flow = path.match(DATA_FLOW_RESOURCE);
+    const saas = path.match(SAAS_RESOURCE);
+    const saasFile = path.match(SAAS_FILE_RESOURCE);
+    const endpoint = path.match(ENDPOINT_RESOURCE);
+    const endpointFile = path.match(ENDPOINT_FILE_RESOURCE);
+    const body = resource ? xamlensDrawer.demoDatastoreResource(resource[1], resource[2], url)
+      : flow ? xamlensDrawer.demoDataFlowResource(flow[1], flow[2], flow[3], url)
+        : saas ? saasDrawer.demoSaasResource(saas[1], saas[2], url)
+          : saasFile ? saasDrawer.demoSaasFileResource(saasFile[1], saasFile[2])
+            : endpoint ? endpointDrawer.demoEndpointResource(endpoint[1], endpoint[2], url)
+              : endpointFile ? files.demoEndpointFileResource(endpointFile[1], endpointFile[2])
+                : null;
+    // A files filter that is no row of its view, refused as the backend refuses it.
+    if (saasDrawer.isDemoInvalidRequest(body))
+      return makeDspmError(400, 'INVALID_REQUEST', `${body.invalidParameter} is not a row of this datastore`);
+    if (body) return makeResponse(body);
+    // Any other id under these routes is one the demo does not know, answered as the backend would, so
+    // it never reaches the /api/dspm/ catch-all and its {}.
+    if (path.startsWith('/api/dspm/saas-files/') || path.startsWith('/api/dspm/files/') || path.startsWith('/api/dspm/endpoint-files/'))
+      return makeDspmError(404, 'ASSET_NOT_FOUND', 'That file could not be found.');
+    if (path.startsWith('/api/dspm/datastores/') || path.startsWith('/api/dspm/data-flow/'))
+      return makeDspmError(404, 'ASSET_NOT_FOUND', 'That datastore could not be found.');
+  }
+
   // XamLens (DSPM). The list and filter routes carry the surface; asset detail does not.
   {
     const surface = url.match(/\/api\/dspm\/(cloud|saas|endpoint)\/(assets|filters)/);
@@ -1120,6 +1325,22 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   }
   if (url.includes('/api/dspm/status'))
     return makeResponse(xamlens.demoDspmStatus());
+  // XamLens build 6 pages (design 7), ahead of the catch-all below.
+  if (url.includes('/api/dspm/')) {
+    const path = new URL(url, 'http://localhost').pathname;
+    if (path === '/api/dspm/dashboard')
+      return makeResponse(xamlensPages.demoDashboard());
+    if (path === '/api/dspm/document-classes')
+      return makeResponse(xamlensPages.demoDocumentClasses());
+    if (path === '/api/dspm/assists')
+      return makeResponse(xamlensPages.demoAssists());
+    if (path === '/api/dspm/remediation/activity')
+      return makeResponse(xamlensPages.demoRemediation(url));
+    if (path.startsWith('/api/dspm/scan-management/')) {
+      const answer = xamlensScans.demoScanManagement(path, url);
+      return answer !== null ? makeResponse(answer) : makeDspmError(404, 'ASSET_NOT_FOUND', 'That item could not be found.');
+    }
+  }
   // Summary and anything else: {} is safe, nothing on screen reads it yet. Never the real API, which
   // would read a customer's Matters project from a sales demo.
   if (url.includes('/api/dspm/'))
@@ -1301,7 +1522,7 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   return null;
 }
 
-function routeBillopsAdmin(url: string): Response | null {
+function routeBillopsAdmin(url: string, method = 'GET', body?: string): Response | null {
   // Team profile (needed by DashboardGuard routing)
   if (url.includes('/api/billops/team/profile'))
     return makeResponse(billops.demoBillopsTeamProfile);
@@ -1429,13 +1650,26 @@ function routeBillopsAdmin(url: string): Response | null {
   // Marketplace historical billing — must return arrays so .filter() works
   if (url.includes('/api/xamops/billops-admin/marketplace/'))
     return makeResponse([]);
+  // XamLens (DSPM) admin page: no mappings, no customers to map, no audit rows. The page filters the
+  // lists, so the {} below crashed it ("list.filter is not a function"). Matched on the path, because
+  // the audit read carries its filters in the query string.
+  if (url.includes('/api/xamops/billops-admin/dspm/')) {
+    const path = new URL(url, 'http://localhost').pathname;
+    if (path === '/api/xamops/billops-admin/dspm/mappings' || path === '/api/xamops/billops-admin/dspm/clients')
+      return makeResponse([]);
+    if (path === '/api/xamops/billops-admin/dspm/audit')
+      return makeResponse({
+        data: [], page: Number(param(url, 'page')) || 0, pageSize: Number(param(url, 'size')) || 50,
+        total: 0, totalPages: 0,
+      });
+  }
   if (url.includes('/api/xamops/billops-admin/'))
     return makeResponse({});
 
   // AutoSpotting card and its Full Report page. This demo login is a real BillOps admin, so these
   // reads must never reach the backend (see routeAutoSpottingAdmin).
   if (url.includes(AUTOSPOTTING_ADMIN_PREFIX))
-    return routeAutoSpottingAdmin(url);
+    return routeAutoSpottingAdmin(url, method, body);
 
   // Any other /api/billops/* — empty fallback
   if (url.includes('/api/billops/'))
@@ -1458,7 +1692,7 @@ export function resolveDemoResponse(url: string, method = 'GET', body?: string):
   if (!role) return null;
 
   if (role === 'ROLE_XAMOPS')        return routeXamops(url, method, body);
-  if (role === 'ROLE_BILLOPS_ADMIN') return routeBillopsAdmin(url);
+  if (role === 'ROLE_BILLOPS_ADMIN') return routeBillopsAdmin(url, method, body);
 
   return null;
 }

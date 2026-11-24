@@ -36,6 +36,24 @@ public class AksDashboardService {
     private final AgentDataTransformerService agentDataTransformerService;
     private final AgentK8sDashboardMapper agentK8sDashboardMapper;
 
+    /**
+     * Whether the AKS cluster still exists in Azure.
+     *
+     * <p>False only on a definite 404 from ARM. A throttle, a permission error or a transport
+     * failure returns true, so a transient problem never causes a cached cluster to be dropped.
+     */
+    public boolean clusterExists(String subscriptionId, String resourceGroup, String clusterName) {
+        try {
+            AzureResourceManager azure = azureClientProvider.getAzureClient(subscriptionId);
+            azure.kubernetesClusters().getByResourceGroup(resourceGroup, clusterName);
+            return true;
+        } catch (com.azure.core.exception.HttpResponseException e) {
+            return e.getResponse() == null || e.getResponse().getStatusCode() != 404;
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
     public AksDashboardDto getDashboard(String subscriptionId, String clusterName, String resourceGroup) {
         log.info("Building AKS dashboard for cluster {} in resource group {} (subscription {})",
                 clusterName, resourceGroup, subscriptionId);

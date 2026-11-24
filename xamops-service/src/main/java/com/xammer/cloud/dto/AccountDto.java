@@ -17,6 +17,7 @@ public class AccountDto {
     private boolean cspManaged;
     private String billingSource;
     private Boolean billingDataAvailable;
+    private String gcpAccessType;
 
     public AccountDto() {
     }
@@ -160,5 +161,13 @@ public class AccountDto {
 
     public void setBillingDataAvailable(Boolean billingDataAvailable) {
         this.billingDataAvailable = billingDataAvailable;
+    }
+
+    public String getGcpAccessType() {
+        return gcpAccessType;
+    }
+
+    public void setGcpAccessType(String gcpAccessType) {
+        this.gcpAccessType = gcpAccessType;
     }
 }

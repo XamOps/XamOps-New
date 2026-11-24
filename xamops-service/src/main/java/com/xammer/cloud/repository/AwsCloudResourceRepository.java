@@ -99,6 +99,11 @@ public interface AwsCloudResourceRepository extends JpaRepository<AwsCloudResour
 
     @Query("SELECT r.displayType, COUNT(r) FROM AwsCloudResource r "
             + "WHERE r.cloudAccountId = :cloudAccountId AND r.status = 'ACTIVE' "
+            // Terminated and shutting-down instances are gone for practical purposes but AWS
+            // keeps listing them for about an hour, so they must not count as live instances.
+            // Null state stays counted: it means "not resolved yet", not "gone".
+            + "AND (r.nativeType IS NULL OR r.nativeType <> 'ec2:instance' OR r.state IS NULL "
+            + "OR r.state NOT IN ('terminated', 'shutting-down')) "
             + "GROUP BY r.displayType ORDER BY r.displayType")
     List<Object[]> countActiveByDisplayType(@Param("cloudAccountId") Long cloudAccountId);
 

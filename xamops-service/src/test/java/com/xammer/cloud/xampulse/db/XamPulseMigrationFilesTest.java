@@ -89,9 +89,9 @@ class XamPulseMigrationFilesTest {
 
     @Test
     void alertStateKeyAndTabGrantGuard() throws IOException {
-        String alerting = Files.readString(DIR.resolve("V20261105_2__xampulse_alerting.sql"));
+        String alerting = Files.readString(DIR.resolve("V20261124_2__xampulse_alerting.sql"));
         assertTrue(alerting.contains("PRIMARY KEY (rule_id, group_key)"));
-        String grants = Files.readString(DIR.resolve("V20261105_5__xampulse_tab_access_grants.sql"));
+        String grants = Files.readString(DIR.resolve("V20261124_5__xampulse_tab_access_grants.sql"));
         assertTrue(grants.contains("to_regclass('user_tab_access')"));
         assertTrue(grants.contains("NOT EXISTS"));
         for (String k : List.of("xp-overview", "xp-hosts", "xp-containers", "xp-logs", "xp-metrics", "xp-alerts", "xp-insights", "xp-setup")) {

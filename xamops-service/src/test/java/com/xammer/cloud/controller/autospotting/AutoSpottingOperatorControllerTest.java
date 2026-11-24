@@ -53,6 +53,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -98,6 +99,10 @@ class AutoSpottingOperatorControllerTest {
     @MockitoBean
     private com.xammer.cloud.service.autospotting.core.IdempotencyService idempotencyService;
     @MockitoBean
+    private com.xammer.cloud.service.autospotting.core.allowlist.AllowlistOperatorService allowlistService;
+    @MockitoBean
+    private com.xammer.cloud.service.autospotting.aws.events.AwsEventDlqService dlqService;
+    @MockitoBean
     private com.xammer.cloud.repository.UserRepository userRepository;
     @MockitoBean
     private CustomAuthenticationSuccessHandler authenticationSuccessHandler;
@@ -129,6 +134,15 @@ class AutoSpottingOperatorControllerTest {
         when(switchOperatorService.setEngaged(anyString(), anyBoolean(), anyLong(), any(), anyString()))
                 .thenReturn(new SwitchOperatorService.SwitchView(
                         "GLOBAL", false, true, false, "freeze reason", "11", Instant.now(), 1L));
+        when(allowlistService.options(7L)).thenReturn(
+                new com.xammer.cloud.service.autospotting.core.allowlist.AllowlistOperatorService.BasisOptions(
+                        7L, "AWS", "prod", 3L, true,
+                        java.util.UUID.fromString("11111111-2222-3333-4444-555555555555")));
+        when(allowlistService.list()).thenReturn(List.of(allowlistView("CONTRACT", true)));
+        when(allowlistService.add(eq(7L), eq("CONTRACT"), anyString(), any(), anyString()))
+                .thenReturn(allowlistView("CONTRACT", true));
+        when(allowlistService.add(eq(7L), eq("NO_FEE"), any(), any(), anyString()))
+                .thenReturn(allowlistView("NO_FEE", false));
         when(operationRepository.findOperatorOps(any(), any(), any())).thenAnswer(inv -> {
             org.springframework.data.domain.Pageable pageable = inv.getArgument(2);
             return new PageImpl<>(List.of(), pageable, 0);
@@ -222,6 +236,154 @@ class AutoSpottingOperatorControllerTest {
                 .andExpect(jsonPath("$.operations").isArray());
     }
 
+    // ── allowlist with billing basis (plan-phase-15.md task 15.4, design-core.md §6.1, ux §9.2) ──
+
+    private static final String ALLOWLIST = "/api/xamops/autospotting-admin/allowlist";
+
+    private static com.xammer.cloud.service.autospotting.core.allowlist.AllowlistOperatorService.AllowlistView
+            allowlistView(String basis, boolean inForce) {
+        return new com.xammer.cloud.service.autospotting.core.allowlist.AllowlistOperatorService.AllowlistView(
+                7L, "AWS", "prod", 3L, basis,
+                "CONTRACT".equals(basis) ? java.util.UUID.fromString("11111111-2222-3333-4444-555555555555") : null,
+                inForce, "pilot", "11", Instant.parse("2026-11-20T00:00:00Z"));
+    }
+
+    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder postAllowlist(String body) {
+        return org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(ALLOWLIST)
+                .contentType("application/json")
+                .header(AutoSpottingIntentFilter.INTENT_HEADER, AutoSpottingIntentFilter.INTENT_VALUE)
+                .header("Idempotency-Key", "11111111-1111-1111-1111-111111111111")
+                .content(body);
+    }
+
+    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder deleteAllowlist(String body) {
+        return org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete(ALLOWLIST + "/7")
+                .contentType("application/json")
+                .header(AutoSpottingIntentFilter.INTENT_HEADER, AutoSpottingIntentFilter.INTENT_VALUE)
+                .header("Idempotency-Key", "11111111-1111-1111-1111-111111111111")
+                .content(body);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "ROLE_SUPER_ADMIN", "ROLE_XAMOPS_ADMIN" })
+    void allowlist_operatorsReadAddAndRemove(String role) throws Exception {
+        mvc.perform(get(ALLOWLIST + "/options/7").with(as(role)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.contractInForce").value(true));
+        mvc.perform(get(ALLOWLIST).with(as(role)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].billingBasis").value("CONTRACT"))
+                .andExpect(jsonPath("$[0].contractInForce").value(true))
+                .andExpect(jsonPath("$[0].cloudAccountId").value(7));
+        // ux §9.2: CONTRACT with a contract in force, and NO_FEE with a reason, are 2xx.
+        mvc.perform(postAllowlist("{\"cloudAccountId\":7,\"billingBasis\":\"CONTRACT\",\"reason\":\"pilot\"}").with(as(role)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.billingBasis").value("CONTRACT"));
+        mvc.perform(postAllowlist("{\"cloudAccountId\":7,\"billingBasis\":\"NO_FEE\",\"reason\":\"test project\"}").with(as(role)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.billingBasis").value("NO_FEE"))
+                .andExpect(jsonPath("$.contractId").doesNotExist());
+        mvc.perform(deleteAllowlist("{\"reason\":\"pilot over\"}").with(as(role))).andExpect(status().isNoContent());
+        verify(allowlistService).remove(eq(7L), eq("pilot over"), any());
+    }
+
+    @Test
+    void allowlist_withoutABillingBasis_is409() throws Exception {
+        when(allowlistService.add(eq(7L), eq("CONTRACT"), anyString(), any(), anyString())).thenThrow(
+                new com.xammer.cloud.service.autospotting.core.AutoSpottingApiException(
+                        org.springframework.http.HttpStatus.CONFLICT, "ALLOWLIST_NEEDS_BILLING_BASIS", "no contract"));
+        when(allowlistService.add(eq(7L), eq("NO_FEE"), any(), any(), anyString())).thenThrow(
+                new com.xammer.cloud.service.autospotting.core.AutoSpottingApiException(
+                        org.springframework.http.HttpStatus.CONFLICT, "ALLOWLIST_NEEDS_BILLING_BASIS", "no reason"));
+        mvc.perform(postAllowlist("{\"cloudAccountId\":7,\"billingBasis\":\"CONTRACT\",\"reason\":\"pilot\"}").with(as("ROLE_SUPER_ADMIN")))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ALLOWLIST_NEEDS_BILLING_BASIS"));
+        mvc.perform(postAllowlist("{\"cloudAccountId\":7,\"billingBasis\":\"NO_FEE\"}").with(as("ROLE_SUPER_ADMIN")))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ALLOWLIST_NEEDS_BILLING_BASIS"));
+    }
+
+    @Test
+    void allowlist_rolesImpersonationAndHeaders() throws Exception {
+        // BillOps admin, customer: 403; anonymous: 401.
+        for (String role : List.of("ROLE_BILLOPS_ADMIN", "ROLE_USER")) {
+            mvc.perform(get(ALLOWLIST).with(as(role))).andExpect(status().isForbidden());
+            mvc.perform(postAllowlist("{\"cloudAccountId\":7,\"billingBasis\":\"NO_FEE\",\"reason\":\"r\"}").with(as(role)))
+                    .andExpect(status().isForbidden());
+            mvc.perform(deleteAllowlist("{\"reason\":\"r\"}").with(as(role))).andExpect(status().isForbidden());
+        }
+        mvc.perform(get(ALLOWLIST)).andExpect(status().isUnauthorized());
+        // Impersonated super admin reads; writes are 403 AS_FORBIDDEN_ROLE.
+        ImpersonationContext.setImpersonatedUserId(99L);
+        mvc.perform(get(ALLOWLIST).with(as("ROLE_SUPER_ADMIN")).header("X-Impersonate-User", "99")).andExpect(status().isOk());
+        mvc.perform(postAllowlist("{\"cloudAccountId\":7,\"billingBasis\":\"NO_FEE\",\"reason\":\"r\"}")
+                        .with(as("ROLE_SUPER_ADMIN")).header("X-Impersonate-User", "99"))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("AS_FORBIDDEN_ROLE"));
+        mvc.perform(deleteAllowlist("{\"reason\":\"r\"}").with(as("ROLE_SUPER_ADMIN")).header("X-Impersonate-User", "99"))
+                .andExpect(status().isForbidden());
+        // An impersonated XamOps admin (no super admin) cannot read it at all.
+        mvc.perform(get(ALLOWLIST).with(as("ROLE_XAMOPS_ADMIN")).header("X-Impersonate-User", "99")).andExpect(status().isForbidden());
+        ImpersonationContext.clear();
+        // The OTP-exempt demo principal is denied.
+        com.xammer.cloud.domain.User demo = new com.xammer.cloud.domain.User();
+        demo.setEmail("demo.xamops@xammer.in");
+        when(userRepository.findById(11L)).thenReturn(java.util.Optional.of(demo));
+        mvc.perform(get(ALLOWLIST).with(as("ROLE_SUPER_ADMIN"))).andExpect(status().isForbidden());
+        when(userRepository.findById(11L)).thenReturn(java.util.Optional.empty());
+        // CSRF header and Idempotency-Key.
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(ALLOWLIST)
+                        .contentType("application/json").header("Idempotency-Key", "k")
+                        .content("{\"cloudAccountId\":7,\"billingBasis\":\"NO_FEE\",\"reason\":\"r\"}").with(as("ROLE_SUPER_ADMIN")))
+                .andExpect(status().isForbidden());
+        org.mockito.Mockito.doThrow(new com.xammer.cloud.service.autospotting.core.AutoSpottingApiException(
+                org.springframework.http.HttpStatus.BAD_REQUEST, "IDEMPOTENCY_KEY_REQUIRED", "key"))
+                .when(idempotencyService).requireKey(org.mockito.ArgumentMatchers.isNull());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(ALLOWLIST)
+                        .contentType("application/json")
+                        .header(AutoSpottingIntentFilter.INTENT_HEADER, AutoSpottingIntentFilter.INTENT_VALUE)
+                        .content("{\"cloudAccountId\":7,\"billingBasis\":\"NO_FEE\",\"reason\":\"r\"}").with(as("ROLE_SUPER_ADMIN")))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REQUIRED"));
+        // A missing account id is a field error, not a 500.
+        mvc.perform(postAllowlist("{\"billingBasis\":\"NO_FEE\",\"reason\":\"r\"}").with(as("ROLE_SUPER_ADMIN")))
+                .andExpect(status().isUnprocessableEntity());
+    }
+
+    // ── AWS event DLQ (plan-phase-22.md 22.5, design-aws.md §9.8) ──
+    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder redrive(String body, boolean key) {
+        var b = org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                .post("/api/xamops/autospotting-admin/events/dlq/redrive")
+                .contentType("application/json")
+                .header(AutoSpottingIntentFilter.INTENT_HEADER, AutoSpottingIntentFilter.INTENT_VALUE)
+                .content(body);
+        return key ? b.header("Idempotency-Key", "11111111-1111-1111-1111-111111111111") : b;
+    }
+    @ParameterizedTest
+    @ValueSource(strings = { "ROLE_SUPER_ADMIN", "ROLE_XAMOPS_ADMIN" })
+    void dlq_operatorsReadAndRedrive(String role) throws Exception {
+        when(dlqService.summary()).thenReturn(new com.xammer.cloud.service.autospotting.aws.events.AwsEventDlqService.Summary(
+                true, "q-dlq.fifo", 2, List.of(), false));
+        when(dlqService.redrive(eq("replay"), any())).thenReturn(
+                new com.xammer.cloud.service.autospotting.aws.events.AwsEventDlqService.RedriveResult("MOVE_TASK", "t1", 0));
+        mvc.perform(get("/api/xamops/autospotting-admin/events/dlq?provider=aws").with(as(role)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.depth").value(2));
+        mvc.perform(redrive("{\"reason\":\"replay\"}", true).with(as(role)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.mode").value("MOVE_TASK"));
+    }
+    @Test
+    void dlq_rulesAndGates() throws Exception {
+        mvc.perform(get("/api/xamops/autospotting-admin/events/dlq?provider=gcp").with(as("ROLE_SUPER_ADMIN")))
+                .andExpect(status().isUnprocessableEntity());
+        mvc.perform(get("/api/xamops/autospotting-admin/events/dlq").with(as("ROLE_BILLOPS_ADMIN")))
+                .andExpect(status().isForbidden());
+        org.mockito.Mockito.doThrow(new com.xammer.cloud.service.autospotting.core.AutoSpottingApiException(
+                org.springframework.http.HttpStatus.BAD_REQUEST, "IDEMPOTENCY_KEY_REQUIRED", "key"))
+                .when(idempotencyService).requireKey(org.mockito.ArgumentMatchers.isNull());
+        mvc.perform(redrive("{\"reason\":\"replay\"}", false).with(as("ROLE_SUPER_ADMIN")))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REQUIRED"));
+        // A missing or oversized reason is a field error (the problem advice maps bean validation to 400 CHECK_FAILED).
+        mvc.perform(redrive("{\"reason\":\"" + "x".repeat(501) + "\"}", true).with(as("ROLE_SUPER_ADMIN")))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("CHECK_FAILED"));
+        when(dlqService.redrive(anyString(), any())).thenThrow(
+                new com.xammer.cloud.service.autospotting.core.AutoSpottingApiException(
+                        org.springframework.http.HttpStatus.CONFLICT, "REDRIVE_IN_PROGRESS", "running"));
+        mvc.perform(redrive("{\"reason\":\"again\"}", true).with(as("ROLE_SUPER_ADMIN")))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("REDRIVE_IN_PROGRESS"));
+    }
     // ── AC-SPN-05: a PUT engage is visible through GET /switches and ActionGate within 60 s ──
 
     @Test

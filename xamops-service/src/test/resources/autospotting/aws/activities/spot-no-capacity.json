@@ -1,0 +1,6 @@
+{
+  "matcherId": "SPOT_NO_CAPACITY",
+  "failureClass": "SPOT_CAPACITY",
+  "statusMessage": "There is no Spot capacity available that matches your request.",
+  "note": "recorded-style fixture; V-AWS-16 replaces it with a real sample in Phase 23"
+}

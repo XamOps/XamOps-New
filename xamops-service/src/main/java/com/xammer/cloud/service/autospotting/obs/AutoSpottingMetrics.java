@@ -50,8 +50,12 @@ public class AutoSpottingMetrics {
     public static final String FALLBACKS = "autospotting.fallbacks";
     public static final String INTERRUPTIONS = "autospotting.interruptions";
     public static final String EVENTS = "autospotting.events";
+    /** Events the listener refused for security: {@code reason=sender_mismatch} (design-aws.md §9.5, AC-EVT-02). */
+    public static final String EVENTS_SECURITY = "autospotting.events.security";
     public static final String LEASE_FAILURES = "autospotting.lease.failures";
     public static final String JOB_SKIPPED = "autospotting.job.skipped";
+    /** Notification outbox deliveries by outcome: sent, failed, skipped (design-ux-ops.md section 7.1). */
+    public static final String NOTIFICATIONS = "autospotting.notifications";
     public static final String RECONCILE_RUNS = "autospotting.reconcile.runs";
     public static final String RECONCILE_ACTIONS = "autospotting.reconcile.actions";
     public static final String RECONCILE_STALENESS_SECONDS = "autospotting.reconcile.staleness_seconds";
@@ -59,8 +63,13 @@ public class AutoSpottingMetrics {
     public static final String CLOUD_ERRORS = "autospotting.cloud.errors";
     public static final String LEDGER_ENTRIES = "autospotting.ledger.entries";
     public static final String LEDGER_UNKNOWN = "autospotting.ledger.unknown";
+    /** Every entry written, untagged by tier, so the UNKNOWN ratio alarm has a plain denominator (§6.4). */
+    public static final String LEDGER_ENTRIES_ALL = "autospotting.ledger.entries.all";
+    public static final String LEDGER_LAST_SUCCESS_AGE = "autospotting.ledger.last_success_age";
     public static final String DRYRUN_OPERATIONS = "autospotting.dryrun.operations";
     public static final String OPS_PREEMPTED = "autospotting.ops.preempted";
+    /** Eligibility blockers seen by LIST-mode evaluations, by code (NO-07, PD-02). */
+    public static final String ELIGIBILITY_BLOCKED = "autospotting.eligibility.blocked";
 
     // Meters introduced by phases 04-08 that §6.1 keeps verbatim (callers moved onto the typed
     // methods below). They are not in the §6.2 table under these exact shapes, but the design says to
@@ -118,9 +127,18 @@ public class AutoSpottingMetrics {
         registry.counter(INTERRUPTIONS, "provider", tag(provider), "region", region, "source", source).increment();
     }
 
+    /** {@code autospotting.events.security} — an event was dropped for a security reason (sender_mismatch). */
+    public void eventSecurity(Provider provider, String reason) {
+        registry.counter(EVENTS_SECURITY, "provider", tag(provider), "reason", reason).increment();
+    }
     /** {@code autospotting.events} — the SQS listener (AWS) or preemption tracker (GCP) handled an event. */
     public void event(Provider provider, String outcome) {
         registry.counter(EVENTS, "provider", tag(provider), "outcome", outcome).increment();
+    }
+
+    /** {@code autospotting.notifications} - one outbox row reached an outcome ({@code sent}, {@code failed}, {@code skipped}). */
+    public void notification(String outcome) {
+        registry.counter(NOTIFICATIONS, "outcome", outcome).increment();
     }
 
     /** {@code autospotting.lease.failures} — acquire/heartbeat/fence failures (AC-SPN-02). */
@@ -153,9 +171,15 @@ public class AutoSpottingMetrics {
         registry.counter(CLOUD_ERRORS, "provider", tag(provider), "api", api, "kind", kind).increment();
     }
 
+    /** {@code autospotting.eligibility.blocked} — a LIST-mode evaluation found a blocker (NO-07: count {@code EC2_HEALTH_WITH_LB} on real accounts). */
+    public void eligibilityBlocked(Provider provider, String code) {
+        registry.counter(ELIGIBILITY_BLOCKED, "provider", tag(provider), "code", code).increment();
+    }
+
     /** {@code autospotting.ledger.entries} — the ledger writer inserted entries (tiers per design-ledger). */
     public void ledgerEntries(Provider provider, String tier, long count) {
         registry.counter(LEDGER_ENTRIES, "provider", tag(provider), "tier", tier).increment(count);
+        registry.counter(LEDGER_ENTRIES_ALL, "provider", tag(provider)).increment(count);
     }
 
     /** {@code autospotting.ledger.unknown} — an entry was written with an UNKNOWN price. */
@@ -226,7 +250,20 @@ public class AutoSpottingMetrics {
      * registration here means no AutoSpotting meter is ever created outside this bean (AC-OBS-01).
      */
     public void bindReconcilerGauge(String name, Provider provider, Supplier<Number> source) {
-        registry.gauge(name, Tags.of("provider", tag(provider)), source, s -> s.get().doubleValue());
+        // Strong reference: the registry otherwise holds the supplier weakly and the gauge reads NaN once the
+        // reconciler's method-reference lambda is collected.
+        io.micrometer.core.instrument.Gauge.builder(name, source, s -> s.get().doubleValue())
+                .tags(Tags.of("provider", tag(provider))).strongReference(true).register(registry);
+    }
+
+    /**
+     * Bind {@code autospotting.ledger.last_success_age} ({@code job}) to the seconds since that ledger job's
+     * last successful pass (design-ux-ops.md §6.4 "Ledger writer missed run": over 26 h pages). The source
+     * must read 0 while the job is switched off, so an intentionally dark writer never pages.
+     */
+    public void bindLedgerLastSuccessAge(String job, Supplier<Number> source) {
+        io.micrometer.core.instrument.Gauge.builder(LEDGER_LAST_SUCCESS_AGE, source, s -> s.get().doubleValue())
+                .tags(Tags.of("job", job)).strongReference(true).register(registry);
     }
 
     /**
@@ -236,8 +273,9 @@ public class AutoSpottingMetrics {
      * this bean (AC-OBS-01) and the spine repository stays inside {@code ..core..} (ArchUnit §9.1).
      */
     public void bindGroupStateGauge(Provider provider, GroupState state, Supplier<Number> source) {
-        registry.gauge(GROUPS, Tags.of("provider", tag(provider), "state", state.name()),
-                source, s -> s.get().doubleValue());
+        io.micrometer.core.instrument.Gauge.builder(GROUPS, source, s -> s.get().doubleValue())
+                .tags(Tags.of("provider", tag(provider), "state", state.name())).strongReference(true)
+                .register(registry);
     }
 
     /**
@@ -246,8 +284,9 @@ public class AutoSpottingMetrics {
      * {@link #bindGroupStateGauge}.
      */
     public void bindGroupDriftGauge(Provider provider, DriftStatus severity, Supplier<Number> source) {
-        registry.gauge(GROUPS_DRIFT, Tags.of("provider", tag(provider), "severity", severity.name()),
-                source, s -> s.get().doubleValue());
+        io.micrometer.core.instrument.Gauge.builder(GROUPS_DRIFT, source, s -> s.get().doubleValue())
+                .tags(Tags.of("provider", tag(provider), "severity", severity.name())).strongReference(true)
+                .register(registry);
     }
 
     private static String tag(Provider provider) {

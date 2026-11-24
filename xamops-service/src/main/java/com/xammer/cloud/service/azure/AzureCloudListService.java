@@ -289,20 +289,33 @@ public class AzureCloudListService {
                 CompletableFuture.runAsync(() -> fetchGenericResources(azure, accountId, allResources), executor),
             };
 
+            boolean complete = true;
             try {
                 CompletableFuture.allOf(tasks).get(90, TimeUnit.SECONDS);
             } catch (TimeoutException e) {
+                complete = false;
                 log.warn("Azure cloudlist timed out after 90s for account {}, returning {} partial results", accountId, allResources.size());
                 for (CompletableFuture<?> task : tasks) task.cancel(true);
             } catch (Exception e) {
+                complete = false;
                 log.warn("Azure cloudlist fetch interrupted for account {}: {}", accountId, e.getMessage());
             }
 
-            log.info("Total resources fetched for Azure account {}: {}", accountId, allResources.size());
+            // Copied under the list's lock: cancel() does not stop a fetch that is already running,
+            // so a timed-out task can still be adding while the result is grouped.
+            List<ResourceDto> snapshot;
+            synchronized (allResources) {
+                snapshot = new ArrayList<>(allResources);
+            }
+            log.info("Total resources fetched for Azure account {}: {}", accountId, snapshot.size());
 
-            List<DashboardData.ServiceGroupDto> result = groupByType(allResources);
+            List<DashboardData.ServiceGroupDto> result = groupByType(snapshot);
 
-            if (!result.isEmpty()) {
+            if (!complete) {
+                // A partial list was cached for an hour and saved as the DB snapshot, so the page
+                // kept showing a subset of the subscription as if it were all of it.
+                log.warn("Azure cloudlist for account {} is incomplete — returning it without caching", accountId);
+            } else if (!result.isEmpty()) {
                 redisCache.put(cacheKey, result, CACHE_TTL_MINUTES);
                 saveToDb(dbKey, result);
                 log.info("Cached Azure cloudlist for account {} ({} service groups, TTL {}min)", accountId, result.size(), CACHE_TTL_MINUTES);

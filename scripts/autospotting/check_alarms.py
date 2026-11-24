@@ -6,7 +6,7 @@ design-ux-ops.md §6.4 / FR-OBS-03 / AC-OBS-02, plan-phase-10.md task 10.3.
 Given the monitoring template and the engine template, this checks:
 
   1. every FR-OBS-03 alarm condition that exists at this phase is present exactly once
-     (the ledger conditions are added in Phases 17/25/32 and are NOT expected yet); and
+     (the ledger writer conditions are expected from Phase 17; variance and close conditions are added in 25/32 and NOT expected yet); and
   2. every AWS::CloudWatch::Alarm in both templates has a non-empty AlarmActions.
 
 It exits 0 when both hold, else prints the failures and exits 1. It is wired into the
@@ -176,7 +176,7 @@ def metric_name(props):
     return None
 
 
-# The FR-OBS-03 conditions expected at THIS phase (ledger rows excluded; §6.4, plan 10.3).
+# The FR-OBS-03 conditions expected at THIS phase (ledger writer rows from Phase 17; variance and close rows excluded; §6.4).
 # Each entry: a human label and a predicate over (metric_name, props) identifying its alarm.
 def _dim(props, key, value):
     dims = props.get('Dimensions')
@@ -186,6 +186,25 @@ def _dim(props, key, value):
         if isinstance(d, dict) and d.get('Name') == key and d.get('Value') == value:
             return True
     return False
+
+
+def _dim_has(props, key, fragment):
+    """True when a dimension named key has a value containing fragment (values can be !Sub/!If scalars)."""
+    dims = props.get('Dimensions')
+    if not isinstance(dims, list):
+        return False
+    for d in dims:
+        if isinstance(d, dict) and d.get('Name') == key:
+            if fragment in str(d.get('Value')):
+                return True
+            # An !If value parses as a list of scalars.
+            if isinstance(d.get('Value'), list) and any(fragment in str(v) for v in d['Value']):
+                return True
+    return False
+
+
+def _events_queue(props):
+    return _dim_has(props, 'QueueName', 'xamops-autospotting-events')
 
 
 EXPECTED = [
@@ -211,10 +230,22 @@ EXPECTED = [
      lambda mn, p: mn == 'autospotting.reconcile.last_success_age'),
     ('Lease store errors (lease.failures reason=store_error)',
      lambda mn, p: mn == 'autospotting.lease.failures' and _dim(p, 'reason', 'store_error')),
+    ('Ledger writer missed run (ledger.last_success_age)',
+     lambda mn, p: mn == 'autospotting.ledger.last_success_age'),
+    ('UNKNOWN price ratio (ledger.unknown / ledger.entries.all metric math)',
+     lambda mn, p: mn == 'autospotting.ledger.unknown'),
     ('DLQ depth (engine stack ApproximateNumberOfMessagesVisible)',
-     lambda mn, p: mn == 'ApproximateNumberOfMessagesVisible'),
+     lambda mn, p: mn == 'ApproximateNumberOfMessagesVisible' and not _events_queue(p)),
     ('Event lag (engine stack ApproximateAgeOfOldestMessage)',
-     lambda mn, p: mn == 'ApproximateAgeOfOldestMessage'),
+     lambda mn, p: mn == 'ApproximateAgeOfOldestMessage' and not _events_queue(p)),
+    ('Events DLQ depth (xamops-autospotting-events DLQ ApproximateNumberOfMessagesVisible)',
+     lambda mn, p: mn == 'ApproximateNumberOfMessagesVisible' and _events_queue(p)),
+    ('Events queue age (xamops-autospotting-events ApproximateAgeOfOldestMessage)',
+     lambda mn, p: mn == 'ApproximateAgeOfOldestMessage' and _events_queue(p)),
+    ('Events sender mismatch (events.security reason=sender_mismatch)',
+     lambda mn, p: mn == 'autospotting.events.security' and _dim(p, 'reason', 'sender_mismatch')),
+    ('Events forwarder failure (rule xamops-as-forwarder-failure invocations)',
+     lambda mn, p: mn == 'Invocations' and _dim_has(p, 'RuleName', 'xamops-as-forwarder-failure')),
 ]
 
 

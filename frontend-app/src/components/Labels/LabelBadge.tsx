@@ -5,6 +5,11 @@ interface Props {
   label: ResourceLabel;
   onRemove?: () => void; // if provided, shows an × button
   size?: 'sm' | 'md';
+  /**
+   * Show the label's share after its name, e.g. "prod 40%". Only a partial share is shown: a
+   * label that takes the whole cost reads as before.
+   */
+  showPercent?: boolean;
 }
 
 /**
@@ -12,8 +17,12 @@ interface Props {
  * Color is set as a CSS custom property so Tailwind's JIT doesn't need to know
  * the hex value at build time.
  */
-const LabelBadge: React.FC<Props> = ({ label, onRemove, size = 'sm' }) => {
+const LabelBadge: React.FC<Props> = ({ label, onRemove, size = 'sm', showPercent = false }) => {
   const pad = size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-sm';
+  const partial =
+    showPercent && label.percent != null && label.percent < 100
+      ? `${Number(label.percent.toFixed(2))}%`
+      : null;
 
   return (
     <span
@@ -23,9 +32,14 @@ const LabelBadge: React.FC<Props> = ({ label, onRemove, size = 'sm' }) => {
         borderColor: `${label.color}60`,
         color: label.color,
       }}
-      title={label.description || label.name}
+      title={
+        partial
+          ? `${label.name} takes ${partial} of the cost`
+          : label.description || label.name
+      }
     >
       {label.name}
+      {partial && <span className="font-medium opacity-75 tabular-nums">{partial}</span>}
       {onRemove && (
         <button
           type="button"

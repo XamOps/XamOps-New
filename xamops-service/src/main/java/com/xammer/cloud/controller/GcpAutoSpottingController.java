@@ -224,18 +224,11 @@ public class GcpAutoSpottingController {
             @RequestBody GcpMigConfigDto config,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         accountAccessService.requireAccessByIdentifier(userDetails, accountId);
-        featureFlags.requireGcpConversionsEnabled();
-        log.info("PUT /migs/{}/config  region={} migName={} maxSurge={} maxUnavailable={} minReadySec={}",
-                accountId, region, migName, config.getMaxSurge(), config.getMaxUnavailable(), config.getMinReadySeconds());
-        try {
-            GcpMigConfigDto updated = gcpAutoSpottingService.updateMigConfig(accountId, region, migName, config);
-            return ResponseEntity.ok(updated);
-        } catch (AutoSpottingBlockedException e) {
-            throw e;
-        } catch (Exception e) {
-            String updErr = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName() + " (no message)";
-            log.error("Failed to update MIG config for {}: {}", migName, updErr, e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", updErr));
-        }
+        // Phase 27 (AC-PLN-07, AC-GCP-07): the legacy save mutated the MIG outside a plan. It returns
+        // PLAN_REQUIRED for every MIG, whatever the flags, with zero GCP calls. The Config tab creates a
+        // MIG_POLICY_UPDATE (or CONFIG_APPLY) plan instead.
+        String groupKey = region + "/" + migName;
+        throw AutoSpottingBlockedException.planRequired("/autospotting/gcp/" + accountId + "/groups/"
+                + java.net.URLEncoder.encode(groupKey, java.nio.charset.StandardCharsets.UTF_8) + "/plan");
     }
 }

@@ -22,6 +22,8 @@ import com.xammer.cloud.service.autospotting.core.lifecycle.GroupLifecycleServic
 import com.xammer.cloud.service.autospotting.core.switches.SwitchService;
 import com.xammer.cloud.service.autospotting.core.switches.SwitchState;
 import com.xammer.cloud.service.autospotting.obs.AutoSpottingMdc;
+import com.xammer.cloud.service.autospotting.obs.AutoSpottingMetrics;
+import com.xammer.cloud.service.autospotting.spi.StepContext;
 import com.xammer.cloud.service.autospotting.spi.OperationContext;
 import com.xammer.cloud.service.autospotting.spi.ProviderRegistry;
 import com.xammer.cloud.service.autospotting.spi.SpotProvider;
@@ -94,11 +96,14 @@ public class OperationRunner {
     private final SwitchService switchService;
     private final SpotOpsLifecycle opsLifecycle;
     private final ProviderRegistry providers;
+    private final AutoSpottingMetrics metrics;
+    private final FallbackEffects fallbackEffects;
 
     public OperationRunner(SpotOperationRepository operations, SpotGroupRepository groups, OperationStore store,
                            StepExecutor stepExecutor, GroupLifecycleService lifecycle, FencedTx fencedTx,
                            AutoSpottingAuditWriter auditWriter, SwitchService switchService,
-                           SpotOpsLifecycle opsLifecycle, ProviderRegistry providers) {
+                           SpotOpsLifecycle opsLifecycle, ProviderRegistry providers,
+                           AutoSpottingMetrics metrics) {
         this.operations = operations;
         this.groups = groups;
         this.store = store;
@@ -109,6 +114,8 @@ public class OperationRunner {
         this.switchService = switchService;
         this.opsLifecycle = opsLifecycle;
         this.providers = providers;
+        this.metrics = metrics;
+        this.fallbackEffects = new FallbackEffects(operations, groups, store, lifecycle, fencedTx, auditWriter, metrics);
     }
 
     /**
@@ -155,7 +162,14 @@ public class OperationRunner {
     }
 
     private void drive(LeaseHandle handle, SpotOperation op, SpotGroup group, SpotProvider provider) {
-        StepProgram program = deriveProgram(op, group, provider);
+        if (op.isDryRun()) {
+            driveDryRun(handle, op, group, provider);
+            return;
+        }
+        StepProgram program = deriveOrPark(op, group, provider);
+        if (program == null) {
+            return; // the provider's programs are switched off: the op is parked, nothing ran
+        }
         // The compensation program's steps use a persisted-seq base above the forward steps, so the
         // append-only spot_operation_step rows never collide across the FORWARD and COMPENSATING legs
         // (§4.5 keys rows by (operation_id, seq)). The program index is the persisted seq minus the base.
@@ -189,6 +203,36 @@ public class OperationRunner {
             }
 
             Step step = program.at(index);
+            if (step.mutates() && startEdgeForbidden(fresh, group)) {
+                if (fresh.getFirstMutationSeq() == null) {
+                    // The group is in a state this op can't start from (e.g. an ENABLE whose group never reached
+                    // PLANNED). Retrying would park it forever; nothing was changed by this op, so fail it now (D-23-10).
+                    String from = groups.findById(group.getId()).map(g -> String.valueOf(g.getState())).orElse("missing");
+                    store.finishFailed(op.getId(), "LIFECYCLE_TRANSITION_MISSED",
+                            "The group is " + from + ", which this operation can't start from. Nothing was changed.");
+                    audit(handle, fresh, group, "OP_FAILED", "FAILED", "LIFECYCLE_TRANSITION_MISSED");
+                    log.warn("op {} {} FAILED before its first mutation: cannot start from {}", op.getId(), op.getKind(), from);
+                    return;
+                }
+                // The op already mutated the cloud, so "Nothing was changed" would be false.
+                GroupState current = groups.findById(group.getId()).map(SpotGroup::getState).orElse(null);
+                if (current == GroupState.GONE) {
+                    store.finishFailed(op.getId(), "GROUP_DELETED", "The group was deleted while the operation was running.");
+                    audit(handle, fresh, group, "OP_FAILED", "FAILED", "GONE");
+                    log.warn("op {} {} FAILED after its first mutation: the group is GONE", op.getId(), op.getKind());
+                } else {
+                    log.warn("op {} {} already mutated and the group is {}: compensating", op.getId(), op.getKind(), current);
+                    compensateOrFail(handle, fresh, group, new StepOutcome.Failed(
+                            com.xammer.cloud.service.autospotting.spi.ErrorKind.CONFLICT, "LIFECYCLE_START_EDGE_FORBIDDEN",
+                            "The group is " + current + ", which this operation can't continue from."));
+                }
+                return;
+            }
+            if (step.mutates() && !enterRevertingWithFirstMutation(handle, fresh, group)) {
+                // The entry transition missed its guard: nothing was changed yet, so try again at the next boundary.
+                store.park(op.getId(), WaitReason.BACKOFF, Instant.now().plus(DEFAULT_CLOUD_POLL), seq, null);
+                return;
+            }
             Duration callTimeout = step.mutates() ? MUTATING_CALL_TIMEOUT : READ_CALL_TIMEOUT;
             StepOutcome outcome;
             try {
@@ -201,9 +245,11 @@ public class OperationRunner {
             }
 
             if (outcome instanceof StepOutcome.Done) {
+                fallbackEffects.afterStep(handle, op, group, step, outcome);
                 seq++;
                 store.advanceStep(op.getId(), seq);
             } else if (outcome instanceof StepOutcome.InProgress inProgress) {
+                fallbackEffects.afterStep(handle, op, group, step, outcome);
                 // Long cloud wait: park WAITING and release the thread, keeping the lease (§4.1).
                 Instant nextAttempt = Instant.now().plus(inProgress.pollAfter());
                 store.park(op.getId(), WaitReason.CLOUD_PROGRESS, nextAttempt, seq, inProgress.progressJson());
@@ -216,6 +262,110 @@ public class OperationRunner {
 
         // Program ran to the end: finish per the §2.2.1 success path for this phase.
         finishSuccess(handle, op, group);
+    }
+
+    /**
+     * The REVERT entry transition (design-core.md §2.3 "Who transitions", DR-04): the group enters REVERTING
+     * with the first mutating step, after step 0 has passed, under the group lease. A revert that fails in step 0
+     * never gets here, so the group stays in its state and the op ends FAILED with {@code first_mutation_seq}
+     * null. A crash between this transition and the step's intent row leaves a REVERTING group whose revert never
+     * mutated: the startup pass returns it to {@code prior_state} ({@code REVERT_NOT_STARTED}, §4.6). Returns
+     * false when the group is still not REVERTING afterwards, so the caller does not mutate.
+     */
+    /** True when the group's current state has no allowed edge to the op's start state (a retry can't help). */
+    private boolean startEdgeForbidden(SpotOperation op, SpotGroup group) {
+        GroupState start = OperationOutcomes.startState(op.getKind(), op.getPhase());
+        if (start == null) {
+            return false;
+        }
+        GroupState current = groups.findById(group.getId()).map(SpotGroup::getState).orElse(group.getState());
+        return current != start
+                && !com.xammer.cloud.service.autospotting.core.lifecycle.GroupTransitions.isAllowed(current, start);
+    }
+
+    private boolean enterRevertingWithFirstMutation(LeaseHandle handle, SpotOperation op, SpotGroup group) {
+        GroupState start = OperationOutcomes.startState(op.getKind(), op.getPhase());
+        if (start == null) {
+            return true; // ADOPT, FALLBACK_ENTER, ACCEPT_BASELINE, MIG_POLICY_UPDATE, compensation: no start transition
+        }
+        String reason = switch (op.getKind()) {
+            // §2.2: PLANNED --> APPLYING "enable op starts". Without it an ENABLE could never reach ACTIVE
+            // (PLANNED -> ACTIVE is not an edge; phase 23 defect D-23-10).
+            case ENABLE -> "ENABLE_STARTED";
+            // A mutated CONFIG_APPLY / PROFILE_CHANGE is APPLYING (§2.2, §4.7; fallback preemption and the
+            // health pass key on it), from ACTIVE or a drift-paused group (D-23-10, same gap).
+            case CONFIG_APPLY, PROFILE_CHANGE -> "CONFIG_APPLY_STARTED";
+            // A FALLBACK_EXIT is surge-first like a conversion: FALLBACK -> APPLYING with its first mutation (§6.5).
+            case FALLBACK_EXIT -> "FALLBACK_EXIT_STARTED";
+            default -> "REVERT_STARTED";
+        };
+        SpotGroup fresh = groups.findById(group.getId()).orElse(group);
+        if (fresh.getState() == start) {
+            return true;
+        }
+        transitionTo(handle, group, start, reason, op.getId());
+        return groups.findById(group.getId()).map(g -> g.getState() == start).orElse(false);
+    }
+
+    /**
+     * Drive a dry-run op (design-core.md §7.2, FR-PLN-05, AC-PLN-06; plan-phase-11.md task 11.3).
+     * Each step's {@link com.xammer.cloud.service.autospotting.spi.Step#describeIntent} is evaluated
+     * instead of {@code execute} — no mutating client is ever reached — and a {@code WOULD_DO} audit
+     * row is written per step. The op never writes {@code spot_group.state}, a transition or any
+     * {@code desired_*} column; a dry-run ENABLE never moved the group to PLANNED (plan creation
+     * skipped it), so a dry-run can't make a group ACTIVE and the ledger never sees it (PO-04). The
+     * lease is held only while a step is evaluated ({@code beginStep}/{@code endStep}). The op ends
+     * SUCCEEDED and is metered as {@code autospotting.dryrun.operations} only, never as a conversion.
+     */
+    private void driveDryRun(LeaseHandle handle, SpotOperation op, SpotGroup group, SpotProvider provider) {
+        StepProgram program = deriveOrPark(op, group, provider);
+        if (program == null) {
+            return;
+        }
+        for (int index = 0; index < program.size(); index++) {
+            if (opsLifecycle.isDraining()) {
+                store.park(op.getId(), WaitReason.BACKOFF, Instant.now(), index, null);
+                return;
+            }
+            Step step = program.at(index);
+            String intent;
+            opsLifecycle.beginStep();
+            try {
+                StepContext ctx = new StepContext(op.getId(), index, handle, null,
+                        step.mutates() ? MUTATING_CALL_TIMEOUT : READ_CALL_TIMEOUT);
+                intent = step.describeIntent(ctx); // read-only; never touches the mutating client
+            } finally {
+                opsLifecycle.endStep();
+            }
+            auditWouldDo(handle, op, group, step.name(), intent);
+            store.advanceStep(op.getId(), index + 1);
+        }
+        store.finishSucceeded(op.getId());
+        metrics.dryRunOperation(group.getProvider(), op.getKind().name(), "SUCCEEDED");
+        if (log.isDebugEnabled()) {
+            log.debug("dry-run op {} {} SUCCEEDED ({} would-do steps)", op.getId(), op.getKind(),
+                    program.size());
+        }
+    }
+
+    /** Write a {@code WOULD_DO} audit row for a dry-run step (§7.2), fenced on the lease. */
+    private void auditWouldDo(LeaseHandle handle, SpotOperation op, SpotGroup group, String stepName,
+                              String intent) {
+        fencedTx.run(handle, () -> auditWriter.write(
+                AuditRecord.builder("STEP_INTENT", Actor.system(), op.getKind().name(), "WOULD_DO")
+                        .operationId(op.getId())
+                        .planId(op.getPlanId())
+                        .provider(group.getProvider() == null ? null : group.getProvider().name())
+                        .clientId(group.getClientId())
+                        .cloudAccountId(group.getCloudAccountId())
+                        .groupId(group.getId())
+                        .groupKey(group.getGroupKey())
+                        .details(intent == null ? null : "{\"wouldDo\":\"" + jsonEscape(stepName) + "\"}")
+                        .build()));
+    }
+
+    private static String jsonEscape(String s) {
+        return s == null ? "" : s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     /** The persisted-seq base for the op's current leg: 0 for FORWARD, {@link #COMPENSATION_SEQ_BASE} for COMPENSATING. */
@@ -251,6 +401,9 @@ public class OperationRunner {
             // The reconciler requested compensation for a switch-paused op (§4.7). Switch to
             // COMPENSATING and re-drive; the compensation program is re-derived from its first step.
             store.beginCompensating(op.getId(), COMPENSATION_SEQ_BASE);
+            if (op.getCompensationTarget() == com.xammer.cloud.domain.autospotting.CompensationTarget.SNAPSHOT) {
+                transitionTo(handle, group, GroupState.REVERTING, "ENABLE_COMPENSATING", op.getId());
+            }
             SpotOperation compensating = operations.findById(op.getId()).orElse(op);
             drive(handle, compensating, group, providers.find(group.getProvider()).orElseThrow());
             return true;
@@ -350,6 +503,17 @@ public class OperationRunner {
         boolean mutatedYet = op.getFirstMutationSeq() != null;
         boolean safety = CompensationTargets.actionClass(op.getKind()) == ActionClass.SAFETY;
 
+        if (op.getPhase() == OperationPhase.COMPENSATING) {
+            // The compensation leg itself failed terminally (§2.2.1 "On compensation failure"). Never
+            // compensate a compensation: that would re-drive the same failing program without end.
+            if (!safety) {
+                transitionTo(handle, group, OperationOutcomes.compensationFailure(), "COMPENSATION_FAILED", op.getId());
+            }
+            store.finishFailed(op.getId(), failed.code(), failed.redactedMessage());
+            audit(handle, op, group, "OP_FAILED", "FAILED", "COMPENSATION_FAILED");
+            return;
+        }
+
         if (!mutatedYet) {
             // Fail, back to prior_state (§9.4 "Before the first mutation ... fail, back to prior_state").
             transitionTo(handle, group, op.getPriorState(), "FAILED_BEFORE_MUTATION", op.getId());
@@ -358,13 +522,21 @@ public class OperationRunner {
             return;
         }
         if (safety) {
-            // SAFETY op after mutation: a terminal error ends it FAILED, leaving the group where it is.
+            // SAFETY op after mutation: a terminal error ends it FAILED. A REVERT moves REVERTING -> FAILED
+            // (§2.2.1); the other SAFETY ops leave the group where it is.
+            if (op.getKind() == com.xammer.cloud.domain.autospotting.OperationKind.REVERT) {
+                transitionTo(handle, group, GroupState.FAILED, "REVERT_FAILED", op.getId());
+            }
             store.finishFailed(op.getId(), failed.code(), failed.redactedMessage());
             audit(handle, op, group, "OP_FAILED", "FAILED", "SAFETY_TERMINAL_ERROR");
             return;
         }
         // PROGRESS op after mutation: switch to COMPENSATING and re-drive from its first step.
         store.beginCompensating(op.getId(), COMPENSATION_SEQ_BASE);
+        if (op.getCompensationTarget() == com.xammer.cloud.domain.autospotting.CompensationTarget.SNAPSHOT) {
+            // An ENABLE compensates to its snapshot through REVERTING (§2.2.1): APPLYING -> REVERTING -> REVERTED.
+            transitionTo(handle, group, GroupState.REVERTING, "ENABLE_COMPENSATING", op.getId());
+        }
         SpotOperation compensating = operations.findById(op.getId()).orElse(op);
         drive(handle, compensating, group, providers.find(group.getProvider()).orElseThrow());
     }
@@ -380,14 +552,81 @@ public class OperationRunner {
                 ? OperationOutcomes.compensationSuccess(op)
                 : OperationOutcomes.forwardSuccess(op.getKind(), op.getPriorState());
 
-        if (target != null) {
-            transitionTo(handle, group, target, successReason(op), op.getId());
+        boolean forward = op.getPhase() == OperationPhase.FORWARD;
+        if (forward && op.getKind() == com.xammer.cloud.domain.autospotting.OperationKind.FALLBACK_ENTER) {
+            // The state change of a fallback enter happened at VERIFY_FALLBACK_APPLIED (and WAIT_CAPACITY may
+            // have moved it to DEGRADED): finishing the op must not move it again.
+            target = null;
+        } else if (forward && op.getKind() == com.xammer.cloud.domain.autospotting.OperationKind.FALLBACK_EXIT) {
+            fallbackEffects.exitSucceeded(handle, op, group, desiredConfigWrite(op, group));
+            target = null;
+        }
+        if (target != null
+                && !transitionTo(handle, group, target, successReason(op), op.getId(), desiredConfigWrite(op, group))) {
+            // The cloud work is done but the group's record could not follow (stale guard or forbidden edge).
+            // Reporting SUCCEEDED here left a converted group UNMANAGED in XamOps (phase 23 defect D-23-08).
+            String from = groups.findById(group.getId()).map(g -> String.valueOf(g.getState())).orElse("missing");
+            store.finishFailed(op.getId(), "LIFECYCLE_TRANSITION_MISSED",
+                    "The cloud change finished but the group record could not move from " + from + " to " + target
+                            + ". Check the group before changing it again.");
+            audit(handle, op, group, "OP_FAILED", "FAILED", "LIFECYCLE_TRANSITION_MISSED");
+            log.warn("op {} {} FAILED: success transition {} -> {} missed", op.getId(), op.getKind(), from, target);
+            return;
         }
         store.finishSucceeded(op.getId());
         audit(handle, op, group, "OP_SUCCEEDED", "SUCCESS",
                 op.getPhase() == OperationPhase.COMPENSATING ? "COMPENSATED" : "SUCCEEDED");
         if (log.isDebugEnabled()) {
             log.debug("op {} {} SUCCEEDED -> {}", op.getId(), op.getKind(), target);
+        }
+    }
+
+    /**
+     * The §2.4 write point 1: the success transition of ENABLE, ADOPT, CONFIG_APPLY and PROFILE_CHANGE
+     * writes {@code target_config} to {@code desired_config}, with the live managed-field fingerprint as
+     * {@code desired_fingerprint}. Compensation never writes it, and a FALLBACK-mode re-apply (its target
+     * derives from {@code desired_config}) leaves it unchanged. Returns {desiredConfig, fingerprint} or null.
+     */
+    private String[] desiredConfigWrite(SpotOperation op, SpotGroup group) {
+        if (op.getPhase() == OperationPhase.COMPENSATING || op.getTargetConfig() == null) {
+            return null;
+        }
+        boolean writes = switch (op.getKind()) {
+            case ENABLE, ADOPT -> true;
+            case CONFIG_APPLY, PROFILE_CHANGE -> group.getConfigMode()
+                    != com.xammer.cloud.domain.autospotting.ConfigMode.FALLBACK;
+            case FALLBACK_EXIT -> true; // the exit applies desired_config (and any change a fallback deferred)
+            default -> false;
+        };
+        if (!writes) {
+            return null;
+        }
+        String fingerprint = null;
+        try {
+            com.xammer.cloud.service.autospotting.spi.ReadOnlyCloudView readOnly =
+                    new com.xammer.cloud.service.autospotting.spi.ReadOnlyCloudView() {
+                    };
+            fingerprint = providers.find(group.getProvider())
+                    .map(p -> {
+                        String fp = p.liveFingerprintFor(group, op.getTargetConfig(), readOnly);
+                        return fp != null ? fp : p.getStatus(group, readOnly).liveFingerprint();
+                    }).orElse(null);
+        } catch (RuntimeException e) {
+            log.warn("op {} could not read the live fingerprint for desired_fingerprint: {}", op.getId(),
+                    e.getClass().getSimpleName());
+        }
+        if (fingerprint == null) {
+            fingerprint = sha256(op.getTargetConfig());
+        }
+        return new String[] {op.getTargetConfig(), fingerprint};
+    }
+
+    private static String sha256(String text) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(text.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
         }
     }
 
@@ -398,23 +637,49 @@ public class OperationRunner {
         return "OP_" + op.getKind().name() + "_VERIFIED";
     }
 
-    /** A guarded lifecycle transition on the group lease; a forbidden edge or a stale guard is logged. */
-    private void transitionTo(LeaseHandle handle, SpotGroup group, GroupState to, String reason, UUID op) {
+    /**
+     * A guarded lifecycle transition on the group lease. Returns false when it did not happen: a stale guard
+     * (logged WARN, D-23-07) or a forbidden edge. Only the success path acts on the result; the other callers
+     * keep their behaviour.
+     */
+    private boolean transitionTo(LeaseHandle handle, SpotGroup group, GroupState to, String reason, UUID op) {
+        return transitionTo(handle, group, to, reason, op, null);
+    }
+
+    private boolean transitionTo(LeaseHandle handle, SpotGroup group, GroupState to, String reason, UUID op,
+                                 String[] desiredConfigWrite) {
         SpotGroup fresh = groups.findById(group.getId()).orElse(group);
         if (fresh.getState() == to) {
-            return; // already there (idempotent, §2.3)
+            return true; // already there (idempotent, §2.3)
         }
         try {
-            GroupLifecycleService.Result result = lifecycle.transition(handle, fresh,
-                    TransitionRequest.of(to, reason, Actor.system(), op, Instant.now()));
-            if (result == GroupLifecycleService.Result.STALE && log.isDebugEnabled()) {
-                log.debug("op {} transition {} -> {} missed the guard (stale); a re-drive re-reads",
-                        op, fresh.getState(), to);
+            TransitionRequest request = TransitionRequest.of(to, reason, Actor.system(), op, Instant.now());
+            if (desiredConfigWrite != null) {
+                request = request.writingDesiredConfig(desiredConfigWrite[0], desiredConfigWrite[1]);
             }
+            // TRANSITION writes pause_reason/paused_from_state unconditionally, so a drift-paused group that
+            // passes through APPLYING and back to PAUSED must carry them across both edges (finding #2).
+            if (fresh.getState() == GroupState.PAUSED && to == GroupState.APPLYING) {
+                request = request.withPause(fresh.getPauseReason(), fresh.getPausedFromState());
+            } else if (fresh.getState() == GroupState.APPLYING && to == GroupState.PAUSED) {
+                com.xammer.cloud.domain.autospotting.PauseReason pauseReason = fresh.getPauseReason();
+                if (pauseReason == null) {
+                    pauseReason = operations.findById(op).map(SpotOperation::getPriorPauseReason).orElse(null);
+                }
+                request = request.withPause(pauseReason, fresh.getPausedFromState());
+            }
+            GroupLifecycleService.Result result = lifecycle.transition(handle, fresh, request);
+            if (result == GroupLifecycleService.Result.STALE) {
+                log.warn("op {} transition {} -> {} missed the guard (stale); a re-drive re-reads",
+                        op, fresh.getState(), to);
+                return false;
+            }
+            return true;
         } catch (IllegalArgumentException forbidden) {
-            // A forbidden edge for this phase's fake programs: log, do not throw (the op still finishes).
+            // A forbidden edge for this phase's fake programs: log, do not throw.
             log.warn("op {} transition {} -> {} not allowed: {}", op, fresh.getState(), to,
                     forbidden.getMessage());
+            return false;
         }
     }
 
@@ -433,9 +698,30 @@ public class OperationRunner {
                         .build()));
     }
 
+    /**
+     * Derive the op's program, or park the op when the provider refuses to build one because its
+     * programs are switched off ({@code AS_PROVIDER_NOT_READY}, design-core.md §6.3 switch (p)). That
+     * happens when the provider switch is turned off while an op is in flight: the op waits as
+     * {@code WAITING(SWITCH)} with its step position kept, no step runs, and it resumes when the switch
+     * is on again. Any other failure propagates.
+     */
+    private StepProgram deriveOrPark(SpotOperation op, SpotGroup group, SpotProvider provider) {
+        try {
+            return deriveProgram(op, group, provider);
+        } catch (com.xammer.cloud.service.autospotting.core.AutoSpottingApiException e) {
+            if (!"AS_PROVIDER_NOT_READY".equals(e.getCode())) {
+                throw e;
+            }
+            store.park(op.getId(), WaitReason.SWITCH, null, op.getStepSeq(), null);
+            log.warn("op {} parked: the {} provider's programs are switched off", op.getId(), group.getProvider());
+            return null;
+        }
+    }
+
     private StepProgram deriveProgram(SpotOperation op, SpotGroup group, SpotProvider provider) {
         OperationContext ctx = new OperationContext(op.getId(), op.getKind(), group,
-                op.getTargetConfig(), op.getCompensationConfig());
+                op.getTargetConfig(), op.getCompensationConfig(), op.getPhase(), op.getPlanId(),
+                op.getCompensationTarget());
         boolean compensating = op.getPhase() == OperationPhase.COMPENSATING;
         return switch (op.getKind()) {
             case REVERT -> provider.restore(ctx, snapshotFor(provider, group));

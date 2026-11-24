@@ -1,6 +1,10 @@
 package com.xammer.cloud.service.autospotting.core.ops;
 
+import com.xammer.cloud.domain.autospotting.SpotOperation;
 import com.xammer.cloud.repository.autospotting.SpotOperationRepository;
+import com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter;
+import com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter.Actor;
+import com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter.AuditRecord;
 import com.xammer.cloud.service.autospotting.core.SpotOpsLifecycle;
 import com.xammer.cloud.service.autospotting.core.lease.LeaseHandle;
 import com.xammer.cloud.service.autospotting.core.lease.LeaseRegistry;
@@ -61,6 +65,7 @@ public class OperationDispatcher {
     private final ThreadPoolTaskExecutor spotOpsExecutor;
     private final SpotOpsLifecycle opsLifecycle;
     private final AutoSpottingMetrics metrics;
+    private final AutoSpottingAuditWriter auditWriter;
 
     /** Counts the dispatcher polls (ux §9.4 dispatcher-isolation assertion observes this advancing). */
     private final AtomicInteger pollCount = new AtomicInteger();
@@ -68,7 +73,7 @@ public class OperationDispatcher {
     public OperationDispatcher(SpotOperationRepository operations, OperationStore store, OperationRunner runner,
                                LeaseService leaseService, LeaseRegistry leaseRegistry,
                                ThreadPoolTaskExecutor spotOpsExecutor, SpotOpsLifecycle opsLifecycle,
-                               AutoSpottingMetrics metrics) {
+                               AutoSpottingMetrics metrics, AutoSpottingAuditWriter auditWriter) {
         this.operations = operations;
         this.store = store;
         this.runner = runner;
@@ -77,6 +82,7 @@ public class OperationDispatcher {
         this.spotOpsExecutor = spotOpsExecutor;
         this.opsLifecycle = opsLifecycle;
         this.metrics = metrics;
+        this.auditWriter = auditWriter;
     }
 
     /** Polls every 5 s on the dedicated dispatch scheduler (§4.1). Never runs on a job thread. */
@@ -127,6 +133,31 @@ public class OperationDispatcher {
     private void dispatchGroupScoped(UUID groupId, Instant now) {
         List<UUID> dueOps = operations.findDueOpIdsForGroup(groupId, now);
         if (dueOps.isEmpty()) {
+            return;
+        }
+        if (!operations.groupRowExists(groupId)) {
+            // No group row: the group lease can never be taken, so the op would stay QUEUED forever with no
+            // error (D-23-06). Nothing ran and nothing can, so finishing it FAILED needs no lease.
+            for (UUID orphan : dueOps) {
+                SpotOperation row = operations.findById(orphan).orElse(null);
+                Runnable audit = () -> {
+                    if (row == null) {
+                        return;
+                    }
+                    auditWriter.write(AuditRecord.builder("OP_FAILED", Actor.system(), row.getKind().name(), "FAILED")
+                            .operationId(row.getId())
+                            .planId(row.getPlanId())
+                            .cloudAccountId(row.getCloudAccountId())
+                            .groupId(row.getGroupId())
+                            .errorCode("GROUP_MISSING")
+                            .details("{\"reason\":\"GROUP_MISSING\"}")
+                            .build());
+                };
+                store.finishFailedWithAudit(orphan, "GROUP_MISSING",
+                        "The group this operation targets has no record, so it can't run. Plan again.", audit);
+                metrics.dispatch("group_missing");
+                log.warn("op {} failed: group {} has no spot_group row", orphan, groupId);
+            }
             return;
         }
         UUID opId = dueOps.get(0); // creation order: a preempted queued op ends before its preemptor (§4.7)

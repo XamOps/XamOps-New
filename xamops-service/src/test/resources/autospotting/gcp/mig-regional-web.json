@@ -1,0 +1,60 @@
+{
+  "kind": "compute#instanceGroupManager",
+  "id": "8800110022",
+  "name": "web-mig",
+  "region": "https://www.googleapis.com/compute/v1/projects/xamops-test/regions/us-central1",
+  "selfLink": "https://www.googleapis.com/compute/v1/projects/xamops-test/regions/us-central1/instanceGroupManagers/web-mig",
+  "instanceTemplate": "https://www.googleapis.com/compute/v1/projects/xamops-test/global/instanceTemplates/web-tpl-1",
+  "versions": [
+    {
+      "instanceTemplate": "https://www.googleapis.com/compute/v1/projects/xamops-test/global/instanceTemplates/web-tpl-1",
+      "targetSize": {
+        "calculated": 6
+      }
+    }
+  ],
+  "targetSize": 6,
+  "instanceGroup": "https://www.googleapis.com/compute/v1/projects/xamops-test/regions/us-central1/instanceGroups/web-mig",
+  "distributionPolicy": {
+    "zones": [
+      {
+        "zone": "https://www.googleapis.com/compute/v1/projects/xamops-test/zones/us-central1-a"
+      },
+      {
+        "zone": "https://www.googleapis.com/compute/v1/projects/xamops-test/zones/us-central1-b"
+      },
+      {
+        "zone": "https://www.googleapis.com/compute/v1/projects/xamops-test/zones/us-central1-c"
+      }
+    ],
+    "targetShape": "EVEN"
+  },
+  "updatePolicy": {
+    "type": "OPPORTUNISTIC",
+    "minimalAction": "REPLACE",
+    "mostDisruptiveAllowedAction": "REPLACE",
+    "maxSurge": {
+      "fixed": 3
+    },
+    "maxUnavailable": {
+      "fixed": 3
+    }
+  },
+  "autoHealingPolicies": [],
+  "currentActions": {
+    "none": 6,
+    "creating": 0,
+    "deleting": 0,
+    "recreating": 0
+  },
+  "status": {
+    "isStable": true,
+    "versionTarget": {
+      "isReached": true
+    },
+    "stateful": {
+      "hasStatefulConfig": false
+    }
+  },
+  "fingerprint": "Zm9vYmFy"
+}

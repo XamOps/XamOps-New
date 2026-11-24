@@ -1,0 +1,92 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  XamOps AutoSpotting events queue and its dead-letter queue, one pair per environment
+  (design-aws.md section 9.5, plan-phase-22.md task 22.2). Deployed in the XamOps account by the
+  infrastructure owner, NOT in a customer account. Nothing here is created by the application or by
+  a test; the application only reads the queue URL from application-{uat,prod}.properties.
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues:
+      - uat
+      - prod
+    Description: >
+      prod creates xamops-autospotting-events.fifo, uat creates xamops-autospotting-events-uat.fifo.
+      The suffix matches the customer template's ResourceSuffix convention (empty for prod, -uat for UAT),
+      and the listener refuses the unsuffixed queue in any non-prod profile.
+Conditions:
+  IsProd: !Equals [!Ref Environment, prod]
+Resources:
+  # The dead-letter queue. 14 days is the SQS maximum, so a replay window of two weeks is available.
+  # Only the events queue may dead-letter into it.
+  EventsDlq:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      QueueName: !If
+        - IsProd
+        - xamops-autospotting-events-dlq.fifo
+        - xamops-autospotting-events-uat-dlq.fifo
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      MessageRetentionPeriod: 1209600  # 14 days
+      VisibilityTimeout: 60
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Service
+          Value: XamOps-AutoSpotting
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: CloudFormation
+  # The per-environment events queue. The forwarder in each customer account sends one message group per
+  # account and region (acct-<accountId>-<region>) with the EventBridge event id as the deduplication id.
+  # Deduplication and throughput are scoped to the message group, so a poison message in one account's
+  # group delays only that group, for about maxReceiveCount x visibility timeout (5 x 60 s).
+  # ContentBasedDeduplication is off: the event id is the idempotency key, not the body hash.
+  # No queue policy is created here: AutoSpottingQueueAuthorizer rebuilds the policy from the connected
+  # accounts, and two writers would fight.
+  EventsQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      QueueName: !If
+        - IsProd
+        - xamops-autospotting-events.fifo
+        - xamops-autospotting-events-uat.fifo
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      DeduplicationScope: messageGroup
+      FifoThroughputLimit: perMessageGroupId
+      MessageRetentionPeriod: 1209600  # 14 days
+      VisibilityTimeout: 60
+      ReceiveMessageWaitTimeSeconds: 20  # long polling
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt EventsDlq.Arn
+        maxReceiveCount: 5
+      Tags:
+        - Key: Service
+          Value: XamOps-AutoSpotting
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: CloudFormation
+Outputs:
+  QueueUrl:
+    Description: URL for autospotting.aws.events.queue-url in the matching application profile
+    Value: !Ref EventsQueue
+  QueueArn:
+    Value: !GetAtt EventsQueue.Arn
+  QueueName:
+    Description: Dimension value for the queue-age alarm in xamops-autospotting-monitoring.yaml
+    Value: !GetAtt EventsQueue.QueueName
+  DlqUrl:
+    Value: !Ref EventsDlq
+  DlqArn:
+    Value: !GetAtt EventsDlq.Arn
+  DlqName:
+    Description: Dimension value for the DLQ-depth alarm in xamops-autospotting-monitoring.yaml
+    Value: !GetAtt EventsDlq.QueueName

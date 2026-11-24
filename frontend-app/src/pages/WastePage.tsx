@@ -6,6 +6,7 @@ import { useWasteData } from '../hooks/useWasteData';
 import type { ServiceGroup, WastedResource } from '../types/waste';
 import { AlertDialog } from '../components/ui/AlertDialog';
 import apiClient from '../utils/apiClient';
+import ManagedGroupWarning from './autospotting/components/ManagedGroupWarning';
 import WasteHeader from '../components/Waste/WasteHeader';
 import WasteKPICards from '../components/Waste/WasteKPICards';
 import WasteResourceGroup from '../components/Waste/WasteResourceGroup';
@@ -21,6 +22,9 @@ export const WastePage: React.FC = () => {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [deleteTarget, setDeleteTarget] = useState<WastedResource | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  // Set when the server refuses an Auto Scaling Group delete because AutoSpotting manages it (FR-CMP-02).
+  const [managedState, setManagedState] = useState<{ state: string; busy: boolean } | null>(null);
+  const [acknowledgeAutoSpotting, setAcknowledgeAutoSpotting] = useState(false);
 
   const groupedResources = useMemo(() => {
     if (!Array.isArray(wastedResources)) return [];
@@ -49,26 +53,50 @@ export const WastePage: React.FC = () => {
     });
   };
 
+  const closeDeleteDialog = useCallback(() => {
+    setDeleteTarget(null);
+    setManagedState(null);
+    setAcknowledgeAutoSpotting(false);
+  }, []);
   const handleDeleteRequest = useCallback((resource: WastedResource) => {
+    setManagedState(null);
+    setAcknowledgeAutoSpotting(false);
     setDeleteTarget(resource);
   }, []);
-
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteTarget || !selectedAccountId) return;
     setIsDeleting(true);
+    let keepOpen = false;
     try {
-      await apiClient.delete(
-        `/api/xamops/waste/delete?accountId=${selectedAccountId}&resourceId=${encodeURIComponent(deleteTarget.resourceId)}&resourceType=${encodeURIComponent(deleteTarget.resourceType)}&region=${encodeURIComponent(deleteTarget.region)}`
+      const ack = managedState && !managedState.busy && acknowledgeAutoSpotting ? '&acknowledgeAutoSpotting=true' : '';
+      const res = await apiClient.fetch(
+        `/api/xamops/waste/delete?accountId=${selectedAccountId}&resourceId=${encodeURIComponent(deleteTarget.resourceId)}&resourceType=${encodeURIComponent(deleteTarget.resourceType)}&region=${encodeURIComponent(deleteTarget.region)}${ack}`,
+        { method: 'DELETE' }
       );
-      removeResource(deleteTarget.resourceId);
+      if (res.ok) {
+        removeResource(deleteTarget.resourceId);
+      } else {
+        let body: { code?: string; state?: string } | null = null;
+        try {
+          body = await res.json();
+        } catch {
+          body = null;
+        }
+        if (res.status === 409 && body?.state && (body.code === 'AUTOSPOTTING_MANAGED_GROUP' || body.code === 'AS_GROUP_BUSY')) {
+          // Nothing was deleted: show the AutoSpotting warning and wait for the acknowledgment.
+          setManagedState({ state: body.state, busy: body.code === 'AS_GROUP_BUSY' });
+          keepOpen = true;
+        } else {
+          console.error('Failed to delete waste resource:', res.status, body);
+        }
+      }
     } catch (err) {
       console.error('Failed to delete waste resource:', err);
     } finally {
       setIsDeleting(false);
-      setDeleteTarget(null);
+      if (!keepOpen) closeDeleteDialog();
     }
-  }, [deleteTarget, selectedAccountId, removeResource]);
-
+  }, [deleteTarget, selectedAccountId, removeResource, managedState, acknowledgeAutoSpotting, closeDeleteDialog]);
   if (error) {
     return (
       <main className="flex-1 px-6 pt-4 pb-6">
@@ -188,13 +216,22 @@ export const WastePage: React.FC = () => {
           deleteTarget && (
             <>
               <strong>{deleteTarget.resourceName || deleteTarget.resourceId}</strong> ({deleteTarget.resourceType} · {deleteTarget.region}) will be permanently deleted from AWS. This action cannot be undone.
+              {managedState && (
+                <ManagedGroupWarning
+                  state={managedState.state}
+                  busy={managedState.busy}
+                  acknowledged={acknowledgeAutoSpotting}
+                  onAcknowledgedChange={setAcknowledgeAutoSpotting}
+                />
+              )}
             </>
           )
         }
         confirmLabel={isDeleting ? 'Deleting…' : 'Yes, Delete'}
         cancelLabel="Cancel"
+        confirmDisabled={isDeleting || (managedState !== null && (managedState.busy || !acknowledgeAutoSpotting))}
         onConfirm={handleDeleteConfirm}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={closeDeleteDialog}
       />
     </main>
   );

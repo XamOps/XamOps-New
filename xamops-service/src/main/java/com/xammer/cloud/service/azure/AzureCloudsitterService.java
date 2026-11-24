@@ -267,11 +267,16 @@ public class AzureCloudsitterService {
         boolean isRunning = PowerState.RUNNING.equals(currentState);
         boolean isDeallocated = PowerState.DEALLOCATED.equals(currentState)
                 || PowerState.DEALLOCATING.equals(currentState);
+        // "Stopped" is an OS shutdown: the VM keeps its compute allocation and Azure still bills
+        // for it. Only RUNNING and DEALLOCATED were handled, so a stopped VM was neither started
+        // during its scheduled hours (the AWS scheduler starts stopped instances) nor
+        // deallocated outside them, and kept billing.
+        boolean isStopped = PowerState.STOPPED.equals(currentState);
 
-        if (shouldBeRunning && isDeallocated) {
+        if (shouldBeRunning && (isDeallocated || isStopped)) {
             logger.info("Azure CloudSitter: STARTING VM {} in RG {} (policy: {})", vmName, resourceGroup, policy.getName());
             return startVm(subscriptionId, resourceGroup, vmName);
-        } else if (!shouldBeRunning && isRunning) {
+        } else if (!shouldBeRunning && (isRunning || isStopped)) {
             logger.info("Azure CloudSitter: DEALLOCATING VM {} in RG {} (policy: {})", vmName, resourceGroup, policy.getName());
             return deallocateVm(subscriptionId, resourceGroup, vmName);
         }

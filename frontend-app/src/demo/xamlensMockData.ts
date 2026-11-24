@@ -15,13 +15,23 @@
  * People, emails, account ids and IPs are fictional: the names match the demo Google Workspace users
  * elsewhere in the demo data, IPs come from the documentation ranges, and MAC addresses are locally
  * administered.
+ *
+ * The same specs also answer the Datastores page (`/api/dspm/datastores`, `/filter-options`, `/kpis`;
+ * design 7.2) in the new DTO shapes. Its drawer data lives in `xamlensDrawerMockData.ts`, and the three
+ * showcase datastores take their sensitive figures from there, so the list and the drawer agree.
  */
 
 import type {
   DspmAssetDetail, DspmAssetRow, DspmEntityCount, DspmFilterOption, DspmFilters, DspmObject, DspmPage,
-  DspmSeverity, DspmStatus,
+  DspmSeverity, DspmStatus, DspmTrendPoint,
 } from '../types/dspm';
+import type {
+  DatastoreFilterDimension, DatastoreFilterOptions, DatastoreKpis, DatastoreRow,
+} from '../types/dspmDatastores';
 import type { DspmSurface } from '../hooks/useDspmData';
+// Circular: the drawer module reads `demoDatastoreSource` from here. Each side reads the other only
+// inside functions, never while the modules load, so either may load first.
+import { SHOWCASE_SENSITIVES } from './xamlensDrawerMockData';
 
 // ─── Vocabulary ──────────────────────────────────────────────────────────────
 
@@ -57,7 +67,7 @@ const SCAN_STAGE: Record<string, string> = {
 const PROVIDER_LABEL: Record<string, string> = {
   S3: 'S3', EBS: 'EBS', RDS: 'RDS', DYNAMODB: 'DynamoDB', BIGQUERY: 'BigQuery', GCS: 'GCS',
   AZURE_BLOB: 'Azure Blob', SELF_HOSTED_POSTGRES: 'Self-hosted Postgres',
-  GOOGLE_WORKSPACE: 'Google Workspace', ENDPOINT_AGENT: 'Endpoint Agent',
+  GOOGLE_WORKSPACE: 'Google Workspace', ENDPOINT_AGENT: 'Endpoint Agent', GMAIL: 'Gmail',
   MAC: 'Mac', WINDOWS: 'Windows', LINUX: 'Linux',
 };
 
@@ -74,6 +84,7 @@ const INTEGRATIONS: Record<string, string> = {
   'demo-int-gcp': 'xammer-analytics (GCP Analytics)',
   'demo-int-azure': '3f9c2a14-7b6e-4d1a-9e2f-5c8b0d7a6e31 (Azure Enterprise)',
   'demo-int-onprem': 'Self-hosted Postgres',
+  'demo-int-onprem-2': 'Self-hosted Postgres',
   'demo-int-gws': 'Google Workspace',
 };
 
@@ -110,6 +121,11 @@ interface AssetSpec {
   status: Status;
   /** Days since the last scan; null for none. */
   scanned: number | null;
+  /**
+   * Days since the scan status last changed (the vendor's `status_at`). The Datastores list shows it for
+   * every status except Classified (design 5.6.1); absent when the vendor sends none.
+   */
+  statusAt?: number;
   risk: [level: DspmSeverity, score: number | null, violations: number | null];
   /** `sensitives.level`: what the Cloud table's Severity column shows. Null on SaaS and Endpoint. */
   sensLevel: string | null;
@@ -153,7 +169,8 @@ const DATASTORES: AssetSpec[] = [
   {
     id: 'demo-ds-01', surface: 'cloud', category: 'cloud', resourceType: 'DATASTORE',
     name: 'xammer-prod-customer-exports', subtype: 'S3', provider: 'S3', account: 'demo-int-aws-prod',
-    region: 'ap-south-1', status: 'CLASSIFIED', scanned: 1, risk: ['CRITICAL', 9.12, 14], sensLevel: 'HIGH_SENSITIVITY',
+    // Stopped 52 days ago, so the Datastores list shows an absolute date for it.
+    region: 'ap-south-1', status: 'STOPPED', scanned: 52, statusAt: 52, risk: ['CRITICAL', 9.12, 14], sensLevel: 'HIGH_SENSITIVITY',
     objectTotal: 12480, externalId: 'arn:aws:s3:::xammer-prod-customer-exports', lifecycle: 'NOT_APPLICABLE',
     facet: { ...s3('xammer-prod-customer-exports', 'demo-int-aws-prod', 'ap-south-1'), storage_size_bytes: 1.84 * TB, number_of_records: 12531 },
     files: [
@@ -207,7 +224,7 @@ const DATASTORES: AssetSpec[] = [
   {
     id: 'demo-ds-04', surface: 'cloud', category: 'cloud', resourceType: 'DATASTORE',
     name: 'xammer-staging-db-backups', subtype: 'S3', provider: 'S3', account: 'demo-int-aws-stg',
-    region: 'ap-south-1', status: 'STOPPED', scanned: 6, risk: ['HIGH', 7.86, 4], sensLevel: 'HIGH_SENSITIVITY',
+    region: 'ap-south-1', status: 'STOPPED', scanned: 6, statusAt: 6, risk: ['HIGH', 7.86, 4], sensLevel: 'HIGH_SENSITIVITY',
     objectTotal: 3402, externalId: 'arn:aws:s3:::xammer-staging-db-backups', lifecycle: 'NOT_APPLICABLE',
     facet: { ...s3('xammer-staging-db-backups', 'demo-int-aws-stg', 'ap-south-1'), storage_size_bytes: 244 * GB, number_of_records: 3402 },
     files: [
@@ -371,7 +388,7 @@ const DATASTORES: AssetSpec[] = [
   {
     id: 'demo-ds-17', surface: 'cloud', category: 'cloud', resourceType: 'DATASTORE',
     name: 'vol-0c7e1f4a2b9d86e33', subtype: 'EBS', provider: 'EBS', account: 'demo-int-aws-stg',
-    region: 'us-east-1', status: 'FAILED', scanned: null, risk: ['NONE', null, null], sensLevel: null,
+    region: 'us-east-1', status: 'FAILED', scanned: null, statusAt: 3.4, risk: ['NONE', null, null], sensLevel: null,
     objectTotal: 0, externalId: 'vol-0c7e1f4a2b9d86e33', lifecycle: 'NOT_APPLICABLE',
     facet: { cloud_account_id: '715028364901', region: 'us-east-1', storage_size_bytes: 50 * GB, able_to_scan: false },
     files: [], filler: pathFiller('/var/log', 'log'),
@@ -387,18 +404,19 @@ const DATASTORES: AssetSpec[] = [
   {
     id: 'demo-ds-19', surface: 'cloud', category: 'cloud', resourceType: 'DATASTORE',
     name: 'xammer-ml-training-data', subtype: 'GCS', provider: 'GCS', account: 'demo-int-gcp',
-    region: 'asia-south1', status: 'SCANNING', scanned: null, risk: ['NONE', null, null], sensLevel: null,
+    region: 'asia-south1', status: 'SCANNING', scanned: null, statusAt: 0.1, risk: ['NONE', null, null], sensLevel: null,
     objectTotal: 0, externalId: 'xammer-ml-training-data', lifecycle: 'NOT_APPLICABLE',
     facet: { cloud_account_id: 'xammer-analytics', gcp_project_id: 'xammer-analytics', region: 'asia-south1', storage_size_bytes: 2.6 * TB, able_to_scan: true },
     files: [], filler: pathFiller('gs://xammer-ml-training-data/datasets', 'parquet'),
   },
   {
     id: 'demo-ds-20', surface: 'cloud', category: 'cloud', resourceType: 'DATASTORE',
-    name: 'costexports', subtype: 'AZURE_BLOB', provider: 'AZURE_BLOB', account: 'demo-int-azure',
-    region: 'centralindia', status: 'NOT_SCANNED', scanned: null, risk: ['NONE', null, null], sensLevel: null,
-    objectTotal: 0, externalId: 'costexports', lifecycle: 'NOT_APPLICABLE',
-    facet: { cloud_account_id: CLOUD_ACCOUNT['demo-int-azure'], region: 'centralindia', storage_size_bytes: 3.4 * GB, able_to_scan: true },
-    files: [], filler: pathFiller('https://xammerfinance.blob.core.windows.net/costexports', 'csv'),
+    name: 'ledger-exports-weu', subtype: 'AZURE_BLOB', provider: 'AZURE_BLOB', account: 'demo-int-azure',
+    // Never scanned, its status set 47 hours ago: the list reads "1d ago". The drawer's empty states.
+    region: 'centralindia', status: 'NOT_SCANNED', scanned: null, statusAt: 47 / 24, risk: ['NONE', null, null], sensLevel: null,
+    objectTotal: 0, externalId: 'ledger-exports-weu', lifecycle: 'NOT_APPLICABLE',
+    facet: { cloud_account_id: CLOUD_ACCOUNT['demo-int-azure'], region: 'centralindia', storage_size_bytes: 0, able_to_scan: true },
+    files: [], filler: pathFiller('https://xammerledger.blob.core.windows.net/ledger-exports-weu', 'csv'),
   },
   {
     id: 'demo-ds-21', surface: 'cloud', category: 'cloud', resourceType: 'DATASTORE',
@@ -411,10 +429,19 @@ const DATASTORES: AssetSpec[] = [
   {
     id: 'demo-ds-22', surface: 'cloud', category: 'cloud', resourceType: 'DATASTORE',
     name: 'xammer-data-lake', subtype: 'S3', provider: 'S3', account: 'demo-int-aws-prod',
-    region: 'us-east-1', status: 'FAILED', scanned: null, risk: ['NONE', null, null], sensLevel: null,
+    region: 'us-east-1', status: 'FAILED', scanned: null, statusAt: 9.2, risk: ['NONE', null, null], sensLevel: null,
     objectTotal: 0, externalId: 'arn:aws:s3:::xammer-data-lake', lifecycle: 'NOT_APPLICABLE',
     facet: { ...s3('xammer-data-lake', 'demo-int-aws-prod', 'us-east-1'), storage_size_bytes: 9.8 * TB },
     files: [], filler: s3Filler('xammer-data-lake', 'curated'),
+  },
+  {
+    // The second on-prem datastore: a failed scan 23.1 days ago, which the list reads "23d ago".
+    id: 'demo-ds-23', surface: 'cloud', category: 'on_prem', resourceType: 'DATASTORE',
+    name: 'ledger_replica', subtype: 'SELF_HOSTED_POSTGRES', provider: 'SELF_HOSTED_POSTGRES', account: 'demo-int-onprem-2',
+    region: 'self-hosted', status: 'FAILED', scanned: null, statusAt: 23.1, risk: ['NONE', null, null], sensLevel: null,
+    objectTotal: 0, externalId: 'ledger_replica', lifecycle: 'NOT_APPLICABLE',
+    facet: { region: 'self-hosted', host: 'ledger-replica.internal', port: 5433, able_to_scan: true },
+    files: [], filler: columnFiller('public.ledger_entries', ['id', 'account_id', 'amount', 'posted_at']),
   },
 ];
 
@@ -422,8 +449,15 @@ const DATASTORES: AssetSpec[] = [
 
 interface SaasSeed {
   id: string; person: string; email: string; drive: 'GMAIL' | 'GOOGLE_WORKSPACE'; status: Status; scanned: number | null;
+  statusAt?: number;
   risk: DspmSeverity; inventories: number; sizeBytes: number; unsupported: number; files: FileSpec[];
 }
+
+/**
+ * Added to every SaaS scan age. The console's Google Workspace scans were about 55 days old, so its
+ * Classified SaaS rows show a date rather than "Nd ago" (design 5.6.1); so do the demo's.
+ */
+const SAAS_SCAN_AGE_DAYS = 54;
 
 const mail = (subject: string, findings: FileSpec['findings']): FileSpec => ({ name: subject, path: null, ext: 'msg', findings });
 const doc = (name: string, findings: FileSpec['findings']): FileSpec =>
@@ -439,21 +473,28 @@ const SAAS_SEEDS: SaasSeed[] = [
     ] },
   { id: 'demo-saas-02', person: 'Notifications', email: 'notifications@xammer.in', drive: 'GMAIL', status: 'CLASSIFIED', scanned: 1,
     risk: 'HIGH', inventories: 18420, sizeBytes: 0, unsupported: 254, files: [
-      mail('Welcome to XamOps - your account credentials', [['EMAIL ADDRESS', 1], ['HASHED SECRET KEY', 1]]),
-      mail('Delivery Status Notification (Failure)', [['EMAIL ADDRESS', 2]]),
+      mail('Your new XamOps sign-in', [['EMAIL ADDRESS', 1], ['HASHED SECRET KEY', 1]]),
+      mail('Undeliverable: weekly digest', [['EMAIL ADDRESS', 2]]),
       mail('Password reset requested', [['EMAIL ADDRESS', 1], ['JWT TOKEN', 1]]),
       mail('Invoice INV-2026-04-001 is ready', [['PERSON NAME', 1], ['ADDRESS', 1], ['EMAIL ADDRESS', 1]]),
     ] },
   { id: 'demo-saas-03', person: 'Priya Nair', email: 'priya@xammer.in', drive: 'GMAIL', status: 'CLASSIFIED', scanned: 1,
     risk: 'HIGH', inventories: 2672, sizeBytes: 0, unsupported: 96, files: [
-      mail('Re: Payroll inputs for September', [['BANK ACCOUNT NUMBER', 14], ['PAN NUMBER', 14], ['PERSON NAME', 14]]),
+      // The SaaS drawer's Gmail showcase (design 7.2): PERSON NAME is in six files, so its file list has a
+      // second page at Rows Per Page 5; the totals per element are build 1's.
+      mail('Re: Payroll inputs for September', [['BANK ACCOUNT NUMBER', 14], ['PAN NUMBER', 14], ['PERSON NAME', 8]]),
       mail('Fwd: Candidate documents', [['AADHAAR NUMBER', 1], ['DATE OF BIRTH', 1], ['ADDRESS', 1]]),
       mail('Customer escalation - refund', [['CREDIT CARD NUMBER', 1], ['PHONE NUMBER', 2], ['EMAIL ADDRESS', 3]]),
+      doc('Offer Letter - Priya Nair.pdf', [['PERSON NAME', 2]]),
+      mail('Re: Offer acceptance', [['PERSON NAME', 1]]),
+      mail('Signed contract - vendor NDA', [['PERSON NAME', 1]]),
+      mail('Incident review notes', [['PERSON NAME', 1]]),
+      mail('Payment confirmation - relocation', [['PERSON NAME', 1]]),
     ] },
   { id: 'demo-saas-04', person: 'Priya Nair', email: 'priya@xammer.in', drive: 'GOOGLE_WORKSPACE', status: 'CLASSIFIED', scanned: 2,
     risk: 'MEDIUM', inventories: 312, sizeBytes: 8.6 * GB, unsupported: 18, files: [
-      doc('Team contacts.xlsx', [['PERSON NAME', 84], ['PHONE NUMBER', 84], ['EMAIL ADDRESS', 84]]),
-      doc('Offer letter template.docx', [['PERSON NAME', 1], ['ADDRESS', 1]]),
+      doc('Team Roster.xlsx', [['PERSON NAME', 84], ['PHONE NUMBER', 84], ['EMAIL ADDRESS', 84]]),
+      doc('Offer Letter - Priya Nair.docx', [['PERSON NAME', 1], ['ADDRESS', 1]]),
     ] },
   { id: 'demo-saas-05', person: 'Rohan Mehta', email: 'rohan@xammer.in', drive: 'GMAIL', status: 'CLASSIFIED', scanned: 1,
     risk: 'MEDIUM', inventories: 1639, sizeBytes: 0, unsupported: 70, files: [
@@ -480,7 +521,7 @@ const SAAS_SEEDS: SaasSeed[] = [
       mail('On-call handover', [['IP ADDRESS', 6], ['EMAIL ADDRESS', 2]]),
     ] },
   { id: 'demo-saas-10', person: 'Ananya Reddy', email: 'ananya@xammer.in', drive: 'GOOGLE_WORKSPACE', status: 'SCANNING', scanned: null,
-    risk: 'NONE', inventories: 96, sizeBytes: 2.4 * GB, unsupported: 11, files: [] },
+    statusAt: 0.2, risk: 'NONE', inventories: 96, sizeBytes: 2.4 * GB, unsupported: 11, files: [] },
   { id: 'demo-saas-11', person: 'Billing', email: 'billing@xammer.in', drive: 'GMAIL', status: 'CLASSIFIED', scanned: 2,
     risk: 'HIGH', inventories: 256, sizeBytes: 0, unsupported: 8, files: [
       mail('Card payment failed - action needed', [['CREDIT CARD NUMBER', 2], ['PERSON NAME', 2], ['EMAIL ADDRESS', 2]]),
@@ -501,8 +542,10 @@ const SAAS: AssetSpec[] = SAAS_SEEDS.map(seed => {
   const supportedSize = seed.sizeBytes > 0 ? Math.round(seed.sizeBytes * 0.94) : 0;
   return {
     id: seed.id, surface: 'saas', category: 'saas', resourceType: 'SAAS_PRINCIPAL',
-    name: seed.person, subtype: 'GOOGLE_WORKSPACE', provider: 'GOOGLE_WORKSPACE', account: 'demo-int-gws', region: null,
-    status: seed.status, scanned: seed.scanned, risk: [seed.risk, null, null], sensLevel: null,
+    // The drive is the subtype: a Gmail mailbox or a Google Drive.
+    name: seed.person, subtype: seed.drive, provider: 'GOOGLE_WORKSPACE', account: 'demo-int-gws', region: null,
+    status: seed.status, scanned: seed.scanned === null ? null : seed.scanned + SAAS_SCAN_AGE_DAYS, statusAt: seed.statusAt,
+    risk: [seed.risk, null, null], sensLevel: null,
     objectTotal: seed.status === 'CLASSIFIED' ? supported : 0, externalId: seed.email, lifecycle: 'ACTIVE',
     facet: {
       drive_type: seed.drive, entity_type: 'USER',
@@ -521,22 +564,24 @@ const SAAS: AssetSpec[] = SAAS_SEEDS.map(seed => {
 interface DeviceSeed {
   id: string; name: string; os: 'MAC' | 'WINDOWS' | 'LINUX'; osVersion: string; user: string; serial: string;
   status: Status; online: boolean; pingHoursAgo: number; risk: DspmSeverity; objectTotal: number; ip: string;
-  mac: string; arch: string; memoryGb: number; files: FileSpec[]; home: string;
+  mac: string; arch: string; memoryGb: number; files: FileSpec[]; home: string; agentVersion: string;
 }
 
 const DEVICE_SEEDS: DeviceSeed[] = [
   { id: 'demo-ep-01', name: 'Priya’s MacBook Pro', os: 'MAC', osVersion: '15.1', user: 'priya', serial: 'C02XD4DEMO01',
     status: 'CLASSIFIED', online: true, pingHoursAgo: 0.2, risk: 'HIGH', objectTotal: 4210, ip: '203.0.113.24',
-    mac: '02:1a:4b:3c:5d:01', arch: 'arm64', memoryGb: 16, home: '/Users/priya', files: [
+    mac: '02:1a:4b:3c:5d:01', arch: 'arm64', memoryGb: 16, home: '/Users/priya', agentVersion: '2.1.0', files: [
       { name: 'customer_export_sept.csv', path: '/Users/priya/Downloads/customer_export_sept.csv', ext: 'csv',
         findings: [['EMAIL ADDRESS', 1840], ['PERSON NAME', 1840], ['PHONE NUMBER', 1602]] },
       { name: 'payroll_draft.xlsx', path: '/Users/priya/Desktop/payroll_draft.xlsx', ext: 'xlsx',
         findings: [['BANK ACCOUNT NUMBER', 58], ['PAN NUMBER', 58]] },
       { name: 'credentials.bak', path: '/Users/priya/Documents/aws/credentials.bak', ext: 'bak', findings: [['ACCESS KEY AWS', 2]] },
+      // The Endpoint file drawer's showcase: the Mac copy of the offer letter, without findings.
+      { name: 'offer-letter.docx', path: '/Users/priya/Documents/offer-letter.docx', ext: 'docx', findings: [] },
     ] },
   { id: 'demo-ep-02', name: 'FIN-LAPTOP-07', os: 'WINDOWS', osVersion: '11 Pro 23H2', user: 'vijay', serial: '8TG5DEMO07',
     status: 'CLASSIFIED', online: true, pingHoursAgo: 1, risk: 'CRITICAL', objectTotal: 6932, ip: '203.0.113.87',
-    mac: '02:1a:4b:3c:5d:07', arch: 'amd64', memoryGb: 16, home: 'C:\\Users\\vijay', files: [
+    mac: '02:1a:4b:3c:5d:07', arch: 'amd64', memoryGb: 16, home: 'C:\\Users\\vijay', agentVersion: '2.2.0', files: [
       { name: 'vendor_bank_details.xlsx', path: 'C:\\Users\\vijay\\Documents\\Finance\\vendor_bank_details.xlsx', ext: 'xlsx',
         findings: [['BANK ACCOUNT NUMBER', 312], ['IFSC CODE', 312], ['PERSON NAME', 312]] },
       { name: 'card_disputes_q3.csv', path: 'C:\\Users\\vijay\\Downloads\\card_disputes_q3.csv', ext: 'csv',
@@ -544,23 +589,23 @@ const DEVICE_SEEDS: DeviceSeed[] = [
     ] },
   { id: 'demo-ep-03', name: 'Akshay’s MacBook Pro', os: 'MAC', osVersion: '14.6.1', user: 'akshay', serial: 'C02XD4DEMO03',
     status: 'CLASSIFIED', online: false, pingHoursAgo: 30, risk: 'MEDIUM', objectTotal: 2943, ip: '198.51.100.12',
-    mac: '02:1a:4b:3c:5d:03', arch: 'arm64', memoryGb: 32, home: '/Users/akshay', files: [
+    mac: '02:1a:4b:3c:5d:03', arch: 'arm64', memoryGb: 32, home: '/Users/akshay', agentVersion: '2.2.2', files: [
       { name: '.env', path: '/Users/akshay/code/billing-service/.env', ext: null, findings: [['HASHED SECRET KEY', 6], ['JWT TOKEN', 2]] },
       { name: 'leads.csv', path: '/Users/akshay/Downloads/leads.csv', ext: 'csv', findings: [['EMAIL ADDRESS', 420], ['PHONE NUMBER', 388]] },
-      { name: 'people-list.json', path: '/Users/akshay/code/xamops-service/src/test/resources/people-list.json', ext: 'json',
+      { name: 'contacts-sample.json', path: '/Users/akshay/code/crm-api/fixtures/contacts-sample.json', ext: 'json',
         findings: [['EMAIL ADDRESS', 2], ['PERSON NAME', 1]] },
     ] },
   { id: 'demo-ep-04', name: 'build-runner-01', os: 'LINUX', osVersion: 'Ubuntu 22.04', user: 'ci', serial: 'VM-DEMO-0001',
     status: 'CLASSIFIED', online: true, pingHoursAgo: 0.1, risk: 'LOW', objectTotal: 18240, ip: '198.51.100.40',
-    mac: '02:1a:4b:3c:5d:04', arch: 'amd64', memoryGb: 8, home: '/home/ci', files: [
+    mac: '02:1a:4b:3c:5d:04', arch: 'amd64', memoryGb: 8, home: '/home/ci', agentVersion: '2.2.2', files: [
       { name: 'config.json', path: '/home/ci/.docker/config.json', ext: 'json', findings: [['HASHED SECRET KEY', 1]] },
     ] },
   { id: 'demo-ep-05', name: 'HR-DESKTOP-02', os: 'WINDOWS', osVersion: '11 Pro 23H2', user: 'meera', serial: '5KD2DEMO02',
     status: 'SCANNING', online: true, pingHoursAgo: 0.5, risk: 'NONE', objectTotal: 0, ip: '203.0.113.141',
-    mac: '02:1a:4b:3c:5d:05', arch: 'amd64', memoryGb: 8, home: 'C:\\Users\\meera', files: [] },
+    mac: '02:1a:4b:3c:5d:05', arch: 'amd64', memoryGb: 8, home: 'C:\\Users\\meera', agentVersion: '2.2.0', files: [] },
   { id: 'demo-ep-06', name: 'Sneha’s MacBook Air', os: 'MAC', osVersion: '15.0.1', user: 'sneha', serial: 'C02XD4DEMO06',
     status: 'NOT_SCANNED', online: false, pingHoursAgo: 96, risk: 'NONE', objectTotal: 0, ip: '198.51.100.77',
-    mac: '02:1a:4b:3c:5d:06', arch: 'arm64', memoryGb: 8, home: '/Users/sneha', files: [] },
+    mac: '02:1a:4b:3c:5d:06', arch: 'arm64', memoryGb: 8, home: '/Users/sneha', agentVersion: '2.1.0', files: [] },
 ];
 
 const ENDPOINTS: AssetSpec[] = DEVICE_SEEDS.map(seed => ({
@@ -569,7 +614,7 @@ const ENDPOINTS: AssetSpec[] = DEVICE_SEEDS.map(seed => ({
   status: seed.status, scanned: null, risk: [seed.risk, null, null], sensLevel: null,
   objectTotal: seed.objectTotal, externalId: seed.serial, lifecycle: 'ACTIVE',
   facet: {
-    agent_status: seed.online ? 'ONLINE' : 'OFFLINE', agent_version: '2.1.0', architecture: seed.arch,
+    agent_status: seed.online ? 'ONLINE' : 'OFFLINE', agent_version: seed.agentVersion, architecture: seed.arch,
     cpu_usage: seed.online ? 0.14 : 0.01, device_type: seed.os === 'LINUX' ? 'server' : 'laptop',
     device_users: [seed.user], enrolled_user: seed.name, hostname: seed.name,
     last_ping_time: Math.floor(Date.now() / 1000 - seed.pingHoursAgo * 3600),
@@ -586,6 +631,16 @@ const ENDPOINTS: AssetSpec[] = DEVICE_SEEDS.map(seed => ({
 const ALL: AssetSpec[] = [...DATASTORES, ...SAAS, ...ENDPOINTS];
 
 // ─── Derivation ──────────────────────────────────────────────────────────────
+
+const SURFACE_DIGIT: Record<DspmSurface, string> = { cloud: '0', saas: '1', endpoint: '2' };
+
+/**
+ * The 24-hex datastore id: `de3`, the surface digit (cloud and on-prem 0, SaaS 1, endpoint 2), then the
+ * spec's number padded to 20 digits. `demo-ds-01` is `de3000000000000000000001`.
+ */
+function sourceIdOf(spec: AssetSpec): string {
+  return `de3${SURFACE_DIGIT[spec.surface]}${spec.id.replace(/\D/g, '').padStart(20, '0')}`;
+}
 
 /** The returned object list: every sensitive file, then clean ones, capped at 50 like the API. */
 function objectsOf(spec: AssetSpec): DspmObject[] {
@@ -653,7 +708,7 @@ function build(spec: AssetSpec): Built {
     subtypeLabel: PROVIDER_LABEL[spec.subtype] ?? spec.subtype,
     category: spec.category,
     resourceType: spec.resourceType,
-    sourceId: `66a1f0${spec.id.replace(/\D/g, '').padStart(6, '0')}c9e2`,
+    sourceId: sourceIdOf(spec),
     lifecycle: spec.lifecycle,
     risk: { score, level, policyViolationCount: violations, hasFinding: level !== 'NONE' },
     sensitives: {
@@ -858,5 +913,482 @@ export function demoDspmStatus(): DspmStatus {
     message: null,
     projectName: 'Xammer Demo',
     lastVerifiedAt: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
+  };
+}
+
+// ─── Datastores page: list, filter options and KPIs (design 7.2) ─────────────
+
+/**
+ * Integration → the label the Datastores labeler resolves (design 5.8): the XamOps account name alone
+ * for a cloud, the workspace's account name for SaaS. On-prem rows carry their own name and endpoints
+ * none, so neither is listed.
+ */
+const ACCOUNT_LABEL: Record<string, string> = {
+  'demo-int-aws-prod': 'Xammer Production',
+  'demo-int-aws-stg': 'Xammer Staging',
+  'demo-int-gcp': 'GCP Analytics',
+  'demo-int-azure': 'Azure Enterprise',
+  'demo-int-gws': 'xammer-workspace',
+};
+
+/** Integration → its 24-hex id, the value the `integration_id` filter sends. */
+const INTEGRATION_ID: Record<string, string> = {
+  'demo-int-aws-prod': 'de3900000000000000000001',
+  'demo-int-aws-stg': 'de3900000000000000000002',
+  'demo-int-gcp': 'de3900000000000000000003',
+  'demo-int-azure': 'de3900000000000000000004',
+  'demo-int-onprem': 'de3900000000000000000005',
+  'demo-int-onprem-2': 'de3900000000000000000006',
+  'demo-int-gws': 'de3900000000000000000007',
+};
+
+// The backend's label maps (`DatastoreLabels`, design 5.7). An unlisted code is prettified.
+const DS_PROVIDER_LABEL: Record<string, string> = {
+  EBS: 'EBS', S3: 'S3', AZURE_BLOB: 'Azure Blob', BIGQUERY: 'BigQuery', DYNAMODB: 'DynamoDB', GCS: 'GCS', RDS: 'RDS',
+  GOOGLE_WORKSPACE: 'Google Workspace', ENDPOINT_AGENT: 'Endpoint Agent', SELF_HOSTED_POSTGRES: 'PostgreSQL (self-hosted)',
+};
+const DS_SUBTYPE_LABEL: Record<string, string> = {
+  S3: 'S3', GMAIL: 'Gmail', GOOGLE_WORKSPACE: 'Google Drive', SELF_HOSTED_POSTGRES: 'PostgreSQL', AZURE_BLOB: 'Azure Blob',
+  MAC: 'macOS', WINDOWS: 'Windows',
+};
+const DS_SCAN_LABEL: Record<string, string> = {
+  NOT_SCANNED: 'Not Scanned', CLASSIFIED: 'Classified', FAILED: 'Failed', STOPPED: 'Stopped', SCANNING: 'Scanning',
+  SCHEDULED: 'Scheduled',
+};
+const LEVEL_LABEL: Record<string, string> = { CRITICAL: 'Critical', HIGH: 'High', MEDIUM: 'Medium', LOW: 'Low' };
+const OS_LABEL: Record<string, string> = { MAC: 'macOS', WINDOWS: 'Windows' };
+const AGENT_STATUS_LABEL: Record<string, string> = { ONLINE: 'Online', OFFLINE: 'Offline' };
+
+/** `DspmLabels.prettify`: underscores to spaces, each word capitalised. */
+const prettify = (code: string) =>
+  code.toLowerCase().split('_').filter(Boolean).map(word => word[0].toUpperCase() + word.slice(1)).join(' ');
+
+/** A row's sensitive figures as every Datastores answer reports them. */
+interface SensitiveFigures {
+  recordCount: number;
+  /** Category codes, in the row's order. */
+  types: string[];
+  /** Detector names, for the `data_element` filter. */
+  elements: string[];
+}
+
+/**
+ * The three showcase datastores take their figures from their drawer data (`SHOWCASE_SENSITIVES`);
+ * every other row from its files, as `build()` derives them. The list, the filter options and the KPIs
+ * all read this, so they agree with the drawers.
+ */
+function datastoreSensitivesOf(item: Built): SensitiveFigures {
+  return SHOWCASE_SENSITIVES[item.spec.id]
+    ?? { recordCount: item.row.sensitives.recordCount, types: item.row.sensitives.types, elements: item.elements };
+}
+
+/** The labeler's row rule (design 5.8). */
+function accountLabelOf(spec: AssetSpec): string | null {
+  if (spec.category === 'on_prem') return spec.name;
+  if (spec.category === 'endpoint' || !spec.account) return null;
+  return ACCOUNT_LABEL[spec.account] ?? null;
+}
+
+/**
+ * The time the Scan Status cell shows (design 5.6.1): Classified rows show `last_scanned_at`, which only
+ * SaaS rows carry (cloud and endpoint rows show no time); every other status shows `status_at`.
+ */
+function displayAtOf(item: Built): number | null {
+  const { spec } = item;
+  if (spec.status === 'CLASSIFIED') return spec.surface === 'saas' ? item.row.scan.lastScannedAt : null;
+  return spec.statusAt === undefined ? null : nowSeconds() - Math.round(spec.statusAt * DAY);
+}
+
+function datastoreRowOf(item: Built): DatastoreRow {
+  const { spec } = item;
+  const [riskLevel, score] = spec.risk;
+  // The vendor sends no level for a datastore without findings; the cell then reads "-".
+  const level = riskLevel === 'NONE' ? null : riskLevel;
+  const { recordCount, types } = datastoreSensitivesOf(item);
+  const agentStatus = String(spec.facet.agent_status);
+  return {
+    id: spec.id,
+    sourceId: sourceIdOf(spec),
+    name: spec.name,
+    category: spec.category,
+    subtype: spec.subtype,
+    subtypeLabel: DS_SUBTYPE_LABEL[spec.subtype] ?? DS_PROVIDER_LABEL[spec.subtype] ?? prettify(spec.subtype),
+    risk: { score, level, levelLabel: level ? LEVEL_LABEL[level] : null },
+    sensitives: { recordCount, typeLabels: types.map(type => CATEGORY_LABEL[type] ?? type) },
+    source: {
+      provider: spec.provider,
+      providerLabel: DS_PROVIDER_LABEL[spec.provider] ?? prettify(spec.provider),
+      accountLabel: accountLabelOf(spec),
+      region: spec.region,
+    },
+    scan: { status: spec.status, statusLabel: DS_SCAN_LABEL[spec.status], displayAt: displayAtOf(item) },
+    agent: spec.category === 'endpoint'
+      ? {
+        serialNumber: String(spec.facet.serial_number),
+        status: agentStatus,
+        statusLabel: AGENT_STATUS_LABEL[agentStatus] ?? null,
+        version: String(spec.facet.agent_version),
+      }
+      : null,
+  };
+}
+
+const DS_TABS = ['all', 'cloud', 'saas', 'endpoint', 'on_prem'] as const;
+type DatastoreTab = typeof DS_TABS[number];
+
+/** The filter dimensions each tab accepts (design 5.3.2), in the order the answer lists them. */
+const SHARED_DIMENSIONS = ['integration_id', 'provider', 'region', 'scan_status', 'severity', 'sensitive_type', 'data_element'];
+const TAB_DIMENSIONS: Record<DatastoreTab, string[]> = {
+  all: SHARED_DIMENSIONS,
+  cloud: SHARED_DIMENSIONS,
+  on_prem: SHARED_DIMENSIONS,
+  saas: [...SHARED_DIMENSIONS, 'selected'],
+  endpoint: [...SHARED_DIMENSIONS, 'os', 'agent_status', 'device_type', 'serial_number', 'hostname', 'user'],
+};
+/** The vendor sends these endpoint options without counts. */
+const UNCOUNTED_DIMENSIONS = new Set(['hostname', 'user']);
+const ENDPOINT_FACET_DIMENSIONS = new Set(['os', 'agent_status', 'device_type', 'serial_number', 'hostname', 'user']);
+
+const scalarText = (value: unknown): string[] =>
+  typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? [String(value)] : [];
+
+/** A row's values for a filter dimension; `sensitive_type` and `data_element` hold several. */
+function datastoreValuesOf(item: Built, dimension: string): string[] {
+  const { spec } = item;
+  if (ENDPOINT_FACET_DIMENSIONS.has(dimension)) return spec.category === 'endpoint' ? scalarText(spec.facet[dimension]) : [];
+  switch (dimension) {
+    case 'integration_id': return spec.account && INTEGRATION_ID[spec.account] ? [INTEGRATION_ID[spec.account]] : [];
+    case 'provider': return [spec.provider];
+    case 'region': return spec.region ? [spec.region] : [];
+    case 'scan_status': return [spec.status];
+    case 'severity': return [spec.risk[0]];
+    case 'sensitive_type': return datastoreSensitivesOf(item).types;
+    case 'data_element': return datastoreSensitivesOf(item).elements;
+    case 'selected': return spec.category === 'saas' ? scalarText(spec.facet.is_selected) : [];
+    default: return [];
+  }
+}
+
+/** The labeler's option rule: an integration reads as the account label of its first row. */
+function integrationLabel(id: string): string | null {
+  const sample = BUILT.find(item => item.spec.account !== null && INTEGRATION_ID[item.spec.account] === id);
+  return sample ? accountLabelOf(sample.spec) : null;
+}
+
+/** `DatastoreLabels.optionLabel` (design 5.7). */
+function datastoreOptionLabel(dimension: string, value: string): string {
+  switch (dimension) {
+    case 'integration_id': return integrationLabel(value) ?? value;
+    case 'provider': return DS_PROVIDER_LABEL[value] ?? prettify(value);
+    case 'scan_status': return DS_SCAN_LABEL[value] ?? prettify(value);
+    case 'severity': return value === 'NONE' ? 'No findings' : LEVEL_LABEL[value] ?? prettify(value);
+    case 'sensitive_type': return CATEGORY_LABEL[value] ?? prettify(value);
+    case 'os': return OS_LABEL[value] ?? prettify(value);
+    case 'agent_status': return AGENT_STATUS_LABEL[value] ?? prettify(value);
+    case 'device_type': return prettify(value);
+    case 'data_element': return value || 'Unclassified';
+    default: return value || '-';
+  }
+}
+
+interface DatastoreQuery {
+  tab: DatastoreTab;
+  /** Lower-cased; empty for no search. */
+  q: string;
+  /** Dimension → its values, sent as `<dim>` (Include) or `<dim>_exclude` (Exclude). */
+  filters: Map<string, { exclude: boolean; values: string[] }>;
+  sort: string;
+  page: number;
+  pageSize: number;
+}
+
+function parseDatastoreQuery(url: string): DatastoreQuery {
+  const params = new URL(url, 'http://localhost').searchParams;
+  const tab = DS_TABS.find(t => t === params.get('tab')) ?? 'all';
+  const filters: DatastoreQuery['filters'] = new Map();
+  for (const dimension of TAB_DIMENSIONS[tab]) {
+    for (const exclude of [false, true]) {
+      const values = [...new Set(params.getAll(exclude ? `${dimension}_exclude` : dimension)
+        .flatMap(raw => raw.split(',')).map(value => value.trim()).filter(Boolean))];
+      if (values.length > 0) filters.set(dimension, { exclude, values });
+    }
+  }
+  return {
+    tab,
+    q: (params.get('q') ?? '').trim().toLowerCase(),
+    filters,
+    sort: params.get('sort') ?? '-severity',
+    page: Math.max(1, Number(params.get('page')) || 1),
+    pageSize: Math.min(100, Math.max(1, Number(params.get('pageSize')) || 10)),
+  };
+}
+
+const inTab = (item: Built, tab: DatastoreTab) => tab === 'all' || item.spec.category === tab;
+
+/** Whether a row is on the tab and matches the search and every dimension's selection except `skip`'s. */
+function datastoreMatches(item: Built, query: DatastoreQuery, skip?: string): boolean {
+  if (!inTab(item, query.tab)) return false;
+  if (query.q && !item.spec.name.toLowerCase().includes(query.q)) return false;
+  for (const [dimension, selection] of query.filters) {
+    if (dimension === skip) continue;
+    const values = datastoreValuesOf(item, dimension);
+    // Include needs a match, Exclude needs none.
+    if (selection.values.some(value => values.includes(value)) === selection.exclude) return false;
+  }
+  return true;
+}
+
+/** `GET /api/dspm/datastores`: the tab, search, Include / Exclude on every dimension, sort and paging. */
+export function demoDatastores(url: string): DspmPage<DatastoreRow> {
+  const query = parseDatastoreQuery(url);
+  const descending = query.sort.startsWith('-');
+  const field = descending ? query.sort.slice(1) : query.sort;
+  const key = (item: Built): number | string => {
+    if (field === 'name') return item.spec.name.toLowerCase();
+    if (field === 'sensitive_record_count') return datastoreSensitivesOf(item).recordCount;
+    return SEVERITY_RANK[item.spec.risk[0]] ?? 0;
+  };
+  // Ties by name, A to Z in either direction.
+  const items = BUILT.filter(item => datastoreMatches(item, query)).sort((a, b) => {
+    const x = key(a);
+    const y = key(b);
+    if (x !== y) return (x < y ? -1 : 1) * (descending ? -1 : 1);
+    return a.spec.name.localeCompare(b.spec.name);
+  });
+  const start = (query.page - 1) * query.pageSize;
+  return {
+    data: items.slice(start, start + query.pageSize).map(datastoreRowOf),
+    page: query.page,
+    pageSize: query.pageSize,
+    total: items.length,
+    totalPages: Math.ceil(items.length / query.pageSize),
+  };
+}
+
+/**
+ * `GET /api/dspm/datastores/filter-options`. Counts are disjunctive: each dimension counts the rows that
+ * match every other dimension's selection, so its own selection never shrinks its own options, and in
+ * Exclude mode its excluded values leave its own list, as the vendor's do. Region is listed only on a
+ * single tab; endpoint `hostname` and `user` options carry no count.
+ */
+export function demoDatastoreFilterOptions(url: string): DatastoreFilterOptions {
+  const query = parseDatastoreQuery(url);
+  const dimensions = TAB_DIMENSIONS[query.tab]
+    .filter(key => key !== 'region' || query.tab !== 'all')
+    .map((key): DatastoreFilterDimension => {
+      const counts = new Map<string, number>();
+      for (const item of BUILT) {
+        if (!datastoreMatches(item, query, key)) continue;
+        for (const value of new Set(datastoreValuesOf(item, key))) counts.set(value, (counts.get(value) ?? 0) + 1);
+      }
+      const own = query.filters.get(key);
+      const dropped = new Set(own?.exclude ? own.values : []);
+      const options = [...counts.entries()]
+        .filter(([value]) => !dropped.has(value))
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .map(([value, count]) => ({
+          value,
+          label: datastoreOptionLabel(key, value),
+          count: UNCOUNTED_DIMENSIONS.has(key) ? null : count,
+        }));
+      return { key, options, hasMore: false };
+    });
+  return { dimensions };
+}
+
+/**
+ * 14 daily readings dated the 14 local days ending today: reading i is
+ * `start + round((end − start) × i / 13)`, so the first is `start` and the last exactly `end`, the card's
+ * value, as in the vendor's data.
+ */
+export function demoTrend(start: number, end: number): DspmTrendPoint[] {
+  const today = new Date();
+  return Array.from({ length: 14 }, (_, i) => {
+    const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 13 + i);
+    const date = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+    return { date, value: start + Math.round(((end - start) * i) / 13) };
+  });
+}
+
+/** Where a tab's records and asset trends start (design 7.2). A tab not listed is flat, so it shows no badge. */
+const TREND_STARTS: Partial<Record<DatastoreTab, (records: number, assets: number) => [number, number]>> = {
+  all: (records, assets) => [records - 2, assets - 6],                   // "+1%", "+6"
+  cloud: (records, assets) => [Math.ceil(records / 1.1), assets - 4],    // "+10%", "+4"
+  endpoint: (records, assets) => [Math.ceil(records / 1.25), assets],    // "+25%", flat
+};
+
+/** `GET /api/dspm/datastores/kpis`: every value derived from the tab's rows; filters never apply. */
+export function demoDatastoreKpis(url: string): DatastoreKpis {
+  const { tab } = parseDatastoreQuery(url);
+  const rows = BUILT.filter(item => inTab(item, tab));
+  const records = rows.reduce((sum, item) => sum + datastoreSensitivesOf(item).recordCount, 0);
+  const assets = rows.length;
+  const [recordsStart, assetsStart] = TREND_STARTS[tab]?.(records, assets) ?? [records, assets];
+  const withStatus = (status: Status) => rows.filter(item => item.spec.status === status).length;
+  return {
+    tab,
+    tabCounts: Object.fromEntries(DS_TABS.map(t => [t, BUILT.filter(item => inTab(item, t)).length])),
+    totalSensitiveRecords: { value: records, trend: demoTrend(recordsStart, records) },
+    assetCount: { value: assets, trend: demoTrend(assetsStart, assets) },
+    classified: withStatus('CLASSIFIED'),
+    // No demo datastore has a scan scheduled.
+    scheduled: 0,
+    failed: withStatus('FAILED'),
+    stopped: withStatus('STOPPED'),
+    criticalHigh: rows.filter(item => item.spec.risk[0] === 'CRITICAL' || item.spec.risk[0] === 'HIGH').length,
+  };
+}
+
+/** What `xamlensDrawerMockData.ts` derives a cloud or on-prem datastore's drawer data from (design 7.3). */
+export interface DemoDatastoreSource {
+  /** The spec id (`demo-ds-01`), which names the showcases. */
+  id: string;
+  name: string;
+  category: 'cloud' | 'on_prem';
+  provider: string;
+  status: string;
+  /** Epoch seconds, or null when never scanned. */
+  lastScannedAt: number | null;
+  /** The spec's `HIGH_SENSITIVITY`-style level, which a Scan History run reports. */
+  sensitivityLevel: string | null;
+  facet: Record<string, unknown>;
+  /** The files, sensitive ones first, as the old asset drawer lists them. */
+  objects: DspmObject[];
+  /** Entities summed over the files, count descending. */
+  entities: DspmEntityCount[];
+  /** Category codes in the row's order, and their labels. */
+  types: string[];
+  typeLabels: string[];
+  recordCount: number;
+}
+
+/** The cloud or on-prem datastore with this 24-hex source id; null for SaaS, endpoint and unknown ids. */
+export function demoDatastoreSource(sourceId: string): DemoDatastoreSource | null {
+  const item = BUILT.find(b => b.row.sourceId === sourceId);
+  if (!item) return null;
+  const { spec, row } = item;
+  if (spec.category !== 'cloud' && spec.category !== 'on_prem') return null;
+  const detail = item.detail();
+  return {
+    id: spec.id,
+    name: spec.name,
+    category: spec.category,
+    provider: spec.provider,
+    status: spec.status,
+    lastScannedAt: row.scan.lastScannedAt,
+    sensitivityLevel: spec.sensLevel,
+    facet: spec.facet,
+    objects: detail.objects,
+    entities: detail.entityBreakdown,
+    types: row.sensitives.types,
+    typeLabels: row.sensitives.typeLabels,
+    recordCount: row.sensitives.recordCount,
+  };
+}
+
+/** A spec file with its findings labelled, as the SaaS and Endpoint drawer data reads it. */
+export interface DemoSourceFile {
+  name: string;
+  path: string | null;
+  /** Lower case, or null without one (`.env`). */
+  extension: string | null;
+  findings: Array<{ entityType: string; category: string | null; categoryLabel: string | null; count: number }>;
+  /** The findings summed. */
+  records: number;
+}
+
+const sourceFileOf = (file: FileSpec): DemoSourceFile => {
+  const findings = file.findings.map(([entityType, count]) => {
+    const category = ENTITY_CATEGORY[entityType] ?? null;
+    return { entityType, category, categoryLabel: category ? CATEGORY_LABEL[category] : null, count };
+  });
+  return {
+    name: file.name, path: file.path, extension: file.ext, findings,
+    records: findings.reduce((sum, finding) => sum + finding.count, 0),
+  };
+};
+
+/** What `xamlensSaasDrawerMockData.ts` derives a SaaS row's drawer data from (design 7.2). */
+export interface DemoSaasSource {
+  /** The spec id (`demo-saas-03`) and its number, which the file ids carry. */
+  id: string;
+  number: number;
+  sourceId: string;
+  /** The person or mailbox. */
+  name: string;
+  email: string;
+  drive: 'GMAIL' | 'GOOGLE_WORKSPACE';
+  status: Status;
+  /** Epoch seconds, or null when never scanned. */
+  lastScannedAt: number | null;
+  facet: Record<string, unknown>;
+  /** The spec files in spec order: every file with findings. */
+  files: DemoSourceFile[];
+  /** The list row's record count: the files' findings summed. */
+  recordCount: number;
+}
+
+/** The SaaS row with this 24-hex source id; null for any other row and unknown ids. */
+export function demoSaasSource(sourceId: string): DemoSaasSource | null {
+  const item = BUILT.find(b => b.row.sourceId === sourceId);
+  if (!item || item.spec.category !== 'saas') return null;
+  const { spec, row } = item;
+  const seed = SAAS_SEEDS.find(s => s.id === spec.id)!;
+  return {
+    id: spec.id,
+    number: Number(spec.id.replace(/\D/g, '')),
+    sourceId,
+    name: spec.name,
+    email: seed.email,
+    drive: seed.drive,
+    status: spec.status,
+    lastScannedAt: row.scan.lastScannedAt,
+    facet: spec.facet,
+    files: spec.files.map(sourceFileOf),
+    recordCount: datastoreSensitivesOf(item).recordCount,
+  };
+}
+
+/** What `xamlensEndpointDrawerMockData.ts` derives an endpoint row's drawer data from (design 7.2). */
+export interface DemoEndpointSource {
+  id: string;
+  sourceId: string;
+  name: string;
+  os: 'MAC' | 'WINDOWS' | 'LINUX';
+  status: Status;
+  online: boolean;
+  /** The list row's risk level; NONE without findings. */
+  riskLevel: DspmSeverity;
+  user: string;
+  facet: Record<string, unknown>;
+  /** The spec files in spec order. */
+  files: DemoSourceFile[];
+  /** Every file on the device, the spec files included. */
+  objectTotal: number;
+  /** The clean file at position i, for the File View's pages after the spec files. */
+  filler: (i: number) => DemoSourceFile;
+  recordCount: number;
+}
+
+/** The endpoint row with this 24-hex source id; null for any other row and unknown ids. */
+export function demoEndpointSource(sourceId: string): DemoEndpointSource | null {
+  const item = BUILT.find(b => b.row.sourceId === sourceId);
+  if (!item || item.spec.category !== 'endpoint') return null;
+  const { spec } = item;
+  const seed = DEVICE_SEEDS.find(s => s.id === spec.id)!;
+  return {
+    id: spec.id,
+    sourceId,
+    name: spec.name,
+    os: seed.os,
+    status: spec.status,
+    online: seed.online,
+    riskLevel: spec.risk[0],
+    user: seed.user,
+    facet: spec.facet,
+    files: spec.files.map(sourceFileOf),
+    objectTotal: spec.objectTotal,
+    filler: i => sourceFileOf(spec.filler(i)),
+    recordCount: datastoreSensitivesOf(item).recordCount,
   };
 }

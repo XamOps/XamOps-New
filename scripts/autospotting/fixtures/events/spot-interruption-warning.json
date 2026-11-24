@@ -1,0 +1,22 @@
+{
+  "description": "EC2 Spot Instance Interruption Warning, the two minute notice",
+  "expect": [
+    "spot-interruption"
+  ],
+  "event": {
+    "version": "0",
+    "id": "12345678-1234-1234-1234-123456789012",
+    "detail-type": "EC2 Spot Instance Interruption Warning",
+    "source": "aws.ec2",
+    "account": "111122223333",
+    "time": "2026-10-12T09:41:07Z",
+    "region": "us-east-1",
+    "resources": [
+      "arn:aws:ec2:us-east-1b:instance/i-0123456789abcdef0"
+    ],
+    "detail": {
+      "instance-id": "i-0123456789abcdef0",
+      "instance-action": "terminate"
+    }
+  }
+}

@@ -10,6 +10,9 @@ import com.xammer.cloud.dto.matters.DspmSummary;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+import java.util.Map;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -288,6 +291,51 @@ class MattersAssetMapperTest {
         assertThat(detail.facet()).containsEntry("cpu_usage", 0.008009882577138189);
         assertThat(detail.facet().get("device_users")).isInstanceOf(java.util.List.class);
         assertThat(detail.facet()).containsEntry("last_ping_time", 1790059466L);
+    }
+
+    @Test
+    @DisplayName("build 9: a facet key named like a sample or match is masked, item by item and recursively")
+    void facetSampleKeysMasked() {
+        String raw = "Jane Doe Smith";
+        String half = SampleMask.mask(raw);
+        String body = """
+                {"id":"a","name":"store","risk":{},"sensitives":{"types":["PII"]},"source":{},
+                 "scan_status":{"status":"CLASSIFIED"},"object_total":0,"objects":[],
+                 "facet":{"region":"eu-west-1","device_users":["apple"],
+                          "sampled_data":[{"value":"%1$s"},"%1$s"],"Sample":"%1$s","MATCH_TEXT":"%1$s",
+                          "matches":{"inner":{"value":"%1$s"},"n":4111111111111111}}}
+                """.formatted(raw);
+        DspmAssetDetail detail = mapper.toDetail(parse(body));
+
+        assertThat(detail.facet()).containsEntry("region", "eu-west-1")
+                .containsEntry("device_users", List.of("apple"))
+                .containsEntry("sampled_data", List.of(Map.of("value", half), half))
+                .containsEntry("Sample", half)
+                .containsEntry("MATCH_TEXT", half)
+                .containsEntry("matches", Map.of("inner", Map.of("value", half),
+                        "n", SampleMask.mask("4111111111111111")));
+        assertThat(detail.facet().toString()).doesNotContain(raw);
+        assertThat(half).isNotEqualTo(raw);
+        // The list row's profile reads the same facet.
+        assertThat(mapper.toProfile(parse(body)).facet()).isEqualTo(detail.facet());
+    }
+
+    @Test
+    @DisplayName("build 9: facet samples use the secret rule for a secret asset type or a key-named facet key")
+    void facetSecretRule() {
+        String raw = "AKIAIOSFODNN7EXAMPLE";
+        DspmAssetDetail secretAsset = mapper.toDetail(parse("""
+                {"id":"a","risk":{},"sensitives":{"types":["SECRETS"]},"source":{},"scan_status":{},
+                 "object_total":0,"objects":[],"facet":{"samples":["%s"]}}
+                """.formatted(raw)));
+        DspmAssetDetail keyNamed = mapper.toDetail(parse("""
+                {"id":"a","risk":{},"sensitives":{"types":["PII"]},"source":{},"scan_status":{},
+                 "object_total":0,"objects":[],"facet":{"sample_key":"%s"}}
+                """.formatted(raw)));
+
+        assertThat(secretAsset.facet()).containsEntry("samples", List.of(SampleMask.maskSecret(raw)));
+        assertThat(keyNamed.facet()).containsEntry("sample_key", SampleMask.maskSecret(raw));
+        assertThat(SampleMask.maskSecret(raw)).isEqualTo("AKIA" + "\u2022".repeat(16));
     }
 
     // ── pagination and summary ───────────────────────────────────────────────────────────────────

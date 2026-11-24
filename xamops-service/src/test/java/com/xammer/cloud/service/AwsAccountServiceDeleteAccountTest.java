@@ -13,6 +13,7 @@ import com.xammer.cloud.repository.FinOpsReportScheduleRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.repository.KubernetesClusterRepository;
 import com.xammer.cloud.repository.ResourceLabelAssignmentRepository;
+import com.xammer.cloud.repository.ServiceLabelAssignmentRepository;
 import com.xammer.cloud.repository.SpotOptimizationEventRepository;
 import com.xammer.cloud.repository.SreInvestigationRepository;
 import com.xammer.cloud.repository.StatefulAsgConfigRepository;
@@ -69,6 +70,8 @@ class AwsAccountServiceDeleteAccountTest {
 
         ReflectionTestUtils.setField(service, "resourceLabelAssignmentRepository",
                 mock(ResourceLabelAssignmentRepository.class));
+        ReflectionTestUtils.setField(service, "serviceLabelAssignmentRepository",
+                mock(ServiceLabelAssignmentRepository.class));
         ReflectionTestUtils.setField(service, "ebsVolumeActionRepository", mock(EbsVolumeActionRepository.class));
         ReflectionTestUtils.setField(service, "spotOptimizationEventRepository",
                 mock(SpotOptimizationEventRepository.class));
@@ -174,5 +177,23 @@ class AwsAccountServiceDeleteAccountTest {
 
         assertThat(recordedSql).noneMatch(sql -> sql.startsWith("DELETE FROM k8s_workload_"));
         verify(cloudAccountRepository).deleteById(7L);
+    }
+    @Test
+    void deleteAccountById_withAnActiveAutoSpottingGroup_isRefusedAndDeletesNothing() {
+        com.xammer.cloud.service.autospotting.core.AccountDeletionGuard guard =
+                mock(com.xammer.cloud.service.autospotting.core.AccountDeletionGuard.class);
+        org.mockito.Mockito.doThrow(new com.xammer.cloud.service.autospotting.core.AccountHasManagedGroupsException(
+                List.of(), "/autospotting/accounts/7/revert-all")).when(guard).assertDeletable(7L);
+        ReflectionTestUtils.setField(service, "accountDeletionGuard", guard);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.deleteAccountById(7L))
+                .isInstanceOf(com.xammer.cloud.service.autospotting.core.AccountHasManagedGroupsException.class);
+        verify(cloudAccountRepository, org.mockito.Mockito.never()).deleteById(any());
+        assertThat(recordedSql).isEmpty();
+    }
+    @Test
+    void deleteAccountById_neverTouchesAutoSpottingTables() {
+        service.deleteAccountById(7L);
+        assertThat(recordedSql).noneMatch(sql -> sql.contains("spot_") || sql.contains("autospotting_")
+                || sql.contains("ledger") || sql.contains("statement"));
     }
 }

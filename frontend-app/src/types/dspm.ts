@@ -253,7 +253,8 @@ export type DspmReason =
   | 'KEY_EXPIRED' | 'INVALID_KEY' | 'WRONG_ENVIRONMENT' | 'FORBIDDEN_SCOPE'
   | 'DECRYPT_FAILED' | 'MALFORMED_KEY'
   | 'RATE_LIMITED' | 'ASSET_NOT_FOUND'
-  | 'UPSTREAM_UNAVAILABLE' | 'BAD_UPSTREAM_RESPONSE';
+  | 'UPSTREAM_UNAVAILABLE' | 'BAD_UPSTREAM_RESPONSE'
+  | 'TAB_ACCESS_DENIED' | 'INVALID_REQUEST';
 
 export interface DspmStatus {
   ready: boolean;
@@ -272,6 +273,8 @@ export interface DspmError {
   code: DspmReason;
   message: string;
   retryAfterSeconds?: number;
+  /** Set on `INVALID_REQUEST`: the query or path parameter that failed validation. */
+  parameter?: string;
 }
 
 // ─── Admin ──────────────────────────────────────────────────────────────────

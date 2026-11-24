@@ -1,0 +1,23 @@
+name: DiffCI Change Impact (observe only)
+# Reports which tests a push or PR affects (see job summary). Runs no tests, skips nothing, not a required check.
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  diffci:
+    name: DiffCI change impact
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # DiffCI/core v0.3.60, pinned to commit SHA
+      - uses: DiffCI/core@637167fc3791153b33f0183f68d94e4d09796e4d
+        with:
+          comment: "true"

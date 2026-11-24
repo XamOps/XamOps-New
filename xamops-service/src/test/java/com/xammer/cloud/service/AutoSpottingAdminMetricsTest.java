@@ -51,6 +51,7 @@ class AutoSpottingAdminMetricsTest {
     private AutoSpottingSettingsRepository settingsRepository;
     private RedisCacheService redisCacheService;
     private AutoSpottingService service;
+    private com.xammer.cloud.service.autospotting.ledger.read.SavingsLedgerReadService ledger;
 
     @BeforeEach
     void setUp() {
@@ -64,6 +65,18 @@ class AutoSpottingAdminMetricsTest {
                 settingsRepository, mock(AsgSpotConfigRepository.class),
                 redisCacheService, mock(CachedDataRepository.class), new ObjectMapper(),
                 DefaultAutoSpottingFlags.load());
+        ledger = mock(com.xammer.cloud.service.autospotting.ledger.read.SavingsLedgerReadService.class);
+        service.setLedgerReadService(ledger);
+    }
+
+    private static com.xammer.cloud.service.autospotting.ledger.read.SavingsLedgerReadService.SavingsSummary summary(
+            String billable) {
+        var z = com.xammer.cloud.service.autospotting.ledger.money.Money.zero(java.util.Currency.getInstance("USD"));
+        return new com.xammer.cloud.service.autospotting.ledger.read.SavingsLedgerReadService.SavingsSummary(1L, "AWS",
+                Instant.EPOCH, Instant.EPOCH, z, z, z,
+                com.xammer.cloud.service.autospotting.ledger.money.Money.of(billable, "USD"), z, z,
+                com.xammer.cloud.service.autospotting.ledger.read.SavingsLedgerReadService.ReconciliationStatus.NONE,
+                false, List.of());
     }
 
     private static SpotOptimizationEvent successEvent(double hourlySavings) {
@@ -93,7 +106,7 @@ class AutoSpottingAdminMetricsTest {
 
     @Test
     void dashboardMetrics_totalExcludesLegacy_legacyReportedApart_noDummyKeys() {
-        when(savingsRepository.getTotalSavings()).thenReturn(null);      // no non-legacy row
+        when(cloudAccountRepository.findAll()).thenReturn(List.of());
         when(savingsRepository.getLegacyTotalSavings()).thenReturn(1500.0);
         todaysEvents(successEvent(0.5), successEvent(0.25));
 
@@ -107,8 +120,10 @@ class AutoSpottingAdminMetricsTest {
     }
 
     @Test
-    void dashboardMetrics_realizedTotalReadsOnlyTheNonLegacyQuery() {
-        when(savingsRepository.getTotalSavings()).thenReturn(40.0);       // test-only non-legacy figure
+    void dashboardMetrics_realizedTotalIsTheLedgerBillableFigure() {
+        CloudAccount aws = account(1L, "AWS", null);
+        when(cloudAccountRepository.findAll()).thenReturn(List.of(aws));
+        when(ledger.getSavingsSummary(eq(aws), any(), any())).thenReturn(summary("40.00"));
         when(savingsRepository.getLegacyTotalSavings()).thenReturn(null);
         todaysEvents();
 
@@ -171,8 +186,7 @@ class AutoSpottingAdminMetricsTest {
     void accountBreakdown_realizedFromNonLegacyRows_eventSumIsLegacy() {
         CloudAccount aws = account(1L, "AWS", null);
         when(cloudAccountRepository.findAll()).thenReturn(List.of(aws));
-        when(savingsRepository.findByAccountIdAndDateBetweenAndLegacyFalseOrderByDateAsc(
-                eq(1L), eq(ALL_TIME_START), any())).thenReturn(List.of());
+        when(ledger.getSavingsSummary(eq(aws), any(), any())).thenReturn(summary("0"));
         when(eventRepository.findByAccountIdOrderByEventTimeDesc(1L))
                 .thenReturn(List.of(successEvent(0.5), successEvent(0.25)));
 
@@ -200,8 +214,7 @@ class AutoSpottingAdminMetricsTest {
                 any(com.fasterxml.jackson.core.type.TypeReference.class))).thenReturn(Optional.empty());
         when(settingsRepository.findAllByEnabled(true))
                 .thenReturn(List.of(new AutoSpottingSettings(aws), new AutoSpottingSettings(gcp)));
-        when(savingsRepository.findByAccountIdAndDateBetweenAndLegacyFalseOrderByDateAsc(
-                anyLong(), eq(ALL_TIME_START), any())).thenReturn(List.<DailySpotSavings>of());
+        when(ledger.getSavingsSummary(any(), any(), any())).thenReturn(summary("0"));
         when(savingsRepository.sumLegacyAmount(eq(List.of(1L)), eq(ALL_TIME_START), any())).thenReturn(100.0);
         when(savingsRepository.sumLegacyAmount(eq(List.of(2L)), eq(ALL_TIME_START), any())).thenReturn(50.0);
 

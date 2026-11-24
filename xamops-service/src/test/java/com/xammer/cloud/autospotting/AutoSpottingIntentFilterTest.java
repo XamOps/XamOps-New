@@ -47,6 +47,7 @@ class AutoSpottingIntentFilterTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "/api/autospotting/v2/accounts/1/plans",
+            "/api/autospotting/v2/accounts/1/commitments/settings/risp-respect",
             "/api/xamops/autospotting-admin/switches/GLOBAL",
             "/api/xamops/billops-admin/autospotting/fees",
             "/api/autospotting/disable",
@@ -67,6 +68,7 @@ class AutoSpottingIntentFilterTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "/api/autospotting/v2/accounts/1/plans",
+            "/api/autospotting/v2/accounts/1/commitments/settings/risp-respect",
             "/api/xamops/autospotting-admin/switches/GLOBAL",
             "/api/xamops/billops-admin/autospotting/fees",
             "/api/autospotting/disable",

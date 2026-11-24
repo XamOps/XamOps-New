@@ -1,5 +1,6 @@
 package com.xammer.billops.controller;
 
+import com.xammer.billops.config.multitenancy.ImpersonatingOperator;
 import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.UserActivityEventRepository;
 import com.xammer.billops.repository.UserRepository;
@@ -7,6 +8,7 @@ import com.xammer.billops.util.SecurityUtils;
 import com.xammer.cloud.domain.AppUser;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.domain.UserActivityEvent;
+import com.xammer.cloud.security.ClientUserDetails;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
@@ -15,6 +17,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -212,8 +217,33 @@ public class ImpersonationTokenController {
         // this claim the receiving service can tell that a session is impersonated but not by
         // whom — which makes activity recorded during the session unattributable, and means it
         // would otherwise be counted as the customer's own usage.
+        //
+        // The admin's username and role go with the id, so xamops-service records the admin as
+        // the actor of the XamLens reads made in the session without looking them up. Receivers
+        // must accept tokens without them: tokens minted before they existed stay valid for
+        // eight hours.
+        //
+        // A request authenticated by a Login-As token (an admin logged in as a BillOps admin
+        // account clicks Login-As again) has the worn account as its principal, with its numeric
+        // id as the username. ImpersonationJwtFilter keeps the admin named by that verified token
+        // as the authentication's details, and those are forwarded instead, so every token in a
+        // chain names the admin who started it. A claim the incoming token lacks is left out,
+        // never filled in from the worn account.
         try {
-            builder.claim("actorUserId", SecurityUtils.getPrincipal().getId());
+            Authentication current = SecurityContextHolder.getContext().getAuthentication();
+            if (current != null && current.getDetails() instanceof ImpersonatingOperator operator) {
+                if (operator.userId() != null) builder.claim("actorUserId", operator.userId());
+                if (operator.username() != null) builder.claim("actorUsername", operator.username());
+                if (operator.role() != null) builder.claim("actorRole", operator.role());
+            } else {
+                ClientUserDetails admin = SecurityUtils.getPrincipal();
+                builder.claim("actorUserId", admin.getId());
+                builder.claim("actorUsername", admin.getUsername());
+                builder.claim("actorRole", admin.getAuthorities().stream()
+                        .map(GrantedAuthority::getAuthority)
+                        .findFirst()
+                        .orElse(null));
+            }
         } catch (Exception e) {
             log.debug("Could not stamp impersonating admin on token: {}", e.getMessage());
         }

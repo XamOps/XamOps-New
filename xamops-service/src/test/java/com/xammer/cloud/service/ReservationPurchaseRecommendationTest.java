@@ -232,6 +232,27 @@ class ReservationPurchaseRecommendationTest {
     }
 
     @Test
+    @DisplayName("MemoryDB and DynamoDB are queried under the names Cost Explorer accepts")
+    void memoryDbAndDynamoDbUseAcceptedServiceNames() {
+        when(costExplorerClient.getReservationPurchaseRecommendation(
+                any(GetReservationPurchaseRecommendationRequest.class)))
+                .thenReturn(GetReservationPurchaseRecommendationResponse.builder().build());
+
+        fetch("NO_UPFRONT");
+
+        org.mockito.ArgumentCaptor<GetReservationPurchaseRecommendationRequest> captor =
+                org.mockito.ArgumentCaptor.forClass(GetReservationPurchaseRecommendationRequest.class);
+        verify(costExplorerClient, times(7)).getReservationPurchaseRecommendation(captor.capture());
+
+        // Cost Explorer answered "Invalid Service" for "Amazon MemoryDB", "Amazon MemoryDB for
+        // Redis" and "Amazon DynamoDB", which marked every result incomplete.
+        assertThat(captor.getAllValues())
+                .extracting(GetReservationPurchaseRecommendationRequest::service)
+                .contains("Amazon MemoryDB Service", "Amazon DynamoDB Service")
+                .doesNotContain("Amazon MemoryDB", "Amazon MemoryDB for Redis", "Amazon DynamoDB");
+    }
+
+    @Test
     @DisplayName("offeringClass is sent in the EC2 service specification, not just the cache key")
     void offeringClassReachesTheRequest() {
         when(costExplorerClient.getReservationPurchaseRecommendation(

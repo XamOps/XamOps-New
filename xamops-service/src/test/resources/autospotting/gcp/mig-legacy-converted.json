@@ -1,0 +1,38 @@
+{
+  "kind": "compute#instanceGroupManager",
+  "id": "9900110044",
+  "name": "legacy-web-mig",
+  "zone": "https://www.googleapis.com/compute/v1/projects/xamops-test/zones/us-central1-b",
+  "selfLink": "https://www.googleapis.com/compute/v1/projects/xamops-test/zones/us-central1-b/instanceGroupManagers/legacy-web-mig",
+  "instanceTemplate": "https://www.googleapis.com/compute/v1/projects/xamops-test/global/instanceTemplates/web-tpl-1-spot-1700000000",
+  "versions": [
+    {
+      "instanceTemplate": "https://www.googleapis.com/compute/v1/projects/xamops-test/global/instanceTemplates/web-tpl-1-spot-1700000000",
+      "targetSize": {
+        "calculated": 3
+      }
+    }
+  ],
+  "targetSize": 3,
+  "instanceGroup": "https://www.googleapis.com/compute/v1/projects/xamops-test/zones/us-central1-b/instanceGroups/legacy-web-mig",
+  "updatePolicy": {
+    "type": "PROACTIVE",
+    "minimalAction": "REPLACE",
+    "maxSurge": {
+      "fixed": 1
+    },
+    "maxUnavailable": {
+      "fixed": 0
+    }
+  },
+  "currentActions": {
+    "none": 3
+  },
+  "status": {
+    "isStable": true,
+    "versionTarget": {
+      "isReached": true
+    }
+  },
+  "fingerprint": "bGVnYWN5"
+}

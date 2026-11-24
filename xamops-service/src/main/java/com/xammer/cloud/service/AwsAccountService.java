@@ -18,6 +18,7 @@ import com.xammer.cloud.repository.FinOpsReportScheduleRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.repository.KubernetesClusterRepository;
 import com.xammer.cloud.repository.ResourceLabelAssignmentRepository;
+import com.xammer.cloud.repository.ServiceLabelAssignmentRepository;
 import com.xammer.cloud.repository.SpotOptimizationEventRepository;
 import com.xammer.cloud.repository.SreInvestigationRepository;
 import com.xammer.cloud.repository.StatefulAsgConfigRepository;
@@ -474,6 +475,15 @@ public class AwsAccountService {
      */
     public CloudAccount connectViaCallback(String externalId, String awsAccountId, String roleArn,
                                            String stackId) {
+        return connectViaCallback(externalId, awsAccountId, roleArn, stackId, null);
+    }
+    /**
+     * @param templateVersion the stack's {@code TemplateVersion} output ({@code rw-YYYY.MM.N}), or null
+     *                        from a template that does not send it. Anything not in that format is
+     *                        ignored, so a callback can't write free text into the column.
+     */
+    public CloudAccount connectViaCallback(String externalId, String awsAccountId, String roleArn,
+                                           String stackId, String templateVersion) {
         CloudAccount account = cloudAccountRepository.findByExternalId(externalId)
                 .orElseThrow(() -> new RuntimeException("No account found for externalId: " + externalId));
 
@@ -490,6 +500,9 @@ public class AwsAccountService {
             account.setStackId(stackId);
             account.setStackName(stackNameFrom(stackId));
             account.setStackRegion(stackRegionFrom(stackId));
+        }
+        if (templateVersion != null && templateVersion.matches("rw-\\d{4}\\.\\d{1,2}\\.\\d{1,3}")) {
+            account.setStackTemplateVersion(templateVersion);
         }
         awsClientProvider.evictAccount(awsAccountId);
 
@@ -683,6 +696,7 @@ public class AwsAccountService {
     long onboardCurRetryBackoffMs = 12_000;
 
     @Autowired private ResourceLabelAssignmentRepository resourceLabelAssignmentRepository;
+    @Autowired private ServiceLabelAssignmentRepository serviceLabelAssignmentRepository;
     @Autowired private EbsVolumeActionRepository ebsVolumeActionRepository;
     @Autowired private SpotOptimizationEventRepository spotOptimizationEventRepository;
     @Autowired private DailySpotSavingsRepository dailySpotSavingsRepository;
@@ -698,15 +712,23 @@ public class AwsAccountService {
     @Autowired private DiskAlertStateRepository diskAlertStateRepository;
     @Autowired private SreInvestigationRepository sreInvestigationRepository;
     @Autowired private RedisCacheService redisCacheService;
+    @Autowired private com.xammer.cloud.service.autospotting.core.AccountDeletionGuard accountDeletionGuard;
 
     @PersistenceContext
     private EntityManager entityManager;
 
     @Transactional
     public void deleteAccountById(Long accountId) {
+        // PO-21: refuse, before anything is deleted, while AutoSpotting still manages a group in this account
+        // (APPLYING, ACTIVE, FALLBACK or REVERTING). The guard only reads spot_group; this method never touches
+        // spot_*, ledger, statement or audit tables, so those stay after a deletion that does go ahead.
+        if (accountDeletionGuard != null) {
+            accountDeletionGuard.assertDeletable(accountId);
+        }
         deleteFinancialDependents(accountId);
 
         resourceLabelAssignmentRepository.deleteByCloudAccountId(accountId);
+        serviceLabelAssignmentRepository.deleteByCloudAccountId(accountId);
         ebsVolumeActionRepository.deleteByAccountId(accountId);
         spotOptimizationEventRepository.deleteByAccountId(accountId);
         dailySpotSavingsRepository.deleteByAccountId(accountId);

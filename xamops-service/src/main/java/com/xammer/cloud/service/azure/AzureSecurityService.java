@@ -2,6 +2,7 @@ package com.xammer.cloud.service.azure;
 
 import com.azure.core.credential.TokenCredential;
 import com.azure.core.credential.TokenRequestContext;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CachedData;
@@ -57,7 +58,12 @@ public class AzureSecurityService {
     private final RedisCacheService redisCache;
     private final CachedDataRepository cachedDataRepository;
     private final AzureArmClient armClient;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    // Lenient on read. AzureSecureScoreControl exposes a computed getRecoverableScore(), which is
+    // written into every cached and snapshotted response but has no setter, so a strict mapper
+    // rejected each cached read ("Unrecognized field recoverableScore"). Redis and the DB snapshot
+    // therefore never served, and every page load made four live Defender calls.
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     public AzureSecurityService(AzureClientProvider clientProvider,
                                 RedisCacheService redisCache,
@@ -115,21 +121,29 @@ public class AzureSecurityService {
             }
         }
 
-        AzureSecurityResponse response = fetchFromDefender(subscriptionId);
+        List<String> unavailable = new ArrayList<>();
+        AzureSecurityResponse response = fetchFromDefender(subscriptionId, unavailable);
 
         // Cache only a response Defender actually answered. PERMISSION_ERROR and API_ERROR are
         // failures carrying a zero score and empty lists; storing them would replace a good
         // snapshot with an outage and report the subscription as having nothing wrong with it.
         // A genuine NO_DATA result — reachable, nothing to report — is stored, because that is
         // the honest answer for a clean subscription and the one a remediating customer needs.
+        //
+        // A response with a throttled or failed sub-call is returned but not cached either: its
+        // missing part reads as zero alerts or zero findings, and caching it would keep showing
+        // that for an hour.
         boolean answered = response.getStatus() != AzureSecurityResponse.Status.PERMISSION_ERROR
                 && response.getStatus() != AzureSecurityResponse.Status.API_ERROR;
-        if (answered) {
+        if (answered && unavailable.isEmpty()) {
             redisCache.put(cacheKey, response, CACHE_TTL_MINUTES);
             saveToDb(dbKey, response);
-        } else {
+        } else if (!answered) {
             log.warn("Azure security fetch for {} returned {} — not caching, keeping any previous snapshot",
                     subscriptionId, response.getStatus());
+        } else {
+            log.warn("Azure security fetch for {} was incomplete ({} unavailable) — not caching",
+                    subscriptionId, String.join(", ", unavailable));
         }
         return response;
     }
@@ -150,17 +164,23 @@ public class AzureSecurityService {
         }
     }
 
-    private AzureSecurityResponse fetchFromDefender(String subscriptionId) {
+    /**
+     * @param unavailable collects the Defender resources that could not be read (401, throttle,
+     *                    server or transport failure), so the caller can decline to cache a
+     *                    response that is missing them
+     */
+    private AzureSecurityResponse fetchFromDefender(String subscriptionId, List<String> unavailable) {
         try {
             TokenCredential credential = clientProvider.getCredential(subscriptionId);
             TokenRequestContext tokenCtx = new TokenRequestContext().addScopes(SCOPE);
             String bearerToken = credential.getToken(tokenCtx).block().getToken();
 
-            SecureScore score = fetchSecureScore(subscriptionId, bearerToken);
+            SecureScore score = fetchSecureScore(subscriptionId, bearerToken, unavailable);
             double secureScore = score.current();
-            List<AzureSecurityAlert> alerts = fetchAlerts(subscriptionId, bearerToken);
-            List<AzureSecurityAssessment> assessments = fetchAssessments(subscriptionId, bearerToken);
-            List<AzureSecureScoreControl> scoreControls = fetchSecureScoreControls(subscriptionId, bearerToken);
+            List<AzureSecurityAlert> alerts = fetchAlerts(subscriptionId, bearerToken, unavailable);
+            List<AzureSecurityAssessment> assessments = fetchAssessments(subscriptionId, bearerToken, unavailable);
+            List<AzureSecureScoreControl> scoreControls =
+                    fetchSecureScoreControls(subscriptionId, bearerToken, unavailable);
 
             boolean hasData = secureScore > 0 || !alerts.isEmpty() || !assessments.isEmpty();
             AzureSecurityResponse.Status status = hasData
@@ -218,12 +238,13 @@ public class AzureSecurityService {
      * available points was displayed as "8.0 Out of 100 (8%)" instead of 61%. Defender scales
      * the maximum to the controls actually in scope, so 100 is almost never right.
      */
-    private SecureScore fetchSecureScore(String subscriptionId, String bearerToken) throws Exception {
+    private SecureScore fetchSecureScore(String subscriptionId, String bearerToken,
+                                         List<String> unavailable) throws Exception {
         String uri = BASE_URL + subscriptionId
                 + "/providers/Microsoft.Security/secureScores"
                 + "?api-version=2020-01-01-preview";
 
-        String body = doGet(uri, bearerToken, subscriptionId, "secureScores");
+        String body = doGet(uri, bearerToken, subscriptionId, "secureScores", unavailable);
         if (body == null) return SecureScore.UNKNOWN;
 
         JsonNode root = objectMapper.readTree(body);
@@ -245,12 +266,13 @@ public class AzureSecurityService {
      * Sorted by recoverable score (biggest opportunity first).
      */
     private List<AzureSecureScoreControl> fetchSecureScoreControls(String subscriptionId,
-                                                                   String bearerToken) throws Exception {
+                                                                   String bearerToken,
+                                                                   List<String> unavailable) throws Exception {
         String uri = BASE_URL + subscriptionId
                 + "/providers/Microsoft.Security/secureScoreControls"
                 + "?api-version=2020-01-01-preview";
 
-        String body = doGet(uri, bearerToken, subscriptionId, "secureScoreControls");
+        String body = doGet(uri, bearerToken, subscriptionId, "secureScoreControls", unavailable);
         if (body == null) return new ArrayList<>();
 
         List<AzureSecureScoreControl> result = new ArrayList<>();
@@ -288,12 +310,13 @@ public class AzureSecurityService {
 
     // ── Security Alerts ───────────────────────────────────────────────────────
 
-    private List<AzureSecurityAlert> fetchAlerts(String subscriptionId, String bearerToken) throws Exception {
+    private List<AzureSecurityAlert> fetchAlerts(String subscriptionId, String bearerToken,
+                                                 List<String> unavailable) throws Exception {
         String uri = BASE_URL + subscriptionId
                 + "/providers/Microsoft.Security/alerts"
                 + "?api-version=2021-01-01";
 
-        String body = doGet(uri, bearerToken, subscriptionId, "alerts");
+        String body = doGet(uri, bearerToken, subscriptionId, "alerts", unavailable);
         if (body == null) return new ArrayList<>();
 
         return parseAlerts(body);
@@ -340,12 +363,13 @@ public class AzureSecurityService {
     // ── Security Assessments ──────────────────────────────────────────────────
 
     private List<AzureSecurityAssessment> fetchAssessments(String subscriptionId,
-                                                            String bearerToken) throws Exception {
+                                                            String bearerToken,
+                                                            List<String> unavailable) throws Exception {
         String uri = BASE_URL + subscriptionId
                 + "/providers/Microsoft.Security/assessments"
                 + "?api-version=2021-06-01";
 
-        String body = doGet(uri, bearerToken, subscriptionId, "assessments");
+        String body = doGet(uri, bearerToken, subscriptionId, "assessments", unavailable);
         if (body == null) return new ArrayList<>();
 
         return parseAssessments(body);
@@ -483,7 +507,8 @@ public class AzureSecurityService {
      * failure, which this maps onto those two outcomes.
      */
     private String doGet(String uri, String bearerToken,
-                         String subscriptionId, String resourceType) throws Exception {
+                         String subscriptionId, String resourceType,
+                         List<String> unavailable) throws Exception {
         try {
             Optional<String> body = armClient.get(uri, bearerToken);
             if (body.isEmpty()) {
@@ -500,6 +525,7 @@ public class AzureSecurityService {
             }
             // 401, throttle, server or transport failure — treated as "no data" as before.
             log.warn("Azure Security {} unavailable for {}: {}", resourceType, subscriptionId, message);
+            unavailable.add(resourceType);
             return null;
         }
     }

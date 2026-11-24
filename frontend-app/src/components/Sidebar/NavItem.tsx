@@ -7,6 +7,8 @@ import NavIcon from './NavIcon';
 interface NavItemProps {
   href: string;
   icon: string;
+  /** An official provider icon (an image path). When set it replaces the glyph in `icon`. */
+  iconSrc?: string;
   label: string;
   gradientClass?: string;
   isActive?: boolean;
@@ -27,6 +29,7 @@ interface NavItemProps {
 const NavItem: React.FC<NavItemProps> = ({
   href,
   icon,
+  iconSrc,
   label,
   isActive = false,
   onClick,
@@ -56,7 +59,11 @@ const NavItem: React.FC<NavItemProps> = ({
 
   const content = (
     <>
-      <NavIcon icon={icon} className={iconClass} />
+      {iconSrc ? (
+        <img src={iconSrc} alt="" className="h-4 w-4 flex-shrink-0 object-contain" />
+      ) : (
+        <NavIcon icon={icon} className={iconClass} />
+      )}
       <span className="text-[13px] tracking-[-0.01em] truncate whitespace-nowrap overflow-hidden">
         {label}
       </span>

@@ -14,6 +14,10 @@ public class LabelAssignRequest {
     // Resources to assign / remove the label from
     private List<ResourceRef> resources;
 
+    // Which screen made the change, for the audit trail: COST_RESOURCE_PANEL, CLOUD_LIST, ...
+    // Optional; an unknown value is recorded as unknown rather than refused.
+    private String source;
+
     public static class ResourceRef {
         private String resourceId;
         private String resourceType;
@@ -41,4 +45,7 @@ public class LabelAssignRequest {
 
     public List<ResourceRef> getResources() { return resources; }
     public void setResources(List<ResourceRef> resources) { this.resources = resources; }
+
+    public String getSource() { return source; }
+    public void setSource(String source) { this.source = source; }
 }

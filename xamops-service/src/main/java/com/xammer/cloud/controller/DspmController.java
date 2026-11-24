@@ -7,6 +7,7 @@ import com.xammer.cloud.dto.matters.DspmPage;
 import com.xammer.cloud.dto.matters.DspmStatus;
 import com.xammer.cloud.dto.matters.DspmSummary;
 import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.security.XamLensTabGuard;
 import com.xammer.cloud.service.matters.DspmAssetQuery;
 import com.xammer.cloud.service.matters.MattersDspmService;
 import lombok.RequiredArgsConstructor;
@@ -61,13 +62,17 @@ public class DspmController {
             "integration_id", "data_element", "lifecycle");
 
     private final MattersDspmService dspmService;
+    private final XamLensTabGuard guard;
 
     /**
-     * Connection state. Never fails — the four unhappy states are values, not errors, because the page
-     * renders a different explanation for each.
+     * Connection state. Never fails for a caller who may open XamLens — the four unhappy states are
+     * values, not errors, because the page renders a different explanation for each. A caller without
+     * the {@code secops-xamlens} tab is the one exception: 403 {@code TAB_ACCESS_DENIED}, as on every
+     * other DSPM endpoint.
      */
     @GetMapping("/status")
     public ResponseEntity<DspmStatus> status(@AuthenticationPrincipal ClientUserDetails user) {
+        guard.require(user);
         return ResponseEntity.ok(dspmService.getStatus(user.getClientId()));
     }
 
@@ -80,6 +85,7 @@ public class DspmController {
     @GetMapping("/summary")
     public ResponseEntity<DspmSummary> summary(@AuthenticationPrincipal ClientUserDetails user,
                                                @RequestParam(required = false) String category) {
+        guard.require(user);
         return ResponseEntity.ok(dspmService.getSummary(user.getClientId(), category));
     }
 
@@ -102,6 +108,7 @@ public class DspmController {
             @RequestParam(required = false) Integer pageSize,
             @RequestParam Map<String, String> allParams) {
 
+        guard.require(user);
         DspmAssetQuery query = DspmAssetQuery.forSurface(
                 resolveSurface(surface), q, sort, page, pageSize, extractFilters(allParams));
         return ResponseEntity.ok(dspmService.getAssets(user.getClientId(), query));
@@ -121,6 +128,7 @@ public class DspmController {
             @RequestParam(required = false) String q,
             @RequestParam Map<String, String> allParams) {
 
+        guard.require(user);
         DspmAssetQuery query = DspmAssetQuery.forSurface(
                 resolveSurface(surface), q, null, null, null, extractFilters(allParams));
         return ResponseEntity.ok(dspmService.getFilters(user.getClientId(), query));
@@ -145,6 +153,7 @@ public class DspmController {
     @GetMapping("/assets/{assetId}")
     public ResponseEntity<DspmAssetDetail> asset(@AuthenticationPrincipal ClientUserDetails user,
                                                  @PathVariable String assetId) {
+        guard.require(user);
         return ResponseEntity.ok(dspmService.getAsset(user.getClientId(), assetId));
     }
 

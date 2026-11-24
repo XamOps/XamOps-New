@@ -10,7 +10,7 @@
  * - Search by resource name or ID
  * - Filter by region
  * - Export to CSV
- * - Expandable service groups and resource details
+ * - Service groups open their resources in a right-side drawer; resource rows expand for details
  * - Force refresh capability
  *
  * All backend connections and API endpoints preserved exactly as in cloudlist.html
@@ -32,6 +32,7 @@ import { fetchLabels, fetchResourceLabelMap, assignLabel, removeLabel, fetchConn
 import type { ConnectedResource } from '../services/resourceLabelsApi';
 import type { ResourceLabel, ResourceLabelMap } from '../types/resourceLabels';
 import { DEFAULT_AWS_ICON, resolveAwsServiceIcon } from '../utils/awsServiceIcons';
+import CloudListServiceDrawer from '../components/CloudList/CloudListServiceDrawer';
 
 const CloudListPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -56,7 +57,8 @@ const CloudListPage: React.FC = () => {
   const [selectedRegion, setSelectedRegion] = useState('');
   const [statusMessage, setStatusMessage] = useState('Ready');
   const [statusColor, setStatusColor] = useState('green');
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  /** The service whose resources are open in the right-side drawer, or null when it is closed. */
+  const [drawerServiceType, setDrawerServiceType] = useState<string | null>(null);
   const [expandedResources, setExpandedResources] = useState<Set<string>>(new Set());
   const [initialServiceProcessed, setInitialServiceProcessed] = useState(false);
 
@@ -455,7 +457,7 @@ const CloudListPage: React.FC = () => {
       .map(r => ({ resourceId: r.id, resourceType: r.type, resourceName: r.name ?? undefined, region: r.region }));
 
     try {
-      await assignLabel({ accountId: accountKey, labelId: label.id, resources });
+      await assignLabel({ accountId: accountKey, labelId: label.id, resources, source: 'CLOUD_LIST' });
       // Update local label map optimistically
       setLabelMap(prev => {
         const next = { ...prev };
@@ -503,6 +505,7 @@ const CloudListPage: React.FC = () => {
         accountId: accountKey,
         labelId: label.id,
         resources: [{ resourceId: resource.id, resourceType: resource.type, resourceName: resource.name ?? undefined, region: resource.region }],
+        source: 'CLOUD_LIST',
       });
     } catch (err) {
       // Roll back on failure
@@ -586,27 +589,11 @@ const CloudListPage: React.FC = () => {
     return filteredGroups.reduce((acc, group) => acc + group.resources.length, 0);
   }, [filteredGroups]);
 
-  /**
-   * While a search is active every matching group is shown expanded, so the
-   * matching resources are visible without an extra click.
-   */
-  const isGroupExpanded = useCallback((serviceType: string) => {
-    return searchTerm.trim() ? true : expandedGroups.has(serviceType);
-  }, [searchTerm, expandedGroups]);
-
-  /**
-   * Toggle service group expansion
-   */
-  const toggleGroup = useCallback((serviceType: string) => {
-    setExpandedGroups(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(serviceType)) {
-        newSet.delete(serviceType);
-      } else {
-        newSet.add(serviceType);
-      }
-      return newSet;
-    });
+  const closeDrawer = useCallback(() => {
+    setDrawerServiceType(null);
+    // A label popover left open in the drawer would otherwise reopen with it next time.
+    setOpenPopoverResourceId(null);
+    setOpenConnectedPopoverId(null);
   }, []);
 
   /**
@@ -706,10 +693,7 @@ const CloudListPage: React.FC = () => {
 
         if (matchingGroup) {
           console.log('✅ [CloudList] Found matching group for service:', matchingGroup.serviceType);
-          setExpandedGroups(new Set([matchingGroup.serviceType]));
-
-          // If it's a specific service like "EC2", we might want to scroll to it or prioritize it
-          // For now, just expanding it is a good start.
+          setDrawerServiceType(matchingGroup.serviceType);
         }
         setInitialServiceProcessed(true);
       }
@@ -911,20 +895,24 @@ const CloudListPage: React.FC = () => {
             <div className="space-y-3">
               {filteredGroups.map((group, index) => (
                 <AnimatedItem key={group.serviceType} index={index} delay={index * 0.04}>
-                  <div
-                    className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm"
-                    style={group.resources.some(r => openPopoverResourceId === r.id)
-                      ? { overflow: 'visible', zIndex: 200, position: 'relative' }
-                      : { overflow: 'hidden' }}
-                  >
-                    {/* Service Header */}
+                  <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+                    {/* Service Header — opens the service's resources in the right-side drawer */}
                     <div
+                      role="button"
+                      tabIndex={0}
+                      aria-haspopup="dialog"
                       className="flex items-center justify-between px-5 py-4 cursor-pointer hover:bg-[rgba(0,0,0,0.02)] transition-colors"
-                      onClick={() => toggleGroup(group.serviceType)}
+                      onClick={() => setDrawerServiceType(group.serviceType)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setDrawerServiceType(group.serviceType);
+                        }
+                      }}
                     >
                       <div className="flex items-center gap-4 flex-1">
                         <svg
-                          className={`w-3.5 h-3.5 text-[rgba(0,0,0,0.3)] transition-transform duration-200 flex-shrink-0 ${isGroupExpanded(group.serviceType) ? 'rotate-90' : ''}`}
+                          className="w-3.5 h-3.5 text-[rgba(0,0,0,0.3)] flex-shrink-0"
                           fill="none" stroke="currentColor" viewBox="0 0 24 24"
                         >
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
@@ -956,9 +944,17 @@ const CloudListPage: React.FC = () => {
                       </span>
                     </div>
 
-                    {/* Resources Table */}
-                    {isGroupExpanded(group.serviceType) && (
-                      <div className="border-t border-[rgba(0,0,0,0.06)]">
+                  </div>
+
+                  {/* Resources Table, shown in the right-side drawer */}
+                  <CloudListServiceDrawer
+                    open={drawerServiceType === group.serviceType}
+                    serviceType={group.serviceType}
+                    resourceCount={group.resources.length}
+                    onClose={closeDrawer}
+                  >
+                    {drawerServiceType === group.serviceType && (
+                      <div>
                         {/* Table header */}
                         <div className="grid grid-cols-12 items-center px-5 py-2 bg-[rgba(0,0,0,0.02)]">
                           <div className="col-span-1"></div>
@@ -1127,7 +1123,7 @@ const CloudListPage: React.FC = () => {
                                                       const crLabels = labelMap[cr.id] ?? cr.labels ?? [];
                                                       const currentIds = new Set(crLabels.map((l: ResourceLabel) => l.id));
                                                       for (const lbl of sourceLabels.filter((l: ResourceLabel) => !currentIds.has(l.id))) {
-                                                        await assignLabel({ accountId: selectedAccountId.split(',')[0], labelId: lbl.id, resources: [{ resourceId: cr.id, resourceType: cr.type, resourceName: cr.name ?? undefined, region: cr.region }] });
+                                                        await assignLabel({ accountId: selectedAccountId.split(',')[0], labelId: lbl.id, resources: [{ resourceId: cr.id, resourceType: cr.type, resourceName: cr.name ?? undefined, region: cr.region }], source: 'CLOUD_LIST' });
                                                         handleLabelMapChange(cr.id, [...crLabels, lbl]);
                                                       }
                                                     }
@@ -1211,7 +1207,7 @@ const CloudListPage: React.FC = () => {
                         })}
                       </div>
                     )}
-                  </div>
+                  </CloudListServiceDrawer>
                 </AnimatedItem>
               ))}
             </div>

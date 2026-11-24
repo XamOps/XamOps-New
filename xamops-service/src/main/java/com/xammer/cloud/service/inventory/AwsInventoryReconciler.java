@@ -1142,6 +1142,20 @@ public class AwsInventoryReconciler {
             existing.put(row.getArn(), row);
         }
 
+        // Sweep baseline: what the previous sync saw, not every row still marked ACTIVE.
+        // Counting all ACTIVE rows deadlocks the guard: once a backlog of never-swept rows
+        // builds up (short-lived ECS tasks, autoscaled instances), a healthy read looks
+        // like a small fraction of "what we hold", the sweep is skipped, and the backlog
+        // can never shrink. Comparing against the previous generation still catches a
+        // truncated read, because that would drop sharply from one sync to the next.
+        // Computed before the loop below, which restamps rows with the new generation.
+        final long previousGeneration = generation - 1;
+        final int previouslyActive = (int) existing.values().stream()
+                .filter(r -> AwsCloudResource.STATUS_ACTIVE.equals(r.getStatus()))
+                .filter(r -> r.getSyncGeneration() != null
+                        && r.getSyncGeneration() == previousGeneration)
+                .count();
+
         List<AwsCloudResource> toSave = new ArrayList<>();
         int created = 0;
         int observed = 0;
@@ -1222,7 +1236,6 @@ public class AwsInventoryReconciler {
         // tombstone a correct inventory. Skipping leaves the previous generation intact and
         // the next run corrects it.
         int swept = 0;
-        int previouslyActive = existing.size();
         boolean coverageOk = previouslyActive == 0
                 || observed >= (int) Math.floor(previouslyActive * MIN_SWEEP_COVERAGE);
 

@@ -1,0 +1,41 @@
+[
+  {
+    "billable" : true,
+    "calcVersion" : "aws-1",
+    "clientId" : 501,
+    "cloudAccountId" : 1001,
+    "commitmentDeduction" : "0.0000000000",
+    "contractId" : "cccccccc-0000-4000-8000-000000000001",
+    "counterfactualCost" : "1.7000000000",
+    "counterfactualListCost" : "1.7000000000",
+    "counterfactualUnitSeconds" : "36000.000000",
+    "currency" : "USD",
+    "effectiveRateAdjustment" : "0.0000000000",
+    "exclusions" : [
+      {
+        "counterfactualCost" : "0.0000000000",
+        "reason" : "OD_FLOOR",
+        "unitSeconds" : "86400.000000"
+      }
+    ],
+    "grossSavings" : "1.2000000000",
+    "groupId" : "11111111-1111-4111-8111-111111111111",
+    "instanceSeconds" : 36000,
+    "netSavings" : "1.2000000000",
+    "netSavingsLowerBound" : null,
+    "nonBillableReason" : null,
+    "periodEnd" : "2026-10-02T00:00:00Z",
+    "periodStart" : "2026-10-01T00:00:00Z",
+    "priceSnapshotIds" : [
+      "50000000-0000-4000-8000-000000000002",
+      "60000000-0000-4000-8000-000000000001",
+      "60000000-0000-4000-8000-000000000002"
+    ],
+    "provider" : "AWS",
+    "spotCost" : "0.5000000000",
+    "spotCostSource" : "MEASURED",
+    "statementMonth" : "2026-10-01",
+    "tier" : "BILL_VERIFIED",
+    "unknownInputs" : [ ]
+  }
+]

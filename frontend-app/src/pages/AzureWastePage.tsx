@@ -9,7 +9,7 @@ const AzureWastePage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
-  const { wasteGroups, allItems, isLoading, isRefreshing, loadWasteData } = useAzureWasteData({ selectedAccountId });
+  const { wasteGroups, allItems, isLoading, isRefreshing, error, loadWasteData } = useAzureWasteData({ selectedAccountId });
 
   return (
     <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
@@ -72,7 +72,24 @@ const AzureWastePage: React.FC = () => {
                 transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
                 className="space-y-3"
               >
-                {allItems.length === 0 ? (
+                {/* A failed scan used to fall through to "No Waste Detected". Same error state as
+                    the AWS Waste page. */}
+                {error && allItems.length === 0 ? (
+                  <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 flex flex-col items-center text-center">
+                    <div className="w-12 h-12 rounded-full bg-rose-50 flex items-center justify-center mb-4">
+                      <Icon icon="mdi:alert-circle-outline" width={24} color="#DC2626" />
+                    </div>
+                    <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">Failed to load waste data</p>
+                    <p className="text-[13px] text-[rgba(0,0,0,0.45)] mb-5">{error}</p>
+                    <button
+                      onClick={() => loadWasteData(true)}
+                      className="px-4 py-2 rounded-xl text-xs font-bold transition-colors"
+                      style={{ backgroundColor: '#1BE68B', color: 'rgb(0,0,0)' }}
+                    >
+                      Try Again
+                    </button>
+                  </div>
+                ) : allItems.length === 0 ? (
                   <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
                     <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ backgroundColor: '#16A34A14' }}>
                       <Icon icon="mdi:check-circle-outline" width={24} color="#16A34A" />

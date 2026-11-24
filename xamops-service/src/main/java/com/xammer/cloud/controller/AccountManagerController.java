@@ -91,6 +91,12 @@ public class AccountManagerController {
     private AzureCostManagementService azureCostService;
 
     @Autowired
+    private com.xammer.cloud.service.azure.AzureClientProvider azureClientProvider;
+
+    @Autowired
+    private com.xammer.cloud.security.CloudAccountAccessService cloudAccountAccessService;
+
+    @Autowired
     private MasterDatabaseService masterDatabaseService;
 
     /** Announces a newly connected subscription so the onboarding WAR report can run. */
@@ -168,7 +174,8 @@ public class AccountManagerController {
         // exactly as before and has its id discovered later from the role it created.
         String stackId = payload.get("stackId");
         try {
-            awsAccountService.connectViaCallback(externalId, awsAccountId, roleArn, stackId);
+            awsAccountService.connectViaCallback(externalId, awsAccountId, roleArn, stackId,
+                    payload.get("templateVersion"));
             logger.info("EventBridge callback succeeded for externalId={}", externalId);
             return ResponseEntity.ok(Map.of("message", "Account connected successfully"));
         } catch (Exception e) {
@@ -533,6 +540,14 @@ public class AccountManagerController {
         try {
             awsAccountService.deleteAccountById(id);
             return ResponseEntity.ok(Map.of("message", "Account " + accountName + " removed successfully."));
+        } catch (com.xammer.cloud.service.autospotting.core.AccountHasManagedGroupsException e) {
+            // PO-21: AutoSpotting still manages groups here. Nothing was deleted; the body names the groups
+            // and links to the "Revert all" flow (design-core.md section 7.5).
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "code", com.xammer.cloud.service.autospotting.core.AccountHasManagedGroupsException.CODE,
+                    "message", e.getMessage(),
+                    "groups", e.getGroups(),
+                    "revertAllPath", e.getRevertAllPath()));
         } catch (DataIntegrityViolationException e) {
             // A dependent table we do not clean up yet. Surface the table/constraint the
             // database named so the gap is diagnosable instead of an opaque failure.
@@ -561,7 +576,10 @@ public class AccountManagerController {
         try {
             CloudAccount savedAccount = gcpDataService.createGcpAccount(gcpAccountRequestDto, client);
             grantSubUserAccess(userDetails, savedAccount);
-            return ResponseEntity.ok(Map.of("message", "GCP Account added successfully."));
+            return ResponseEntity.ok(Map.of("message", "GCP Account added successfully.",
+                    "gcpAccessType", String.valueOf(savedAccount.getGcpAccessType())));
+        } catch (com.xammer.cloud.service.gcp.GcpProjectAlreadyConnectedException e) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
@@ -606,6 +624,7 @@ public class AccountManagerController {
         dto.setCspManaged(account.isCspManaged());
         dto.setBillingSource(account.resolveBillingSource().name());
         dto.setBillingDataAvailable(account.getBillingDataAvailable());
+        dto.setGcpAccessType(account.getGcpAccessType());
         return dto;
     }
 
@@ -625,6 +644,30 @@ public class AccountManagerController {
             // Check if account already exists by Subscription ID
             Optional<CloudAccount> existingAccountOpt = cloudAccountRepository
                     .findByAzureSubscriptionId(request.getSubscriptionId());
+
+            // The lookup is by subscription id across all clients, so without this check anyone
+            // submitting a subscription id already connected elsewhere replaced that
+            // organization's credentials and account name.
+            if (existingAccountOpt.isPresent()
+                    && !cloudAccountAccessService.canAccess(userDetails, existingAccountOpt.get())) {
+                logger.warn("Refusing Azure account update: subscription {} belongs to another organization",
+                        request.getSubscriptionId());
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body("This Azure subscription is already connected to XamOps under an account "
+                                + "you do not have access to.");
+            }
+
+            // Check the credentials before saving them, as the AWS flow verifies its role. A
+            // mistyped secret used to be stored as CONNECTED, and every Azure page then failed
+            // or showed empty data with no indication why.
+            String credentialProblem = azureCredentialProblem(request);
+            if (credentialProblem != null) {
+                logger.warn("Azure credential check failed for subscription {}: {}",
+                        request.getSubscriptionId(), credentialProblem);
+                return ResponseEntity.badRequest()
+                        .body("Azure rejected these credentials. Check the tenant ID, client ID and client "
+                                + "secret. Details: " + credentialProblem);
+            }
 
             boolean isNewAccount = existingAccountOpt.isEmpty();
             CloudAccount account;
@@ -660,6 +703,10 @@ public class AccountManagerController {
 
             // Save to DB (Insert or Update)
             CloudAccount savedAccount = cloudAccountRepository.save(account);
+            // The Azure client and credential are cached per subscription. Without dropping them,
+            // updated credentials took effect only after a restart, so re-connecting with a
+            // corrected secret appeared not to work.
+            azureClientProvider.evict(savedAccount.getAzureSubscriptionId());
             if (isNewAccount) {
                 grantSubUserAccess(userDetails, savedAccount);
                 // Only on a first connection. Re-saving credentials for a subscription the
@@ -709,6 +756,35 @@ public class AccountManagerController {
             logger.error("Error adding/updating Azure account", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("An unexpected error occurred while processing the account.");
+        }
+    }
+
+    /**
+     * Requests an ARM token with the submitted service principal.
+     *
+     * <p>Checks authentication only. Role assignments can take minutes to propagate after the
+     * setup script runs, so an RBAC probe here would reject correct credentials.
+     *
+     * @return null when Azure issued a token, otherwise the reason it did not
+     */
+    private String azureCredentialProblem(AzureAccountRequestDto request) {
+        try {
+            com.azure.core.credential.AccessToken token = new com.azure.identity.ClientSecretCredentialBuilder()
+                    .tenantId(request.getTenantId())
+                    .clientId(request.getClientId())
+                    .clientSecret(request.getClientSecret())
+                    .build()
+                    .getToken(new com.azure.core.credential.TokenRequestContext()
+                            .addScopes("https://management.azure.com/.default"))
+                    .block(java.time.Duration.ofSeconds(30));
+            return token == null ? "Azure returned no access token" : null;
+        } catch (Exception e) {
+            String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            int newline = message.indexOf('\n');
+            if (newline > 0) {
+                message = message.substring(0, newline);
+            }
+            return message.length() > 300 ? message.substring(0, 300) : message;
         }
     }
 

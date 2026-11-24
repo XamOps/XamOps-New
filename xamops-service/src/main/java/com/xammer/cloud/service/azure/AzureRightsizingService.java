@@ -353,12 +353,17 @@ public class AzureRightsizingService {
         return result;
     }
 
+    /** True when the recommendation is a reservation or savings-plan purchase rather than a resize. */
+    public static boolean isCommitmentPurchase(String targetSku) {
+        return commitmentFamily(targetSku) != null;
+    }
+
     /**
      * Classifies a target SKU as a commitment purchase.
      *
      * @return {@code "reserved"}, {@code "savings-plan"}, or null when the target is a resize
      */
-    private String commitmentFamily(String targetSku) {
+    private static String commitmentFamily(String targetSku) {
         if (targetSku == null || targetSku.isBlank()) {
             return null;
         }

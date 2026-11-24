@@ -49,8 +49,12 @@ public class AzureFinOpsController {
      * Fetches the main FinOps report data for the given subscription.
      */
     @GetMapping("/finops-report")
-    public ResponseEntity<AzureFinOpsReportDto> getFinOpsReport(@RequestParam String subscriptionId) {
-        AzureFinOpsReportDto report = azureFinOpsService.getFinOpsReport(subscriptionId);
+    public ResponseEntity<AzureFinOpsReportDto> getFinOpsReport(
+            @RequestParam String subscriptionId,
+            // The page sends forceRefresh on Refresh, but it was not bound here, so Refresh re-read
+            // the same cached rightsizing, waste and anomaly results. The AWS report honours it.
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        AzureFinOpsReportDto report = azureFinOpsService.getFinOpsReport(subscriptionId, forceRefresh);
         return ResponseEntity.ok(report);
     }
 

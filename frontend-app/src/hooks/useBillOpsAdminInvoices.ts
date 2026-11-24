@@ -115,7 +115,9 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
    */
   const fetchAccounts = useCallback(async () => {
     try {
-      const response = await apiFetch('/api/billops/support/accounts', { credentials: 'include' });
+      // The Billing pages are the one place invoice-only accounts (made by an uploaded bill)
+      // are listed: their invoices need them in the account filter and pickers.
+      const response = await apiFetch('/api/billops/support/accounts?includeInvoiceOnly=true', { credentials: 'include' });
       if (!response.ok) return;
 
       const data = await response.json();

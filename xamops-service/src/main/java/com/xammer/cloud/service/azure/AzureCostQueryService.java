@@ -549,4 +549,62 @@ public class AzureCostQueryService {
         }
         return data;
     }
+
+    /**
+     * Cost per service and region over an inclusive date range, one row per pair.
+     *
+     * <p>Feeds the scheduled FinOps report email, which the AWS and GCP paths build from the same
+     * service/region rows. The range runs to the end of {@code endDate}, so a daily report for one
+     * day covers that whole day.
+     *
+     * <p>Unlike {@link #fetchCostBreakdownForDateRange}, a failure is thrown rather than returned
+     * as empty data: a report built from an empty result would tell the recipient the subscription
+     * spent nothing.
+     */
+    public List<com.xammer.cloud.dto.DetailedCostDto> fetchServiceRegionCosts(CloudAccount account,
+                                                                            LocalDate startDate,
+                                                                            LocalDate endDate) {
+        String subscriptionId = account.getAzureSubscriptionId();
+        TokenCredential credential = clientProvider.getCredential(account);
+        String bearerToken = credential.getToken(new TokenRequestContext()
+                .addScopes("https://management.azure.com/.default")).block().getToken();
+        String body = String.format(
+                "{\"type\":\"ActualCost\",\"timeframe\":\"Custom\"," +
+                "\"timePeriod\":{\"from\":\"%sT00:00:00Z\",\"to\":\"%sT23:59:59Z\"}," +
+                "\"dataset\":{\"granularity\":\"Daily\"," +
+                "\"aggregation\":{\"TotalCost\":{\"name\":\"Cost\",\"function\":\"Sum\"}}," +
+                "\"grouping\":[" +
+                "{\"type\":\"Dimension\",\"name\":\"MeterCategory\"}," +
+                "{\"type\":\"Dimension\",\"name\":\"ResourceLocation\"}" +
+                "]}}",
+                startDate, endDate);
+        CostQueryResult result = runCostQuery(subscriptionId, bearerToken, body);
+
+        JsonNode columns = result.columns();
+        int costIdx = -1, serviceIdx = -1, regionIdx = -1;
+        for (int i = 0; i < columns.size(); i++) {
+            String name = columns.get(i).path("name").asText();
+            if (name.equalsIgnoreCase("Cost") || name.equalsIgnoreCase("TotalCost")) costIdx = i;
+            else if (name.equalsIgnoreCase("MeterCategory") || name.equalsIgnoreCase("ServiceName")) serviceIdx = i;
+            else if (name.equalsIgnoreCase("ResourceLocation") || name.equalsIgnoreCase("Location")) regionIdx = i;
+        }
+
+        Map<String, com.xammer.cloud.dto.DetailedCostDto> byPair = new LinkedHashMap<>();
+        if (costIdx >= 0) {
+            for (JsonNode row : result.rows()) {
+                if (!row.isArray() || row.size() <= costIdx) continue;
+                String rawService = serviceIdx >= 0 && row.size() > serviceIdx ? row.get(serviceIdx).asText() : null;
+                String rawRegion = regionIdx >= 0 && row.size() > regionIdx ? row.get(regionIdx).asText() : null;
+                final String service = rawService == null || rawService.isBlank() ? "Unknown" : rawService;
+                final String region = rawRegion == null || rawRegion.isBlank() ? "Unknown" : rawRegion;
+                com.xammer.cloud.dto.DetailedCostDto dto = byPair.computeIfAbsent(service + "\u0000" + region,
+                        k -> new com.xammer.cloud.dto.DetailedCostDto(service, region, 0.0));
+                dto.setCost(dto.getCost() + row.get(costIdx).asDouble());
+            }
+        }
+
+        List<com.xammer.cloud.dto.DetailedCostDto> rows = new ArrayList<>(byPair.values());
+        rows.sort((a, b) -> Double.compare(b.getCost(), a.getCost()));
+        return rows;
+    }
 }

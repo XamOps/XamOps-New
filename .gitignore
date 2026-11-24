@@ -166,3 +166,6 @@ venv/
 # Scratch files written during local debugging. The .tmp- prefix marks anything
 # throwaway — never meant to be committed.
 .tmp-*
+
+# jqwik failure database (property tests)
+.jqwik-database

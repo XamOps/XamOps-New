@@ -75,7 +75,7 @@ public class MattersAssetMapper {
 
     /** The detail-only fields a list row can carry, from an asset detail response. */
     public DspmAssetRow.Profile toProfile(JsonNode detail) {
-        return new DspmAssetRow.Profile(text(detail, "external_id"), toFacet(detail.path("facet")),
+        return new DspmAssetRow.Profile(text(detail, "external_id"), toFacet(detail),
                 // So the list shows the same deduplicated count as the asset page; null leaves the
                 // vendor's list figure in place.
                 objectsOf(detail).correctedRecordCount());
@@ -160,7 +160,7 @@ public class MattersAssetMapper {
                 toSensitives(node.path("sensitives"), scanStatus, set.correctedRecordCount()),
                 toSource(node.path("source")),
                 toScan(node.path("scan_status")),
-                toFacet(node.path("facet")),
+                toFacet(node),
                 set.objects(),
                 set.total(),
                 set.truncated(),
@@ -237,14 +237,52 @@ public class MattersAssetMapper {
      * Untyped on purpose — see {@link DspmAssetDetail#facet()}. Keys with no value are omitted upstream,
      * so absent means absent; the UI drives rendering off what is present rather than off a fixed
      * schema. Ordering is preserved so the vendor's own field order survives to the screen.
+     *
+     * <p>Build 9: the value of a key whose name contains {@code sample} or {@code match} (any case) is a
+     * sample and leaves masked by {@link SampleMask}: every scalar as text, arrays item by item, nested
+     * objects recursively. The secret rule applies when {@link SampleMask#isSecret} holds for the key name
+     * and the asset's {@code sensitives.types}, the half rule otherwise. This runs before the caller caches
+     * the result, so no cache entry holds a raw value.
      */
-    private Map<String, Object> toFacet(JsonNode facet) {
+    private Map<String, Object> toFacet(JsonNode asset) {
         Map<String, Object> out = new LinkedHashMap<>();
+        JsonNode facet = asset == null ? null : asset.path("facet");
         if (facet == null || facet.isMissingNode() || !facet.isObject()) {
             return out;
         }
-        facet.fields().forEachRemaining(entry -> out.put(entry.getKey(), scalar(entry.getValue())));
+        List<String> types = new ArrayList<>();
+        asset.path("sensitives").path("types").forEach(type -> types.add(type.asText(null)));
+        facet.fields().forEachRemaining(entry -> {
+            String key = entry.getKey();
+            out.put(key, isSampleKey(key)
+                    ? masked(entry.getValue(), SampleMask.isSecret(key, types))
+                    : scalar(entry.getValue()));
+        });
         return out;
+    }
+
+    private static boolean isSampleKey(String key) {
+        String lower = key.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("sample") || lower.contains("match");
+    }
+
+    /** A sample value masked: scalars as masked text, arrays item by item, objects recursively. */
+    private static Object masked(JsonNode value, boolean secret) {
+        if (value == null || value.isNull() || value.isMissingNode()) {
+            return null;
+        }
+        if (value.isArray()) {
+            List<Object> items = new ArrayList<>();
+            value.forEach(item -> items.add(masked(item, secret)));
+            return items;
+        }
+        if (value.isObject()) {
+            Map<String, Object> fields = new LinkedHashMap<>();
+            value.fields().forEachRemaining(field -> fields.put(field.getKey(), masked(field.getValue(), secret)));
+            return fields;
+        }
+        String text = value.asText();
+        return secret ? SampleMask.maskSecret(text) : SampleMask.mask(text);
     }
 
     /** Converts a facet value to a plain Java type, keeping arrays (e.g. the endpoint's device_users). */

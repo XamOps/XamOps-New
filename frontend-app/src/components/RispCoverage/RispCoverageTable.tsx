@@ -17,7 +17,7 @@ const RispCoverageTable: React.FC<RispCoverageTableProps> = ({ title, type, data
     <div className="bg-white rounded-2xl shadow-sm border border-[rgba(0,0,0,0.06)] p-6 hover:shadow-md transition-shadow">
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-bold text-[rgba(0,0,0,0.88)]">{title}</h3>
-        <span className="px-3 py-1 bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-xs rounded-lg font-semibold shadow-sm">
+        <span className="px-3 py-1 bg-gradient-to-r from-gray-50 to-gray-100 text-white text-xs rounded-lg font-semibold shadow-sm">
           {data.length} {data.length === 1 ? 'item' : 'items'}
         </span>
       </div>
@@ -45,7 +45,7 @@ const RispCoverageTable: React.FC<RispCoverageTableProps> = ({ title, type, data
                   <tr key={`${item.instanceType}-${item.availabilityZone}-${index}`} className="hover:bg-[rgba(0,0,0,0.025)] transition-colors">
                     <td className="px-4 py-3 font-medium text-[rgba(0,0,0,0.88)]">
                       <div className="flex items-center">
-                        <Icon icon="mdi:server-outline" className="text-blue-500 mr-2" width={14} />
+                        <Icon icon="mdi:server-outline" className="text-gray-700 mr-2" width={14} />
                         {item.instanceType}
                       </div>
                     </td>
@@ -54,7 +54,7 @@ const RispCoverageTable: React.FC<RispCoverageTableProps> = ({ title, type, data
                       <div className="text-xs text-[rgba(0,0,0,0.4)] mt-0.5">{item.availabilityZone}</div>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <span className="font-bold text-emerald-600">
+                      <span className="font-bold text-gray-700">
                         {item.coveragePercent.toFixed(1)}%
                       </span>
                     </td>
@@ -77,12 +77,12 @@ const RispCoverageTable: React.FC<RispCoverageTableProps> = ({ title, type, data
                   <tr key={`${item.planType}-${index}`} className="hover:bg-[rgba(0,0,0,0.025)] transition-colors">
                     <td className="px-4 py-3 font-medium text-[rgba(0,0,0,0.88)]">
                       <div className="flex items-center">
-                        <Icon icon="mdi:piggy-bank-outline" className="text-indigo-500 mr-2" width={14} />
+                        <Icon icon="mdi:piggy-bank-outline" className="text-gray-700 mr-2" width={14} />
                         {item.planType}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <span className="font-bold text-emerald-600">
+                      <span className="font-bold text-gray-700">
                         {item.coveragePercent.toFixed(1)}%
                       </span>
                     </td>

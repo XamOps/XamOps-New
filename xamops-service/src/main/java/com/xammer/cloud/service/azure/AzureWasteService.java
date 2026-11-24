@@ -195,6 +195,12 @@ public class AzureWasteService {
     }
 
     private List<AzureWasteItem> detectWaste(String subscriptionId) {
+        // Sign in first and let a failure propagate. Every detector below swallows its own
+        // errors, so with an expired secret or a wrong tenant each one failed quietly, the empty
+        // result was cached, and the page reported "No Waste Detected" for a subscription it could
+        // not read. A propagated failure reaches the controller as a 503 and is not cached.
+        armClient.getToken(subscriptionId);
+
         List<AzureWasteItem> result = new ArrayList<>();
         try {
             AzureResourceManager azure = clientProvider.getAzureClient(subscriptionId);
@@ -223,7 +229,10 @@ public class AzureWasteService {
             }
 
         } catch (Exception e) {
+            // Reaching here means the scan as a whole failed (the detectors catch their own
+            // errors). Returning the empty list cached it as "no waste".
             log.error("Failed to detect waste for subscription {}: {}", subscriptionId, e.getMessage(), e);
+            throw new IllegalStateException("Azure waste scan failed for " + subscriptionId + ": " + e.getMessage(), e);
         }
 
         // Sort by monthly savings descending (highest potential savings first)

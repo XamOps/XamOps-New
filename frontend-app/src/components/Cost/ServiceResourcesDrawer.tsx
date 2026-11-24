@@ -22,11 +22,17 @@ import {
   useLabels,
   useResourceLabelMap,
 } from '../../hooks/useResourceLabels';
-import { removeLabel } from '../../services/resourceLabelsApi';
-import type { ResourceLabel, ResourceLabelMap, ResourceRef } from '../../types/resourceLabels';
+import { removeLabel, setResourceLabelShares } from '../../services/resourceLabelsApi';
+import type {
+  LabelShare,
+  ResourceLabel,
+  ResourceLabelMap,
+  ResourceRef,
+} from '../../types/resourceLabels';
 import { lockPageScroll } from '../../utils/scrollLock';
 import Pagination from '../FinOps/Pagination';
-import ResourceLabelCell from './ResourceLabelCell';
+import LabelShareCell from './LabelShareCell';
+import CascadeLabelDialog from './CascadeLabelDialog';
 
 /**
  * What one service's resources cost — this bucket, this instance, this volume — over the invoice.
@@ -309,7 +315,8 @@ interface Labelling {
   accountId: string;
   allLabels: ResourceLabel[];
   labelMap: ResourceLabelMap;
-  onChanged: (resourceId: string, updated: ResourceLabel[]) => void;
+  /** Writes every label on a resource with its share. Throws on failure. */
+  onSave: (resource: ResourceCost, shares: LabelShare[]) => Promise<void>;
   onLabelCreated: (label: ResourceLabel) => void;
   onRemove: (resource: ResourceCost, label: ResourceLabel) => void;
 }
@@ -466,12 +473,50 @@ const ServiceResourcesDrawer: React.FC<ServiceResourcesDrawerProps> = ({
   const allLabels = allLabelsData ?? NO_LABELS;
   const labelMap = labelMapData ?? NO_LABEL_MAP;
 
+  /*
+   * ── Cascade to connected resources ──────────────────────────────────────────────────────
+   *
+   * When a label is added to one resource through the per-row control, offer to carry it to the
+   * resources connected to it. The dialog holds the source resource and the label that was just
+   * added; it is opened by `handleLabelChanged` when it sees a label appear that was not there
+   * before. Only on an add, and only a single added label — a remove or a multi-change is not a
+   * cascade prompt.
+   */
+  const [cascade, setCascade] = useState<{ source: ResourceCost; label: ResourceLabel } | null>(null);
+
   // The popover awaits its own assign or remove before reporting, so this is a completed write and
   // safe to confirm against the database straight away.
   const handleLabelChanged = useCallback(
-    (resourceId: string, updated: ResourceLabel[]) =>
-      publishResourceLabels(accountId, resourceId, updated),
-    [accountId],
+    (resourceId: string, updated: ResourceLabel[]) => {
+      // What this resource carried before the write, so a single newly-added label can be spotted
+      // and offered for cascade. Read before publishing, which overwrites it.
+      const before = labelMap[resourceId] ?? [];
+      publishResourceLabels(accountId, resourceId, updated);
+
+      const beforeIds = new Set(before.map((l) => l.id));
+      const addedLabels = updated.filter((l) => !beforeIds.has(l.id));
+      // Offer the cascade only for a clean single add, and only for a resource this panel lists —
+      // the dialog needs the source row and the service's other resources as candidates.
+      const sourceRow = resources.find((r) => r.resourceId === resourceId);
+      if (addedLabels.length === 1 && sourceRow) {
+        setCascade({ source: sourceRow, label: addedLabels[0] });
+      }
+    },
+    [accountId, labelMap, resources],
+  );
+
+  /** Writes the cascade's assignments into the cache, so the chips appear without a refetch wait. */
+  const handleCascadeApplied = useCallback(
+    (resourceIds: string[], label: ResourceLabel) => {
+      for (const id of resourceIds) {
+        const current = labelMap[id] ?? [];
+        if (!current.some((l) => l.id === label.id)) {
+          setResourceLabels(accountId, id, [...current, label]);
+        }
+      }
+      invalidateResourceLabels();
+    },
+    [accountId, labelMap],
   );
 
   // A new label has to reach the picker's list, which is the labels query rather than this
@@ -499,7 +544,12 @@ const ServiceResourcesDrawer: React.FC<ServiceResourcesDrawerProps> = ({
         before.filter((l) => l.id !== label.id),
       );
       try {
-        await removeLabel({ accountId, labelId: label.id, resources: [refFor(resource)] });
+        await removeLabel({
+          accountId,
+          labelId: label.id,
+          resources: [refFor(resource)],
+          source: 'COST_RESOURCE_PANEL',
+        });
         invalidateResourceLabels();
       } catch (err) {
         console.error('[Labels] Remove failed, rolling back:', err);
@@ -509,6 +559,27 @@ const ServiceResourcesDrawer: React.FC<ServiceResourcesDrawerProps> = ({
     [accountId, labelMap],
   );
 
+  /**
+   * Saves every label on one resource with its share, from the label popover.
+   *
+   * <p>The server's answer is what gets published, not what was sent: it is the stored set, with
+   * shares normalised to two decimals. Published through the same path as any other label change,
+   * so a single newly added label still offers the cascade to connected resources.
+   */
+  const handleSharesSaved = useCallback(
+    async (resource: ResourceCost, shares: LabelShare[]) => {
+      if (!accountId) return;
+      const stored = await setResourceLabelShares({
+        accountId,
+        resource: refFor(resource),
+        labels: shares,
+        source: 'COST_RESOURCE_PANEL',
+      });
+      handleLabelChanged(resource.resourceId, stored);
+    },
+    [accountId, handleLabelChanged],
+  );
+
   const labelling: Labelling | null = useMemo(
     () =>
       accountId && labels
@@ -516,7 +587,7 @@ const ServiceResourcesDrawer: React.FC<ServiceResourcesDrawerProps> = ({
             accountId,
             allLabels,
             labelMap,
-            onChanged: handleLabelChanged,
+            onSave: handleSharesSaved,
             onLabelCreated: handleLabelCreated,
             onRemove: handleLabelRemoved,
           }
@@ -526,7 +597,7 @@ const ServiceResourcesDrawer: React.FC<ServiceResourcesDrawerProps> = ({
       labels,
       allLabels,
       labelMap,
-      handleLabelChanged,
+      handleSharesSaved,
       handleLabelCreated,
       handleLabelRemoved,
     ],
@@ -960,6 +1031,29 @@ const ServiceResourcesDrawer: React.FC<ServiceResourcesDrawerProps> = ({
             connectivity={connectivity}
             security={security}
           />
+
+          {/* Opened when a label is added to a single resource, to offer carrying it to the
+              resources connected to it. Only rendered when labelling is on and an account is known,
+              which the cascade state already implies. */}
+          {cascade && accountId && (
+            <CascadeLabelDialog
+              accountId={accountId}
+              source={cascade.source}
+              label={cascade.label}
+              // The service's other resources, offered as hand-picked additions — the source is
+              // excluded so it cannot be added to its own cascade.
+              candidates={resources.filter((r) => r.resourceId !== cascade.source.resourceId)}
+              labelMap={labelMap}
+              onApplied={handleCascadeApplied}
+              onClose={() => setCascade(null)}
+              // Dismissed without an answer: take back the label the popover just put on the source.
+              onCancel={() => {
+                const { source, label } = cascade;
+                setCascade(null);
+                void handleLabelRemoved(source, label);
+              }}
+            />
+          )}
         </React.Fragment>
       )}
     </AnimatePresence>,
@@ -982,7 +1076,7 @@ const ResourceRow: React.FC<{
 
   return (
     <div
-      className={`flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-[rgba(0,0,0,0.02)] transition-colors ${
+      className={`flex items-center gap-3 px-2 py-1.5 rounded-lg transition-colors hover:bg-[rgba(0,0,0,0.02)] ${
         openable ? 'cursor-pointer' : ''
       }`}
       /*
@@ -1061,14 +1155,15 @@ const ResourceRow: React.FC<{
           the bar and figure are one unit that reads as the row's answer. */}
       {labelling && (
         <div className="max-w-[45%] min-w-0">
-          <ResourceLabelCell
-            accountId={labelling.accountId}
-            resource={refFor(r)}
+          <LabelShareCell
+            kind="resource"
+            subject={label.text}
             labels={labelling.labelMap[r.resourceId] ?? []}
             allLabels={labelling.allLabels}
-            onChanged={labelling.onChanged}
+            onSave={(shares) => labelling.onSave(r, shares)}
             onLabelCreated={labelling.onLabelCreated}
-            onRemove={(label) => labelling.onRemove(r, label)}
+            onRemove={(lbl) => labelling.onRemove(r, lbl)}
+            history={{ accountId: labelling.accountId, type: 'RESOURCE', id: r.resourceId }}
           />
         </div>
       )}

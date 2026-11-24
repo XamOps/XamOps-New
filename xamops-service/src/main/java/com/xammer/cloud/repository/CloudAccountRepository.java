@@ -15,6 +15,7 @@ import java.util.Optional;
 public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long> {
 
     Optional<CloudAccount> findByGcpProjectId(String gcpProjectId);
+    boolean existsByGcpProjectId(String gcpProjectId);
     Optional<CloudAccount> findByExternalId(String externalId);
 
     /**
@@ -54,12 +55,27 @@ public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long
     /** Accounts served by one CUR — many when the report belongs to a XamOps MPA. */
     List<CloudAccount> findByCurSourceId(Long curSourceId);
 
-    List<CloudAccount> findByClientId(Long clientId);
+    // ── Invoice-only accounts ───────────────────────────────────────────────────
+    //
+    // billops creates an account with status BILLING_ONLY for an uploaded AWS bill, purely so
+    // the invoice has something to point at. It has no role and no credentials, and it must
+    // appear on billops' Billing pages only. The list queries here (findAll, findByClientId,
+    // findByClientIdIn, findByProvider) leave those rows out, which covers every account list,
+    // dashboard and scheduled job in this service without editing each caller. Lookups by
+    // account id are unchanged. coalesce(): a plain <> would drop any row whose status is NULL.
+
+    @Query("select a from CloudAccount a where a.client.id = :clientId and coalesce(a.status, '') <> 'BILLING_ONLY'")
+    List<CloudAccount> findByClientId(@Param("clientId") Long clientId);
 
     /** Cheap guard for client deletion — how many cloud accounts are attached to a client. */
     long countByClientId(Long clientId);
 
-    List<CloudAccount> findByClientIdIn(List<Long> clientIds);
+    @Override
+    @Query("select a from CloudAccount a where coalesce(a.status, '') <> 'BILLING_ONLY'")
+    List<CloudAccount> findAll();
+
+    @Query("select a from CloudAccount a where a.client.id in :clientIds and coalesce(a.status, '') <> 'BILLING_ONLY'")
+    List<CloudAccount> findByClientIdIn(@Param("clientIds") List<Long> clientIds);
 
     Optional<CloudAccount> findByAwsAccountIdAndClientId(String awsAccountId, Long clientId);
 
@@ -79,7 +95,8 @@ public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long
     Optional<CloudAccount> findByGcpBillingAccountId(String gcpBillingAccountId);
     Optional<CloudAccount> findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(String awsAccountId, String gcpProjectId, String azureSubscriptionId);
 
-    List<CloudAccount> findByProvider(String provider);
+    @Query("select a from CloudAccount a where a.provider = :provider and coalesce(a.status, '') <> 'BILLING_ONLY'")
+    List<CloudAccount> findByProvider(@Param("provider") String provider);
 
     List<CloudAccount> findByAwsAccountIdIn(List<String> awsAccountIds);
 

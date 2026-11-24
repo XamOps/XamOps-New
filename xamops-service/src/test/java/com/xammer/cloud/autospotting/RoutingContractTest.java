@@ -131,6 +131,21 @@ class RoutingContractTest {
         assertThat(VITE_SERVICES.get(proxy.target())).as("Vite entry %s", proxy).isEqualTo(route.service());
     }
 
+    /** The AWS event DLQ endpoints (plan-phase-22.md 22.5) reach xamops-service on both paths, never billops. */
+    @ParameterizedTest(name = "dlq: {0}")
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "/api/xamops/autospotting-admin/events/dlq",
+            "/api/xamops/autospotting-admin/events/dlq/redrive"})
+    void dlqPaths_reachXamopsService(String path) {
+        List<Hop> hops = resolveProd(path);
+        Hop last = hops.get(hops.size() - 1);
+        assertThat(NGINX_SERVICES.get(last.target())).as("service for %s via %s", path, hops)
+                .isEqualTo(Service.XAMOPS_SERVICE);
+        assertThat(last.forwardedPath()).isEqualTo(path);
+        ViteProxy proxy = ViteProxy.match(viteProxies, path);
+        assertThat(proxy).isNotNull();
+        assertThat(VITE_SERVICES.get(proxy.target())).isEqualTo(Service.XAMOPS_SERVICE);
+    }
     /** Why the admin reads moved (NO-02): this prefix belongs to billops on both paths. */
     @Test
     void oldAdminPrefix_goesToBillops_soNothingOnXamopsServiceMayUseIt() {

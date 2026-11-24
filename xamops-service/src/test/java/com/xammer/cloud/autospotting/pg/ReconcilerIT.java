@@ -81,6 +81,36 @@ class ReconcilerIT {
         }
     }
 
+    /** Finding #5: an APPLYING group whose only op is terminal is stuck once past the threshold, and is counted. */
+    @Test
+    void anApplyingGroupWithOnlyATerminalOpIsCountedAsStuckOncePastTheThreshold() {
+        UUID id = insertGroup(GroupState.APPLYING, "fp-managed", ConfigMode.MANAGED, 1L, null, null);
+        var store = ctx.getBean(com.xammer.cloud.service.autospotting.core.ops.OperationStore.class);
+        UUID op = UUID.randomUUID();
+        store.insertQueued(com.xammer.cloud.service.autospotting.core.ops.OperationRecord.builder(
+                op, id, 1L, com.xammer.cloud.domain.autospotting.OperationKind.ENABLE)
+                .priorState(GroupState.UNMANAGED)
+                .compensationTarget(com.xammer.cloud.service.autospotting.core.lifecycle.CompensationTargets.forKind(
+                        com.xammer.cloud.domain.autospotting.OperationKind.ENABLE))
+                .requestedBy("tester").build());
+        store.finishFailed(op, "LIFECYCLE_TRANSITION_MISSED", "test");
+        // Recent: inside the threshold (the §4.6 preemption gap), not stuck.
+        jdbc.update("UPDATE spot_group SET state_changed_at = ? WHERE id = ?",
+                Timestamp.from(Instant.now().minusSeconds(60)), id);
+        reconciler.sweepProvider(Provider.AWS);
+        assertThat(stuckGauge()).isZero();
+        // Older than the 2 h default threshold: stuck.
+        jdbc.update("UPDATE spot_group SET state_changed_at = ? WHERE id = ?",
+                Timestamp.from(Instant.now().minusSeconds(3 * 3600)), id);
+        reconciler.sweepProvider(Provider.AWS);
+        assertThat(stuckGauge()).isEqualTo(1.0);
+    }
+
+    private double stuckGauge() {
+        return ctx.getBean(io.micrometer.core.instrument.simple.SimpleMeterRegistry.class)
+                .find("autospotting.ops.stuck").tag("provider", "aws").gauge().value();
+    }
+
     @Test
     void driftMismatch_parksGroupPausedDrift() {
         UUID id = insertActiveGroup("fp-managed", ConfigMode.MANAGED, 1L);
@@ -167,6 +197,44 @@ class ReconcilerIT {
 
     // ── fixtures ──────────────────────────────────────────────────────────────
 
+    @Test
+    void aPreemptionTrackerRunsBetweenGetStatusAndReconcile_andItsStateIsPersistedWithTheRuntimeColumn() {
+        UUID id = insertActiveGroup("fp-managed", ConfigMode.MANAGED, 1L);
+        provider.status.put(id, new GroupStatus(true, "fp-managed", "{\"h\":true}", "{\"c\":2}", false));
+        java.util.List<String> seenByReconcile = new java.util.ArrayList<>();
+        provider.onReconcile = s -> seenByReconcile.add(s.healthJson());
+        reconciler.setPreemptionTrackers(List.of(new com.xammer.cloud.service.autospotting.spi.PreemptionTracker() {
+            @Override
+            public Provider provider() {
+                return Provider.AWS;
+            }
+            @Override
+            public GroupStatus track(SpotGroup group, GroupStatus status) {
+                return new GroupStatus(true, status.liveFingerprint(), "{\"h\":true,\"preemption\":{\"preemptions24h\":2}}",
+                        status.capacityJson(), status.foreignActivity());
+            }
+        }));
+        reconciler.sweepProvider(Provider.AWS);
+        assertThat(seenByReconcile).hasSize(1);
+        assertThat(seenByReconcile.get(0)).contains("preemptions24h");
+        assertThat(jdbc.queryForObject("SELECT health_state::text FROM spot_group WHERE id = ?", String.class, id))
+                .contains("preemptions24h");
+        // A tracker that throws never fails the sweep: the status as read stands.
+        reconciler.setPreemptionTrackers(List.of(new com.xammer.cloud.service.autospotting.spi.PreemptionTracker() {
+            @Override
+            public Provider provider() {
+                return Provider.AWS;
+            }
+            @Override
+            public GroupStatus track(SpotGroup group, GroupStatus status) {
+                throw new IllegalStateException("boom");
+            }
+        }));
+        reconciler.sweepProvider(Provider.AWS);
+        assertThat(groups.findById(id).orElseThrow().getState()).isEqualTo(GroupState.ACTIVE);
+        assertThat(seenByReconcile).hasSize(2);
+        assertThat(seenByReconcile.get(1)).doesNotContain("preemptions24h");
+    }
     private UUID insertActiveGroup(String desiredFingerprint, ConfigMode mode, long cloudAccountId) {
         return insertGroup(GroupState.ACTIVE, desiredFingerprint, mode, cloudAccountId, null, null);
     }
@@ -214,6 +282,7 @@ class ReconcilerIT {
     private static final class TestReconcileProvider implements SpotProvider {
         final Map<UUID, GroupStatus> status = new ConcurrentHashMap<>();
         final Map<UUID, List<ReconcileAction>> actions = new ConcurrentHashMap<>();
+        java.util.function.Consumer<GroupStatus> onReconcile = s -> { };
 
         @Override
         public Provider provider() {
@@ -261,6 +330,7 @@ class ReconcilerIT {
 
         @Override
         public List<ReconcileAction> reconcile(SpotGroup group, GroupStatus s) {
+            onReconcile.accept(s);
             return actions.getOrDefault(group.getId(), List.of());
         }
     }

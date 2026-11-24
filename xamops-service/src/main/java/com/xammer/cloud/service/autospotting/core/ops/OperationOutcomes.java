@@ -3,6 +3,7 @@ package com.xammer.cloud.service.autospotting.core.ops;
 import com.xammer.cloud.domain.autospotting.CompensationTarget;
 import com.xammer.cloud.domain.autospotting.GroupState;
 import com.xammer.cloud.domain.autospotting.OperationKind;
+import com.xammer.cloud.domain.autospotting.OperationPhase;
 import com.xammer.cloud.domain.autospotting.SpotOperation;
 
 /**
@@ -39,6 +40,18 @@ public final class OperationOutcomes {
             case REVERT -> GroupState.REVERTED;
             // ACCEPT_BASELINE / MIG_POLICY_UPDATE make no lifecycle change (§2.2.1); null signals that.
             case ACCEPT_BASELINE, MIG_POLICY_UPDATE -> null;
+        };
+    }
+
+    /** The state a FORWARD op enters with its first mutation, or null when it has no start transition. */
+    public static GroupState startState(OperationKind kind, OperationPhase phase) {
+        if (phase != OperationPhase.FORWARD) {
+            return null;
+        }
+        return switch (kind) {
+            case ENABLE, CONFIG_APPLY, PROFILE_CHANGE, FALLBACK_EXIT -> GroupState.APPLYING;
+            case REVERT -> GroupState.REVERTING;
+            default -> null;
         };
     }
 

@@ -488,33 +488,41 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
             throw new RuntimeException("Azure subscription ID not configured");
         }
 
+        // Interpolated into the shell command below, so it must be the GUID it always is.
+        if (!subscriptionId.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")) {
+            throw new RuntimeException("Azure subscription ID is not a valid GUID");
+        }
+
         log.info("Setting up Azure shell for subscription: {}", subscriptionId);
         log.debug("Azure credentials - ClientId: {}, TenantId: {}", clientId, tenantId);
 
-        // Improved: Show errors instead of suppressing them, better error handling
-        String bashCommand = String.format(
-                "echo 'Authenticating to Azure...' && " +
-                        "az login --service-principal -u \"$AZ_CLIENT\" -p \"$AZ_SECRET\" --tenant \"$AZ_TENANT\" --output none || " +
-                        "{ echo '\033[1;31mAzure authentication failed. Check credentials.\033[0m'; exit 1; } && " +
-                        "az account set --subscription %s --output none || " +
-                        "{ echo '\033[1;31mFailed to set subscription: %s\033[0m'; exit 1; } && " +
-                        "echo '' && " +
-                        "echo '\033[1;32mAuthenticated to Azure Subscription: %s\033[0m' && " +
-                        "echo '' && " +
-                        "export TMOUT=1800 && " +
-                        "export PS1='\\[\\e[1;32m\\]\\u@\\h\\[\\e[0m\\]:\\[\\e[1;34m\\]\\w\\[\\e[0m\\]# ' && " +
-                        "exec /bin/bash -i",
-                subscriptionId, subscriptionId, subscriptionId);
+        // Built with the same docker command as the AWS shell. The Azure shell used its own,
+        // with no container name and no pseudo-terminal: terminal resize (docker exec by name)
+        // and the cleanup on disconnect (docker rm -f by name) never reached Azure containers,
+        // and full-screen tools such as vim or top did not work. Same image as before; the
+        // cloudshell.image default is the image this method used to hard-code.
+        //
+        // The credentials are cleared from the shell's environment once az has signed in, so
+        // they do not show up in `env` for the rest of the session.
+        String authChunk =
+                "echo 'Authenticating to Azure...' && "
+                        + "az login --service-principal -u \"$AZ_CLIENT\" -p \"$AZ_SECRET\" --tenant \"$AZ_TENANT\" --output none || "
+                        + "{ echo '\033[1;31mAzure authentication failed. Check credentials.\033[0m'; exit 1; }; "
+                        + "unset AZ_CLIENT AZ_SECRET AZ_TENANT; "
+                        + "az account set --subscription " + subscriptionId + " --output none || "
+                        + "{ echo '\033[1;31mFailed to set subscription: " + subscriptionId + "\033[0m'; exit 1; }; "
+                        + "echo ''; "
+                        + "echo '\033[1;32mAuthenticated to Azure Subscription: " + subscriptionId + "\033[0m'; "
+                        + "export PS1='\\[\\e[1;32m\\]\\u@\\h\\[\\e[0m\\]:\\[\\e[1;34m\\]\\w\\[\\e[0m\\]# '";
 
         return new ProcessBuilder(
-                "docker", "run", "--rm", "-i",
-                "--memory=512m", "--cpus=0.5",
-                "-e", "AZ_CLIENT=" + clientId,
-                "-e", "AZ_SECRET=" + clientSecret,
-                "-e", "AZ_TENANT=" + tenantId,
-                "-e", "TMOUT=1800",
-                "shivam777707/xamops-shell:fixed-08-Dec",
-                "/bin/bash", "-c", bashCommand);
+                buildDockerRunCommand(
+                        containerName(sessionId),
+                        List.of(
+                                "-e", "AZ_CLIENT=" + clientId,
+                                "-e", "AZ_SECRET=" + clientSecret,
+                                "-e", "AZ_TENANT=" + tenantId),
+                        authChunk));
     }
 
     private void streamProcessOutput(Process process, WebSocketSession session) {

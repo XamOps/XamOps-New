@@ -1,8 +1,13 @@
 import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { queryClient } from '../lib/queryClient';
-import { fetchLabels, fetchResourceLabelMap } from '../services/resourceLabelsApi';
-import type { ResourceLabel, ResourceLabelMap } from '../types/resourceLabels';
+import {
+  fetchLabelHistory,
+  fetchLabels,
+  fetchResourceLabelMap,
+  fetchServiceLabelMap,
+} from '../services/resourceLabelsApi';
+import type { ResourceLabel, ResourceLabelMap, ServiceLabelMap } from '../types/resourceLabels';
 
 /**
  * Shared reads for XamOps resource labels, so two pages can show one set of them.
@@ -29,15 +34,81 @@ import type { ResourceLabel, ResourceLabelMap } from '../types/resourceLabels';
 
 const LABELS_KEY = 'resource-labels';
 const LABEL_MAP_KEY = 'resource-label-map';
+const SERVICE_LABEL_MAP_KEY = 'service-label-map';
+/** The per-label spend figures, which every label change alters. Read by LabelSpendPanel. */
+export const LABEL_SPEND_KEY = 'label-spend';
+/** The audit trail, which every label change adds to. */
+const LABEL_HISTORY_KEY = 'label-history';
+const HISTORY_PAGE_SIZE = 30;
 
-/** Every label defined for the client, for the assign picker. */
-export function useLabels() {
+/**
+ * Label changes, newest first, a page at a time.
+ *
+ * @param accountId a single provider account id, or null to fetch nothing
+ * @param target    one resource or service, or null for the whole account
+ */
+export function useLabelHistory(
+  accountId: string | null,
+  target: { type: 'RESOURCE' | 'SERVICE'; id: string } | null,
+) {
+  return useInfiniteQuery({
+    queryKey: [LABEL_HISTORY_KEY, accountId, target?.type ?? 'ACCOUNT', target?.id ?? ''],
+    queryFn: ({ pageParam }) =>
+      fetchLabelHistory({
+        accountId: accountId as string,
+        targetType: target?.type,
+        targetId: target?.id,
+        beforeId: pageParam,
+        size: HISTORY_PAGE_SIZE,
+      }),
+    initialPageParam: undefined as number | undefined,
+    // Paged by the oldest event shown, so an entry written meanwhile cannot shift a page.
+    getNextPageParam: (last) =>
+      last.hasMore && last.events.length > 0 ? last.events[last.events.length - 1].id : undefined,
+    enabled: Boolean(accountId),
+    staleTime: 0,
+  });
+}
+
+/**
+ * Every label defined for the client, for the assign picker.
+ *
+ * @param enabled false to skip the request, for a view where labelling is off
+ */
+export function useLabels(enabled = true) {
   return useQuery({
     queryKey: [LABELS_KEY],
     queryFn: fetchLabels,
     staleTime: 0,
+    enabled,
   });
 }
+
+/**
+ * Service name → labels on that billing service, for one account.
+ *
+ * @param accountId a single provider account id, or null to fetch nothing
+ */
+export function useServiceLabelMap(accountId: string | null) {
+  return useQuery({
+    queryKey: [SERVICE_LABEL_MAP_KEY, accountId],
+    queryFn: () => fetchServiceLabelMap(accountId as string),
+    enabled: Boolean(accountId),
+    staleTime: 0,
+  });
+}
+
+/** Writes one service's label set straight into the cache. Same contract as {@link setResourceLabels}. */
+export const setServiceLabels = (
+  accountId: string | null,
+  service: string,
+  labels: ResourceLabel[],
+): void => {
+  queryClient.setQueryData<ServiceLabelMap>(
+    [SERVICE_LABEL_MAP_KEY, accountId],
+    (prev) => ({ ...(prev ?? {}), [service]: labels }),
+  );
+};
 
 /**
  * resourceId → labels, for a page of resources in one round-trip.
@@ -84,6 +155,9 @@ export function useResourceLabelMap(accountId: string | null, resourceIds: strin
 export const invalidateResourceLabels = (): void => {
   void queryClient.invalidateQueries({ queryKey: [LABELS_KEY] });
   void queryClient.invalidateQueries({ queryKey: [LABEL_MAP_KEY] });
+  void queryClient.invalidateQueries({ queryKey: [SERVICE_LABEL_MAP_KEY] });
+  void queryClient.invalidateQueries({ queryKey: [LABEL_SPEND_KEY] });
+  void queryClient.invalidateQueries({ queryKey: [LABEL_HISTORY_KEY] });
 };
 
 /**

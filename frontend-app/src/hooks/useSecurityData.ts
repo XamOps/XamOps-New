@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { SecurityFinding, ProwlerStatus, SeverityLevel, SeverityCounts } from '../types/security';
+import type { SecurityFinding, ProwlerStatus } from '../types/security';
 
 interface UseSecurityDataOptions {
   selectedAccountId: string | null;
@@ -18,20 +18,15 @@ interface UseSecurityDataOptions {
 
 interface UseSecurityDataReturn {
   findings: SecurityFinding[];
-  filteredFindings: SecurityFinding[];
   isLoading: boolean;
   isRefreshing: boolean;
-  isExporting: boolean;
+  /**
+   * Why the last load failed ("HTTP 500", a network error's message), or null. The Findings tab shows
+   * it in a banner with Retry. Silent reloads never set it.
+   */
+  error: string | null;
   prowlerStatus: ProwlerStatus;
-  selectedCompliance: string;
-  complianceFrameworks: string[];
-  severityCounts: SeverityCounts;
-  openSeverities: SeverityLevel[];
   loadFindings: (forceRefresh?: boolean, silent?: boolean) => Promise<void>;
-  exportData: () => void;
-  setSelectedCompliance: (compliance: string) => void;
-  toggleSeverity: (severity: SeverityLevel) => void;
-  getFindingsBySeverity: (severity: SeverityLevel) => SecurityFinding[];
   resolveFinding: (finding: SecurityFinding) => Promise<void>;
   restoreFinding: (finding: SecurityFinding) => Promise<void>;
   resolvingKeys: string[];
@@ -46,7 +41,7 @@ interface UseSecurityDataReturn {
  * checks and from the event stream, and only the last of those has a row anywhere. Resource plus
  * control is what all three agree on, and it is already the pair the server dedupes them by.
  */
-const findingKey = (finding: SecurityFinding): string =>
+export const findingKey = (finding: SecurityFinding): string =>
   `${finding.resourceId ?? ''}|${finding.controlId ?? ''}`;
 
 export const useSecurityData = ({
@@ -55,9 +50,7 @@ export const useSecurityData = ({
   const [findings, setFindings] = useState<SecurityFinding[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-  const [isExporting, setIsExporting] = useState<boolean>(false);
-  const [selectedCompliance, setSelectedCompliance] = useState<string>('All');
-  const [openSeverities, setOpenSeverities] = useState<SeverityLevel[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const [prowlerStatus, setProwlerStatus] = useState<ProwlerStatus>({ status: 'UNKNOWN' });
   const [resolvingKeys, setResolvingKeys] = useState<string[]>([]);
   const [lastResolved, setLastResolved] = useState<SecurityFinding | null>(null);
@@ -109,6 +102,7 @@ export const useSecurityData = ({
 
       if (!silent) {
         setIsLoading(true);
+        setError(null);
       }
 
       if (forceRefresh) {
@@ -124,18 +118,21 @@ export const useSecurityData = ({
         });
 
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          throw new Error(`HTTP ${response.status}`);
         }
 
         const data = await response.json();
         const processed = processFindings(data);
         setFindings(processed);
+        setError(null);
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         console.error('Fetch error:', err);
+        // A failed silent reload keeps the list it had. A failed visible one empties it and says
+        // why in the tab's banner, which offers Retry: a blocking alert() did neither.
         if (!silent) {
           setFindings([]);
-          alert(`Failed to load security findings: ${err instanceof Error ? err.message : 'Unknown error'}`);
+          setError(err instanceof Error && err.message ? err.message : 'Unknown error');
         }
       } finally {
         setIsLoading(false);
@@ -269,110 +266,8 @@ export const useSecurityData = ({
     pollIntervalRef.current = setInterval(checkProwlerStatus, 5000);
   }, [checkProwlerStatus]);
 
-  /**
-   * Export findings to CSV
-   */
-  const exportData = useCallback(() => {
-    setIsExporting(true);
-
-    const filtered = selectedCompliance === 'All' || !selectedCompliance
-      ? findings
-      : findings.filter((f) => {
-          const framework = `${f.complianceFramework || ''} ${f.controlId || ''}`.trim();
-          return framework === selectedCompliance;
-        });
-
-    const headers = [
-      'Resource ID',
-      'Region',
-      'Category',
-      'Severity',
-      'Description',
-      'Compliance Framework',
-      'Control ID',
-    ];
-
-    const rows = filtered.map((finding) => [
-      `"${finding.resourceId || ''}"`,
-      `"${finding.region || ''}"`,
-      `"${finding.category || ''}"`,
-      `"${finding.severity || ''}"`,
-      `"${(finding.description || '').replace(/"/g, '""')}"`,
-      `"${finding.complianceFramework || ''}"`,
-      `"${finding.controlId || ''}"`,
-    ]);
-
-    const csvContent =
-      'data:text/csv;charset=utf-8,' +
-      headers.join(',') +
-      '\n' +
-      rows.map((e) => e.join(',')).join('\n');
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', 'security_findings_export.csv');
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-
-    setIsExporting(false);
-  }, [findings, selectedCompliance]);
-
-  /**
-   * Toggle severity section open/closed
-   */
-  const toggleSeverity = useCallback((severity: SeverityLevel) => {
-    setOpenSeverities((prev) =>
-      prev.includes(severity) ? prev.filter((s) => s !== severity) : [...prev, severity]
-    );
-  }, []);
-
-  /**
-   * Get filtered findings based on selected compliance
-   */
-  const filteredFindings = selectedCompliance === 'All' || !selectedCompliance
-    ? findings
-    : findings.filter((f) => {
-        const framework = `${f.complianceFramework || ''} ${f.controlId || ''}`.trim();
-        return framework === selectedCompliance;
-      });
-
-  /**
-   * Get unique compliance frameworks
-   */
-  const complianceFrameworks = [...new Set(
-    findings.map((f) => `${f.complianceFramework || ''} ${f.controlId || ''}`.trim())
-  )].filter(Boolean).sort();
-
-  /**
-   * Get severity counts from filtered findings
-   */
-  const severityCounts: SeverityCounts = filteredFindings.reduce(
-    (acc, finding) => {
-      if (finding && finding.severity) {
-        const severity = finding.severity.trim().toUpperCase();
-        const properCase = (severity.charAt(0) + severity.slice(1).toLowerCase()) as keyof SeverityCounts;
-        if (properCase in acc) {
-          acc[properCase] = (acc[properCase] || 0) + 1;
-        }
-      }
-      return acc;
-    },
-    { Critical: 0, High: 0, Medium: 0, Low: 0 } as SeverityCounts
-  );
-
-  /**
-   * Get findings by severity level
-   */
-  const getFindingsBySeverity = useCallback(
-    (severity: SeverityLevel): SecurityFinding[] => {
-      return filteredFindings.filter(
-        (f) => f.severity && f.severity.trim().toLowerCase() === severity.toLowerCase()
-      );
-    },
-    [filteredFindings]
-  );
+  // Search, filters, grouping and the CSV export live in the Findings tab
+  // (components/Security/Findings/findingsModel.ts), over `findings` as loaded.
 
   // Initialize data on mount
   useEffect(() => {
@@ -391,20 +286,11 @@ export const useSecurityData = ({
 
   return {
     findings,
-    filteredFindings,
     isLoading,
     isRefreshing,
-    isExporting,
+    error,
     prowlerStatus,
-    selectedCompliance,
-    complianceFrameworks,
-    severityCounts,
-    openSeverities,
     loadFindings,
-    exportData,
-    setSelectedCompliance,
-    toggleSeverity,
-    getFindingsBySeverity,
     resolveFinding,
     restoreFinding,
     resolvingKeys,

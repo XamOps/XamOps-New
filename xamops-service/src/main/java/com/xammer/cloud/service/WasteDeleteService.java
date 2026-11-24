@@ -1,10 +1,20 @@
 package com.xammer.cloud.service;
 
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.autospotting.GroupState;
+import com.xammer.cloud.domain.autospotting.Provider;
+import com.xammer.cloud.domain.autospotting.SpotGroup;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.autospotting.SpotGroupRepository;
+import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter;
+import com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter.Actor;
+import com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter.AuditRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import software.amazon.awssdk.services.cloudwatchlogs.CloudWatchLogsClient;
 import software.amazon.awssdk.services.cloudwatchlogs.model.DeleteLogGroupRequest;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
@@ -48,13 +58,22 @@ public class WasteDeleteService {
     private final AwsClientProvider awsClientProvider;
     private final CloudAccountRepository cloudAccountRepository;
     private final DashboardDataService dashboardDataService;
+    private final SpotGroupRepository spotGroups;
+    private final AutoSpottingAuditWriter auditWriter;
+    private final TransactionTemplate tx;
 
     public WasteDeleteService(AwsClientProvider awsClientProvider,
                                CloudAccountRepository cloudAccountRepository,
-                               DashboardDataService dashboardDataService) {
+                               DashboardDataService dashboardDataService,
+                               SpotGroupRepository spotGroups,
+                               AutoSpottingAuditWriter auditWriter,
+                               PlatformTransactionManager transactionManager) {
         this.awsClientProvider = awsClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.dashboardDataService = dashboardDataService;
+        this.spotGroups = spotGroups;
+        this.auditWriter = auditWriter;
+        this.tx = new TransactionTemplate(transactionManager);
     }
 
     /**
@@ -68,6 +87,26 @@ public class WasteDeleteService {
      * @throws RuntimeException         if the AWS delete call fails
      */
     public void deleteResource(String accountId, String resourceId, String resourceType, String region) {
+        deleteResource(accountId, resourceId, resourceType, region, false, null);
+    }
+
+    /**
+     * As {@link #deleteResource(String, String, String, String)}, with the AutoSpotting acknowledgment
+     * (design-core.md section 7.6, FR-CMP-02). An Auto Scaling Group that has a {@code spot_group} row in a state
+     * other than UNMANAGED, REVERTED or GONE is managed by AutoSpotting, and deleting it ends management and its
+     * revert path:
+     * <ul>
+     *   <li>APPLYING or REVERTING: refused 409 {@code AS_GROUP_BUSY} even with the acknowledgment, because a
+     *       delete during a rollout would leave the operation to fail on a vanished group;</li>
+     *   <li>any other managed state without {@code acknowledgeAutoSpotting}: refused 409
+     *       {@code AUTOSPOTTING_MANAGED_GROUP} with the state, before any AWS call;</li>
+     *   <li>with the acknowledgment: a {@code WASTE_DELETE_ACKNOWLEDGED} audit record is committed first, then the
+     *       delete proceeds.</li>
+     * </ul>
+     * A group with no row, and every other resource type, behaves exactly as before (FR-CMP-05).
+     */
+    public void deleteResource(String accountId, String resourceId, String resourceType, String region,
+                               boolean acknowledgeAutoSpotting, ClientUserDetails actor) {
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
         if (accounts.isEmpty()) {
             throw new IllegalArgumentException("Account not found: " + accountId);
@@ -79,6 +118,7 @@ public class WasteDeleteService {
                     "Account " + accountId + " does not have read-write access. Delete is not permitted.");
         }
 
+        guardManagedGroup(account, resourceId, resourceType, region, acknowledgeAutoSpotting, actor);
         logger.info("[WasteDelete] Deleting {} '{}' in region {} for account {}",
                 resourceType, resourceId, region, accountId);
 
@@ -93,6 +133,42 @@ public class WasteDeleteService {
         String cacheKey = "waste-" + accountId;
         dashboardDataService.deleteSnapshot(cacheKey);
         logger.info("[WasteDelete] Invalidated waste cache for account {}", accountId);
+    }
+
+    /** The AutoSpotting managed-group check for an Auto Scaling Group delete (design-core.md section 7.6). */
+    private void guardManagedGroup(CloudAccount account, String asgName, String resourceType, String region,
+                                   boolean acknowledged, ClientUserDetails actor) {
+        if (!"Auto Scaling Group".equals(resourceType)) {
+            return;
+        }
+        SpotGroup group = spotGroups.findByProviderAndCloudAccountIdAndGroupKeyAndStateNot(
+                Provider.AWS, account.getId(), region + "/" + asgName, GroupState.GONE).orElse(null);
+        if (group == null || group.getState() == GroupState.UNMANAGED || group.getState() == GroupState.REVERTED) {
+            return; // not managed: unchanged behaviour
+        }
+        GroupState state = group.getState();
+        if (state == GroupState.APPLYING || state == GroupState.REVERTING) {
+            throw new WasteDeleteBlockedException(WasteDeleteBlockedException.GROUP_BUSY, state.name(),
+                    "AutoSpotting is changing this group; try again when it finishes.");
+        }
+        if (!acknowledged) {
+            throw new WasteDeleteBlockedException(WasteDeleteBlockedException.MANAGED_GROUP, state.name(),
+                    "This group is managed by AutoSpotting (state " + state.name() + "). Deleting it ends"
+                            + " AutoSpotting management and its revert path; the original configuration can't be"
+                            + " restored afterwards.");
+        }
+        // Audit first, in its own committed transaction: the record exists even if the delete then fails.
+        Actor auditActor = actor == null ? Actor.system() : Actor.user(actor.getId(), null);
+        tx.executeWithoutResult(status -> auditWriter.write(
+                AuditRecord.builder("WASTE_DELETE_ACKNOWLEDGED", auditActor, "WASTE_DELETE_ACKNOWLEDGED", "SUCCESS")
+                        .provider(Provider.AWS.name())
+                        .clientId(group.getClientId())
+                        .cloudAccountId(group.getCloudAccountId())
+                        .groupId(group.getId())
+                        .groupKey(group.getGroupKey())
+                        .beforeState("{\"state\":\"" + state.name() + "\"}")
+                        .details("{\"resourceType\":\"Auto Scaling Group\",\"region\":\"" + region + "\"}")
+                        .build()));
     }
 
     private void performDelete(CloudAccount account, String resourceId, String resourceType, String region) {

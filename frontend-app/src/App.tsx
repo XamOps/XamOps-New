@@ -80,7 +80,6 @@ const FlexComputePage = lazy(() => import('./pages/FlexComputePage'));
 const CloudSitterPage = lazy(() => import('./pages/CloudSitterPage'));
 const GcpCloudSitterPage = lazy(() => import('./pages/GcpCloudSitterPage'));
 const AzureCloudSitterPage = lazy(() => import('./pages/AzureCloudSitterPage'));
-const SpotAutomationPage = lazy(() => import('./pages/SpotAutomationPage'));
 const ASGDetailPage = lazy(() => import('./pages/ASGDetailPage'));
 const ASGConfigPage = lazy(() => import('./pages/ASGConfigPage'));
 const CloudK8sPage = lazy(() => import('./pages/CloudK8sPage'));
@@ -120,7 +119,8 @@ const GcpSecurityPage = lazy(() => import('./pages/GcpSecurityPage'));
 const GcpPerformancePage = lazy(() => import('./pages/GcpPerformancePage'));
 const GcpAlertsPage = lazy(() => import('./pages/GcpAlertsPage'));
 const GcpBillingPage = lazy(() => import('./pages/GcpBillingPage'));
-const GcpSpotAutomationPage = lazy(() => import('./pages/GcpSpotAutomationPage'));
+const AutoSpottingRoute = lazy(() => import('./pages/autospotting/AutoSpottingRoute'));
+const LegacyAsgRoute = lazy(() => import('./pages/autospotting/LegacyAsgRoute'));
 const GcpDataOpsPage = lazy(() => import('./pages/GcpDataOpsPage'));
 const GcpDiskRightsizingPage = lazy(() => import('./pages/GcpDiskRightsizingPage'));
 const AzureDataOpsPage = lazy(() => import('./pages/AzureDataOpsPage'));
@@ -183,6 +183,7 @@ const BillOpsAdminInvoicesPage = lazy(() => import('./pages/BillOpsAdminInvoices
 const BillOpsAdminInvoiceDetailPage = lazy(() => import('./pages/BillOpsAdminInvoiceDetailPage'));
 const BillOpsAdminCreditsPage = lazy(() => import('./pages/BillOpsAdminCreditsPage'));
 const BillOpsAdminTicketsPage = lazy(() => import('./pages/BillOpsAdminTicketsPage'));
+const AutoSpottingBillingAdminPage = lazy(() => import('./pages/billops/AutoSpottingBillingAdminPage'));
 const BillOpsAdminAgreementsPage = lazy(() => import('./pages/BillOpsAdminAgreementsPage'));
 const BillOpsAdminMarketplaceBillingPage = lazy(() => import('./pages/BillOpsAdminMarketplaceBillingPage'));
 const BillOpsAdminUserManagerPage = lazy(() => import('./pages/BillOpsAdminUserManagerPage'));
@@ -553,10 +554,11 @@ const AppContent: React.FC = () => {
                             <Route path="/gcp-reservations" element={<GcpReservationsPage />} />
                             <Route path="/azure-reservations" element={<AzureReservationsPage />} />
                             <Route path="/cloudsitter" element={<CloudSitterPage />} />
-                            <Route path="/spot-automation" element={<SpotAutomationPage />} />
-                            <Route path="/autospotting" element={<SpotAutomationPage />} />
-                            <Route path="/asg-detail" element={<ASGDetailPage />} />
-                            <Route path="/asg-config" element={<ASGConfigPage />} />
+                            <Route path="/spot-automation" element={<AutoSpottingRoute canonical />} />
+                            <Route path="/autospotting" element={<AutoSpottingRoute />} />
+                            <Route path="/autospotting/groups/:groupId" element={<AutoSpottingRoute />} />
+                            <Route path="/asg-detail" element={<LegacyAsgRoute legacy={<ASGDetailPage />} />} />
+                            <Route path="/asg-config" element={<LegacyAsgRoute legacy={<ASGConfigPage />} />} />
                             <Route path="/flex-compute" element={<FlexComputePage />} />
                             <Route path="/ebs-rightsizing" element={<EbsRightsizingPage />} />
                             <Route path="/gcp-disk-rightsizing" element={<GcpDiskRightsizingPage />} />
@@ -575,7 +577,9 @@ const AppContent: React.FC = () => {
                             <Route path="/xampulse/hosts/:instanceId" element={<XamPulsePage />} />
                             <Route path="/xampulse/containers/:instanceId/:name" element={<XamPulsePage />} />
                             <Route path="/xampulse/:tab" element={<XamPulsePage />} />
-                            <Route path="/xamlens" element={<Navigate to="/xamlens/cloud" replace />} />
+                            <Route path="/xamlens" element={<Navigate to="/xamlens/datastores/all" replace />} />
+                            <Route path="/xamlens/datastores/:datastoreTab" element={<XamLensPage />} />
+                            <Route path="/xamlens/files/:filesTab" element={<XamLensPage />} />
                             <Route path="/xamlens/:tab" element={<XamLensPage />} />
                             <Route path="/gcp-security" element={<GcpSecurityPage />} />
                             <Route path="/azure-security" element={<AzureSecurityPage />} />
@@ -633,6 +637,7 @@ const AppContent: React.FC = () => {
                             <Route path="/billops-support-dashboard" element={<BillOpsSupportDashboardPage />} />
                             <Route path="/billops-admin-dashboard" element={<BillOpsAdminDashboardPage />} />
                             <Route path="/autospotting-admin" element={<AutoSpottingAdminDashboardPage />} />
+                            <Route path="/billops-admin-autospotting" element={<AutoSpottingBillingAdminPage />} />
                             <Route path="/billops-admin-invoices" element={<BillOpsAdminInvoicesPage />} />
                             <Route path="/billops-admin-invoice-detail" element={<BillOpsAdminInvoiceDetailPage />} />
                             <Route path="/billops-admin-credits" element={<BillOpsAdminCreditsPage />} />
@@ -655,7 +660,7 @@ const AppContent: React.FC = () => {
                             <Route path="/soc2-program/:tab" element={<Soc2ProgramPage />} />
                             <Route path="/billops-admin-user-manager" element={<BillOpsAdminUserManagerPage />} />
                             <Route path="/dspm-admin" element={<DspmAdminPage />} />
-                            <Route path="/gcp-autospotting" element={<GcpSpotAutomationPage />} />
+                            <Route path="/gcp-autospotting" element={<AutoSpottingRoute gcp />} />
                             <Route path="/azure-autospotting" element={<Navigate to="/azure-dashboard" replace />} />
                             <Route path="/gcp-cloudsitter" element={<GcpCloudSitterPage />} />
                             <Route path="/azure-cloudsitter" element={<AzureCloudSitterPage />} />

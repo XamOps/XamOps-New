@@ -1,0 +1,35 @@
+{
+  "AutoScalingGroupName" : "web-asg",
+  "MixedInstancesPolicy" : {
+    "LaunchTemplate" : {
+      "LaunchTemplateSpecification" : {
+        "LaunchTemplateId" : "lt-0abc",
+        "Version" : "$Default"
+      },
+      "Overrides" : [ {
+        "InstanceType" : "m5.large"
+      }, {
+        "InstanceType" : "m5a.large"
+      }, {
+        "InstanceType" : "m6i.large"
+      }, {
+        "InstanceType" : "m5n.large"
+      }, {
+        "InstanceType" : "m6a.large"
+      }, {
+        "InstanceType" : "r5.large"
+      } ]
+    },
+    "InstancesDistribution" : {
+      "OnDemandAllocationStrategy" : "prioritized",
+      "OnDemandBaseCapacity" : 1,
+      "OnDemandPercentageAboveBaseCapacity" : 50,
+      "SpotAllocationStrategy" : "price-capacity-optimized"
+    }
+  },
+  "CapacityRebalance" : true,
+  "InstanceMaintenancePolicy" : {
+    "MinHealthyPercentage" : 100,
+    "MaxHealthyPercentage" : 200
+  }
+}

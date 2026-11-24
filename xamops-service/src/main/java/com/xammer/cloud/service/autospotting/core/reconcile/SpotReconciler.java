@@ -7,9 +7,11 @@ import com.xammer.cloud.domain.autospotting.PauseReason;
 import com.xammer.cloud.domain.autospotting.Provider;
 import com.xammer.cloud.domain.autospotting.SpotGroup;
 import com.xammer.cloud.domain.autospotting.SpotOperation;
+import com.xammer.cloud.domain.autospotting.SpotPlan;
 import com.xammer.cloud.repository.autospotting.ReconcilerStore;
 import com.xammer.cloud.repository.autospotting.SpotGroupRepository;
 import com.xammer.cloud.repository.autospotting.SpotOperationRepository;
+import com.xammer.cloud.repository.autospotting.SpotPlanRepository;
 import com.xammer.cloud.service.autospotting.core.JobRunner;
 import com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter.Actor;
 import com.xammer.cloud.service.autospotting.core.lease.LeaseHandle;
@@ -81,6 +83,7 @@ public class SpotReconciler {
     private final ProviderRegistry providers;
     private final SpotGroupRepository groups;
     private final SpotOperationRepository operations;
+    private final SpotPlanRepository plans;
     private final SweepOrder sweepOrder;
     private final ReconcilerStore reconcilerStore;
     private final SwitchService switchService;
@@ -95,13 +98,15 @@ public class SpotReconciler {
     private final com.xammer.cloud.service.autospotting.core.lease.LeaseProperties leaseProperties;
     private final AutoSpottingMetrics metrics;
     private final Duration stuckThreshold;
+    /** Keeps {@code spot_group_instance} current each sweep (design-aws.md §9.7); absent in the narrow test contexts. */
+    private GroupInstanceIndex instanceIndex;
 
     /** Per-provider staleness and stuck gauges (updated each sweep, published by Micrometer). */
     private final java.util.Map<Provider, AtomicLong> staleness = new java.util.EnumMap<>(Provider.class);
     private final java.util.Map<Provider, AtomicInteger> stuck = new java.util.EnumMap<>(Provider.class);
 
     public SpotReconciler(ProviderRegistry providers, SpotGroupRepository groups,
-                          SpotOperationRepository operations, SweepOrder sweepOrder,
+                          SpotOperationRepository operations, SpotPlanRepository plans, SweepOrder sweepOrder,
                           ReconcilerStore reconcilerStore, SwitchService switchService,
                           SwitchPauseApplier switchPauseApplier, DriftClassifier driftClassifier,
                           GoneDetector goneDetector, HealthPass healthPass, GroupLifecycleService lifecycle,
@@ -112,6 +117,7 @@ public class SpotReconciler {
         this.providers = providers;
         this.groups = groups;
         this.operations = operations;
+        this.plans = plans;
         this.sweepOrder = sweepOrder;
         this.reconcilerStore = reconcilerStore;
         this.switchService = switchService;
@@ -137,6 +143,34 @@ public class SpotReconciler {
                     stalenessGauge::get);
             metrics.bindReconcilerGauge(AutoSpottingMetrics.OPS_STUCK, provider, stuckGauge::get);
         }
+    }
+
+    /** Optional: per-provider trackers of events the cloud does not push (GCP preemptions, design-gcp.md §8). */
+    private java.util.List<com.xammer.cloud.service.autospotting.spi.PreemptionTracker> trackers = java.util.List.of();
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPreemptionTrackers(java.util.List<com.xammer.cloud.service.autospotting.spi.PreemptionTracker> trackers) {
+        this.trackers = trackers == null ? java.util.List.of() : java.util.List.copyOf(trackers);
+    }
+    /** Run the provider's tracker, if any. A tracker failure never fails the sweep: the status stands without it. */
+    private GroupStatus track(Provider provider, SpotGroup group, GroupStatus status) {
+        if (status == null || !status.found()) {
+            return status;
+        }
+        for (com.xammer.cloud.service.autospotting.spi.PreemptionTracker t : trackers) {
+            if (t.provider() == provider) {
+                try {
+                    return t.track(group, status);
+                } catch (RuntimeException e) {
+                    log.warn("preemption tracking failed for group {}: {}", group.getId(), e.toString());
+                }
+            }
+        }
+        return status;
+    }
+    /** Optional: the AWS instance index the event listener reads (plan-phase-22.md task 22.3). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setInstanceIndex(GroupInstanceIndex instanceIndex) {
+        this.instanceIndex = instanceIndex;
     }
 
     /**
@@ -176,6 +210,7 @@ public class SpotReconciler {
                     log.warn("reconcile group {} error (continuing): {}", groupId, e.toString());
                 }
             }
+            expirePlans(provider);
             updateGauges(provider);
         } finally {
             metrics.recordReconcileDuration(provider, Duration.ofNanos(System.nanoTime() - startNanos));
@@ -224,7 +259,7 @@ public class SpotReconciler {
                     Instant.now());
             return;
         }
-        GroupStatus status = provider.getStatus(group, readOnlyView());
+        GroupStatus status = track(provider.provider(), group, provider.getStatus(group, readOnlyView()));
         List<ReconcileAction> actions = provider.reconcile(group, status);
         healthPass.run(group, status, actions);
     }
@@ -276,6 +311,12 @@ public class SpotReconciler {
             reconcilerStore.writeError(group.getId(), null, null, now);
         }
 
+        // Preemptions the cloud does not push are found by polling here (GCP, design-gcp.md §8.2).
+        status = track(provider, group, status);
+        // The instance index the event listener resolves EC2 events with (aws §9.7). Data only.
+        if (provider == Provider.AWS && instanceIndex != null) {
+            instanceIndex.sync(group, status.healthJson(), now);
+        }
         // Step 4: apply pending switch PAUSE / release first (§6.4), with the GR-06 fenced re-read.
         SwitchState switchState = switchService.readUncached();
         if (switchPauseApplier.pauseEngaged(switchState, group)) {
@@ -346,9 +387,18 @@ public class SpotReconciler {
                 case MARK_DEGRADED -> transitionIfAllowed(handle, group, GroupState.DEGRADED, "HEALTH_DEGRADED");
                 case MARK_RECOVERED -> transitionIfAllowed(handle, group, recoveredTarget(group), "HEALTH_RECOVERED");
                 case ALERT -> metrics.reconcileAlert(group.getState().name());
-                // ENQUEUE_FALLBACK / REQUEST_COMPENSATION / UPDATE_PAUSED_FROM / PAUSE / UNPAUSE are the
-                // health-pass / switch-pause responsibilities; left to those paths (dark here).
-                default -> { /* no-op in the dark phase */ }
+                case ENQUEUE_FALLBACK -> {
+                    FallbackEnqueuer.Result r = healthPass.enqueueFallbackEnter(group, "RECONCILE");
+                    if (r == FallbackEnqueuer.Result.FROZEN && group.getState() == GroupState.ACTIVE) {
+                        // No fallback path under the freeze (design-aws.md §6.5): DEGRADED with an alert.
+                        transitionIfAllowed(handle, group, GroupState.DEGRADED, "FALLBACK_FROZEN");
+                        metrics.reconcileAlert(group.getState().name());
+                    }
+                }
+                case ENQUEUE_FALLBACK_EXIT -> healthPass.enqueueFallbackExit(group);
+                // REQUEST_COMPENSATION / UPDATE_PAUSED_FROM / PAUSE / UNPAUSE are the health-pass /
+                // switch-pause responsibilities; left to those paths.
+                default -> { /* handled elsewhere */ }
             }
         }
     }
@@ -385,6 +435,53 @@ public class SpotReconciler {
         }
     }
 
+    /**
+     * Step 6 (§7.4): expire OPEN plans past their {@code expires_at}. Each is marked EXPIRED; an
+     * ENABLE plan that left its group PLANNED returns the group to the plan's {@code from_state}
+     * (UNMANAGED or REVERTED) under the row lock when no other OPEN plan remains, so a PLANNED group
+     * never lingers with no open plan (§7.4). Runs once per provider sweep; no cloud is touched.
+     */
+    private void expirePlans(Provider provider) {
+        Instant now = Instant.now();
+        List<SpotPlan> expired;
+        try {
+            expired = plans.findExpiredOpen(now);
+        } catch (RuntimeException e) {
+            log.debug("plan expiry sweep skipped: {}", e.toString());
+            return;
+        }
+        for (SpotPlan plan : expired) {
+            SpotGroup group = groups.findById(plan.getGroupId()).orElse(null);
+            if (group == null || group.getProvider() != provider) {
+                continue; // another provider's plan, or a rowless/synthetic group: handled elsewhere
+            }
+            if (plans.expireIfOpen(plan.getId()) != 1) {
+                continue; // a confirm/supersede won the race; nothing to do
+            }
+            if (plan.getKind() == com.xammer.cloud.domain.autospotting.OperationKind.ENABLE
+                    && group.getState() == GroupState.PLANNED
+                    && plans.findOpenByGroup(group.getId()).isEmpty()) {
+                returnFromPlanned(group, plan.getFromState());
+            }
+        }
+    }
+
+    /** Return a PLANNED group to the expired plan's {@code from_state} under the row lock (§7.4). */
+    private void returnFromPlanned(SpotGroup group, GroupState fromState) {
+        GroupState target = (fromState == GroupState.UNMANAGED || fromState == GroupState.REVERTED)
+                ? fromState : GroupState.UNMANAGED;
+        try {
+            GroupLifecycleService.Result result = lifecycle.transitionUnderRowLock(group,
+                    TransitionRequest.of(target, "PLAN_EXPIRED", Actor.system(), null, Instant.now()));
+            if (result == GroupLifecycleService.Result.STALE && log.isDebugEnabled()) {
+                log.debug("plan expiry: group {} return to {} missed the guard (stale)", group.getId(), target);
+            }
+        } catch (IllegalArgumentException forbidden) {
+            log.debug("plan expiry: return {} -> {} not allowed for group {}: {}", group.getState(), target,
+                    group.getId(), forbidden.getMessage());
+        }
+    }
+
     private void updateGauges(Provider provider) {
         Double maxStaleness = reconcilerStore.maxStalenessSeconds(provider);
         staleness.get(provider).set(maxStaleness == null ? 0L : Math.round(maxStaleness));
@@ -397,7 +494,15 @@ public class SpotReconciler {
         Instant threshold = Instant.now().minus(stuckThreshold);
         for (GroupState state : List.of(GroupState.APPLYING, GroupState.REVERTING)) {
             for (SpotGroup group : groups.findByProviderAndState(provider, state)) {
-                for (SpotOperation op : operations.findNonTerminalByGroup(group.getId())) {
+                List<SpotOperation> live = operations.findNonTerminalByGroup(group.getId());
+                // An APPLYING/REVERTING group with no live op is orphaned (its op ended without moving the group);
+                // count it once it has sat past the threshold, which clears the §4.6 preemption gap.
+                if (live.isEmpty() && group.getStateChangedAt() != null
+                        && group.getStateChangedAt().isBefore(threshold)) {
+                    count++;
+                    continue;
+                }
+                for (SpotOperation op : live) {
                     boolean pastDeadline = op.getDeadlineAt() != null && op.getDeadlineAt().isBefore(Instant.now());
                     boolean pastThreshold = group.getStateChangedAt() != null
                             && group.getStateChangedAt().isBefore(threshold);
