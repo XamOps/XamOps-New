@@ -329,7 +329,9 @@ final class AwsOpsHarness implements AutoCloseable {
     /** The REVERT plan row: the live fingerprint now, the provider's body, and every warning acknowledged. */
     private void insertRevertPlan() {
         Instant now = f.clock.instant();
-        String fingerprint = AwsFingerprint.of(AwsGroupFacts.from(FakeAws.REGION, f.group()));
+        // As PlanService stores it: ownership from the plan's target (liveFingerprintFor).
+        String fingerprint = AwsFingerprint.of(AwsGroupFacts.from(FakeAws.REGION, f.group()),
+                AwsMaintenancePolicy.owns(plan.targetJson()));
         String body = "{\"current\":" + plan.currentJson() + ",\"target\":" + plan.targetJson()
                 + ",\"revertPath\":" + plan.revertPathJson() + "}";
         StringBuilder acks = new StringBuilder("[");

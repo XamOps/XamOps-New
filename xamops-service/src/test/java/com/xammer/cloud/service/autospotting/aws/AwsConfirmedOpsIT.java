@@ -162,6 +162,31 @@ class AwsConfirmedOpsIT {
                 .isEqualTo("CANCELLED");
         return h;
     }
+    /**
+     * Review follow-up 4: a confirmed REVERT's step 0 accepts only the fingerprint form the plan was hashed with
+     * (ownership from the plan's target, as PlanService and ConfirmService do); the other form is PLAN_STALE.
+     */
+    @Test
+    void aConfirmedRevertWhosePlanFingerprintIsInTheOtherOwnershipFormIsStaleAtStepZero() {
+        try (AwsOpsHarness h = new AwsOpsHarness(three(imp(100, 200)), GroupState.ACTIVE, "MANAGED", ADOPT_TARGET,
+                null, null, null)) {
+            h.linkSnapshot(FakeAws.asg("web-asg").build());
+            UUID revert = h.planAndConfirm(new PlanRequest(new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg",
+                    null), OperationKind.REVERT, null));
+            UUID planId = h.jdbc.queryForObject("SELECT plan_id FROM spot_operation WHERE id = ?", UUID.class, revert);
+            String stored = h.jdbc.queryForObject("SELECT live_fingerprint FROM spot_plan WHERE id = ?", String.class,
+                    planId);
+            AwsGroupFacts facts = AwsGroupFacts.from(FakeAws.REGION, h.f.group());
+            String other = stored.equals(AwsFingerprint.of(facts, true)) ? AwsFingerprint.of(facts, false)
+                    : AwsFingerprint.of(facts, true);
+            assertThat(other).isNotEqualTo(stored);
+            h.jdbc.update("UPDATE spot_plan SET live_fingerprint = ? WHERE id = ?", other, planId);
+            assertThat(h.runToEnd(revert)).isEqualTo("FAILED");
+            assertThat(h.jdbc.queryForObject("SELECT error_code FROM spot_operation WHERE id = ?", String.class, revert))
+                    .isEqualTo("PLAN_STALE");
+            assertThat(h.f.writeCalls()).as("nothing was changed").isEmpty();
+        }
+    }
     @Test
     void aRevertThatPreemptsAnAdoptWhichSent100And200ClearsThePolicyWithMinusOneAndMinusOne() {
         UUID[] revertOp = new UUID[1];

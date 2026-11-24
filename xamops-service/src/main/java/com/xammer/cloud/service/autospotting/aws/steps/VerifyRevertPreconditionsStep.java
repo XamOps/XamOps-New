@@ -2,6 +2,7 @@ package com.xammer.cloud.service.autospotting.aws.steps;
 
 import com.xammer.cloud.service.autospotting.aws.AwsFingerprint;
 import com.xammer.cloud.service.autospotting.aws.AwsGroupFacts;
+import com.xammer.cloud.service.autospotting.aws.AwsMaintenancePolicy;
 import com.xammer.cloud.service.autospotting.aws.AwsLaunchInfo;
 import com.xammer.cloud.service.autospotting.aws.AwsPlanReader;
 import com.xammer.cloud.service.autospotting.aws.AwsProgram;
@@ -49,11 +50,12 @@ public final class VerifyRevertPreconditionsStep extends AwsRevertStep {
             return failed(ErrorKind.CONFLICT, "FOREIGN_CHANGE",
                     "An instance refresh is running on this group. XamOps will wait for it to finish.");
         }
-        String fingerprint = AwsFingerprint.of(facts);
+        // The one form the revert plan was hashed with: PlanService and ConfirmService take ownership from the
+        // plan's target (liveFingerprintFor), which is this program's config.
+        String fingerprint = AwsFingerprint.of(facts, AwsMaintenancePolicy.owns(program.config()));
         if (!inputs.compensation()) {
             Optional<String> planned = services.facts().planLiveFingerprint(program.planId());
-            if (planned.isEmpty() || !(planned.get().equals(fingerprint)
-                    || planned.get().equals(AwsFingerprint.of(facts, true)))) {
+            if (planned.isEmpty() || !planned.get().equals(fingerprint)) {
                 return failed(ErrorKind.VALIDATION, "PLAN_STALE",
                         "The group changed after this plan was made. Review a fresh revert plan.");
             }
