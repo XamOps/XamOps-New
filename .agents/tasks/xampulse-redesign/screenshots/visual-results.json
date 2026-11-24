@@ -1,0 +1,1559 @@
+{
+  "results": [
+    {
+      "name": "overview-desktop",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/overview-desktop.png",
+      "route": "/xampulse/overview",
+      "scenario": "populated",
+      "viewport": [
+        1440,
+        900
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Overview",
+          "Overview"
+        ],
+        "width": 1440,
+        "documentWidth": 1440,
+        "overflow": false,
+        "height": 900,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 20,
+        "links": 32
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "overview-tablet",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/overview-tablet.png",
+      "route": "/xampulse/overview",
+      "scenario": "populated",
+      "viewport": [
+        1024,
+        768
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Overview",
+          "Overview"
+        ],
+        "width": 1024,
+        "documentWidth": 1024,
+        "overflow": false,
+        "height": 768,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 20,
+        "links": 32
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "overview-narrow",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/overview-narrow.png",
+      "route": "/xampulse/overview",
+      "scenario": "populated",
+      "viewport": [
+        390,
+        844
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Overview",
+          "Overview"
+        ],
+        "width": 390,
+        "documentWidth": 390,
+        "overflow": false,
+        "height": 844,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 20,
+        "links": 32
+      },
+      "focus": {
+        "tag": "BUTTON",
+        "text": "",
+        "focusVisible": true,
+        "outline": "rgb(66, 133, 244) solid 2px",
+        "boxShadow": "rgba(99, 102, 241, 0.1) 0px 0px 0px 3px"
+      }
+    },
+    {
+      "name": "hosts-desktop",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/hosts-desktop.png",
+      "route": "/xampulse/hosts",
+      "scenario": "populated",
+      "viewport": [
+        1440,
+        900
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Hosts",
+          "Hosts"
+        ],
+        "width": 1440,
+        "documentWidth": 1440,
+        "overflow": false,
+        "height": 900,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 31,
+        "links": 16
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "hosts-tablet",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/hosts-tablet.png",
+      "route": "/xampulse/hosts",
+      "scenario": "populated",
+      "viewport": [
+        1024,
+        768
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Hosts",
+          "Hosts"
+        ],
+        "width": 1024,
+        "documentWidth": 1024,
+        "overflow": false,
+        "height": 768,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 31,
+        "links": 16
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "hosts-narrow",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/hosts-narrow.png",
+      "route": "/xampulse/hosts",
+      "scenario": "populated",
+      "viewport": [
+        390,
+        844
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Hosts",
+          "Hosts"
+        ],
+        "width": 390,
+        "documentWidth": 390,
+        "overflow": false,
+        "height": 844,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 31,
+        "links": 16
+      },
+      "focus": {
+        "tag": "BUTTON",
+        "text": "",
+        "focusVisible": true,
+        "outline": "rgb(66, 133, 244) solid 2px",
+        "boxShadow": "rgba(99, 102, 241, 0.1) 0px 0px 0px 3px"
+      }
+    },
+    {
+      "name": "containers-desktop",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/containers-desktop.png",
+      "route": "/xampulse/containers",
+      "scenario": "populated",
+      "viewport": [
+        1440,
+        900
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Containers",
+          "Containers"
+        ],
+        "width": 1440,
+        "documentWidth": 1440,
+        "overflow": false,
+        "height": 900,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 27,
+        "links": 16
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "containers-tablet",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/containers-tablet.png",
+      "route": "/xampulse/containers",
+      "scenario": "populated",
+      "viewport": [
+        1024,
+        768
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Containers",
+          "Containers"
+        ],
+        "width": 1024,
+        "documentWidth": 1024,
+        "overflow": false,
+        "height": 768,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 27,
+        "links": 16
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "containers-narrow",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/containers-narrow.png",
+      "route": "/xampulse/containers",
+      "scenario": "populated",
+      "viewport": [
+        390,
+        844
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Containers",
+          "Containers"
+        ],
+        "width": 390,
+        "documentWidth": 390,
+        "overflow": false,
+        "height": 844,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 27,
+        "links": 16
+      },
+      "focus": {
+        "tag": "BUTTON",
+        "text": "",
+        "focusVisible": true,
+        "outline": "rgb(66, 133, 244) solid 2px",
+        "boxShadow": "rgba(99, 102, 241, 0.1) 0px 0px 0px 3px"
+      }
+    },
+    {
+      "name": "logs-desktop",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/logs-desktop.png",
+      "route": "/xampulse/logs",
+      "scenario": "populated",
+      "viewport": [
+        1440,
+        900
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Logs",
+          "Logs"
+        ],
+        "width": 1440,
+        "documentWidth": 1440,
+        "overflow": false,
+        "height": 900,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 73,
+        "links": 10
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "logs-tablet",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/logs-tablet.png",
+      "route": "/xampulse/logs",
+      "scenario": "populated",
+      "viewport": [
+        1024,
+        768
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Logs",
+          "Logs"
+        ],
+        "width": 1024,
+        "documentWidth": 1024,
+        "overflow": false,
+        "height": 768,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 73,
+        "links": 10
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "logs-narrow",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/logs-narrow.png",
+      "route": "/xampulse/logs",
+      "scenario": "populated",
+      "viewport": [
+        390,
+        844
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Logs",
+          "Logs"
+        ],
+        "width": 390,
+        "documentWidth": 390,
+        "overflow": false,
+        "height": 844,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 73,
+        "links": 10
+      },
+      "focus": {
+        "tag": "BUTTON",
+        "text": "",
+        "focusVisible": true,
+        "outline": "rgb(66, 133, 244) solid 2px",
+        "boxShadow": "rgba(99, 102, 241, 0.1) 0px 0px 0px 3px"
+      }
+    },
+    {
+      "name": "metrics-desktop",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/metrics-desktop.png",
+      "route": "/xampulse/metrics",
+      "scenario": "populated",
+      "viewport": [
+        1440,
+        900
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Metrics",
+          "Metrics Explorer"
+        ],
+        "width": 1440,
+        "documentWidth": 1440,
+        "overflow": false,
+        "height": 900,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 25,
+        "links": 10
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "metrics-tablet",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/metrics-tablet.png",
+      "route": "/xampulse/metrics",
+      "scenario": "populated",
+      "viewport": [
+        1024,
+        768
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Metrics",
+          "Metrics Explorer"
+        ],
+        "width": 1024,
+        "documentWidth": 1024,
+        "overflow": false,
+        "height": 768,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 25,
+        "links": 10
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "metrics-narrow",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/metrics-narrow.png",
+      "route": "/xampulse/metrics",
+      "scenario": "populated",
+      "viewport": [
+        390,
+        844
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Metrics",
+          "Metrics Explorer"
+        ],
+        "width": 390,
+        "documentWidth": 390,
+        "overflow": false,
+        "height": 844,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 25,
+        "links": 10
+      },
+      "focus": {
+        "tag": "BUTTON",
+        "text": "",
+        "focusVisible": true,
+        "outline": "rgb(66, 133, 244) solid 2px",
+        "boxShadow": "rgba(99, 102, 241, 0.1) 0px 0px 0px 3px"
+      }
+    },
+    {
+      "name": "alerts-desktop",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/alerts-desktop.png",
+      "route": "/xampulse/alerts",
+      "scenario": "populated",
+      "viewport": [
+        1440,
+        900
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Alerts",
+          "Alerts"
+        ],
+        "width": 1440,
+        "documentWidth": 1440,
+        "overflow": false,
+        "height": 900,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 28,
+        "links": 11
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "alerts-tablet",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/alerts-tablet.png",
+      "route": "/xampulse/alerts",
+      "scenario": "populated",
+      "viewport": [
+        1024,
+        768
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Alerts",
+          "Alerts"
+        ],
+        "width": 1024,
+        "documentWidth": 1024,
+        "overflow": false,
+        "height": 768,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 28,
+        "links": 11
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "alerts-narrow",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/alerts-narrow.png",
+      "route": "/xampulse/alerts",
+      "scenario": "populated",
+      "viewport": [
+        390,
+        844
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Alerts",
+          "Alerts"
+        ],
+        "width": 390,
+        "documentWidth": 390,
+        "overflow": false,
+        "height": 844,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 28,
+        "links": 11
+      },
+      "focus": {
+        "tag": "BUTTON",
+        "text": "",
+        "focusVisible": true,
+        "outline": "rgb(66, 133, 244) solid 2px",
+        "boxShadow": "rgba(99, 102, 241, 0.1) 0px 0px 0px 3px"
+      }
+    },
+    {
+      "name": "insights-desktop",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/insights-desktop.png",
+      "route": "/xampulse/insights",
+      "scenario": "populated",
+      "viewport": [
+        1440,
+        900
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Insights",
+          "Insights"
+        ],
+        "width": 1440,
+        "documentWidth": 1440,
+        "overflow": false,
+        "height": 900,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 20,
+        "links": 14
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "insights-tablet",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/insights-tablet.png",
+      "route": "/xampulse/insights",
+      "scenario": "populated",
+      "viewport": [
+        1024,
+        768
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Insights",
+          "Insights"
+        ],
+        "width": 1024,
+        "documentWidth": 1024,
+        "overflow": false,
+        "height": 768,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 20,
+        "links": 14
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "insights-narrow",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/insights-narrow.png",
+      "route": "/xampulse/insights",
+      "scenario": "populated",
+      "viewport": [
+        390,
+        844
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Insights",
+          "Insights"
+        ],
+        "width": 390,
+        "documentWidth": 390,
+        "overflow": false,
+        "height": 844,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 20,
+        "links": 14
+      },
+      "focus": {
+        "tag": "BUTTON",
+        "text": "",
+        "focusVisible": true,
+        "outline": "rgb(66, 133, 244) solid 2px",
+        "boxShadow": "rgba(99, 102, 241, 0.1) 0px 0px 0px 3px"
+      }
+    },
+    {
+      "name": "setup-desktop",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/setup-desktop.png",
+      "route": "/xampulse/setup",
+      "scenario": "populated",
+      "viewport": [
+        1440,
+        900
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Setup",
+          "Setup & Storage"
+        ],
+        "width": 1440,
+        "documentWidth": 1440,
+        "overflow": false,
+        "height": 900,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 29,
+        "links": 10
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "setup-tablet",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/setup-tablet.png",
+      "route": "/xampulse/setup",
+      "scenario": "populated",
+      "viewport": [
+        1024,
+        768
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Setup",
+          "Setup & Storage"
+        ],
+        "width": 1024,
+        "documentWidth": 1024,
+        "overflow": false,
+        "height": 768,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 29,
+        "links": 10
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "setup-narrow",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/setup-narrow.png",
+      "route": "/xampulse/setup",
+      "scenario": "populated",
+      "viewport": [
+        390,
+        844
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Setup",
+          "Setup & Storage"
+        ],
+        "width": 390,
+        "documentWidth": 390,
+        "overflow": false,
+        "height": 844,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 29,
+        "links": 10
+      },
+      "focus": {
+        "tag": "BUTTON",
+        "text": "",
+        "focusVisible": true,
+        "outline": "rgb(66, 133, 244) solid 2px",
+        "boxShadow": "rgba(99, 102, 241, 0.1) 0px 0px 0px 3px"
+      }
+    },
+    {
+      "name": "host-360-desktop",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/host-360-desktop.png",
+      "route": "/xampulse/hosts/i-demo0005?accountId=1",
+      "scenario": "populated",
+      "viewport": [
+        1440,
+        900
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "I  Demo0005",
+          "demo-api-2"
+        ],
+        "width": 1440,
+        "documentWidth": 1440,
+        "overflow": false,
+        "height": 900,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 2,
+        "buttons": 38,
+        "links": 14
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "host-360-tablet",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/host-360-tablet.png",
+      "route": "/xampulse/hosts/i-demo0005?accountId=1",
+      "scenario": "populated",
+      "viewport": [
+        1024,
+        768
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "I  Demo0005",
+          "demo-api-2"
+        ],
+        "width": 1024,
+        "documentWidth": 1024,
+        "overflow": false,
+        "height": 768,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 2,
+        "buttons": 38,
+        "links": 14
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "host-360-narrow",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/host-360-narrow.png",
+      "route": "/xampulse/hosts/i-demo0005?accountId=1",
+      "scenario": "populated",
+      "viewport": [
+        390,
+        844
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "I  Demo0005",
+          "demo-api-2"
+        ],
+        "width": 390,
+        "documentWidth": 390,
+        "overflow": false,
+        "height": 844,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 2,
+        "buttons": 38,
+        "links": 14
+      },
+      "focus": {
+        "tag": "BUTTON",
+        "text": "",
+        "focusVisible": true,
+        "outline": "rgb(66, 133, 244) solid 2px",
+        "boxShadow": "rgba(99, 102, 241, 0.1) 0px 0px 0px 3px"
+      }
+    },
+    {
+      "name": "container-360-desktop",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/container-360-desktop.png",
+      "route": "/xampulse/containers/i-demo0005/api?accountId=1",
+      "scenario": "populated",
+      "viewport": [
+        1440,
+        900
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Api",
+          "api"
+        ],
+        "width": 1440,
+        "documentWidth": 1440,
+        "overflow": false,
+        "height": 900,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 2,
+        "buttons": 20,
+        "links": 13
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "container-360-tablet",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/container-360-tablet.png",
+      "route": "/xampulse/containers/i-demo0005/api?accountId=1",
+      "scenario": "populated",
+      "viewport": [
+        1024,
+        768
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Api",
+          "api"
+        ],
+        "width": 1024,
+        "documentWidth": 1024,
+        "overflow": false,
+        "height": 768,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 2,
+        "buttons": 20,
+        "links": 13
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "container-360-narrow",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/container-360-narrow.png",
+      "route": "/xampulse/containers/i-demo0005/api?accountId=1",
+      "scenario": "populated",
+      "viewport": [
+        390,
+        844
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Api",
+          "api"
+        ],
+        "width": 390,
+        "documentWidth": 390,
+        "overflow": false,
+        "height": 844,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 2,
+        "buttons": 20,
+        "links": 13
+      },
+      "focus": {
+        "tag": "BUTTON",
+        "text": "",
+        "focusVisible": true,
+        "outline": "rgb(66, 133, 244) solid 2px",
+        "boxShadow": "rgba(99, 102, 241, 0.1) 0px 0px 0px 3px"
+      }
+    },
+    {
+      "name": "overview-state-loading",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/overview-state-loading.png",
+      "route": "/xampulse/overview",
+      "scenario": "loading",
+      "viewport": [
+        1440,
+        900
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Overview",
+          "Overview"
+        ],
+        "width": 1440,
+        "documentWidth": 1440,
+        "overflow": false,
+        "height": 900,
+        "reducedMotion": true,
+        "skeletons": 8,
+        "errors": 1,
+        "buttons": 20,
+        "links": 10
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "overview-state-empty",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/overview-state-empty.png",
+      "route": "/xampulse/overview",
+      "scenario": "empty",
+      "viewport": [
+        1440,
+        900
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Overview",
+          "Overview"
+        ],
+        "width": 1440,
+        "documentWidth": 1440,
+        "overflow": false,
+        "height": 900,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 20,
+        "links": 10
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "overview-state-partial",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/overview-state-partial.png",
+      "route": "/xampulse/overview",
+      "scenario": "partial",
+      "viewport": [
+        1440,
+        900
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Overview",
+          "Overview"
+        ],
+        "width": 1440,
+        "documentWidth": 1440,
+        "overflow": false,
+        "height": 900,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 20,
+        "links": 32
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "overview-state-error",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/overview-state-error.png",
+      "route": "/xampulse/overview",
+      "scenario": "error",
+      "viewport": [
+        1440,
+        900
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Overview",
+          "Overview"
+        ],
+        "width": 1440,
+        "documentWidth": 1440,
+        "overflow": false,
+        "height": 900,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 2,
+        "buttons": 21,
+        "links": 10
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "overview-state-setup-required",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/overview-state-setup-required.png",
+      "route": "/xampulse/overview",
+      "scenario": "setup-required",
+      "viewport": [
+        1440,
+        900
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Overview"
+        ],
+        "width": 1440,
+        "documentWidth": 1440,
+        "overflow": false,
+        "height": 900,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 20,
+        "links": 11
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "setup-usage-deeplink-desktop",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/setup-usage-deeplink-desktop.png",
+      "route": "/xampulse/setup?view=usage&accounts=1",
+      "scenario": "populated",
+      "viewport": [
+        1440,
+        900
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Setup",
+          "Setup & Storage"
+        ],
+        "width": 1440,
+        "documentWidth": 1440,
+        "overflow": false,
+        "height": 900,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 27,
+        "links": 10
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "hosts-map-desktop",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/hosts-map-desktop.png",
+      "route": "/xampulse/hosts",
+      "scenario": "populated",
+      "viewport": [
+        1440,
+        900
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Hosts",
+          "Hosts"
+        ],
+        "width": 1440,
+        "documentWidth": 1440,
+        "overflow": false,
+        "height": 900,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 26,
+        "links": 16
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    },
+    {
+      "name": "hosts-columns-desktop",
+      "path": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/xampulse-redesign/screenshots/hosts-columns-desktop.png",
+      "route": "/xampulse/hosts",
+      "scenario": "populated",
+      "viewport": [
+        1440,
+        900
+      ],
+      "metrics": {
+        "title": "XamOps - Cloud FinOps Platform",
+        "h1": [
+          "Hosts",
+          "Hosts"
+        ],
+        "width": 1440,
+        "documentWidth": 1440,
+        "overflow": false,
+        "height": 900,
+        "reducedMotion": true,
+        "skeletons": 0,
+        "errors": 1,
+        "buttons": 31,
+        "links": 16
+      },
+      "focus": {
+        "tag": "A",
+        "text": "XamOps",
+        "focusVisible": true,
+        "outline": "rgb(249, 115, 22) solid 2px",
+        "boxShadow": "none"
+      }
+    }
+  ],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ]
+}
