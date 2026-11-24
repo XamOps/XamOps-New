@@ -29,26 +29,42 @@ public final class BaselineMath {
         return (z.getDayOfWeek().getValue() - 1) * 24 + z.getHour();
     }
 
-    /** Baselines keyed by hour-of-week; slots with fewer than MIN_SAMPLES are omitted. */
+    /**
+     * Baselines keyed by hour-of-week. A slot uses its own samples (the weekly rhythm: Monday 09:00 is not Sunday
+     * 09:00) once it has {@link #MIN_SAMPLES}; with hourly samples that takes three weeks, because each hour of the
+     * week occurs once a week. Until then it falls back to the same hour of the day across every day (the daily
+     * rhythm), which needs three days. A slot with neither is omitted: no baseline, no band, no anomaly claim.
+     */
     public static Map<Integer, Baseline> compute(List<Sample> samples) {
-        Map<Integer, List<Double>> byHour = new HashMap<>();
+        Map<Integer, List<Double>> byWeekHour = new HashMap<>();
+        Map<Integer, List<Double>> byDayHour = new HashMap<>();
         for (Sample s : samples) {
             if (Double.isFinite(s.value())) {
-                byHour.computeIfAbsent(hourOfWeek(s.ts()), k -> new ArrayList<>()).add(s.value());
+                int how = hourOfWeek(s.ts());
+                byWeekHour.computeIfAbsent(how, k -> new ArrayList<>()).add(s.value());
+                byDayHour.computeIfAbsent(how % 24, k -> new ArrayList<>()).add(s.value());
             }
         }
         Map<Integer, Baseline> out = new HashMap<>();
-        byHour.forEach((h, vals) -> {
-            if (vals.size() >= MIN_SAMPLES) {
-                double med = median(vals);
-                List<Double> dev = new ArrayList<>();
-                for (double v : vals) {
-                    dev.add(Math.abs(v - med));
-                }
-                out.put(h, new Baseline(med, median(dev)));
+        for (int how = 0; how < 168; how++) {
+            List<Double> weekly = byWeekHour.get(how);
+            List<Double> daily = byDayHour.get(how % 24);
+            if (weekly != null && weekly.size() >= MIN_SAMPLES) {
+                out.put(how, of(weekly));
+            } else if (daily != null && daily.size() >= MIN_SAMPLES) {
+                out.put(how, of(daily));
             }
-        });
+        }
         return out;
+    }
+
+    private static Baseline of(List<Double> vals) {
+        double med = median(vals);
+        List<Double> dev = new ArrayList<>();
+        for (double v : vals) {
+            dev.add(Math.abs(v - med));
+        }
+        return new Baseline(med, median(dev));
     }
 
     /** Returns {lower, upper} for {@code k} scaled MADs, or null when there is no baseline (cold start). */

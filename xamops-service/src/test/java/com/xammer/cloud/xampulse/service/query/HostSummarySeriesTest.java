@@ -45,6 +45,7 @@ class HostSummarySeriesTest {
 
     private HostQueryService hosts;
     private ClientUserDetails user;
+    private ClickHouseExecutor executor;
 
     @BeforeEach
     void setUp() {
@@ -56,7 +57,7 @@ class HostSummarySeriesTest {
         XamPulseAccessGuard guard = new XamPulseAccessGuard(access, mock(CloudAccountRepository.class));
         QueryScopeFactory scopes = new QueryScopeFactory(guard, props);
 
-        ClickHouseExecutor executor = mock(ClickHouseExecutor.class);
+        executor = mock(ClickHouseExecutor.class);
         when(executor.queryEach(any(), any())).thenAnswer(inv -> {
             QueryScope scope = inv.getArgument(0);
             @SuppressWarnings("unchecked")
@@ -250,4 +251,52 @@ class HostSummarySeriesTest {
         assertThat(series.get("system.network.io{direction=receive}").get(0)[1]).isEqualTo(1_048_576.0);
         assertThat(series.get("system.network.io{direction=transmit}").get(0)[1]).isEqualTo(1_048_576.0);
     }
+
+    /**
+     * Host 360 draws the normal range behind CPU, memory, disk and load, in each chart's unit, only where a baseline was
+     * learned; and "compare with last week" returns the same window a week earlier moved onto today's time axis.
+     */
+    @Test
+    void bandsAreInTheChartsUnitOnlyWhenLearnedAndCompareShiftsLastWeekOntoToday() {
+        // Cold start: no learned baseline, no band, and no comparison unless asked for.
+        XpHostSummary cold = hosts.summary(user, ACCOUNT, INSTANCE, FROM, TO);
+        assertThat(cold.bands()).isEmpty();
+        assertThat(cold.compare()).isNull();
+        assertThat(cold.compareOffsetSec()).isNull();
+
+        // Learned: CPU busy 15% +/- a little, memory 60%, the fullest disk 50%, load 1.5, for every hour of the week.
+        Map<String, Double> medians = Map.of("system.cpu.utilization", 0.15, "system.memory.utilization", 0.60,
+                "system.filesystem.utilization", 0.50, "system.cpu.load_average.1m", 1.5);
+        when(executor.query(any(ScopedSql.class))).thenAnswer(inv -> {
+            ScopedSql q = inv.getArgument(0);
+            if (!q.sql().contains("FROM xp_baseline")) {
+                return List.of();
+            }
+            Double med = medians.get(metricParam(q.params()));
+            List<Map<String, Object>> rows = new ArrayList<>();
+            for (int h = 0; h < 168 && med != null; h++) {
+                rows.add(Map.of("instance_id", INSTANCE, "hour_of_week", (long) h, "med", med, "mad", 0.01));
+            }
+            return rows;
+        });
+        long week = 7L * 86_400L;
+        XpHostSummary s = hosts.summary(user, ACCOUNT, INSTANCE, FROM, TO, week);
+        assertThat(s.bands().keySet()).containsExactlyInAnyOrder("system.cpu.utilization", "system.memory.utilization",
+                "system.filesystem.utilization", "system.cpu.load_average.1m");
+        double[] cpu = s.bands().get("system.cpu.utilization").get(0);
+        assertThat(cpu[0]).isEqualTo(1_000_000_000.0);
+        assertThat(cpu[1]).isLessThan(15.0).isGreaterThan(5.0);   // percent, around the 15% median
+        assertThat(cpu[2]).isGreaterThan(15.0).isLessThan(25.0);
+        double[] load = s.bands().get("system.cpu.load_average.1m").get(0);
+        assertThat(load[1]).isLessThan(1.5).isGreaterThan(1.0);   // load stays raw, not a percent
+        assertThat(load[2]).isGreaterThan(1.5).isLessThan(2.0);
+
+        assertThat(s.compareOffsetSec()).isEqualTo(week);
+        assertThat(s.compare().keySet()).containsExactlyInAnyOrder("system.cpu.utilization", "system.memory.utilization",
+                "system.cpu.load_average.1m", "system.network.io{direction=receive}", "system.network.io{direction=transmit}");
+        double[] lastWeekCpu = s.compare().get("system.cpu.utilization").get(0);
+        assertThat(lastWeekCpu[0]).isEqualTo(1_000_000_000.0 + week * 1000.0);   // moved onto today's axis
+        assertThat(lastWeekCpu[1]).isCloseTo(15.0, org.assertj.core.data.Offset.offset(1e-6));
+    }
+
 }

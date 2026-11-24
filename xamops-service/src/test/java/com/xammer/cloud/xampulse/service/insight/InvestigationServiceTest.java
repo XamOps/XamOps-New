@@ -79,7 +79,9 @@ class InvestigationServiceTest {
         assertTrue(s.startsWith("Strongest lead: something changed just before. api redeployed"), s);
         assertTrue(s.contains("Also seen: the application started failing."), s);
         assertTrue(s.contains("Ruled out: AWS capped the instance;"), "acronyms keep their case: " + s);
-        assertTrue(s.contains("Cannot tell here: only this host is affected."), s);
+        // The OS-limit and network checks need agent 1.3.0; this host's radar had neither, so they are said, not guessed.
+        assertTrue(s.contains("Cannot tell here: the OS ran out of open files, inodes, ports or connection slots;"
+                + " packets were lost or delayed on the network; only this host is affected."), s);
         assertFalse(s.toLowerCase().contains("caused"), "never claims a cause");
     }
 

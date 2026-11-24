@@ -4,6 +4,7 @@ import com.xammer.cloud.xampulse.dto.XpAlertRule;
 import com.xammer.cloud.xampulse.dto.XpCondition;
 import com.xammer.cloud.xampulse.dto.XpMetricFilter;
 import com.xammer.cloud.xampulse.exception.XamPulseException;
+import com.xammer.cloud.xampulse.service.query.BaselineSignal;
 import com.xammer.cloud.xampulse.service.query.FilterAst;
 import com.xammer.cloud.xampulse.service.query.FilterDslParser;
 import com.xammer.cloud.xampulse.service.query.MetricSpec;
@@ -93,7 +94,19 @@ public class RuleCompiler {
                     throw XamPulseException.invalid("The heartbeat window must be at least 2m.");
                 }
             }
-            case "METRIC_ANOMALY" -> spec(c, c.metric());
+            case "METRIC_ANOMALY" -> {
+                spec(c, c.metric());
+                // A normal range exists only for the host-level values XamPulse learns (BaselineSignal); any other
+                // metric, or a label filter that picks one series of it, would never have a band to leave.
+                if (BaselineSignal.of(c.metric()).isEmpty()) {
+                    throw XamPulseException.invalid("Normal-range rules work on CPU, memory, disk and load"
+                            + " (system.cpu.utilization, system.memory.utilization, system.filesystem.utilization,"
+                            + " system.cpu.load_average.1m): the values XamPulse learns a normal range for.");
+                }
+                if (c.filters() != null && !c.filters().isEmpty()) {
+                    throw XamPulseException.invalid("A normal-range rule watches the host's whole value; remove the label filters.");
+                }
+            }
             case "FORECAST" -> {
                 if (c.forecastDays() == null || c.forecastDays() < 1 || c.forecastDays() > 90) {
                     throw XamPulseException.invalid("Choose a forecast horizon between 1 and 90 days.");
@@ -138,10 +151,15 @@ public class RuleCompiler {
         QueryScope scope = new QueryScope(List.of(accountId), from, now, List.of(), instances, List.of(), List.of());
         ScopedSql sql;
         switch (c.type()) {
-            case "METRIC_THRESHOLD", "METRIC_ANOMALY" -> {
+            case "METRIC_THRESHOLD" -> sql = builder.alertMetric(scope, spec(c, c.metric()));
+            case "METRIC_ANOMALY" -> {
+                // The value compared with the band is read the way the band was learned (ConditionEvaluator applies
+                // the inversion for CPU). A rule saved before this check, on another metric, keeps its old reading
+                // and finds no baseline.
                 MetricSpec spec = spec(c, c.metric());
-                sql = builder.alertMetric(scope, "METRIC_ANOMALY".equals(c.type())
-                        ? new MetricSpec(spec.metric(), "avg", spec.groupBy(), spec.filters()) : spec);
+                sql = builder.alertMetric(scope, BaselineSignal.of(c.metric())
+                        .map(sig -> new MetricSpec(sig.metric(), sig.maxOfSeries() ? "max" : "avg", spec.groupBy(), sig.filters()))
+                        .orElse(new MetricSpec(spec.metric(), "avg", spec.groupBy(), spec.filters())));
             }
             case "LOG_COUNT" -> sql = builder.alertLogCount(scope, query(c));
             case "HEARTBEAT_MISSING" -> {

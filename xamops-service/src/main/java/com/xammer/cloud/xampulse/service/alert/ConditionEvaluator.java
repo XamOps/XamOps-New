@@ -7,6 +7,7 @@ import com.xammer.cloud.xampulse.repository.XpAgentRepository;
 import com.xammer.cloud.xampulse.service.insight.BaselineMath;
 import com.xammer.cloud.xampulse.service.insight.ForecastService;
 import com.xammer.cloud.xampulse.service.insight.XamPulseAnomalyDetector;
+import com.xammer.cloud.xampulse.service.query.BaselineSignal;
 import com.xammer.cloud.xampulse.service.query.ClickHouseExecutor;
 import com.xammer.cloud.xampulse.service.query.QueryScope;
 import com.xammer.cloud.xampulse.service.query.Rows;
@@ -124,10 +125,13 @@ public class ConditionEvaluator {
                     .put((int) Rows.l(b, "hour_of_week"), new BaselineMath.Baseline(Rows.d(b, "med"), Rows.d(b, "mad")));
         }
         int how = BaselineMath.hourOfWeek(now);
+        BaselineSignal signal = BaselineSignal.of(rule.condition().metric()).orElse(null);
         List<Observation> out = new ArrayList<>();
         for (Map<String, Object> r : rows) {
             String inst = Rows.s(r, "g0");
-            Double v = Rows.dOrNull(r, "v");
+            Double raw = Rows.dOrNull(r, "v");
+            // Same reading as the baseline: CPU busy is 1 - the idle series the rule query selected.
+            Double v = raw == null || signal == null ? raw : signal.value(raw);
             BaselineMath.Baseline bl = base.getOrDefault(inst, Map.of()).get(how);
             if (v == null || bl == null) {
                 // Cold start: no baseline yet means no anomaly claim, and the observation is "no data".

@@ -218,7 +218,7 @@ public class XamPulseProperties {
      */
     public static class Baseline {
         private boolean enabled = true;
-        private int windowDays = 14;
+        private int windowDays = 28;
         private String cron = "0 20 * * * *";
         private List<String> metrics = List.of("system.cpu.utilization", "system.memory.utilization",
                 "system.filesystem.utilization", "system.cpu.load_average.1m");

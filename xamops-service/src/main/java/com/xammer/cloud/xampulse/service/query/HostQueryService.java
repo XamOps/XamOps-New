@@ -6,7 +6,9 @@ import com.xammer.cloud.xampulse.dto.*;
 import com.xammer.cloud.xampulse.exception.XamPulseException;
 import com.xammer.cloud.xampulse.repository.XpAgentRepository;
 import com.xammer.cloud.xampulse.service.alert.IncidentService;
+import com.xammer.cloud.xampulse.service.insight.BaselineMath;
 import com.xammer.cloud.xampulse.service.insight.HealthScoreService;
+import com.xammer.cloud.xampulse.service.insight.XamPulseAnomalyDetector;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
@@ -257,6 +259,14 @@ public class HostQueryService {
     }
 
     public XpHostSummary summary(ClientUserDetails user, Long accountId, String instanceId, Instant from, Instant to) {
+        return summary(user, accountId, instanceId, from, to, null);
+    }
+
+    /**
+     * @param compareOffsetSec when set, the main series (CPU, memory, load, network) are also read for the same window
+     *                         this many seconds earlier (a day, a week) and returned shifted onto today's time axis
+     */
+    public XpHostSummary summary(ClientUserDetails user, Long accountId, String instanceId, Instant from, Instant to, Long compareOffsetSec) {
         QueryScope range = scopes.build(user, List.of(accountId), from, to);
         Instant now = Instant.now();
         QueryScope narrowLive = new QueryScope(List.of(accountId), now.minus(LIVE_WINDOW), now, List.of(), List.of(instanceId), List.of(), List.of());
@@ -268,14 +278,11 @@ public class HostQueryService {
 
         Map<String, List<double[]>> series = new LinkedHashMap<>();
         TenantScopedQueryBuilder.MetricPlan plan = TenantScopedQueryBuilder.planMetric(hostScope, null);
-        series.put("system.cpu.utilization", percentSeries(hostScope, plan,
-                new MetricSpec("system.cpu.utilization", "avg", List.of(), List.of(new MetricSpec.LabelFilter("state", "=", "idle"))), true));
-        series.put("system.memory.utilization", percentSeries(hostScope, plan,
-                new MetricSpec("system.memory.utilization", "avg", List.of(), List.of(new MetricSpec.LabelFilter("state", "=", "used"))), false));
-        series.put("system.filesystem.utilization", percentSeries(hostScope, plan,
-                new MetricSpec("system.filesystem.utilization", "max", List.of(), List.of()), false));
-        series.put("system.cpu.load_average.1m", percentSeries(hostScope, plan,
-                new MetricSpec("system.cpu.load_average.1m", "avg", List.of(), List.of()), null));
+        // The four main values read exactly as their baselines are learned (BaselineSignal), so the bands fit them.
+        series.put("system.cpu.utilization", percentSeries(hostScope, plan, CPU_BUSY, true));
+        series.put("system.memory.utilization", percentSeries(hostScope, plan, MEMORY_USED, false));
+        series.put("system.filesystem.utilization", percentSeries(hostScope, plan, DISK_FULLEST, false));
+        series.put("system.cpu.load_average.1m", percentSeries(hostScope, plan, LOAD_1M, null));
 
         // Depth series (D7): the Resource 360 drawer parses these by exact key. CPU sub-states and per-core are
         // percentages (value * 100); disk/network I/O are byte rates grouped by direction.
@@ -350,7 +357,73 @@ public class HostQueryService {
                 "severity:>=error", "TS_DESC", 20, null)).rows();
         List<XpEvent> evs = events.events(range, List.of()).stream()
                 .filter(e -> instanceId.equals(e.resource()) || e.resource() == null || e.resource().isEmpty()).toList();
-        return new XpHostSummary(host, res.lanes(), series, recentErrors, evs, incidents.openForInstance(accountId, instanceId));
+        Map<String, List<double[]>> compare = compareOffsetSec == null ? null : compareSeries(hostScope, compareOffsetSec);
+        return new XpHostSummary(host, res.lanes(), series, recentErrors, evs, incidents.openForInstance(accountId, instanceId),
+                bands(hostScope, instanceId, series), compare, compare == null ? null : compareOffsetSec);
+    }
+
+    private static final MetricSpec CPU_BUSY = new MetricSpec(BaselineSignal.CPU.metric(), "avg", List.of(), BaselineSignal.CPU.filters());
+    private static final MetricSpec MEMORY_USED = new MetricSpec(BaselineSignal.MEMORY.metric(), "avg", List.of(), BaselineSignal.MEMORY.filters());
+    private static final MetricSpec DISK_FULLEST = new MetricSpec(BaselineSignal.DISK.metric(), "max", List.of(), List.of());
+    private static final MetricSpec LOAD_1M = new MetricSpec(BaselineSignal.LOAD.metric(), "avg", List.of(), List.of());
+
+    /**
+     * The normal range behind each main series: the learned median and spread for the hour of the week of every point,
+     * in the series' unit (percent for the utilisations). A series without a learned baseline gets no band (cold
+     * start), so the chart never draws a range that was not measured.
+     */
+    Map<String, List<double[]>> bands(QueryScope hostScope, String instanceId, Map<String, List<double[]>> series) {
+        Map<String, List<double[]>> out = new LinkedHashMap<>();
+        for (BaselineSignal sig : List.of(BaselineSignal.CPU, BaselineSignal.MEMORY, BaselineSignal.DISK, BaselineSignal.LOAD)) {
+            List<double[]> pts = series.get(sig.metric());
+            if (pts == null || pts.isEmpty()) {
+                continue;
+            }
+            Map<Integer, BaselineMath.Baseline> base = new HashMap<>();
+            for (Map<String, Object> r : executor.query(builder.baseline(hostScope, sig.metric(), List.of(instanceId)))) {
+                base.put((int) Rows.l(r, "hour_of_week"), new BaselineMath.Baseline(Rows.d(r, "med"), Rows.d(r, "mad")));
+            }
+            if (base.isEmpty()) {
+                continue;
+            }
+            double scale = sig == BaselineSignal.LOAD ? 1 : 100;
+            List<double[]> band = new ArrayList<>();
+            for (double[] p : pts) {
+                double[] b = BaselineMath.band(base.get(BaselineMath.hourOfWeek(Instant.ofEpochMilli((long) p[0]))), XamPulseAnomalyDetector.DEFAULT_K);
+                if (b != null) {
+                    double[] v = sig.bandOnValue(b[0], b[1]);
+                    band.add(new double[] {p[0], v[0] * scale, v[1] * scale});
+                }
+            }
+            if (!band.isEmpty()) {
+                out.put(sig.metric(), band);
+            }
+        }
+        return out;
+    }
+
+    /** CPU, memory, load and network for the same window {@code offsetSec} earlier, moved forward onto today's axis. */
+    private Map<String, List<double[]>> compareSeries(QueryScope hostScope, long offsetSec) {
+        QueryScope past = hostScope.withRange(hostScope.from().minusSeconds(offsetSec), hostScope.to().minusSeconds(offsetSec));
+        TenantScopedQueryBuilder.MetricPlan plan = TenantScopedQueryBuilder.planMetric(past, null);
+        Map<String, List<double[]>> raw = new LinkedHashMap<>();
+        raw.put("system.cpu.utilization", percentSeries(past, plan, CPU_BUSY, true));
+        raw.put("system.memory.utilization", percentSeries(past, plan, MEMORY_USED, false));
+        raw.put("system.cpu.load_average.1m", percentSeries(past, plan, LOAD_1M, null));
+        for (String dir : List.of("receive", "transmit")) {
+            fanRawByLabel(raw, past, plan, "direction",
+                    new MetricSpec("system.network.io", "rate", List.of("direction"), List.of(
+                            new MetricSpec.LabelFilter("direction", "=", dir), new MetricSpec.LabelFilter("device", "=~", PHYSICAL_NIC))),
+                    v -> "system.network.io{direction=" + v + "}");
+        }
+        Map<String, List<double[]>> out = new LinkedHashMap<>();
+        double shiftMs = offsetSec * 1000.0;
+        raw.forEach((k, pts) -> {
+            if (pts != null && !pts.isEmpty()) {
+                out.put(k, pts.stream().map(p -> new double[] {p[0] + shiftMs, p[1]}).toList());
+            }
+        });
+        return out;
     }
 
     /** @param invertAndScale true: (1-v)*100; false: v*100; null: raw value */

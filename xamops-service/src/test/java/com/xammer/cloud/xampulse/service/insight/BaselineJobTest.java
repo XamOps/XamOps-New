@@ -79,12 +79,17 @@ class BaselineJobTest {
         FakeClickHouseWrites.Call call = writes.calls.get(0);
         assertEquals("xp_baseline", call.table());
         assertEquals(List.of("tenant_id", "metric", "instance_id", "hour_of_week", "med", "mad", "updated_at"), call.columns());
-        assertEquals(2, call.rows().size(), "one surviving hour-of-week row per instance");
+        // Monday noon from its own three weeks, and noon on the other six days from the daily rhythm (the same three
+        // samples, all at noon): seven rows per instance.
+        assertEquals(14, call.rows().size(), "the weekly slot plus the daily fallback at noon, per instance");
 
         int hourOfWeek = BaselineMath.hourOfWeek(now);
         Map<String, List<Object>> byInstance = new HashMap<>();
         for (List<Object> row : call.rows()) {
-            byInstance.put((String) row.get(2), row);
+            assertEquals(12, (int) row.get(3) % 24, "only noon has samples");
+            if ((int) row.get(3) == hourOfWeek) {
+                byInstance.put((String) row.get(2), row);
+            }
         }
         // i-1: median 20, deviations {10,0,10} -> MAD 10
         List<Object> i1 = byInstance.get("i-1");

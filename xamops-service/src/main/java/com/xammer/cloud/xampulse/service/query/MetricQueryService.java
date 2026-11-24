@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -97,12 +98,27 @@ public class MetricQueryService {
         return out;
     }
 
-    /** Anomaly band per series, only for series keyed by instance and when a baseline exists (cold start => none). */
+    /**
+     * True when a chart series is the value a baseline was learned on ({@link BaselineSignal}): one line per instance,
+     * no further split, the defining label filter only, and the same way of combining series. A band on anything
+     * else (CPU split by state, one mount, memory "free") would compare it with a range it was never learned on.
+     */
+    static boolean bandApplies(MetricSpec spec) {
+        BaselineSignal signal = BaselineSignal.of(spec.metric()).orElse(null);
+        if (signal == null || !List.of("instance_id").equals(spec.groupBy())) {
+            return false;
+        }
+        String agg = signal.maxOfSeries() ? "max" : "avg";
+        return agg.equals(spec.agg()) && new HashSet<>(signal.filters()).equals(new HashSet<>(spec.filters()));
+    }
+
+    /** Anomaly band per series, only for the series a baseline describes (see bandApplies) and once it exists. */
     private Map<String, List<double[]>> bands(QueryScope scope, MetricSpec spec, Map<String, XpMetricSeries> series) {
         Map<String, List<double[]>> out = new HashMap<>();
-        if (!spec.groupBy().contains("instance_id") || series.isEmpty()) {
+        if (!bandApplies(spec) || series.isEmpty()) {
             return out;
         }
+        BaselineSignal signal = BaselineSignal.of(spec.metric()).orElseThrow();
         List<String> instances = series.values().stream().map(s -> s.labels().get("instance_id")).distinct().toList();
         Map<Long, Map<String, Map<Integer, BaselineMath.Baseline>>> byTenant = new HashMap<>();
         for (ClickHouseExecutor.TenantRows tr : executor.queryEach(scope, s -> builder.baseline(s, spec.metric(), instances))) {
@@ -125,7 +141,8 @@ public class MetricQueryService {
                 long tsMs = (Long) p[0];
                 double[] b = BaselineMath.band(base.get(BaselineMath.hourOfWeek(Instant.ofEpochMilli(tsMs))), BAND_K);
                 if (b != null) {
-                    band.add(new double[] {tsMs, b[0], b[1]});
+                    double[] onSeries = signal.bandForSeries(b[0], b[1]);
+                    band.add(new double[] {tsMs, onSeries[0], onSeries[1]});
                 }
             }
             if (!band.isEmpty()) {

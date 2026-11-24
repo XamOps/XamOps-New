@@ -54,6 +54,9 @@ public class InvestigationService {
     private static final DateTimeFormatter HM = DateTimeFormatter.ofPattern("HH:mm 'UTC'", Locale.ROOT).withZone(ZoneOffset.UTC);
     static final Set<String> AWS_SIGNALS = Set.of("ena", "ebs", "spot");
     static final Set<String> KERNEL_SIGNALS = Set.of("psi", "conntrack_table");
+    /** OS limits that fail requests while CPU looks fine: files, inodes, local ports, accept queues. */
+    static final Set<String> OS_LIMIT_SIGNALS = Set.of("file_handles", "inodes", "local_ports", "listen_queue");
+    static final Set<String> OS_LIMIT_CODES = Set.of("file_handles_system", "file_handles_process", "inodes", "local_ports", "listen_queue");
 
     private final XamPulseAccessGuard guard;
     private final HostQueryService hosts;
@@ -140,6 +143,10 @@ public class InvestigationService {
         out.add(fromRadar(e.limits(), "aws_limit", "AWS capped the instance", AWS_SIGNALS, f -> "AWS".equals(f.source()), "aws", 100, 80));
         out.add(fromRadar(e.limits(), "kernel_pressure", "Tasks stalled waiting for CPU, memory or I/O", KERNEL_SIGNALS,
                 f -> f.code().startsWith("psi_") || "conntrack_table".equals(f.code()), "cpu", 85, 65));
+        out.add(fromRadar(e.limits(), "os_limit", "The OS ran out of open files, inodes, ports or connection slots", OS_LIMIT_SIGNALS,
+                f -> OS_LIMIT_CODES.contains(f.code()), "network", 90, 75));
+        out.add(fromRadar(e.limits(), "network_loss", "Packets were lost or delayed on the network", Set.of("tcp_retransmits"),
+                f -> "tcp_retransmits".equals(f.code()), "network", 70, 55));
         out.add(saturation(e.summary()));
         out.add(fromRadar(e.limits(), "noisy_neighbor", "The hypervisor took CPU time (steal)", Set.of("steal"),
                 f -> "cpu_steal".equals(f.code()), "cpu", 60, 60));

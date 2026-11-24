@@ -57,12 +57,20 @@ public class XamPulseHostsController {
                                  @PathVariable String instanceId,
                                  @RequestParam Long accountId,
                                  @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
-                                 @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
+                                 @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
+                                 @RequestParam(required = false) Long compareOffsetSec) {
         if (!instanceId.matches(INSTANCE_ID)) {
             throw com.xammer.cloud.xampulse.exception.XamPulseException.notFound();
         }
-        return hosts.summary(user, accountId, instanceId, from, to);
+        // Yesterday, last week or the previous period: a minute to five weeks back (the 1-hour rollup keeps 400 days,
+        // but older comparisons are not what Host 360 is for).
+        if (compareOffsetSec != null && (compareOffsetSec < 60 || compareOffsetSec > MAX_COMPARE_OFFSET_SEC)) {
+            throw com.xammer.cloud.xampulse.exception.XamPulseException.invalid("Compare with a time between a minute and five weeks earlier.");
+        }
+        return hosts.summary(user, accountId, instanceId, from, to, compareOffsetSec);
     }
+
+    static final long MAX_COMPARE_OFFSET_SEC = 35L * 86_400L;
 
     @GetMapping("/hosts/{instanceId}/processes")
     @PreAuthorize(XamPulseRoles.VIEWER)

@@ -5,6 +5,7 @@ import com.xammer.cloud.xampulse.dto.XpHostLimits;
 import com.xammer.cloud.xampulse.dto.XpHostLimits.Finding;
 import com.xammer.cloud.xampulse.service.insight.ThrottleRadarService.Inc;
 import com.xammer.cloud.xampulse.service.insight.ThrottleRadarService.Inputs;
+import com.xammer.cloud.xampulse.service.insight.ThrottleRadarService.Kernel;
 import com.xammer.cloud.xampulse.service.insight.ThrottleRadarService.Latest;
 import org.junit.jupiter.api.Test;
 
@@ -42,7 +43,7 @@ class ThrottleRadarServiceTest {
     void nothingReportedIsNotMeasuredWithAReasonNeverHealthy() {
         XpHostLimits l = run(empty(), null);
         assertTrue(l.findings().isEmpty());
-        assertEquals(7, l.signals().size());
+        assertEquals(12, l.signals().size(), "seven AWS, kernel and container checks plus five OS limits");
         for (XpHostLimits.Signal s : l.signals()) {
             assertEquals("NOT_MEASURED", s.state(), s.code());
             assertNotNull(s.note(), s.code() + " must say why it is not measured");
@@ -154,4 +155,68 @@ class ThrottleRadarServiceTest {
                 null, null, "on-demand", null, null, null, List.of(), true, true, false, Map.of(), List.of(),
                 new XpEc2Facts.StatusChecks("ok", "ok"), List.of(), List.of(), Instant.EPOCH);
     }
+
+    // ---------------- OS limits: why it is slow or failing while CPU looks fine ----------------
+
+    private static Inputs withKernel(Kernel k) {
+        return new Inputs(Map.of(), Map.of(), Map.of(), null, Map.of(), Map.of(), null, null, null, null, Map.of(), Map.of(), null, k);
+    }
+
+    @Test
+    void inodesNearlyGoneOnOneMountIsALimitWithTheMountAndTheNumbers() {
+        // / has 3% of inodes left although its disk space may be fine; /data is nearly empty.
+        Kernel k = new Kernel(Map.of("/", new double[] {970_000, 30_000}, "/data", new double[] {1_000, 999_000}),
+                null, null, List.of(), null, null, Map.of(), Map.of());
+        XpHostLimits l = run(withKernel(k), null);
+        Finding f = only(l, "inodes");
+        assertEquals("CRITICAL", f.severity());
+        assertTrue(f.title().contains("Inodes on / are 97% used"), f.title());
+        assertTrue(f.detail().contains("No space left on device"), f.detail());
+        assertEquals("LIMITED", states(l).get("inodes"));
+    }
+
+    @Test
+    void aProcessNearItsOwnOpenFileLimitIsNamedEvenWhenTheSystemHasPlenty() {
+        Kernel k = new Kernel(Map.of(), 9_000.0, 9_000_000.0,
+                List.of(new Latest(990, Map.of("pid", "4121", "name", "java", "limit", "1024")),
+                        new Latest(600, Map.of("pid", "77", "name", "nginx", "limit", "1024"))),
+                null, null, Map.of(), Map.of());
+        XpHostLimits l = run(withKernel(k), null);
+        Finding f = only(l, "file_handles_process");
+        assertEquals("CRITICAL", f.severity(), "990 of 1024 is 97%");
+        assertEquals("java has 990 of its 1024 open files in use", f.title());
+        assertTrue(f.fix().contains("LimitNOFILE"), f.fix());
+        assertTrue(l.findings().stream().noneMatch(x -> x.code().equals("file_handles_system")), "the system has 0.1% in use");
+        assertEquals("LIMITED", states(l).get("file_handles"));
+    }
+
+    @Test
+    void localPortsRetransmitsAndListenOverflowsEachExplainWhatFails() {
+        Kernel k = new Kernel(Map.of(), null, null, List.of(), 25_000.0, 28_232.0,
+                Map.of("out", new Inc(2_000_000, 3600), "retrans", new Inc(70_000, 3600)),
+                Map.of("overflow", new Inc(5_400, 3600), "drop", new Inc(5_400, 3600)));
+        XpHostLimits l = run(withKernel(k), null);
+        Finding ports = only(l, "local_ports");
+        assertEquals("WARNING", ports.severity(), "89% of the range is a warning, 90% critical");
+        assertTrue(ports.detail().contains("Cannot assign requested address"), ports.detail());
+        Finding tcp = only(l, "tcp_retransmits");
+        assertEquals("WARNING", tcp.severity(), "3.5%");
+        assertEquals("3.5% of TCP segments were sent again", tcp.title());
+        Finding listen = only(l, "listen_queue");
+        assertEquals("CRITICAL", listen.severity(), "1.5 dropped connections a second");
+        assertTrue(listen.title().startsWith("5400 incoming connections were dropped"), listen.title());
+    }
+
+    @Test
+    void healthyOsLimitsAreOkAndTooLittleTrafficIsNotJudged() {
+        Kernel k = new Kernel(Map.of("/", new double[] {100_000, 900_000}), 9_000.0, 9_000_000.0, List.of(), 400.0, 28_232.0,
+                Map.of("out", new Inc(5_000, 3600), "retrans", new Inc(400, 3600)), Map.of("overflow", new Inc(0, 3600)));
+        Map<String, String> st = states(run(withKernel(k), null));
+        assertEquals("OK", st.get("inodes"));
+        assertEquals("OK", st.get("file_handles"));
+        assertEquals("OK", st.get("local_ports"));
+        assertEquals("OK", st.get("listen_queue"));
+        assertEquals("NOT_MEASURED", st.get("tcp_retransmits"), "5,000 segments is too few to call 8% a problem");
+    }
+
 }

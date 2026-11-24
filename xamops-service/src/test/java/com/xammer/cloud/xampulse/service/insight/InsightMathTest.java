@@ -133,6 +133,30 @@ class InsightMathTest {
         assertTrue(BaselineMath.isAnomalous(-5, base, 4));
     }
 
+    /**
+     * The baseline writer reads hourly samples over 28 days. Each hour of the week occurs once a week, so a weekly
+     * slot needs three weeks; until then the same hour of the day across every day gives a band after three days.
+     */
+    @Test
+    void theDailyRhythmFillsInUntilAnHourOfTheWeekHasThreeWeeksOfItsOwn() {
+        List<BaselineMath.Sample> threeDays = new ArrayList<>();
+        for (int d = 0; d < 3; d++) {   // Monday, Tuesday, Wednesday 09:00 (2026-01-05 is a Monday)
+            threeDays.add(new BaselineMath.Sample(Instant.parse("2026-01-05T09:00:00Z").plusSeconds(d * 86_400L), 10 + d));
+        }
+        var daily = BaselineMath.compute(threeDays);
+        assertEquals(7, daily.size(), "09:00 on every day of the week, from the daily rhythm");
+        assertEquals(11.0, daily.get(BaselineMath.hourOfWeek(Instant.parse("2026-01-11T09:00:00Z"))).median(), 1e-9, "Sunday 09:00");
+
+        List<BaselineMath.Sample> weeks = new ArrayList<>(threeDays);
+        for (int w = 1; w <= 3; w++) {   // three more Mondays at 09:00, much busier
+            weeks.add(new BaselineMath.Sample(Instant.parse("2026-01-05T09:00:00Z").plusSeconds(w * 7L * 86_400), 80));
+        }
+        var both = BaselineMath.compute(weeks);
+        assertEquals(80.0, both.get(9).median(), 1e-9, "Monday 09:00 now has four Mondays of its own (10, 80, 80, 80)");
+        assertEquals(46.0, both.get(BaselineMath.hourOfWeek(Instant.parse("2026-01-06T09:00:00Z"))).median(), 1e-9,
+                "Tuesday 09:00 still uses every day at 09:00 (10, 11, 12, 80, 80, 80)");
+    }
+
     @Test
     void coldStartHasNoBaselineAndNoBand() {
         List<BaselineMath.Sample> two = List.of(new BaselineMath.Sample(Instant.parse("2026-01-05T09:00:00Z"), 5),

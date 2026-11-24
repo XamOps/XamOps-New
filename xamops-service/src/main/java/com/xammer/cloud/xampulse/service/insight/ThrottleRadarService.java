@@ -48,6 +48,19 @@ public class ThrottleRadarService {
     /** Fewer CPU periods than this (about 10 s of a busy container at the default 100 ms period) is too little to judge. */
     static final double MIN_PERIODS = 100;
     static final double CONNTRACK_WARN = 0.80, CONNTRACK_CRIT = 0.95;
+    static final double INODES_WARN = 0.90, INODES_CRIT = 0.95;
+    static final double FILES_WARN = 0.80, FILES_CRIT = 0.95;
+    static final double PORTS_WARN = 0.70, PORTS_CRIT = 0.90;
+    static final double RETRANS_WARN = 0.02, RETRANS_CRIT = 0.05;
+    /** Fewer segments sent than this in the range is too little traffic to judge a retransmission rate. */
+    static final double MIN_SEGMENTS = 10_000;
+    static final double LISTEN_OVERFLOW_CRIT_PER_SEC = 1.0;
+
+    /** Metrics the agent's xampulse_ec2 receiver reads from /proc (agent 1.3.0 and later); inodes come from hostmetrics. */
+    static final String M_INODES = "system.filesystem.inodes.usage", M_FILE_HANDLES = "xp.fs.file_handles",
+            M_PROCESS_FILES = "xp.process.open_files", M_LOCAL_PORTS = "xp.net.local_ports",
+            M_TCP_SEGMENTS = "xp.tcp.segments", M_LISTEN_QUEUE = "xp.tcp.listen_queue";
+    static final String NEEDS_AGENT_13 = "The agent predates this check (agent 1.3.0 and later read it from /proc).";
 
     /** A counter's measured increase and the seconds it covers. */
     record Inc(double inc, double secs) {
@@ -57,11 +70,33 @@ public class ThrottleRadarService {
     /** The latest point of a gauge, with its labels (empty when the series has none). */
     record Latest(double value, Map<String, String> labels) {}
 
+    /**
+     * Operating-system limits that make a host slow or fail while CPU looks fine. Empty / null = not reported.
+     *
+     * @param inodes        per mount point {used, free}
+     * @param processFiles  processes the agent reports near their open-file limit (labels pid, name, limit)
+     * @param tcpSegments   counter increase by type: out, retrans
+     * @param listenQueue   counter increase by event: overflow, drop
+     */
+    record Kernel(Map<String, double[]> inodes, Double fileHandles, Double fileHandlesMax, List<Latest> processFiles,
+                  Double localPortsUsed, Double localPortsRange, Map<String, Inc> tcpSegments, Map<String, Inc> listenQueue) {
+        static final Kernel NONE = new Kernel(Map.of(), null, null, List.of(), null, null, Map.of(), Map.of());
+    }
+
     /** Everything the rules look at, loaded once. Empty maps and nulls mean "not reported in this window". */
     record Inputs(Map<String, Inc> enaByAllowance, Map<String, Inc> psiSome, Map<String, Inc> psiFull, Double stealAvg,
                   Map<String, Inc> containerPeriods, Map<String, Inc> containerThrottled, Double conntrackCount,
                   Double conntrackMax, Latest spot, Latest rebalance, Map<String, Double> ebsInstance,
-                  Map<String, Map<String, Double>> ebsVolumes, Instant cloudWatchFetchedAt) {}
+                  Map<String, Map<String, Double>> ebsVolumes, Instant cloudWatchFetchedAt, Kernel kernel) {
+
+        Inputs(Map<String, Inc> enaByAllowance, Map<String, Inc> psiSome, Map<String, Inc> psiFull, Double stealAvg,
+               Map<String, Inc> containerPeriods, Map<String, Inc> containerThrottled, Double conntrackCount,
+               Double conntrackMax, Latest spot, Latest rebalance, Map<String, Double> ebsInstance,
+               Map<String, Map<String, Double>> ebsVolumes, Instant cloudWatchFetchedAt) {
+            this(enaByAllowance, psiSome, psiFull, stealAvg, containerPeriods, containerThrottled, conntrackCount, conntrackMax,
+                    spot, rebalance, ebsInstance, ebsVolumes, cloudWatchFetchedAt, Kernel.NONE);
+        }
+    }
 
     private final QueryScopeFactory scopes;
     private final ClickHouseExecutor executor;
@@ -132,7 +167,58 @@ public class ThrottleRadarService {
         return new Inputs(ena, some, full, steal, periods, throttled,
                 ctCount == null ? null : ctCount.value(), ctMax == null ? null : ctMax.value(),
                 latest.get("xp.ec2.spot.interruption"), latest.get("xp.ec2.rebalance_recommendation"),
-                ebsInstance, ebsVolumes, fetched == 0 ? null : Instant.ofEpochMilli(fetched));
+                ebsInstance, ebsVolumes, fetched == 0 ? null : Instant.ofEpochMilli(fetched), loadKernel(host));
+    }
+
+    /** The OS-limit inputs: latest gauges at the end of the range, counter increases over it. */
+    Kernel loadKernel(QueryScope host) {
+        Map<String, double[]> inodes = new LinkedHashMap<>();
+        Double handles = null;
+        Double handlesMax = null;
+        Double portsUsed = null;
+        Double portsRange = null;
+        List<LatestAt> processes = new ArrayList<>();
+        for (LatestAt l : latestAll(host, List.of(M_INODES, M_FILE_HANDLES, M_PROCESS_FILES, M_LOCAL_PORTS))) {
+            String state = l.labels().getOrDefault("state", "");
+            switch (l.metric()) {
+                case M_INODES -> {
+                    String mount = l.labels().get("mountpoint");
+                    if (mount != null && ("used".equals(state) || "free".equals(state))) {
+                        inodes.computeIfAbsent(mount, k -> new double[2])["used".equals(state) ? 0 : 1] = l.value();
+                    }
+                }
+                case M_FILE_HANDLES -> {
+                    if ("allocated".equals(state)) handles = l.value();
+                    if ("max".equals(state)) handlesMax = l.value();
+                }
+                case M_LOCAL_PORTS -> {
+                    if ("used".equals(state)) portsUsed = l.value();
+                    if ("range".equals(state)) portsRange = l.value();
+                }
+                case M_PROCESS_FILES -> processes.add(l);
+                default -> { }
+            }
+        }
+        // A process the agent stopped reporting fell back under half its limit: keep only the latest scrape's processes.
+        long lastScrape = processes.stream().mapToLong(LatestAt::ts).max().orElse(0);
+        List<Latest> nearLimit = processes.stream().filter(p -> p.ts() >= lastScrape - 120)
+                .map(p -> new Latest(p.value(), p.labels())).toList();
+        return new Kernel(inodes, handles, handlesMax, nearLimit, portsUsed, portsRange,
+                increase(host, M_TCP_SEGMENTS, List.of(), "type"), increase(host, M_LISTEN_QUEUE, List.of(), "event"));
+    }
+
+    record LatestAt(String metric, double value, Map<String, String> labels, long ts) {}
+
+    /** The latest point of every label set of the metrics (one row per series, not one per metric). */
+    private List<LatestAt> latestAll(QueryScope scope, List<String> metrics) {
+        List<LatestAt> out = new ArrayList<>();
+        for (Map<String, Object> r : executor.query(builder.latestMetrics(scope, scope.from().getEpochSecond(), metrics))) {
+            Double v = Rows.dOrNull(r, "v");
+            if (v != null) {
+                out.add(new LatestAt(Rows.s(r, "metric"), v, labels(Rows.s(r, "labels_key")), Rows.l(r, "last_ts")));
+            }
+        }
+        return out;
     }
 
     private static MetricSpec.LabelFilter eq(String k, String v) {
@@ -340,8 +426,129 @@ public class ThrottleRadarService {
                     in.cloudWatchFetchedAt() == null ? null : "From CloudWatch data fetched " + in.cloudWatchFetchedAt() + "."));
         }
 
+        kernelLimits(in.kernel() == null ? Kernel.NONE : in.kernel(), findings, signals);
+
         findings.sort(Comparator.comparingInt(f -> switch (f.severity()) { case "CRITICAL" -> 0; case "WARNING" -> 1; default -> 2; }));
         return new XpHostLimits(instanceId, from, to, List.copyOf(findings), List.copyOf(signals));
+    }
+
+    /** 8 to 12. Operating-system limits: the answer to "why is it slow, or failing, when CPU is 20%?". */
+    static void kernelLimits(Kernel k, List<Finding> findings, List<Signal> signals) {
+        // 8. Inodes per filesystem (hostmetrics, every agent).
+        List<Map.Entry<String, double[]>> mounts = k.inodes().entrySet().stream().filter(e -> e.getValue()[0] + e.getValue()[1] > 0).toList();
+        if (mounts.isEmpty()) {
+            signals.add(new Signal("inodes", "Filesystem inodes", "NOT_MEASURED", "No inode counts reported for this host's filesystems."));
+        } else {
+            boolean hit = false;
+            for (Map.Entry<String, double[]> m : mounts) {
+                double used = m.getValue()[0];
+                double total = used + m.getValue()[1];
+                double fill = used / total;
+                if (fill >= INODES_WARN) {
+                    hit = true;
+                    findings.add(new Finding(fill >= INODES_CRIT ? "CRITICAL" : "WARNING", "inodes", "KERNEL",
+                            String.format(Locale.ROOT, "Inodes on %s are %.0f%% used", m.getKey(), fill * 100),
+                            "Every file uses one inode. When they run out, writes fail with \"No space left on device\" even though df shows free space.",
+                            "Remove or archive the many small files (caches, sessions, mail queues, old container layers); `find " + m.getKey()
+                                    + " -xdev -type f | cut -d/ -f2-3 | sort | uniq -c | sort -n | tail` shows where they are.",
+                            Map.of("inodes_used", used, "inodes_total", total, "fill", fill)));
+                }
+            }
+            signals.add(new Signal("inodes", "Filesystem inodes", hit ? "LIMITED" : "OK", null));
+        }
+
+        // 9. Open files: the whole system (fs.file-max) and each process against its own limit (ulimit -n).
+        if (k.fileHandles() == null && k.processFiles().isEmpty()) {
+            signals.add(new Signal("file_handles", "Open-file limits", "NOT_MEASURED", NEEDS_AGENT_13));
+        } else {
+            boolean hit = false;
+            if (k.fileHandles() != null && k.fileHandlesMax() != null && k.fileHandlesMax() > 0) {
+                double fill = k.fileHandles() / k.fileHandlesMax();
+                if (fill >= FILES_WARN) {
+                    hit = true;
+                    findings.add(new Finding(fill >= FILES_CRIT ? "CRITICAL" : "WARNING", "file_handles_system", "KERNEL",
+                            String.format(Locale.ROOT, "The system has %.0f%% of its open-file limit in use", fill * 100),
+                            "At the limit every program gets \"Too many open files in system\" (ENFILE) when it opens a file or socket.",
+                            "Find what holds the files (Processes), or raise fs.file-max.",
+                            Map.of("open", k.fileHandles(), "max", k.fileHandlesMax(), "fill", fill)));
+                }
+            }
+            for (Latest p : k.processFiles()) {
+                double limit = parse(p.labels().get("limit"));
+                if (limit <= 0) {
+                    continue;
+                }
+                double fill = p.value() / limit;
+                if (fill >= FILES_WARN) {
+                    hit = true;
+                    String name = p.labels().getOrDefault("name", "a process");
+                    findings.add(new Finding(fill >= FILES_CRIT ? "CRITICAL" : "WARNING", "file_handles_process", "KERNEL",
+                            String.format(Locale.ROOT, "%s has %.0f of its %.0f open files in use", name, p.value(), limit),
+                            "At its limit it gets \"Too many open files\" (EMFILE): new connections and file opens fail, often as timeouts.",
+                            "Look for a leak (the count keeps climbing), or raise its limit (LimitNOFILE in its systemd unit, or ulimit -n).",
+                            Map.of("open", p.value(), "limit", limit, "fill", fill, "pid", parse(p.labels().get("pid")))));
+                }
+            }
+            signals.add(new Signal("file_handles", "Open-file limits", hit ? "LIMITED" : "OK", null));
+        }
+
+        // 10. Local (ephemeral) ports for outgoing connections.
+        if (k.localPortsUsed() == null || k.localPortsRange() == null || k.localPortsRange() <= 0) {
+            signals.add(new Signal("local_ports", "Local ports for outgoing connections", "NOT_MEASURED", NEEDS_AGENT_13));
+        } else {
+            double fill = k.localPortsUsed() / k.localPortsRange();
+            if (fill >= PORTS_WARN) {
+                findings.add(new Finding(fill >= PORTS_CRIT ? "CRITICAL" : "WARNING", "local_ports", "KERNEL",
+                        String.format(Locale.ROOT, "%.0f%% of the local port range is in use", fill * 100),
+                        "Outgoing connections fail with \"Cannot assign requested address\" when it runs out; usually many short connections waiting in TIME_WAIT.",
+                        "Reuse connections (keep-alive, connection pools), or widen net.ipv4.ip_local_port_range.",
+                        Map.of("ports_used", k.localPortsUsed(), "ports_in_range", k.localPortsRange(), "fill", fill)));
+            }
+            signals.add(new Signal("local_ports", "Local ports for outgoing connections", fill >= PORTS_WARN ? "LIMITED" : "OK", null));
+        }
+
+        // 11. TCP retransmissions: packets lost or delayed between this host and its peers.
+        Inc out = k.tcpSegments().get("out");
+        Inc retrans = k.tcpSegments().get("retrans");
+        if (out == null || retrans == null) {
+            signals.add(new Signal("tcp_retransmits", "TCP retransmissions", "NOT_MEASURED", NEEDS_AGENT_13));
+        } else if (out.inc() < MIN_SEGMENTS) {
+            signals.add(new Signal("tcp_retransmits", "TCP retransmissions", "NOT_MEASURED",
+                    "Too little TCP traffic in this range to judge a retransmission rate."));
+        } else {
+            double share = retrans.inc() / out.inc();
+            if (share >= RETRANS_WARN) {
+                findings.add(new Finding(share >= RETRANS_CRIT ? "CRITICAL" : "WARNING", "tcp_retransmits", "KERNEL",
+                        String.format(Locale.ROOT, "%.1f%% of TCP segments were sent again", share * 100),
+                        "Packets are being lost or delayed between this host and its peers: each retransmission adds at least 200 ms to that request.",
+                        "Check the AWS network allowances above and the peers' health; if one destination dominates, look there.",
+                        Map.of("segments_out", out.inc(), "retransmitted", retrans.inc(), "share", share)));
+            }
+            signals.add(new Signal("tcp_retransmits", "TCP retransmissions", share >= RETRANS_WARN ? "LIMITED" : "OK", null));
+        }
+
+        // 12. Listen-queue overflows: a server not accepting connections fast enough.
+        Inc overflow = k.listenQueue().get("overflow");
+        if (overflow == null) {
+            signals.add(new Signal("listen_queue", "Listen-queue overflows", "NOT_MEASURED", NEEDS_AGENT_13));
+        } else {
+            if (overflow.inc() > 0) {
+                findings.add(new Finding(overflow.rate() >= LISTEN_OVERFLOW_CRIT_PER_SEC ? "CRITICAL" : "WARNING", "listen_queue", "KERNEL",
+                        String.format(Locale.ROOT, "%.0f incoming connections were dropped: a listen queue was full", overflow.inc()),
+                        "A server on this host is not accepting connections as fast as they arrive, or its backlog is too small; clients see timeouts and retries.",
+                        "Find the busy service (Processes), add workers, or raise its listen backlog and net.core.somaxconn.",
+                        Map.of("overflows", overflow.inc(), "per_second", overflow.rate())));
+            }
+            signals.add(new Signal("listen_queue", "Listen-queue overflows", overflow.inc() > 0 ? "LIMITED" : "OK", null));
+        }
+    }
+
+    private static double parse(String v) {
+        try {
+            return v == null ? 0 : Double.parseDouble(v);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     /** Adds a pressure finding when the stalled share reaches {@code warn}; returns whether it did. */

@@ -306,17 +306,25 @@ public final class TenantScopedQueryBuilder {
 
     /**
      * Hourly samples of one metric per instance over the last {@code windowDays}, used by the baseline writer to
-     * recompute median/MAD per hour-of-week. Tenant predicate first; {@code metric} and the window start are bound.
+     * recompute median/MAD per hour-of-week. Each hour is the host-level value of {@link BaselineSignal} (CPU busy =
+     * 1 - idle, memory used, the fullest filesystem, load), never the average of the metric's label series. A metric
+     * without a definition is averaged across its series, which is only meaningful for single-series metrics.
+     * Tenant predicate first; {@code metric}, the label filter and the window start are bound.
      */
     public ScopedSql baselineSamples(QueryScope scope, String metric, int windowDays) {
         if (windowDays < 1 || windowDays > 400) {
             throw new IllegalArgumentException("windowDays out of range");
         }
         long startEpoch = scope.to().getEpochSecond() - (long) windowDays * 86_400L;
-        Q q = start("SELECT instance_id, toUnixTimestamp(ts) AS t, avgMerge(avg_state) AS v FROM xp_metrics_1h", scope);
+        BaselineSignal signal = BaselineSignal.of(metric).orElse(null);
+        String combine = signal != null && signal.maxOfSeries() ? "max(v)" : "avg(v)";
+        String value = signal != null && signal.invert() ? "1 - " + combine : combine;
+        Q q = start("SELECT instance_id, t, " + value + " AS v FROM ("
+                + "SELECT instance_id, toUnixTimestamp(ts) AS t, labels_key, avgMerge(avg_state) AS v FROM xp_metrics_1h", scope);
         q.add(" AND metric = ?", metric);
         q.add(" AND ts >= toDateTime(?, 'UTC')", startEpoch);
-        q.add(" GROUP BY instance_id, ts ORDER BY instance_id, t");
+        labelFilters(q, signal == null ? List.of() : signal.filters());
+        q.add(" GROUP BY instance_id, ts, labels_key) GROUP BY instance_id, t ORDER BY instance_id, t");
         return q.build(scope);
     }
 

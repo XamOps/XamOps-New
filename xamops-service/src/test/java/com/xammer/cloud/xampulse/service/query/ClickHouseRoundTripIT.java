@@ -136,6 +136,47 @@ class ClickHouseRoundTripIT {
     }
 
     /**
+     * Baselines must learn what the pages show. hostmetrics sends CPU as one series per state and memory as one per
+     * state, so the old "average of the metric" learned 1/8 for CPU (12.5% on a host that is 80% busy) and about 1/3
+     * for memory here. CPU must be 1 - idle, memory the used state, disk the fullest mount.
+     */
+    @Test
+    void baselinesLearnTheHostLevelValueNotTheAverageOfTheStates() throws Exception {
+        long hour = Instant.now().truncatedTo(ChronoUnit.HOURS).minus(3, ChronoUnit.HOURS).getEpochSecond();
+        String tenant = String.valueOf(T1);
+        String gauge = "INSERT INTO xp_land_metrics_gauge (ResourceAttributes, MetricName, Attributes, TimeUnix, Value) "
+                + "SELECT map('xp.tenant_id', ?, 'xp.instance_id', 'i-it-base'), ?, map(?, ?), toDateTime64(? + number * 600, 9, 'UTC'), toFloat64(?) "
+                + "FROM numbers(6)";
+        Object[][] points = {
+                {"system.cpu.utilization", "state", "idle", 0.20}, {"system.cpu.utilization", "state", "user", 0.60},
+                {"system.cpu.utilization", "state", "system", 0.10}, {"system.cpu.utilization", "state", "wait", 0.05},
+                {"system.cpu.utilization", "state", "steal", 0.05},
+                {"system.memory.utilization", "state", "used", 0.70}, {"system.memory.utilization", "state", "free", 0.20},
+                {"system.memory.utilization", "state", "cached", 0.10},
+                {"system.filesystem.utilization", "mountpoint", "/", 0.40}, {"system.filesystem.utilization", "mountpoint", "/var", 0.90},
+        };
+        for (Object[] p : points) {
+            mutations.execute(gauge, List.of(tenant, p[0], p[1], p[2], hour, p[3]));
+        }
+        QueryScope scope = QueryScope.of(List.of(T1), Instant.ofEpochSecond(hour - 3600), Instant.now());
+        Map<String, Double> expected = Map.of("system.cpu.utilization", 0.80, "system.memory.utilization", 0.70,
+                "system.filesystem.utilization", 0.90);
+        for (Map.Entry<String, Double> e : expected.entrySet()) {
+            List<Map<String, Object>> rows = List.of();
+            for (int i = 0; i < 20; i++) {
+                rows = executor.query(builder.baselineSamples(scope, e.getKey(), 7)).stream()
+                        .filter(r -> "i-it-base".equals(String.valueOf(r.get("instance_id")))).toList();
+                if (!rows.isEmpty()) {
+                    break;
+                }
+                Thread.sleep(300);
+            }
+            assertEquals(1, rows.size(), e.getKey() + ": one hourly sample " + rows);
+            assertEquals(e.getValue(), ((Number) rows.get(0).get("v")).doubleValue(), 1e-9, e.getKey());
+        }
+    }
+
+    /**
      * Processes and containers the way the collector sends them: identity on the RESOURCE (V011 copies it into the
      * labels), process CPU as one series per state. Top processes must add the states of the latest scrape (not show
      * one state, not an older scrape), and every container must stay its own series through the minute rollup.
@@ -229,6 +270,52 @@ class ClickHouseRoundTripIT {
         limits.signals().forEach(s -> states.put(s.code(), s.state()));
         assertEquals("LIMITED", states.get("ena"));
         assertEquals("NOT_MEASURED", states.get("conntrack_table"), "no conntrack data was sent");
+    }
+
+    /**
+     * OS limits end to end, shaped the way hostmetrics (inodes: one series per mount and state) and the agent's
+     * receiver (gauges with a state label, cumulative counters by type / event) send them: each must reach its check.
+     */
+    @Test
+    void throttleRadarFindsOsLimitsFromHostmetricsAndReceiverData() throws Exception {
+        long base = Instant.now().truncatedTo(ChronoUnit.MINUTES).minusSeconds(30 * 60).getEpochSecond();
+        String tenant = String.valueOf(T1);
+        String gauge = "INSERT INTO xp_land_metrics_gauge (ResourceAttributes, MetricName, Attributes, TimeUnix, Value) "
+                + "SELECT map('xp.tenant_id', ?, 'xp.instance_id', 'i-it-os'), ?, map(%s), toDateTime64(? + 590, 9, 'UTC'), toFloat64(?)";
+        Object[][] gauges = {
+                {"system.filesystem.inodes.usage", "'device', 'nvme0n1p1', 'mountpoint', '/', 'state', 'used'", 970_000},
+                {"system.filesystem.inodes.usage", "'device', 'nvme0n1p1', 'mountpoint', '/', 'state', 'free'", 30_000},
+                {"xp.process.open_files", "'pid', '4121', 'name', 'java', 'limit', '1024'", 990},
+                {"xp.fs.file_handles", "'state', 'allocated'", 9_000}, {"xp.fs.file_handles", "'state', 'max'", 9_000_000},
+                {"xp.net.local_ports", "'state', 'used'", 25_000}, {"xp.net.local_ports", "'state', 'range'", 28_232},
+        };
+        for (Object[] g : gauges) {
+            mutations.execute(gauge.formatted(g[1]), List.of(tenant, g[0], base, g[2]));
+        }
+        String sum = "INSERT INTO xp_land_metrics_sum (ResourceAttributes, MetricName, Attributes, TimeUnix, Value, "
+                + "AggregationTemporality, IsMonotonic) SELECT map('xp.tenant_id', ?, 'xp.instance_id', 'i-it-os'), ?, map(%s), "
+                + "toDateTime64(? + number * 30, 9, 'UTC'), %s, 2, true FROM numbers(21)";
+        mutations.execute(sum.formatted("'type', 'out'", "toFloat64(50000000 + number * 100000)"), List.of(tenant, "xp.tcp.segments", base));
+        mutations.execute(sum.formatted("'type', 'retrans'", "toFloat64(900000 + number * 3500)"), List.of(tenant, "xp.tcp.segments", base));
+        mutations.execute(sum.formatted("'event', 'overflow'", "toFloat64(12 + number * 45)"), List.of(tenant, "xp.tcp.listen_queue", base));
+
+        QueryScope host = new QueryScope(List.of(T1), Instant.ofEpochSecond(base + 60), Instant.ofEpochSecond(base + 600),
+                List.of(), List.of("i-it-os"), List.of(), List.of());
+        com.xammer.cloud.xampulse.service.insight.ThrottleRadarService radar =
+                new com.xammer.cloud.xampulse.service.insight.ThrottleRadarService(null, executor);
+        java.util.Set<String> expected = java.util.Set.of("inodes", "file_handles_process", "local_ports", "tcp_retransmits", "listen_queue");
+        Map<String, com.xammer.cloud.xampulse.dto.XpHostLimits.Finding> byCode = new HashMap<>();
+        for (int i = 0; i < 15 && !byCode.keySet().containsAll(expected); i++) {
+            byCode.clear();
+            radar.limitsInScope(host, "i-it-os", null).findings().forEach(f -> byCode.put(f.code(), f));
+            if (!byCode.keySet().containsAll(expected)) {
+                Thread.sleep(300);
+            }
+        }
+        assertEquals(expected, byCode.keySet(), String.valueOf(byCode.values()));
+        assertTrue(byCode.get("inodes").title().contains("Inodes on / are 97% used"), byCode.get("inodes").title());
+        assertEquals("java has 990 of its 1024 open files in use", byCode.get("file_handles_process").title());
+        assertEquals(0.035, byCode.get("tcp_retransmits").evidence().get("share"), 1e-9, "3,500 of 100,000 segments per scrape");
     }
 
     /**

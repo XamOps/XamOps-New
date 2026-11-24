@@ -212,14 +212,19 @@ class TenantScopedQueryBuilderTest {
         ScopedSql q = b.baselineSamples(s, "system.cpu.utilization", 14);
         assertTrue(q.sql().contains("FROM xp_metrics_1h"), q.sql());
         assertTrue(q.sql().contains("avgMerge(avg_state)"), q.sql());
-        assertTrue(q.sql().startsWith("SELECT instance_id, toUnixTimestamp(ts) AS t"), q.sql());
-        assertTrue(q.sql().contains("GROUP BY instance_id, ts ORDER BY instance_id, t"), q.sql());
-        // tenant first, then the bound metric, then the window start epoch.
+        // CPU busy is 1 - idle, read from the idle series only (never the average of the eight state series).
+        assertTrue(q.sql().startsWith("SELECT instance_id, t, 1 - avg(v) AS v FROM (SELECT instance_id, toUnixTimestamp(ts) AS t"), q.sql());
+        assertTrue(q.sql().contains("GROUP BY instance_id, ts, labels_key) GROUP BY instance_id, t ORDER BY instance_id, t"), q.sql());
+        // tenant first, then the bound metric, the window start epoch and the state=idle filter.
         assertEquals(5L, q.params().get(0));
         assertEquals("system.cpu.utilization", q.params().get(1));
         assertEquals(to.getEpochSecond() - 14L * 86_400L, q.params().get(2));
+        assertEquals("state=idle", q.params().get(3));
         assertFalse(q.sql().contains("system.cpu.utilization"), "metric travels only as a parameter");
         ClickHouseExecutor.validate(q);
+        ScopedSql disk = b.baselineSamples(s, "system.filesystem.utilization", 14);
+        assertTrue(disk.sql().startsWith("SELECT instance_id, t, max(v) AS v"), "disk is the fullest mount: " + disk.sql());
+        assertEquals(3, disk.params().size(), "no label filter for disk");
         assertThrows(IllegalArgumentException.class, () -> b.baselineSamples(s, "m", 0));
         assertThrows(IllegalArgumentException.class, () -> b.baselineSamples(s, "m", 401));
     }
