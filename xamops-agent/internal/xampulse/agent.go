@@ -166,9 +166,14 @@ func (a *Agent) collectorBinary() string {
 }
 
 func (a *Agent) render(sup *Supervisor, cfg AgentConfig) error {
+	_, conntrackErr := os.Stat(ConntrackCountFile)
+	has := collectorComponents(context.Background(), a.collectorBinary())
 	data, err := RenderCollectorConfig(cfg, RenderOptions{
 		QueueDir:        a.queueDir(),
 		AccessTokenFile: a.store().AccessPath(),
+		Conntrack:       conntrackErr == nil,
+		EC2Receiver:     has(EC2ReceiverType),
+		FilterProcessor: has(FilterProcessorType),
 	})
 	if err != nil {
 		return fmt.Errorf("render collector config: %w", err)

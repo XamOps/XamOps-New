@@ -23,6 +23,9 @@ receivers:
         metrics:
           system.memory.utilization:
             enabled: true
+          # MemAvailable: what the kernel can hand out without swapping (page cache counts as free).
+          system.linux.memory.available:
+            enabled: true
       paging:
         metrics:
           system.paging.utilization:
@@ -31,12 +34,78 @@ receivers:
         metrics:
           system.filesystem.utilization:
             enabled: true
-      disk: {}
-      network: {}
+      # loop (snap) and ram devices are never EC2 storage; partitions are kept and filtered at query time.
+      disk:
+        exclude:
+          devices: ['^loop[0-9]+$', '^ram[0-9]+$']
+          match_type: regexp
+      # veth pairs are per-container and come and go with every restart; container traffic is per container
+      # from docker_stats, and the host's real traffic is on its NIC.
+      network:
+        exclude:
+          interfaces: ['^veth']
+          match_type: regexp
+        metrics:
+          system.network.conntrack.count:
+            enabled: true
+          system.network.conntrack.max:
+            enabled: true
       processes: {}
+      # Command-line arguments are never collected (they can hold secrets): only name, owner, pid and usage.
+      process:
+        mute_process_name_error: true
+        mute_process_exe_error: true
+        mute_process_io_error: true
+        mute_process_user_error: true
+        # Only the two utilization metrics XamPulse reads. The scraper's default-on extras (cpu.time, disk.io,
+        # memory.usage, memory.virtual) are emitted for every process and are not filtered, so they stay off.
+        metrics:
+          process.cpu.utilization:
+            enabled: true
+          process.memory.utilization:
+            enabled: true
+          process.cpu.time:
+            enabled: false
+          process.disk.io:
+            enabled: false
+          process.memory.usage:
+            enabled: false
+          process.memory.virtual:
+            enabled: false
+  # Per-core CPU, kept apart from the totals above: idle per logical CPU only (busy = 1 - idle), renamed to
+  # xp.cpu.core.utilization by transform/percpu. One series per vCPU instead of eight states per vCPU.
+  hostmetrics/percpu:
+    collection_interval: 30s
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.time:
+            enabled: false
+          system.cpu.logical.count:
+            enabled: false
+          system.cpu.utilization:
+            enabled: true
+            attributes: [cpu, state]
+  # XamPulse's EC2 receiver: PSI stall time, ENA allowance counters and IMDS Spot/maintenance notices. Each source
+  # that a host cannot provide simply reports nothing (logged once).
+  xampulse_ec2:
+    collection_interval: 30s
   docker_stats:
     endpoint: unix:///var/run/docker.sock
     collection_interval: 30s
+    metrics:
+      container.restarts:
+        enabled: true
+      container.uptime:
+        enabled: true
+      container.pids.count:
+        enabled: true
+      container.cpu.throttling_data.periods:
+        enabled: true
+      container.cpu.throttling_data.throttled_periods:
+        enabled: true
+      container.cpu.throttling_data.throttled_time:
+        enabled: true
   filelog/system0:
     include:
       - '/var/log/syslog'
@@ -47,6 +116,11 @@ receivers:
     start_at: end
     include_file_path: true
     storage: file_storage
+    operators:
+      # xp.source fills xp_logs.source (the Logs "source" facet): which kind of collection a line came from.
+      - type: add
+        field: resource["xp.source"]
+        value: file
   filelog/docker1:
     include:
       - '/var/lib/docker/containers/*/*-json.log'
@@ -54,6 +128,10 @@ receivers:
     include_file_path: true
     storage: file_storage
     operators:
+      # xp.source fills xp_logs.source (the Logs "source" facet): which kind of collection a line came from.
+      - type: add
+        field: resource["xp.source"]
+        value: docker
       - type: json_parser
         timestamp:
           parse_from: attributes.time
@@ -61,6 +139,17 @@ receivers:
       - type: move
         from: attributes.log
         to: body
+      # The file path is the only place the container id appears; as a resource attribute it fills
+      # xp_logs.container_id, so a container's logs can be filtered and linked from its metrics.
+      - type: regex_parser
+        parse_from: attributes["log.file.path"]
+        regex: '^/var/lib/docker/containers/(?P<container_id>[0-9a-f]{64})/'
+        on_error: send_quiet
+      - type: move
+        if: 'attributes.container_id != nil'
+        from: attributes.container_id
+        to: resource["container.id"]
+        on_error: send_quiet
   filelog/custom2:
     include:
       - '/var/log/app/*.log'
@@ -69,10 +158,94 @@ receivers:
     storage: file_storage
     multiline:
       line_start_pattern: '^\d{4}-\d{2}-\d{2}'
+    operators:
+      # xp.source fills xp_logs.source (the Logs "source" facet): which kind of collection a line came from.
+      - type: add
+        field: resource["xp.source"]
+        value: file
+  # Package installs, upgrades and removals (dpkg on Debian/Ubuntu, dnf on AL2023/RHEL, yum on AL2), for Change
+  # Intelligence. Every other line in these files is dropped here; a missing file is simply not read.
+  filelog/packages:
+    include:
+      - '/var/log/dpkg.log'
+      - '/var/log/dnf.rpm.log'
+      - '/var/log/yum.log'
+    start_at: end
+    include_file_path: true
+    storage: file_storage
+    operators:
+      - type: filter
+        expr: 'not (body matches " (install|upgrade|remove|purge) " or body matches "SUBDEBUG (Installed|Upgrade|Downgrade|Erase|Reinstall|Obsolete): " or body matches "(Installed|Updated|Erased): ")'
+      - type: add
+        field: resource["xp.source"]
+        value: packages
+      - type: add
+        field: attributes["xp.change"]
+        value: package
+      - type: add
+        field: resource["service.name"]
+        value: packages
   journald:
     directory: /var/log/journal
     start_at: end
     storage: file_storage
+    # Each entry arrives as a map of journal fields. Without these steps every line was stored as a JSON blob at
+    # INFO with no service, so errors never reached "Recent errors", error counts or LOG_COUNT alerts.
+    operators:
+      - type: add
+        field: resource["xp.source"]
+        value: journald
+      # Programs that log to stdout land at the journal's default priority (info/notice) even when the line itself
+      # says level=error. For those priorities only, an explicit warn/error/fatal level in the message is used
+      # instead: it can raise a line's severity, never lower it.
+      - type: regex_parser
+        if: 'body.MESSAGE != nil and body.PRIORITY in ["5", "6"] and body.MESSAGE matches "(?i)level\"?\\s*[=:]\\s*\"?(fatal|panic|crit|critical|error|err|warn|warning)\\b"'
+        parse_from: body.MESSAGE
+        parse_to: attributes
+        regex: '(?i)level"?\s*[=:]\s*"?(?P<xp_level>fatal|panic|critical|crit|error|err|warning|warn)\b'
+        on_error: send_quiet
+      - type: severity_parser
+        if: 'attributes.xp_level != nil'
+        parse_from: attributes.xp_level
+        mapping:
+          fatal: [fatal, FATAL, panic, PANIC, crit, CRIT, critical, CRITICAL]
+          error: [error, ERROR, err, ERR]
+          warn: [warn, WARN, warning, WARNING]
+        on_error: send_quiet
+      - type: severity_parser
+        if: 'body.PRIORITY != nil and attributes.xp_level == nil'
+        parse_from: body.PRIORITY
+        mapping:
+          fatal: ['0', '1', '2']
+          error: '3'
+          warn: '4'
+          info: ['5', '6']
+          debug: '7'
+        on_error: send_quiet
+      - type: remove
+        if: 'attributes.xp_level != nil'
+        field: attributes.xp_level
+        on_error: send_quiet
+      - type: move
+        if: 'body.SYSLOG_IDENTIFIER != nil'
+        from: body.SYSLOG_IDENTIFIER
+        to: resource["service.name"]
+        on_error: send_quiet
+      - type: move
+        if: 'body._SYSTEMD_UNIT != nil'
+        from: body._SYSTEMD_UNIT
+        to: attributes["systemd.unit"]
+        on_error: send_quiet
+      - type: move
+        if: 'body._PID != nil'
+        from: body._PID
+        to: attributes["process.pid"]
+        on_error: send_quiet
+      - type: move
+        if: 'body.MESSAGE != nil'
+        from: body.MESSAGE
+        to: body
+        on_error: send_quiet
 
 processors:
   memory_limiter:
@@ -94,6 +267,24 @@ processors:
           - 'replace_pattern(body.string, "(?i)\\bbearer\\s+[A-Za-z0-9._~+/=-]{8,}", "Bearer [REDACTED]")'
           - 'replace_pattern(body.string, "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b", "[REDACTED_EMAIL]")'
           - 'replace_pattern(body.string, "(?i)\\b(password|passwd|secret|token|api[_-]?key)\\s*[=:]\\s*[^\\s,;&\"'']+", "$1=[REDACTED]")'
+  # T1 processes: drop samples under ~1% (CPU per state 0.5%, memory 1%; memory arrives as a percentage 0..100).
+  filter/processes:
+    error_mode: ignore
+    metrics:
+      datapoint:
+        - 'metric.name == "process.cpu.utilization" and value_double < 0.005'
+        - 'metric.name == "process.memory.utilization" and value_double < 1.0'
+  filter/percpu:
+    error_mode: ignore
+    metrics:
+      datapoint:
+        - 'metric.name == "system.cpu.utilization" and attributes["state"] != "idle"'
+  transform/percpu:
+    error_mode: ignore
+    metric_statements:
+      - context: metric
+        statements:
+          - set(metric.name, "xp.cpu.core.utilization") where metric.name == "system.cpu.utilization"
   batch:
     send_batch_size: 8192
     timeout: 5s
@@ -127,10 +318,14 @@ service:
                 port: 8888
   pipelines:
     metrics:
-      receivers: [hostmetrics, docker_stats]
-      processors: [memory_limiter, resourcedetection, batch]
+      receivers: [hostmetrics, xampulse_ec2, docker_stats]
+      processors: [memory_limiter, resourcedetection, filter/processes, batch]
+      exporters: [otlphttp]
+    metrics/percpu:
+      receivers: [hostmetrics/percpu]
+      processors: [memory_limiter, resourcedetection, filter/percpu, transform/percpu, batch]
       exporters: [otlphttp]
     logs:
-      receivers: [filelog/system0, filelog/docker1, filelog/custom2, journald]
+      receivers: [filelog/system0, filelog/docker1, filelog/custom2, filelog/packages, journald]
       processors: [memory_limiter, resourcedetection, transform/redact, batch]
       exporters: [otlphttp]

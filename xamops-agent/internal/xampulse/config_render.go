@@ -16,7 +16,19 @@ type RenderOptions struct {
 	QueueDir        string // collector file_storage directory (persistent sending queue)
 	AccessTokenFile string // file the bearertokenauth extension reads; the token itself is never rendered
 	MemoryLimitMiB  int    // default 256
+	// Conntrack: the kernel exposes the connection-tracking table (nf_conntrack loaded). Only then are the
+	// conntrack count/max metrics enabled: without the module the scraper fails every interval and logs it.
+	Conntrack bool
+	// EC2Receiver: the collector binary on this host includes xampulse_ec2 (see collectorHasComponent).
+	EC2Receiver bool
+	// FilterProcessor: the collector binary includes the OpenTelemetry filter processor. Only then are significant
+	// processes (T1) and per-core CPU collected: both need datapoint filtering, and an older collector must never be
+	// handed a config it cannot load.
+	FilterProcessor bool
 }
+
+// ConntrackCountFile is where the kernel reports the current number of tracked connections.
+const ConntrackCountFile = "/proc/sys/net/netfilter/nf_conntrack_count"
 
 type fileLog struct {
 	Name      string
@@ -29,9 +41,15 @@ type renderModel struct {
 	RenderOptions
 	Metrics         bool
 	ProcessMetrics  bool
+	// ProcessFilter (T1): keep only processes using at least ~1% of CPU or memory, like Dynatrace's process
+	// snapshots; a busy host therefore reports more processes, an idle one almost none. T2 keeps every process.
+	ProcessFilter bool
+	// PerCore: one idle series per logical CPU, renamed xp.cpu.core.utilization so the per-state totals stay per host.
+	PerCore         bool
 	MetricsInterval string
 	DockerEnabled   bool
 	FileLogs        []fileLog
+	PackageLogs     bool
 	Journald        bool
 	Redaction       []RedactionRule
 	GatewayURL      string
@@ -75,7 +93,9 @@ func RenderCollectorConfig(cfg AgentConfig, opts RenderOptions) ([]byte, error) 
 	m := renderModel{
 		RenderOptions:   opts,
 		Metrics:         true,
-		ProcessMetrics:  level == "T2",
+		ProcessMetrics:  level == "T2" || (level == "T1" && opts.FilterProcessor),
+		ProcessFilter:   level == "T1" && opts.FilterProcessor,
+		PerCore:         level != "T0" && opts.FilterProcessor,
 		MetricsInterval: "30s",
 		Redaction:       cfg.Redaction,
 		GatewayURL:      strings.TrimRight(cfg.GatewayURL, "/"),
@@ -131,11 +151,20 @@ func RenderCollectorConfig(cfg AgentConfig, opts RenderOptions) ([]byte, error) 
 	}
 
 	m.MetricReceivers = []string{"hostmetrics"}
+	if opts.EC2Receiver {
+		m.MetricReceivers = append(m.MetricReceivers, EC2ReceiverType)
+	}
 	if m.DockerEnabled {
 		m.MetricReceivers = append(m.MetricReceivers, "docker_stats")
 	}
 	for _, f := range m.FileLogs {
 		m.LogReceivers = append(m.LogReceivers, "filelog/"+f.Name)
+	}
+	// Package changes ride along whenever the host ships logs at all (T1 and up): a few lines a week, filtered on
+	// the host, and they are what Change Intelligence needs to say "openssl was upgraded just before this".
+	if len(m.LogReceivers) > 0 || m.Journald {
+		m.PackageLogs = true
+		m.LogReceivers = append(m.LogReceivers, "filelog/packages")
 	}
 	if m.Journald {
 		m.LogReceivers = append(m.LogReceivers, "journald")

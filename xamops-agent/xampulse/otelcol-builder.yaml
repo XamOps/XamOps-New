@@ -1,8 +1,12 @@
 # ocb manifest for the slim XamPulse collector ("xampulse-otelcol"), Linux MVP set.
 # Windows, Kubernetes and ECS components are intentionally left out for now.
 # Build: ocb --config xamops-agent/xampulse/otelcol-builder.yaml
-# The version below was taken from the upstream release page and has NOT been built or tested here.
-# Pin it again (and record it in deploy/xampulse/DEPENDENCIES.md) when the first collector is built.
+# Built 2026-11-06 with ocb v0.164.0 (core v0.164.0, contrib v0.164.1) for linux/amd64 and linux/arm64, CGO off;
+# `otelcol validate` passes on the agent's rendered T0/T1/T2 configs (internal/xampulse/testdata).
+# Contrib must be v0.164.1: v0.164.0 transformprocessor needs pkg/ottl v1.2.0, which was never published.
+# 2026-11-12: rebuilt with xampulse_ec2 (linux/amd64, CGO off); `validate` passes on the rendered T0/T1/T2 configs and
+# a run on a real kernel exported PSI totals and IMDS notices. Note: 0.164 lists contrib components by new names
+# (host_metrics, file_log, resource_detection, otlp_http); the old names in the template still work as aliases.
 dist:
   name: xampulse-otelcol
   description: XamPulse OpenTelemetry Collector (Linux)
@@ -10,22 +14,28 @@ dist:
   otelcol_version: 0.164.0
 
 receivers:
-  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/hostmetricsreceiver v0.164.0
-  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/filelogreceiver v0.164.0
-  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/journaldreceiver v0.164.0
-  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/dockerstatsreceiver v0.164.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/hostmetricsreceiver v0.164.1
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/filelogreceiver v0.164.1
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/journaldreceiver v0.164.1
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/dockerstatsreceiver v0.164.1
   - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.164.0
+  # XamPulse's own EC2 receiver (PSI, ENA allowance counters, IMDS Spot/maintenance notices). A local module; ocb
+  # resolves `path` against the working directory, so build from the repository root as shown above.
+  - gomod: github.com/xamops/agent/xampulse/xpec2receiver v0.0.0
+    path: ./xamops-agent/xampulse/xpec2receiver
 
 processors:
   - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.164.0
   - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.164.0
-  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourcedetectionprocessor v0.164.0
-  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/transformprocessor v0.164.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourcedetectionprocessor v0.164.1
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/transformprocessor v0.164.1
+  # filter (2026-11-23): per-core CPU (idle only) and T1 significant processes (>= ~1%) are datapoint filters.
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/filterprocessor v0.164.1
 
 exporters:
   - gomod: go.opentelemetry.io/collector/exporter/otlphttpexporter v0.164.0
 
 extensions:
-  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.164.0
-  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.164.0
-  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/bearertokenauthextension v0.164.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.164.1
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.164.1
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/bearertokenauthextension v0.164.1

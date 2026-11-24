@@ -9,7 +9,98 @@ import (
 	"testing"
 )
 
-var testOpts = RenderOptions{QueueDir: "/var/lib/xampulse/queue", AccessTokenFile: "/var/lib/xampulse/access-token"}
+var testOpts = RenderOptions{QueueDir: "/var/lib/xampulse/queue", AccessTokenFile: "/var/lib/xampulse/access-token", Conntrack: true, EC2Receiver: true, FilterProcessor: true}
+
+func TestPerCoreAndProcessesOnlyWhenTheCollectorHasTheFilterProcessor(t *testing.T) {
+	old := testOpts
+	old.FilterProcessor = false
+	out, err := RenderCollectorConfig(fullConfig(t, "T1"), old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{"filter/", "hostmetrics/percpu", "transform/percpu", "process:"} {
+		if strings.Contains(string(out), s) {
+			t.Errorf("an older collector without the filter processor must not get %q", s)
+		}
+	}
+	t1, err := RenderCollectorConfig(fullConfig(t, "T1"), testOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{"filter/processes:", "hostmetrics/percpu:", "transform/percpu:", "xp.cpu.core.utilization", "metrics/percpu:"} {
+		if !strings.Contains(string(t1), s) {
+			t.Errorf("T1 with the filter processor should render %q", s)
+		}
+	}
+	t0, err := RenderCollectorConfig(fullConfig(t, "T0"), testOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(t0), "percpu") || strings.Contains(string(t0), "process:") {
+		t.Error("T0 stays minimal: no per-core CPU and no processes")
+	}
+}
+
+func TestEC2ReceiverOnlyWhenTheCollectorHasIt(t *testing.T) {
+	old := testOpts
+	old.EC2Receiver = false
+	out, err := RenderCollectorConfig(fullConfig(t, "T1"), old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), EC2ReceiverType) {
+		t.Fatal("an older collector without xampulse_ec2 would refuse the whole config")
+	}
+	with, err := RenderCollectorConfig(fullConfig(t, "T0"), testOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(with)
+	if !strings.Contains(s, "  xampulse_ec2:\n    collection_interval: 60s") || !strings.Contains(s, "receivers: [hostmetrics, xampulse_ec2]") {
+		t.Fatalf("T0 must scrape xampulse_ec2 at its own interval and wire it into the metrics pipeline:\n%s", s)
+	}
+}
+
+func TestConntrackMetricsOnlyWhenTheHostHasConntrack(t *testing.T) {
+	without := testOpts
+	without.Conntrack = false
+	out, err := RenderCollectorConfig(fullConfig(t, "T1"), without)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "conntrack") {
+		t.Fatal("conntrack metrics must stay off when nf_conntrack is absent: the scraper would fail every interval")
+	}
+	with, err := RenderCollectorConfig(fullConfig(t, "T1"), testOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(with), "system.network.conntrack.count:") {
+		t.Fatal("conntrack metrics must be enabled when the host exposes the table")
+	}
+}
+
+func TestLogsAreShapedForSearchSeverityAndContainers(t *testing.T) {
+	out, err := RenderCollectorConfig(fullConfig(t, "T1"), testOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	for _, want := range []string{
+		"parse_from: body.PRIORITY",        // journald severity
+		`to: resource["service.name"]`,     // journald SYSLOG_IDENTIFIER becomes the service
+		"from: body.MESSAGE",               // the message, not the whole journal entry, is the body
+		`to: resource["container.id"]`,     // docker json logs carry their container id
+		"container.restarts:",              // restart counts for the Containers tab
+		"container.cpu.throttling_data.throttled_periods:",
+		"devices: ['^loop[0-9]+$', '^ram[0-9]+$']",
+		"interfaces: ['^veth']",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("rendered T1 config lacks %q", want)
+		}
+	}
+}
 
 func loadRedactionCases(t *testing.T) []struct {
 	Rule        string `json:"rule"`
@@ -128,12 +219,14 @@ func TestRenderLevels(t *testing.T) {
 		t.Error("T0 is metrics only")
 	}
 	t1, _ := RenderCollectorConfig(fullConfig(t, "T1"), testOpts)
-	if !strings.Contains(string(t1), "filelog/system0") || !strings.Contains(string(t1), "journald") || strings.Contains(string(t1), "process:") {
-		t.Error("T1 has logs but no per-process metrics")
+	// T1 (2026-11-10 decision): logs plus the significant processes only (filtered at ~1%).
+	if !strings.Contains(string(t1), "filelog/system0") || !strings.Contains(string(t1), "journald") ||
+		!strings.Contains(string(t1), "process:") || !strings.Contains(string(t1), "filter/processes") {
+		t.Error("T1 has logs and the significant processes")
 	}
 	t2, _ := RenderCollectorConfig(fullConfig(t, "T2"), testOpts)
-	if !strings.Contains(string(t2), "process:") {
-		t.Error("T2 adds per-process metrics")
+	if !strings.Contains(string(t2), "process:") || strings.Contains(string(t2), "filter/processes") {
+		t.Error("T2 keeps every process, unfiltered")
 	}
 	if strings.Contains(string(t2), "cmdline") {
 		t.Error("process command lines must never be collected")
