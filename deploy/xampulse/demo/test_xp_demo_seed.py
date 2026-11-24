@@ -98,8 +98,11 @@ class DemoMarkingTest(unittest.TestCase):
     def test_row_counts(self):
         c = self.ds.counts()
         self.assertEqual(c["hosts"], 6)
-        # 1441 ticks x 12 series per host
-        self.assertEqual(len(self.ds.metrics["demo-web-1"]), 1441 * 12)
+        # web host, 1441 ticks x 24 series: 10 gauges (5 cpu states, 3 memory states, filesystem, load),
+        # network 3 interfaces x 2 directions, disk 2 devices x 2 directions, and 4 for the nginx container.
+        self.assertEqual(len(self.ds.metrics["demo-web-1"]), 1441 * 24)
+        # demo-web-2 was stopped for 10 minutes: no rows at all for those ticks.
+        self.assertEqual(len(self.ds.metrics["demo-web-2"]), (1441 - 10) * 24)
         self.assertGreater(c["log_lines"], 3000)
 
 
@@ -140,7 +143,81 @@ class EpisodeTest(unittest.TestCase):
 
     def test_deploy_and_ec2_events_present(self):
         kinds = {e.kind for e in self.ds.events}
-        self.assertTrue({"deploy", "ec2.state", "alert.fired", "alert.resolved"} <= kinds)
+        self.assertTrue({"DEPLOY", "EC2_STATE", "ALERT"} <= kinds)
+        # Only kinds the backend knows: the UI maps each kind to an icon and the API filters by them.
+        self.assertTrue(kinds <= d.BACKEND_EVENT_KINDS, kinds - d.BACKEND_EVENT_KINDS)
+
+
+class CollectorSemanticsTest(unittest.TestCase):
+    """The demo must look to XamPulse exactly like a real agent, or it hides real bugs (it once did)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.ds = d.build_dataset(NOW, hours=24)
+
+    def _counter(self, host, name, **labels):
+        return [(p.ts_ns, p.value) for p in self.ds.metrics[host]
+                if p.name == name and p.kind == "sum" and all(p.labels.get(k) == v for k, v in labels.items())]
+
+    def test_byte_counters_are_cumulative_per_device(self):
+        for dev in ("ens5", "lo", "docker0"):
+            s = self._counter("demo-web-1", "system.network.io", device=dev, direction="receive")
+            self.assertEqual(len(s), 1441, dev)
+            self.assertTrue(all(b[1] >= a[1] for a, b in zip(s, s[1:])), dev + " must never decrease without a reboot")
+        ens5 = self._counter("demo-web-1", "system.network.io", device="ens5", direction="receive")
+        self.assertGreater(ens5[0][1], 1e10, "a long-running host starts with a large lifetime total")
+        self.assertTrue(self._counter("demo-web-1", "system.disk.io", device="nvme0n1p1", direction="read"),
+                        "a partition is reported next to its disk, as hostmetrics does")
+
+    def test_reboot_leaves_a_gap_and_restarts_counters(self):
+        stop, start = d._ns(NOW - dt.timedelta(hours=10)), d._ns(NOW - dt.timedelta(hours=10) + dt.timedelta(minutes=10))
+        self.assertFalse([p for p in self.ds.metrics["demo-web-2"] if stop <= p.ts_ns < start], "no telemetry while stopped")
+        s = self._counter("demo-web-2", "system.network.io", device="ens5", direction="receive")
+        before = [v for t, v in s if t < stop]
+        after = [v for t, v in s if t >= start]
+        self.assertLess(after[0], before[-1], "the counter starts again from zero after the reboot")
+        self.assertTrue(all(b >= a for a, b in zip(after, after[1:])))
+
+    def test_container_identity_is_a_resource_attribute_never_a_label(self):
+        payload = d.otlp_metrics_payload("demo-api-2", self.ds.metrics["demo-api-2"][:2000])
+        container_resources = 0
+        for rm in payload["resourceMetrics"]:
+            res = {a["key"]: a["value"]["stringValue"] for a in rm["resource"]["attributes"]}
+            for sm in rm["scopeMetrics"]:
+                for m in sm["metrics"]:
+                    for dp in (m.get("gauge") or m.get("sum"))["dataPoints"]:
+                        keys = {a["key"] for a in dp["attributes"]}
+                        self.assertFalse(keys & {"container.id", "container.name", "container.image.name"}, m["name"])
+            if "container.id" in res:
+                container_resources += 1
+                self.assertRegex(res["container.id"], r"^[0-9a-f]{64}$")
+                self.assertEqual(res["container.name"], "api")
+        self.assertEqual(container_resources, 1)
+
+    def test_sums_are_cumulative_monotonic_and_gauges_are_gauges(self):
+        payload = d.otlp_metrics_payload("demo-web-1", self.ds.metrics["demo-web-1"][:5000])
+        kinds = {}
+        for rm in payload["resourceMetrics"]:
+            for sm in rm["scopeMetrics"]:
+                for m in sm["metrics"]:
+                    kinds[m["name"]] = "sum" if "sum" in m else "gauge"
+                    if "sum" in m:
+                        self.assertEqual(m["sum"]["aggregationTemporality"], 2)
+                        self.assertTrue(m["sum"]["isMonotonic"])
+                        self.assertTrue(all("startTimeUnixNano" in dp for dp in m["sum"]["dataPoints"]))
+        self.assertEqual(kinds["system.network.io"], "sum")
+        self.assertEqual(kinds["system.disk.io"], "sum")
+        self.assertEqual(kinds["container.restarts"], "sum")
+        self.assertEqual(kinds["system.cpu.utilization"], "gauge")
+        self.assertEqual(kinds["container.memory.usage.total"], "gauge")
+
+    def test_container_cpu_is_percent_of_one_core_and_oom_counts_a_restart(self):
+        cpu = [p.value for p in self.ds.metrics["demo-api-1"] if p.name == "container.cpu.utilization"]
+        self.assertGreater(max(cpu), 100.0, "docker_stats reports percent of one CPU: busy containers exceed 100")
+        restarts = [(p.ts_ns, p.value) for p in self.ds.metrics["demo-api-2"] if p.name == "container.restarts"]
+        oom_to = d._ns(NOW - dt.timedelta(minutes=80))
+        self.assertEqual({v for t, v in restarts if t < oom_to}, {0.0})
+        self.assertEqual({v for t, v in restarts if t >= oom_to}, {1.0})
 
 
 class WireFormatTest(unittest.TestCase):

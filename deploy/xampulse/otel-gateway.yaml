@@ -28,6 +28,22 @@ processors:
           - delete_key(attributes, "xp.instance_id")
           - delete_key(attributes, "xp.retain_days")
           - delete_key(attributes, "xp.demo")
+  # Log level from the text, for lines that arrive without one (Docker container stdout/stderr is all INFO, so a
+  # Spring "ERROR c.x.Foo - ..." line was stored as INFO and never reached error views or log alerts). Only plain-text
+  # bodies; only ever raises the level; highest match wins (FATAL, then ERROR, then WARN). Recognised: uppercase
+  # level words as logback/log4j/python/go print them, logfmt/JSON level fields, and nginx's [error]/[warn].
+  # Lowercase words in a message ("0 errors found") are deliberately not matched.
+  transform/log_level:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - set(severity_text, "FATAL") where IsString(body) and severity_number < SEVERITY_NUMBER_FATAL and IsMatch(body, "(\\b(FATAL|PANIC|CRITICAL)\\b|(?i)\"?level\"?\\s*[=:]\\s*\"?(fatal|panic|critical|crit)\\b|\\[(crit|alert|emerg)\\])")
+          - set(severity_number, SEVERITY_NUMBER_FATAL) where severity_text == "FATAL" and severity_number < SEVERITY_NUMBER_FATAL
+          - set(severity_text, "ERROR") where IsString(body) and severity_number < SEVERITY_NUMBER_ERROR and IsMatch(body, "(\\b(ERROR|ERR)\\b|(?i)\"?level\"?\\s*[=:]\\s*\"?(error|err)\\b|\\[error\\])")
+          - set(severity_number, SEVERITY_NUMBER_ERROR) where severity_text == "ERROR" and severity_number < SEVERITY_NUMBER_ERROR
+          - set(severity_text, "WARN") where IsString(body) and severity_number < SEVERITY_NUMBER_WARN and IsMatch(body, "(\\b(WARN|WARNING)\\b|(?i)\"?level\"?\\s*[=:]\\s*\"?(warn|warning)\\b|\\[warn\\])")
+          - set(severity_number, SEVERITY_NUMBER_WARN) where severity_text == "WARN" and severity_number < SEVERITY_NUMBER_WARN
   resource/stamp_trusted_xp:
     attributes:
       - key: xp.tenant_id
@@ -73,7 +89,7 @@ service:
   pipelines:
     logs:
       receivers: [otlp]
-      processors: [transform/strip_client_xp, resource/stamp_trusted_xp, batch]
+      processors: [transform/strip_client_xp, resource/stamp_trusted_xp, transform/log_level, batch]
       exporters: [clickhouse]
     metrics:
       receivers: [otlp]

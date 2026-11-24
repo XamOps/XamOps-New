@@ -44,5 +44,24 @@ services:
     volumes:
       - ./otel-gateway.yaml:/etc/otelcol/otel-gateway.yaml:ro
 
+  # Optional local edge for testing a real EC2 agent against the backend on this Mac:
+  #   docker compose --profile edge up -d --wait   then   ngrok http --url=<your domain> 8088
+  # Needs XP_INTERNAL_SECRET in .env equal to xampulse.internal-secret in application-local.properties.
+  edge:
+    image: nginx:1.27-alpine
+    container_name: xampulse-dev-edge
+    profiles: ["edge"]
+    depends_on:
+      otel-gateway:
+        condition: service_started
+    ports:
+      - "127.0.0.1:8088:8088"
+    environment:
+      XP_INTERNAL_SECRET: ${XP_INTERNAL_SECRET:?set XP_INTERNAL_SECRET in .env (same as xampulse.internal-secret)}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./nginx/local-edge.conf.template:/etc/nginx/templates/default.conf.template:ro
+
 volumes:
   xampulse-dev-clickhouse-data:

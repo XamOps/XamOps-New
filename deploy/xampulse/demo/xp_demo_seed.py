@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import base64
 import datetime as dt
+import hashlib
 import ipaddress
 import json
 import math
@@ -77,10 +78,19 @@ def _is_loopback(host: str) -> bool:
 # --------------------------------------------------------------------------------------------------------------------
 @dataclass
 class MetricPoint:
+    """One datapoint, shaped like the agent's collector sends it (hostmetrics / docker_stats, contrib v0.164.1).
+
+    kind "gauge" is an OTel Gauge; "sum" is a cumulative, monotonic Sum (byte counters), with start_ns the time the
+    counter last started from zero. resource holds extra RESOURCE attributes: container identity travels there,
+    never in the datapoint labels, exactly as docker_stats sends it.
+    """
     name: str
     labels: Dict[str, str]
     ts_ns: int
     value: float
+    kind: str = "gauge"
+    resource: Dict[str, str] = field(default_factory=dict)
+    start_ns: int = 0
 
 
 @dataclass
@@ -127,6 +137,19 @@ def _clamp(v: float, lo: float = 0.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, v))
 
 
+# Network interfaces and block devices per role, as hostmetrics reports them on an EC2 host. lo and docker0 carry
+# traffic that never leaves the host and nvme0n1p1 repeats its disk's bytes, so the host charts must leave them out.
+NICS = {"web": ("ens5", "lo", "docker0"), "api": ("ens5", "lo", "docker0"), "db": ("ens5", "lo")}
+DISKS = ("nvme0n1", "nvme0n1p1")
+# One container per role (db runs bare Postgres): name, image, memory limit in bytes.
+CONTAINERS = {"web": ("nginx", "nginx:1.27", 512 * 1024 ** 2), "api": ("api", "demo/api:2026.10.31-3", 2 * 1024 ** 3)}
+
+
+def container_id(host: str, name: str) -> str:
+    """Deterministic 64-hex id, the shape Docker uses."""
+    return hashlib.sha256(f"{host}/{name}".encode()).hexdigest()
+
+
 # --------------------------------------------------------------------------------------------------------------------
 # Generator
 # --------------------------------------------------------------------------------------------------------------------
@@ -143,16 +166,29 @@ def build_dataset(now: dt.datetime, hours: int = 24, step_s: int = 60, seed: int
     steal_from, steal_to = now - dt.timedelta(hours=3), now - dt.timedelta(hours=2)
     oom_from, oom_to = now - dt.timedelta(minutes=90), now - dt.timedelta(minutes=80)
     new_err_from = now - dt.timedelta(minutes=25)
+    # demo-web-2 is stopped for 10 minutes (the EC2_STATE events below): no telemetry at all, then every counter
+    # starts again from zero, the way a real reboot looks to the collector.
+    stop_from, stop_to = now - dt.timedelta(hours=10), now - dt.timedelta(hours=10) + dt.timedelta(minutes=10)
 
-    for host, role in HOSTS:
+    for hidx, (host, role) in enumerate(HOSTS):
         metrics: List[MetricPoint] = []
         logs: List[LogLine] = []
         demo_label = {"xp.demo": "true", "host.name": host}
         base_cpu = {"web": 0.22, "api": 0.30, "db": 0.18}[role]
         base_mem = {"web": 0.45, "api": 0.55, "db": 0.68}[role]
+        counters: Dict[Tuple[str, ...], float] = {}
+        counter_start = _ns(start)
+        rebooted = False
+        container_restarts = 0.0
         for i in range(steps + 1):
             t = start + dt.timedelta(seconds=i * step_s)
             frac = i / steps
+            if host == "demo-web-2" and stop_from <= t < stop_to:
+                continue
+            if host == "demo-web-2" and t >= stop_to and not rebooted:
+                counters.clear()
+                counter_start = _ns(stop_to)
+                rebooted = True
             hour = t.hour + t.minute / 60
             diurnal = 0.5 + 0.5 * math.sin((hour - 9) / 24 * 2 * math.pi)  # busiest around 15:00 UTC
             user = _clamp(base_cpu * (0.6 + 0.8 * diurnal) + rng.gauss(0, 0.015), 0.01, 0.9)
@@ -190,14 +226,48 @@ def build_dataset(now: dt.datetime, hours: int = 24, step_s: int = 60, seed: int
                 labels.update(extra)
                 metrics.append(MetricPoint(name, labels, ts_ns, round(value, 6)))
 
+            def count(name: str, rate_per_s: float, resource: Optional[Dict[str, str]] = None, **extra: str) -> None:
+                """Cumulative counter: adds rate x step and reports the running total (a large lifetime total on a
+                long-running host, zero again after the reboot)."""
+                key = (name,) + tuple(sorted(extra.items())) + tuple(sorted((resource or {}).items()))
+                if key not in counters:
+                    counters[key] = 0.0 if rebooted else (1 + hidx) * 7.3e10
+                counters[key] += max(0.0, rate_per_s) * step_s
+                labels = dict(demo_label)
+                labels.update(extra)
+                metrics.append(MetricPoint(name, labels, ts_ns, round(counters[key], 1), "sum", dict(resource or {}), counter_start))
+
             for state, val in (("user", user), ("system", system), ("iowait", iowait), ("steal", steal), ("idle", idle)):
                 add("system.cpu.utilization", val, state=state)
             for state, val in (("used", mem_used), ("free", mem_free), ("cached", mem_cached)):
                 add("system.memory.utilization", val, state=state)
             add("system.filesystem.utilization", disk, mountpoint="/", device="nvme0n1p1")
             add("system.cpu.load_average.1m", load1)
-            add("system.network.io", rx, direction="receive", device="eth0")
-            add("system.network.io", tx, direction="transmit", device="eth0")
+            # Bytes per second on each interface; only ens5 is traffic in and out of the instance.
+            nic_rate = {"ens5": (rx, tx), "lo": (2.0e3, 2.0e3), "docker0": (0.06 * rx, 0.05 * tx)}
+            for nic in NICS[role]:
+                count("system.network.io", nic_rate[nic][0], direction="receive", device=nic)
+                count("system.network.io", nic_rate[nic][1], direction="transmit", device=nic)
+            reads = (3.5e6 if role == "db" else 2.0e5) * (0.4 + diurnal)
+            writes = (2.8e6 if role == "db" else 1.4e5) * (0.4 + diurnal)
+            for dev in DISKS:
+                share = 1.0 if dev == "nvme0n1" else 0.999  # the root partition carries almost all of the disk's I/O
+                count("system.disk.io", reads * share, direction="read", device=dev)
+                count("system.disk.io", writes * share, direction="write", device=dev)
+
+            if role in CONTAINERS:
+                cname, image, limit = CONTAINERS[role]
+                res = {"container.id": container_id(host, cname), "container.name": cname, "container.image.name": image}
+                # docker_stats reports percent of ONE CPU: the api container uses more than a core at peak.
+                share = 0.3 if role == "web" else 0.8
+                ccpu = max(0.0, (user + system) * cores * 100 * share + rng.gauss(0, 1.0))
+                cmem = 6.0e7 + 5.0e6 * diurnal if role == "web" else limit * _clamp(mem_used * 0.95, 0.05, 0.99)
+                if host == "demo-api-2" and t >= oom_to and container_restarts == 0:
+                    container_restarts = 1.0  # the OOM-killed container was restarted by Docker
+                metrics.append(MetricPoint("container.cpu.utilization", dict(demo_label), ts_ns, round(ccpu, 4), "gauge", res))
+                metrics.append(MetricPoint("container.memory.usage.total", dict(demo_label), ts_ns, round(cmem, 0), "gauge", res))
+                metrics.append(MetricPoint("container.memory.usage.limit", dict(demo_label), ts_ns, float(limit), "gauge", res))
+                metrics.append(MetricPoint("container.restarts", dict(demo_label), ts_ns, container_restarts, "sum", res, counter_start))
 
             _gen_logs(rng, logs, host, role, t, ts_ns, disk, oom_from, oom_to, new_err_from)
         ds.metrics[host] = metrics
@@ -260,18 +330,22 @@ def _gen_events(now: dt.datetime) -> List[Event]:
     def ev(delta: dt.timedelta, kind: str, host: str, title: str, detail: str) -> Event:
         return Event(now - delta, kind, instance_id(host), DEMO_EVENT_PREFIX + title, detail)
 
+    # Kinds are the backend's (EventQueryService.KINDS): the UI maps each to an icon and filters by them.
     h, m = (lambda x: dt.timedelta(hours=x)), (lambda x: dt.timedelta(minutes=x))
     return sorted([
-        ev(h(6), "deploy", "demo-api-1", "Deployment api 2026.10.31-3 completed", "Generated demo deployment event."),
-        ev(h(6), "deploy", "demo-api-2", "Deployment api 2026.10.31-3 completed", "Generated demo deployment event."),
-        ev(h(10), "ec2.state", "demo-web-2", "Instance stopped", "State change running -> stopped (generated demo event)."),
-        ev(h(10) - m(10), "ec2.state", "demo-web-2", "Instance running", "State change stopped -> running (generated demo event)."),
-        ev(h(3) - m(5), "alert.fired", "demo-web-3", "CPU steal above 10% for 5m", "Generated demo alert."),
-        ev(h(2) - m(5), "alert.resolved", "demo-web-3", "CPU steal back to normal", "Generated demo alert recovery."),
-        ev(m(95), "alert.fired", "demo-api-2", "Memory above 95% for 5m", "Generated demo alert."),
-        ev(m(80), "ec2.state", "demo-api-2", "Process restarted after OOM kill", "Generated demo event."),
-        ev(m(60), "alert.fired", "demo-db-1", "Disk above 90%", "Generated demo alert (still open)."),
+        ev(h(6), "DEPLOY", "demo-api-1", "Deployment api 2026.10.31-3 completed", "Generated demo deployment event."),
+        ev(h(6), "DEPLOY", "demo-api-2", "Deployment api 2026.10.31-3 completed", "Generated demo deployment event."),
+        ev(h(10), "EC2_STATE", "demo-web-2", "Instance stopped", "State change running -> stopped (generated demo event)."),
+        ev(h(10) - m(10), "EC2_STATE", "demo-web-2", "Instance running", "State change stopped -> running (generated demo event)."),
+        ev(h(3) - m(5), "ALERT", "demo-web-3", "CPU steal above 10% for 5m", "Generated demo alert."),
+        ev(h(2) - m(5), "ALERT", "demo-web-3", "Resolved: CPU steal back to normal", "Generated demo alert recovery."),
+        ev(m(95), "ALERT", "demo-api-2", "Memory above 95% for 5m", "Generated demo alert."),
+        ev(m(80), "ALERT", "demo-api-2", "Container api restarted after an OOM kill", "Generated demo event."),
+        ev(m(60), "ALERT", "demo-db-1", "Disk above 90%", "Generated demo alert (still open)."),
     ], key=lambda e: e.ts)
+
+#: The event kinds the backend accepts (EventQueryService.KINDS).
+BACKEND_EVENT_KINDS = {"DEPLOY", "EC2_STATE", "ALERT", "ANOMALY", "AGENT", "CONFIG"}
 
 
 # --------------------------------------------------------------------------------------------------------------------
@@ -290,15 +364,26 @@ def _resource(host: str, service: str, source: Optional[str]) -> Dict:
 
 
 def otlp_metrics_payload(host: str, points: List[MetricPoint]) -> Dict:
-    by_name: Dict[str, List[MetricPoint]] = {}
+    """OTLP/JSON the way the agent's collector sends it: one resource per host plus one per container (identity in
+    the resource attributes), gauges as gauges and byte counters as cumulative monotonic sums."""
+    by_resource: Dict[Tuple[Tuple[str, str], ...], Dict[Tuple[str, str], List[MetricPoint]]] = {}
     for p in points:
-        by_name.setdefault(p.name, []).append(p)
-    metrics = [{"name": name, "gauge": {"dataPoints": [
-        {"timeUnixNano": str(p.ts_ns), "asDouble": p.value,
-         "attributes": [_kv(k, v) for k, v in sorted(p.labels.items())]} for p in pts]}}
-        for name, pts in sorted(by_name.items())]
-    return {"resourceMetrics": [{"resource": _resource(host, "xampulse-agent", None),
-                                 "scopeMetrics": [{"scope": {"name": "xampulse-demo"}, "metrics": metrics}]}]}
+        by_resource.setdefault(tuple(sorted(p.resource.items())), {}).setdefault((p.name, p.kind), []).append(p)
+    resources = []
+    for extra, metrics_by in sorted(by_resource.items()):
+        metrics = []
+        for (name, kind), pts in sorted(metrics_by.items()):
+            dps = [{"timeUnixNano": str(p.ts_ns), "asDouble": p.value,
+                    "attributes": [_kv(k, v) for k, v in sorted(p.labels.items())],
+                    **({"startTimeUnixNano": str(p.start_ns)} if kind == "sum" else {})} for p in pts]
+            if kind == "sum":
+                metrics.append({"name": name, "sum": {"aggregationTemporality": 2, "isMonotonic": True, "dataPoints": dps}})
+            else:
+                metrics.append({"name": name, "gauge": {"dataPoints": dps}})
+        resource = _resource(host, "xampulse-agent", None)
+        resource["attributes"] += [_kv(k, v) for k, v in extra]
+        resources.append({"resource": resource, "scopeMetrics": [{"scope": {"name": "xampulse-demo"}, "metrics": metrics}]})
+    return {"resourceMetrics": resources}
 
 
 def otlp_logs_payload(host: str, lines: List[LogLine]) -> Dict:
