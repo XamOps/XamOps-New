@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
+import { Settings2 } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { isXpDemo } from '../../api/xampulseApi';
 import { xampulseSetupApi } from '../../api/xampulseSetupApi';
 import { useViewContext } from '../../hooks/xampulse/useViewContext';
 import { useAudit, useInstanceCandidates, useSetupOverview, useSources, useUsage, useXpAccounts, useXpStatus } from '../../hooks/xampulse/useXamPulseQueries';
 import { QueryBoundary } from '../../components/XamPulse/ui/QueryBoundary';
-import { Card, EmptyState, ErrorState, KpiTile, SkeletonBlock, StatusPill, friendlyError } from '../../components/XamPulse/ui/ui';
+import { Card, EmptyState, ErrorState, KpiTile, SkeletonBlock, StatusPill, friendlyError, PageHead } from '../../components/XamPulse/ui/ui';
 import { OnboardingWizard, SnippetBlock } from '../../components/XamPulse/setup/OnboardingWizard';
 import { TrustPanel } from '../../components/XamPulse/setup/TrustPanel';
 import { DisconnectDialog } from '../../components/XamPulse/setup/DisconnectDialog';
@@ -21,10 +23,12 @@ const AGENT_PILL = { ACTIVE: 'ok', PENDING: 'info', STALE: 'warn', REVOKED: 'cri
 const ConnectSummary: React.FC<{ o: XpSetupOverview; onChange: () => void; onDisconnect: () => void; admin: boolean }> = ({ o, onChange, onDisconnect, admin }) => (
   <>
     <div className="xp-grid xp-grid--kpi">
-      <KpiTile label="Status" value={<StatusPill health={o.state === 'CONNECTED' ? 'OK' : o.state === 'DEGRADED' ? 'WARN' : 'NO_DATA'} label={o.state.replace('_', ' ').toLowerCase()} />} hint={`Last data ${formatAgo(o.lastDataAt)}`} />
-      <KpiTile label="Coverage" value={formatPct(o.coveragePct)} hint={`${o.instances.reporting} of ${o.instances.total} reporting`} />
-      <KpiTile label="Not covered" value={o.instances.notCovered} hint="Instances without an agent" />
-      <KpiTile label="Archive bucket" value={<span style={{ fontSize: 15 }} className="xp-mono">{o.bucket?.name ?? 'none'}</span>} hint={o.bucket ? `${o.bucket.region}, ${o.bucket.mode === 'CREATE' ? 'created for you' : 'yours'}` : undefined} />
+      <KpiTile label="Account state" value={<StatusPill health={o.state === 'CONNECTED' ? 'OK' : o.state === 'DEGRADED' ? 'WARN' : 'NO_DATA'} label={o.state.replaceAll('_', ' ').toLowerCase()} />} hint={`${o.homeRegion ? `Home ${o.homeRegion} · ` : ''}last data ${formatAgo(o.lastDataAt)}`} />
+      <KpiTile label="Discovered" value={o.instances.total} hint="EC2 instances" />
+      <KpiTile label="SSM managed" value={o.instances.ssmManaged} hint="Eligible for managed setup" />
+      <KpiTile label="In scope" value={o.instances.inScope} hint="Selected by targeting" />
+      <KpiTile label="Enrolled" value={o.instances.enrolled} hint="Agent installed" />
+      <KpiTile label="Reporting" status={o.instances.inScope === 0 ? 'NO_DATA' : o.instances.reporting < o.instances.inScope ? 'WARN' : 'OK'} value={o.instances.reporting} hint={o.instances.inScope === 0 ? 'No in-scope instances to measure' : `${formatPct(o.coveragePct)} coverage · ${o.instances.notCovered} not covered`} />
     </div>
     <Card title="Regions" id="xp-regions">
       <div className="xp-table-wrap"><table className="xp-table"><caption className="xp-sr">Regions</caption>
@@ -40,11 +44,12 @@ const ConnectSummary: React.FC<{ o: XpSetupOverview; onChange: () => void; onDis
 );
 
 const SourcesView: React.FC<{ accountId: number; admin: boolean }> = ({ accountId, admin }) => {
-  const q = useSources(accountId);
+  const q = useSources(accountId, admin);
   const client = useQueryClient();
   const [draft, setDraft] = useState<XpLogSource[] | null>(null);
   const [path, setPath] = useState('');
   const save = useMutation({ mutationFn: (s: XpLogSource[]) => xampulseSetupApi.saveSources(accountId, s), onSuccess: () => { setDraft(null); void client.invalidateQueries({ queryKey: ['xp'] }); } });
+  if (!admin) return <Card><EmptyState title="Log source configuration is administrator-only" body="Only administrators can read or change source paths and redaction rules." /></Card>;
   return (
     <QueryBoundary query={q} skeleton={<SkeletonBlock height={200} />}>
       {(sources) => {
@@ -57,7 +62,7 @@ const SourcesView: React.FC<{ accountId: number; admin: boolean }> = ({ accountI
                 {list.map((s, i) => (
                   <li key={`${s.kind}-${i}`} className="xp-lane xp-row">
                     <input type="checkbox" aria-label={`Enable ${s.kind} source ${s.paths.join(', ')}`} checked={s.enabled} disabled={!admin} onChange={(e) => setDraft(list.map((x, j) => (j === i ? { ...x, enabled: e.target.checked } : x)))} />
-                    <strong>{s.kind}</strong><span className="xp-mono">{s.paths.join(', ')}</span>{s.parser && <span className="xp-pill xp-pill--info">{s.parser}</span>}
+                    <strong>{s.kind}</strong><span className="xp-mono">{s.paths.join(', ')}</span>{s.parser && <span className="xp-pill xp-pill--info">{s.parser}</span>}{s.redaction && <span className="xp-status-line">{s.redaction.length} redaction rule{s.redaction.length === 1 ? '' : 's'}</span>}
                   </li>
                 ))}
               </ul>
@@ -81,18 +86,22 @@ const SourcesView: React.FC<{ accountId: number; admin: boolean }> = ({ accountI
 const AgentsView: React.FC<{ accountId: number; admin: boolean }> = ({ accountId, admin }) => {
   const q = useInstanceCandidates(accountId);
   const client = useQueryClient();
+  const [term, setTerm] = useState('');
   const level = useMutation({
     mutationFn: ({ id, lvl }: { id: string; lvl: XpCollectionLevel }) => xampulseSetupApi.setCollection(accountId, id, { enabled: true, level: lvl }),
     onSuccess: () => { void client.invalidateQueries({ queryKey: ['xp'] }); },
   });
   return (
     <QueryBoundary query={q} skeleton={<SkeletonBlock height={240} />}>
-      {(page) => (
+      {(page) => {
+        const items = page.items.filter((item) => !term || `${item.name} ${item.instanceId} ${item.region} ${item.platform ?? ''}`.toLowerCase().includes(term.toLowerCase()));
+        return <><div className="xp-row" style={{ marginBottom: 10 }}><label className="xp-sr" htmlFor="xp-agent-search">Search agents</label><input id="xp-agent-search" className="xp-input" value={term} onChange={(event) => setTerm(event.target.value)} placeholder="Search instance, region or platform" /><span className="xp-status-line">{items.length} of {page.total} shown</span></div>
         <div className="xp-table-wrap"><table className="xp-table"><caption className="xp-sr">Agents by instance</caption>
-          <thead><tr><th scope="col">Instance</th><th scope="col">Agent</th><th scope="col">Version</th><th scope="col">Last seen</th><th scope="col">Collection level</th></tr></thead>
-          <tbody>{page.items.map((i) => (
+          <thead><tr><th scope="col">Instance</th><th scope="col">Scope and eligibility</th><th scope="col">Agent</th><th scope="col">Version</th><th scope="col">Last seen</th><th scope="col">Collection level</th></tr></thead>
+          <tbody>{items.map((i) => (
             <tr key={i.instanceId}>
-              <td><strong>{i.name}</strong><div className="xp-muted xp-mono" style={{ fontSize: 11 }}>{i.instanceId} · {i.region}</div></td>
+              <td><span className="xp-cell-name">{i.name}</span><span className="xp-cell-sub">{i.instanceId} · {i.region} · {i.platform ?? 'platform unknown'}</span></td>
+              <td>{i.inScope ? 'In scope' : 'Out of scope'}<span className="xp-cell-sub">{i.ssmManaged === true ? 'SSM managed' : i.ssmManaged === false ? 'Not SSM managed' : 'SSM status unknown'}</span></td>
               <td><span className={`xp-pill xp-pill--${AGENT_PILL[i.agent.status]}`}>{i.agent.status.toLowerCase()}</span></td>
               <td>{i.agent.version ?? '\u2014'}</td><td>{formatAgo(i.agent.lastSeenAt)}</td>
               <td>
@@ -103,8 +112,8 @@ const AgentsView: React.FC<{ accountId: number; admin: boolean }> = ({ accountId
               </td>
             </tr>
           ))}</tbody>
-        </table></div>
-      )}
+        </table></div></>;
+      }}
     </QueryBoundary>
   );
 };
@@ -115,6 +124,10 @@ const StorageView: React.FC<{ o: XpSetupOverview; plan: XpSetupPlanResponse | nu
       <div className="xp-grid xp-grid--2">
         <div className="xp-lane"><strong>Recent (fast search)</strong><p className="xp-muted" style={{ margin: '6px 0 0' }}>Stored by XamPulse so searches are quick. The window is set in your retention choice and shown on the Trust tab.</p></div>
         <div className="xp-lane"><strong>Archive (your S3 bucket)</strong><p className="xp-muted" style={{ margin: '6px 0 0' }}>{o.bucket ? <>Older logs are written to <span className="xp-mono">{o.bucket.name}</span> in {o.bucket.region}. You own the data and the AWS bill for it.</> : 'No archive bucket is configured yet. Finish setup on the Connect tab.'}</p></div>
+      </div>
+      <div className={`xp-banner xp-banner--${o.archive?.state === 'OK' ? 'ok' : o.archive?.state === 'FAILING' ? 'crit' : 'info'}`} style={{ marginTop: 12 }}>
+        <strong>Archive writer: {o.archive?.state?.toLowerCase() ?? 'status unavailable'}.</strong>{' '}
+        {o.archive?.state === 'OK' ? `Last successful watermark ${formatAgo(o.archive.watermark)}.` : o.archive?.state === 'FAILING' ? `${o.archive.failures} failure${o.archive.failures === 1 ? '' : 's'}${o.archive.lastError ? ` · ${o.archive.lastError}` : ''}${o.archive.watermark ? ` · last success ${formatAgo(o.archive.watermark)}` : ''}.` : 'Archive storage is off or not configured.'}
       </div>
     </Card>
     {o.bucket?.mode === 'EXISTING' && (
@@ -127,16 +140,18 @@ const StorageView: React.FC<{ o: XpSetupOverview; plan: XpSetupPlanResponse | nu
 );
 
 const AuditView: React.FC<{ accountId: number; admin: boolean }> = ({ accountId, admin }) => {
-  const q = useAudit(accountId, admin);
+  const [pageNumber, setPageNumber] = useState(0);
+  const q = useAudit(accountId, admin, pageNumber);
   if (!admin) return <Card><p className="xp-muted" style={{ margin: 0 }}>The audit log is visible to administrators.</p></Card>;
   return (
     <QueryBoundary query={q} skeleton={<SkeletonBlock height={200} />}>
-      {(page) => page.items.length === 0 ? <Card><EmptyState title="No audit entries yet" /></Card> : (
+      {(page) => page.items.length === 0 ? <Card><EmptyState title="No audit entries yet" /></Card> : <>
         <div className="xp-table-wrap"><table className="xp-table"><caption className="xp-sr">Audit log</caption>
-          <thead><tr><th scope="col">When</th><th scope="col">Action</th><th scope="col">Target</th><th scope="col">User</th></tr></thead>
-          <tbody>{page.items.map((a) => <tr key={`${a.ts}-${a.action}`}><td>{formatDateTime(a.ts)}</td><td>{a.action}</td><td>{a.target ?? '\u2014'}</td><td>{a.userId}</td></tr>)}</tbody>
+          <thead><tr><th scope="col">When</th><th scope="col">Action</th><th scope="col">Target</th><th scope="col">User</th><th scope="col">Account</th><th scope="col">IP</th></tr></thead>
+          <tbody>{page.items.map((a) => <tr key={`${a.ts}-${a.action}`}><td>{formatDateTime(a.ts)}</td><td>{a.action}</td><td>{a.target ?? '—'}</td><td>{a.userId}</td><td>{a.accountId ?? '—'}</td><td className="xp-mono">{a.ip ?? '—'}</td></tr>)}</tbody>
         </table></div>
-      )}
+        <nav className="xp-pagination" aria-label="Audit pages"><button type="button" className="xp-btn" disabled={page.page === 0} onClick={() => setPageNumber(page.page - 1)}>Previous</button><span>Page {page.page + 1} of {Math.max(1, Math.ceil(page.total / page.size))} · {page.total} entries</span><button type="button" className="xp-btn" disabled={(page.page + 1) * page.size >= page.total} onClick={() => setPageNumber(page.page + 1)}>Next</button></nav>
+      </>}
     </QueryBoundary>
   );
 };
@@ -148,7 +163,14 @@ const SetupTab: React.FC = () => {
   const account = accounts.data?.find((a) => a.cloudAccountId === ctx.effectiveAccountIds[0]);
   const setup = useSetupOverview(account?.cloudAccountId);
   const client = useQueryClient();
-  const [sub, setSub] = useState<Sub>('connect');
+  const [params, setParams] = useSearchParams();
+  const requested = params.get('view');
+  const sub: Sub = SUBS.some(([id]) => id === requested) ? requested as Sub : 'connect';
+  const selectSub = (next: Sub) => setParams((current) => {
+    const copy = new URLSearchParams(current);
+    copy.set('view', next);
+    return copy;
+  }, { replace: true });
   const [editing, setEditing] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [plan, setPlan] = useState<XpSetupPlanResponse | null>(null);
@@ -160,10 +182,8 @@ const SetupTab: React.FC = () => {
 
   return (
     <>
-      <div className="xp-row">
-        <h1 className="xp-h1" style={{ fontSize: 22 }}>Setup &amp; Storage</h1>
-        <div className="xp-seg" role="group" aria-label="Setup sections">{SUBS.map(([id, label]) => <button key={id} type="button" aria-pressed={sub === id} onClick={() => setSub(id)}>{label}</button>)}</div>
-      </div>
+      <PageHead icon={Settings2} title="Setup & Storage" sub="Connect AWS accounts, choose what is collected, and decide where logs live and for how long."
+        extra={<div className="xp-seg" role="group" aria-label="Setup sections">{SUBS.map(([id, label]) => <button key={id} type="button" aria-pressed={sub === id} onClick={() => selectSub(id)}>{label}</button>)}</div>} />
       {isXpDemo() && <div className="xp-banner" role="note">DEMO: this account shows generated sample data. Deploy links do not create anything.</div>}
       {sub === 'connect' && needsWizard && admin && status.data?.demoAvailable && !isXpDemo() && (
         <div className="xp-banner" role="note">

@@ -42,6 +42,7 @@ const BucketPicker: React.FC<{ buckets: XpBucketCandidate[]; value: string; onCh
             <span className={`xp-pill xp-pill--${b.encryption === 'NONE' ? 'warn' : 'ok'}`}>{b.encryption === 'NONE' ? 'Not encrypted' : `Encrypted ${b.encryption === 'SSE_KMS' ? '(KMS)' : ''}`}</span>
             {b.publicAccessBlocked === false && <span className="xp-pill xp-pill--crit">Public access allowed</span>}
             {b.versioning && <span className="xp-pill xp-pill--info">Versioned</span>}
+            <span className={`xp-pill xp-pill--${b.lifecycleHasXamPulseRule ? 'ok' : 'warn'}`}>{b.lifecycleHasXamPulseRule ? 'Lifecycle ready' : 'Lifecycle rule needed'}</span>
           </div>
           {b.issues.map((i) => <div key={i.code} className={i.level === 'BLOCK' ? 'xp-err' : 'xp-muted'} style={{ fontSize: 12.5, marginLeft: 26 }}>{i.level === 'BLOCK' ? 'Cannot use: ' : 'Note: '}{i.message}</div>)}
         </label>
@@ -201,10 +202,43 @@ export const OnboardingWizard: React.FC<{ account: XpAccountRef; onPlanned: (p: 
               <p style={{ marginTop: 0 }}>Estimated cost in your AWS account: <strong>{formatUsd(plan.preview.customerCostEstimate.s3Usd + plan.preview.customerCostEstimate.kmsUsd)}</strong> per month (S3 {formatUsd(plan.preview.customerCostEstimate.s3Usd)}, KMS {formatUsd(plan.preview.customerCostEstimate.kmsUsd)}). {plan.preview.customerCostEstimate.notes.join(' ')}</p>
               <p>{plan.stacks.length <= 1 ? 'One approval is needed.' : `${plan.stacks.length} approvals are needed, one per stack.`}</p>
               <div className="xp-row">
-                {plan.stacks.map((s) => (
-                  <button key={s.stackName} type="button" className="xp-btn xp-btn--primary" onClick={() => { window.open(s.quickCreateUrl, '_blank', 'noopener,noreferrer'); }}>Open AWS: {s.kind === 'GLOBAL' ? 'main stack' : s.region}</button>
-                ))}
+                {plan.stacks.map((s) => {
+                  const isUpdate = s.action === 'UPDATE';
+                  const url = isUpdate ? s.updateUrl : s.quickCreateUrl;
+                  return (
+                    <button key={s.stackName} type="button" className="xp-btn xp-btn--primary" disabled={!url} onClick={() => { if (url) window.open(url, '_blank', 'noopener,noreferrer'); }}>
+                      Open AWS: {isUpdate ? 'update ' : ''}{s.kind === 'GLOBAL' ? 'main stack' : s.region}
+                    </button>
+                  );
+                })}
               </div>
+              {plan.stacks.filter((s) => s.action === 'UPDATE').map((s) => {
+                const changes = Object.entries(s.parameters ?? {});
+                return (
+                  <div key={`upd-${s.stackName}`} className="xp-banner" style={{ marginTop: 12 }}>
+                    <strong>{s.stackName}</strong> already exists, so AWS opens <em>Update stack</em>. Choose <em>Use existing template</em>, then
+                    {changes.length === 0
+                      ? ' keep every parameter as it is: nothing changes for this stack.'
+                      : <> change only {changes.length === 1 ? 'this parameter' : 'these parameters'} and keep the rest:</>}
+                    {changes.length > 0 && (
+                      <table className="xp-table" style={{ marginTop: 8 }}>
+                        <thead><tr><th>Parameter</th><th>New value</th></tr></thead>
+                        <tbody>
+                          {changes.map(([k, v]) => (
+                            <tr key={k}>
+                              <td className="xp-mono">{k}</td>
+                              <td className="xp-mono" style={{ wordBreak: 'break-all' }}>{v === '' ? '(clear it)' : v}
+                                {v !== '' && <button type="button" className="xp-btn xp-btn--ghost" style={{ marginLeft: 8 }} aria-label={`Copy ${k}`} onClick={() => { void navigator.clipboard?.writeText(v); }}>Copy</button>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                    <div className="xp-muted" style={{ marginTop: 6 }}>Then submit, and acknowledge the IAM capability on the last page.</div>
+                  </div>
+                );
+              })}
               <details style={{ marginTop: 12 }}>
                 <summary style={{ cursor: 'pointer', fontWeight: 650 }}>What will be created and which permissions are used</summary>
                 <ul>{plan.preview.resources.map((r) => <li key={r}>{r}</li>)}</ul>

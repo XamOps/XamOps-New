@@ -4,13 +4,15 @@ import { useViewContext } from '../../../hooks/xampulse/useViewContext';
 import { useHostProcesses, useHostSummary } from '../../../hooks/xampulse/useXamPulseQueries';
 import { Card, Drawer, DemoPill, ErrorState, SkeletonBlock, StatusPill } from '../ui/ui';
 import { QueryBoundary } from '../ui/QueryBoundary';
-import { ChartLegend, TimeSeriesChart, type ChartSeries } from '../charts/TimeSeriesChart';
+import { AwsPanel } from './AwsPanel';
+import { TimeSeriesChart, type ChartSeries } from '../charts/TimeSeriesChart';
 import { Sparkline } from '../charts/Visuals';
-import { formatAgo, formatBytes, formatClock, formatPct } from '../../../utils/xampulse/format';
+import { formatAgo, formatBytes, formatClock, formatPct, formatRate } from '../../../utils/xampulse/format';
 import type { XpHostSummary, XpLane } from '../../../types/xampulse';
 
 const pct = (v: number): string => `${v.toFixed(0)}%`;
-const mbps = (v: number): string => `${v.toFixed(0)} MB/s`;
+/** Disk and network series arrive as bytes per second (whole disks and real NICs only); show them with their unit. */
+const bytesPerSec = (v: number): string => formatRate(v);
 
 /** Picks series by key from the summary map, in order, with display names. */
 export function pickSeries(map: XpHostSummary['series'], spec: [key: string, name: string][]): ChartSeries[] {
@@ -31,8 +33,8 @@ const HealthLanes: React.FC<{ lanes: XpLane[] }> = ({ lanes }) => (
   <div className="xp-lanes">
     {lanes.map((l) => (
       <div key={l.lane} className="xp-lane">
-        <div className="xp-row"><strong>{l.lane.charAt(0) + l.lane.slice(1).toLowerCase()}</strong><span className="xp-spacer" /><StatusPill health={l.health} /></div>
-        <div className="xp-muted" style={{ fontSize: 12.5, marginTop: 4 }}>{l.reason}</div>
+        <div className="xp-row"><span className="xp-eyebrow">{l.lane.charAt(0) + l.lane.slice(1).toLowerCase()}</span><span className="xp-spacer" /><StatusPill health={l.health} /></div>
+        <div className="xp-muted" style={{ fontSize: 12, marginTop: 8 }}>{l.reason}</div>
       </div>
     ))}
   </div>
@@ -58,8 +60,7 @@ const Body: React.FC<{ s: XpHostSummary }> = ({ s }) => {
     <Card title={title}>
       {series.length === 0 ? <p className="xp-muted" style={{ margin: 0 }}>No data for this range.</p> : (
         <>
-          <TimeSeriesChart series={series} height={150} format={fmt} yMax={max} markers={markers} onBrush={brush} ariaLabel={title} fromMs={ctx.fromMs} toMs={ctx.toMs} />
-          <ChartLegend items={series.map((x) => ({ name: x.name }))} />
+          <TimeSeriesChart showLegend series={series} height={150} format={fmt} yMax={max} markers={markers} onBrush={brush} ariaLabel={title} fromMs={ctx.fromMs} toMs={ctx.toMs} />
         </>
       )}
     </Card>
@@ -75,7 +76,7 @@ const Body: React.FC<{ s: XpHostSummary }> = ({ s }) => {
               const last = c.points[c.points.length - 1]?.[1] ?? 0;
               return (
                 <div key={c.core} className="xp-lane">
-                  <div className="xp-row"><span className="xp-muted">Core {c.core}</span><span className="xp-spacer" /><strong>{pct(last)}</strong></div>
+                  <div className="xp-row"><span className="xp-muted xp-mono" style={{ fontSize: 11 }}>core {c.core}</span><span className="xp-spacer" /><span className="xp-mono" style={{ fontSize: 12 }}>{pct(last)}</span></div>
                   <Sparkline values={c.points.map((p) => p[1])} width={130} label={`Core ${c.core} CPU`} />
                 </div>
               );
@@ -85,8 +86,8 @@ const Body: React.FC<{ s: XpHostSummary }> = ({ s }) => {
       </Card>
       {chart('Memory and swap', mem, pct, 100)}
       {chart('Filesystems', fs, pct, 100)}
-      {chart('Disk I/O', io, mbps)}
-      {chart('Network', net, mbps)}
+      {chart('Disk I/O', io, bytesPerSec)}
+      {chart('Network', net, bytesPerSec)}
       <Card title="Top processes" id="xp-procs">
         <div className="xp-row" style={{ marginBottom: 8 }}>
           <label htmlFor="xp-scrub" className="xp-muted">Time</label>
@@ -95,12 +96,12 @@ const Body: React.FC<{ s: XpHostSummary }> = ({ s }) => {
           <span className="xp-muted" style={{ fontSize: 12 }}>{at ? formatClock(at) : 'Latest'}</span>
         </div>
         <QueryBoundary query={procs} skeleton={<SkeletonBlock height={120} />}>
-          {(rows) => rows.length === 0 ? <p className="xp-muted" style={{ margin: 0 }}>Process data needs collection level T2. Change it in Setup.</p> : (
+          {(rows) => rows.length === 0 ? <p className="xp-muted" style={{ margin: 0 }}>No process used more than about 1% of CPU or memory at this time (agent 1.2.0 and later report the significant processes on T1; T2 reports every process). Older agents report none until updated.</p> : (
             <div className="xp-table-wrap"><table className="xp-table">
               <caption className="xp-sr">Top processes by CPU</caption>
               <thead><tr><th scope="col">Process</th><th scope="col">User</th><th scope="col" className="xp-num">CPU</th><th scope="col" className="xp-num">Memory</th><th scope="col" className="xp-num">RSS</th></tr></thead>
               <tbody>{rows.slice(0, 10).map((p) => (
-                <tr key={p.pid}><td>{p.name} <span className="xp-muted">#{p.pid}</span></td><td>{p.user ?? '\u2014'}</td><td className="xp-num">{formatPct(p.cpuPct, 1)}</td><td className="xp-num">{formatPct(p.memPct, 1)}</td><td className="xp-num">{formatBytes(p.memBytes)}</td></tr>
+                <tr key={p.pid}><td>{p.name} <span className="xp-muted">#{p.pid}</span></td><td>{p.user ?? '—'}</td><td className="xp-num">{formatPct(p.cpuPct, 1)}</td><td className="xp-num">{formatPct(p.memPct, 1)}</td><td className="xp-num">{formatBytes(p.memBytes)}</td></tr>
               ))}</tbody>
             </table></div>
           )}
@@ -119,7 +120,7 @@ const Body: React.FC<{ s: XpHostSummary }> = ({ s }) => {
       </Card>
       <Card title="Events" id="xp-hev">
         {s.events.length === 0 ? <p className="xp-muted" style={{ margin: 0 }}>No events in this range.</p> : (
-          <ul className="xp-timeline">{s.events.map((e) => <li key={`${e.ts}-${e.title}`}><strong>{e.title}</strong><div className="xp-muted" style={{ fontSize: 12 }}>{formatAgo(e.ts)}{e.detail ? ` · ${e.detail}` : ''}</div></li>)}</ul>
+          <ul className="xp-timeline">{s.events.map((e) => <li key={`${e.ts}-${e.title}`}><span className="xp-timeline__ic" aria-hidden="true"><span className="xp-dot" /></span><span>{e.title}</span><span className="xp-timeline__meta">{formatAgo(e.ts)}{e.detail ? ` · ${e.detail}` : ''}</span></li>)}</ul>
         )}
       </Card>
       {s.openIncidents.length > 0 && (
@@ -127,9 +128,6 @@ const Body: React.FC<{ s: XpHostSummary }> = ({ s }) => {
           {s.openIncidents.map((i) => <div key={i.id} className="xp-banner xp-banner--crit">{i.title}<div className="xp-muted">{i.summary}</div></div>)}
           <div style={{ marginTop: 8 }}><button type="button" className="xp-btn" onClick={() => navigate(ctx.link('/xampulse/alerts'))}>View incidents</button></div>
         </Card>
-      )}
-      {s.rightsizing && (
-        <Card title="Rightsizing hint" id="xp-hrs"><p style={{ margin: 0 }}>{s.rightsizing.note}</p><div style={{ marginTop: 8 }}><Link className="xp-btn" to={s.rightsizing.link}>Open rightsizing</Link></div></Card>
       )}
     </>
   );
@@ -141,14 +139,18 @@ export const Resource360Drawer: React.FC<{ accountId: number; instanceId: string
   const q = useHostSummary(accountId, instanceId, ctx.from, ctx.to);
   const head = q.data ? (
     <div>
-      <div className="xp-row"><h2 style={{ margin: 0, fontSize: 18 }}>{q.data.host.name}</h2><StatusPill health={q.data.host.health} />{q.data.host.instanceId.startsWith('i-demo') && <DemoPill />}</div>
-      <div className="xp-muted xp-mono" style={{ fontSize: 12 }}>{q.data.host.instanceId} · {q.data.host.instanceType ?? 'unknown type'} · {q.data.host.region} · last seen {formatAgo(q.data.host.lastSeenAt)}</div>
+      <div className="xp-row" style={{ gap: 10 }}><h2 style={{ margin: 0, fontSize: 17, fontWeight: 400, letterSpacing: '-0.015em' }}>{q.data.host.name}</h2><StatusPill health={q.data.host.health} />{q.data.host.instanceId.startsWith('i-demo') && <DemoPill />}</div>
+      <div className="xp-muted xp-mono" style={{ fontSize: 11, marginTop: 4 }}>{q.data.host.instanceId} · {q.data.host.instanceType ?? 'unknown type'} · {q.data.host.region} · last seen {formatAgo(q.data.host.lastSeenAt)}</div>
     </div>
-  ) : <h2 style={{ margin: 0, fontSize: 18 }}>{instanceId}</h2>;
+  ) : <h2 className="xp-mono" style={{ margin: 0, fontSize: 15, fontWeight: 400 }}>{instanceId}</h2>;
   return (
     <Drawer title={head} onClose={onClose} label={`Resource 360 for ${instanceId}`}>
+      <AwsPanel accountId={accountId} instanceId={instanceId} />
+      <h3 style={{ margin: '18px 0 8px', fontSize: 13, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--xp-muted)' }}>From the XamPulse agent</h3>
       {q.isLoading && <><SkeletonBlock height={90} /><SkeletonBlock height={190} /><SkeletonBlock height={190} /></>}
-      {q.error && <ErrorState error={q.error} onRetry={() => { void q.refetch(); }} />}
+      {q.error && (q.error.status === 404
+        ? <p className="xp-muted" style={{ margin: 0 }}>No XamPulse agent reports from this instance, so only the AWS view above is available. Add it in Setup &amp; Storage to get OS, process and log data.</p>
+        : <ErrorState error={q.error} onRetry={() => { void q.refetch(); }} />)}
       {q.data && <Body s={q.data} />}
     </Drawer>
   );

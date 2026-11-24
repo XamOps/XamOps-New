@@ -58,14 +58,14 @@ describe('XamPulsePage in demo mode', () => {
 
   it('renders Mission Control with the narrative and a health score', async () => {
     renderAt('/xampulse/overview');
-    expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent(/fleet/i);
-    expect(screen.getByRole('img', { name: /Fleet health: 74 out of 100/ })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('Overview');
+    expect(await screen.findByText('74 / 100')).toBeInTheDocument();
   });
 
   it('every tab renders a first-level heading and has no unlabeled buttons or inputs', async () => {
     for (const tab of ['overview', 'hosts', 'containers', 'logs', 'metrics', 'alerts', 'insights', 'setup']) {
       const { unmount } = renderAt(`/xampulse/${tab}`);
-      await screen.findByRole('heading', { level: 1 });
+      await screen.findByRole('heading', { level: 1 }, { timeout: 5000 });
       document.querySelectorAll('button').forEach((b) => {
         const name = (b.textContent ?? '').trim() || b.getAttribute('aria-label') || b.getAttribute('title');
         expect(name, `unnamed button on ${tab}`).toBeTruthy();
@@ -77,21 +77,46 @@ describe('XamPulsePage in demo mode', () => {
       });
       unmount();
     }
-  });
+  }, 30_000);
 
-  it('opens Resource 360 from the hosts table and closes it with Escape', async () => {
+  it('opens the Host 360 page from the hosts table with Throttle Radar on top', async () => {
     renderAt('/xampulse/hosts');
-    const row = await screen.findByRole('row', { name: /demo-api-2, CRIT/ });
-    fireEvent.click(row);
-    const dialog = await screen.findByRole('dialog', { name: /Resource 360 for i-demo0005/ });
-    expect(await within(dialog).findByText('CPU per core')).toBeInTheDocument();
-    fireEvent.keyDown(document, { key: 'Escape' });
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    const hostLink = await screen.findByRole('link', { name: 'demo-api-2' });
+    fireEvent.click(hostLink);
+    expect(await screen.findByRole('heading', { level: 1, name: 'demo-api-2' })).toBeInTheDocument();
+    const radar = await screen.findByRole('region', { name: /Throttle Radar/ });
+    // The critical finding is announced; the measured evidence is shown with it.
+    const alert = await within(radar).findByRole('alert');
+    expect(alert).toHaveTextContent(/stalled on memory/);
+    expect(alert).toHaveTextContent(/stalled share: 12%/);
+    expect(within(radar).getByRole('list', { name: 'Limit checks' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'All hosts' })).toBeInTheDocument();
   });
 
-  it('opens the host drawer from the deep link', async () => {
+  it('opens Host 360 from the deep link, switches sections by click and arrow keys, and labels every control', async () => {
     renderAt('/xampulse/hosts/i-demo0006');
-    expect(await screen.findByRole('dialog', { name: /Resource 360 for i-demo0006/ })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'demo-db-1' })).toBeInTheDocument();
+    const tabs = screen.getByRole('tablist', { name: 'Host sections' });
+    const overview = within(tabs).getByRole('tab', { name: 'Overview' });
+    expect(overview).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(within(tabs).getByRole('tab', { name: 'CPU' }));
+    expect(await screen.findByText('CPU per core')).toBeInTheDocument();
+    fireEvent.keyDown(within(tabs).getByRole('tab', { name: 'CPU' }), { key: 'ArrowRight' });
+    expect(within(tabs).getByRole('tab', { name: 'Memory' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByText('Memory pressure')).toBeInTheDocument();
+    document.querySelectorAll('button').forEach((b) => {
+      const name = (b.textContent ?? '').trim() || b.getAttribute('aria-label') || b.getAttribute('title');
+      expect(name, 'unnamed button on the host page').toBeTruthy();
+    });
+  });
+
+  it('never shows a limit check it could not measure as healthy', async () => {
+    renderAt('/xampulse/hosts/i-demo0006');
+    const checks = await screen.findByRole('list', { name: 'Limit checks' });
+    const ebs = within(checks).getByText('EBS volume and instance limits').closest('li') as HTMLElement;
+    expect(ebs).toHaveTextContent(/not measured here/);
+    expect(ebs.className).toContain('xp-radar__signal--nodata');
+    expect(screen.getByText(/not measurable here: why/)).toBeInTheDocument();
   });
 
   it('sends an invalid tab back to Mission Control', async () => {

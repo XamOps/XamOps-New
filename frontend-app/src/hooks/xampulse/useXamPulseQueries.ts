@@ -1,12 +1,12 @@
-import { useQuery, type UseQueryResult } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { xampulseApi, XpApiError, isXpDemo } from '../../api/xampulseApi';
 import { xampulseSetupApi } from '../../api/xampulseSetupApi';
 import { xampulseAlertsApi } from '../../api/xampulseAlertsApi';
 import type {
-  XpAccountRef, XpAlertRule, XpChannel, XpContainerRow, XpForecast, XpHostRow, XpHostSummary, XpIncident, XpInsight,
+  XpAccountRef, XpAlertRule, XpChange, XpChannel, XpContainerRow, XpContainerSummary, XpForecast, XpHostLimits, XpHostRow, XpHostSummary, XpIncident, XpInsight,
   XpLogFacetsResponse, XpLogHistogramResponse, XpLogPatternsResponse, XpLogSearchResponse, XpMetricCatalogEntry,
   XpMetricQueryRequest, XpMetricQueryResponse, XpOverview, XpPage, XpProcessRow, XpScope, XpSilence, XpStatus,
-  XpTrustPanel, XpUsage, XpSetupOverview, XpInstanceCandidate, XpBucketCandidate, XpLogSource, XpAuditEntry, XpEvent,
+  XpTrustPanel, XpUsage, XpSetupOverview, XpInstanceCandidate, XpBucketCandidate, XpLogSource, XpAuditEntry, XpEvent, XpInvestigation, XpExposure, XpCostPerf,
 } from '../../types/xampulse';
 
 /** Do not retry client errors (4xx); retry transient failures once. */
@@ -30,10 +30,11 @@ export function useOverview(scope: XpScope): UseQueryResult<XpOverview, XpApiErr
   });
 }
 
-export function useHosts(accountIds: number[], q: string): UseQueryResult<XpPage<XpHostRow>, XpApiError> {
+export interface HostListParams { q?: string; state?: string; page?: number; size?: number; sort?: string }
+export function useHosts(accountIds: number[], params: HostListParams = {}): UseQueryResult<XpPage<XpHostRow>, XpApiError> {
   return useQuery<XpPage<XpHostRow>, XpApiError>({
-    ...base, queryKey: ['xp', demoKey(), 'hosts', accountIds, q], enabled: accountIds.length > 0,
-    queryFn: () => xampulseApi.hosts({ accountIds, q, size: 200 }), refetchInterval: 30_000,
+    ...base, queryKey: ['xp', demoKey(), 'hosts', accountIds, params], enabled: accountIds.length > 0,
+    queryFn: () => xampulseApi.hosts({ accountIds, ...params }), refetchInterval: 30_000,
   });
 }
 
@@ -44,6 +45,49 @@ export function useHostSummary(accountId: number | undefined, instanceId: string
   });
 }
 
+export function useHostLimits(accountId: number | undefined, instanceId: string | undefined, from: string, to: string): UseQueryResult<XpHostLimits, XpApiError> {
+  return useQuery<XpHostLimits, XpApiError>({
+    ...base, queryKey: ['xp', demoKey(), 'limits', accountId, instanceId, from, to], enabled: accountId !== undefined && !!instanceId,
+    queryFn: () => xampulseApi.hostLimits(accountId as number, instanceId as string, from, to),
+  });
+}
+
+export function useContainerSummary(accountId: number | undefined, instanceId: string | undefined, name: string | undefined, from: string, to: string): UseQueryResult<XpContainerSummary, XpApiError> {
+  return useQuery<XpContainerSummary, XpApiError>({
+    ...base, queryKey: ['xp', demoKey(), 'container', accountId, instanceId, name, from, to], enabled: accountId !== undefined && !!instanceId && !!name,
+    queryFn: () => xampulseApi.containerSummary(accountId as number, instanceId as string, name as string, from, to),
+  });
+}
+
+export function useHostChanges(accountId: number | undefined, instanceId: string | undefined, from: string, to: string): UseQueryResult<XpChange[], XpApiError> {
+  return useQuery<XpChange[], XpApiError>({
+    ...base, queryKey: ['xp', demoKey(), 'changes', accountId, instanceId, from, to], enabled: accountId !== undefined && !!instanceId,
+    queryFn: () => xampulseApi.hostChanges(accountId as number, instanceId as string, from, to),
+  });
+}
+
+export function useHostExposure(accountId: number | undefined, instanceId: string | undefined): UseQueryResult<XpExposure, XpApiError> {
+  return useQuery<XpExposure, XpApiError>({
+    ...base, queryKey: ['xp', demoKey(), 'exposure', accountId, instanceId], enabled: accountId !== undefined && !!instanceId,
+    queryFn: () => xampulseApi.hostExposure(accountId as number, instanceId as string), staleTime: 60_000,
+  });
+}
+
+export function useHostCost(accountId: number | undefined, instanceId: string | undefined, from: string, to: string): UseQueryResult<XpCostPerf, XpApiError> {
+  return useQuery<XpCostPerf, XpApiError>({
+    ...base, queryKey: ['xp', demoKey(), 'cost', accountId, instanceId, from, to], enabled: accountId !== undefined && !!instanceId,
+    queryFn: () => xampulseApi.hostCost(accountId as number, instanceId as string, from, to), staleTime: 60_000,
+  });
+}
+
+/** Investigate runs only when asked for (the section is open): it reads several sources at once. */
+export function useInvestigation(accountId: number | undefined, instanceId: string | undefined, from: string, to: string, enabled: boolean): UseQueryResult<XpInvestigation, XpApiError> {
+  return useQuery<XpInvestigation, XpApiError>({
+    ...base, queryKey: ['xp', demoKey(), 'investigate', accountId, instanceId, from, to], enabled: enabled && accountId !== undefined && !!instanceId,
+    queryFn: () => xampulseApi.investigate(accountId as number, instanceId as string, from, to), staleTime: 60_000,
+  });
+}
+
 export function useHostProcesses(accountId: number | undefined, instanceId: string | undefined, at?: string): UseQueryResult<XpProcessRow[], XpApiError> {
   return useQuery<XpProcessRow[], XpApiError>({
     ...base, queryKey: ['xp', demoKey(), 'procs', accountId, instanceId, at ?? 'latest'], enabled: accountId !== undefined && !!instanceId,
@@ -51,9 +95,10 @@ export function useHostProcesses(accountId: number | undefined, instanceId: stri
   });
 }
 
-export function useContainers(accountIds: number[], q: string): UseQueryResult<XpPage<XpContainerRow>, XpApiError> {
+export interface ContainerListParams { q?: string; page?: number; size?: number; sort?: string }
+export function useContainers(accountIds: number[], params: ContainerListParams = {}): UseQueryResult<XpPage<XpContainerRow>, XpApiError> {
   return useQuery<XpPage<XpContainerRow>, XpApiError>({
-    ...base, queryKey: ['xp', demoKey(), 'containers', accountIds, q], enabled: accountIds.length > 0, queryFn: () => xampulseApi.containers(accountIds, q),
+    ...base, queryKey: ['xp', demoKey(), 'containers', accountIds, params], enabled: accountIds.length > 0, queryFn: () => xampulseApi.containers({ accountIds, ...params }),
   });
 }
 
@@ -64,10 +109,12 @@ export function useEvents(accountIds: number[], from: string, to: string): UseQu
 }
 
 // ---- logs ----
-export function useLogSearch(scope: XpScope, query: string, enabled: boolean): UseQueryResult<XpLogSearchResponse, XpApiError> {
-  return useQuery<XpLogSearchResponse, XpApiError>({
+export function useLogSearch(scope: XpScope, query: string, enabled: boolean) {
+  return useInfiniteQuery<XpLogSearchResponse, XpApiError>({
     ...base, queryKey: ['xp', demoKey(), 'logs', scope, query], enabled: enabled && scope.accountIds.length > 0,
-    queryFn: ({ signal }) => xampulseApi.logSearch({ scope, query, limit: 500, sort: 'TS_DESC' }, signal),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ signal, pageParam }) => xampulseApi.logSearch({ scope, query, limit: 500, sort: 'TS_DESC', cursor: pageParam as string | undefined }, signal),
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
 }
 
@@ -78,7 +125,7 @@ export function useLogHistogram(scope: XpScope, query: string, enabled: boolean)
   });
 }
 
-export const FACET_FIELDS = ['severity', 'service', 'instance_id', 'source'];
+export const FACET_FIELDS = ['severity', 'service', 'instance_id', 'region', 'source'];
 
 export function useLogFacets(scope: XpScope, query: string, enabled: boolean): UseQueryResult<XpLogFacetsResponse, XpApiError> {
   return useQuery<XpLogFacetsResponse, XpApiError>({
@@ -167,13 +214,13 @@ export function useBuckets(accountId: number | undefined, enabled: boolean): Use
     ...base, queryKey: ['xp', demoKey(), 'buckets', accountId], enabled: enabled && accountId !== undefined, queryFn: () => xampulseSetupApi.buckets(accountId as number),
   });
 }
-export function useSources(accountId: number | undefined): UseQueryResult<XpLogSource[], XpApiError> {
+export function useSources(accountId: number | undefined, enabled: boolean): UseQueryResult<XpLogSource[], XpApiError> {
   return useQuery<XpLogSource[], XpApiError>({
-    ...base, queryKey: ['xp', demoKey(), 'sources', accountId], enabled: accountId !== undefined, queryFn: () => xampulseSetupApi.sources(accountId as number),
+    ...base, queryKey: ['xp', demoKey(), 'sources', accountId], enabled: enabled && accountId !== undefined, queryFn: () => xampulseSetupApi.sources(accountId as number),
   });
 }
-export function useAudit(accountId: number | undefined, enabled: boolean): UseQueryResult<XpPage<XpAuditEntry>, XpApiError> {
+export function useAudit(accountId: number | undefined, enabled: boolean, page = 0): UseQueryResult<XpPage<XpAuditEntry>, XpApiError> {
   return useQuery<XpPage<XpAuditEntry>, XpApiError>({
-    ...base, queryKey: ['xp', demoKey(), 'audit', accountId], enabled: enabled && accountId !== undefined, queryFn: () => xampulseSetupApi.audit(accountId as number),
+    ...base, queryKey: ['xp', demoKey(), 'audit', accountId, page], enabled: enabled && accountId !== undefined, queryFn: () => xampulseSetupApi.audit(accountId as number, page),
   });
 }

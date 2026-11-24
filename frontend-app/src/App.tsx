@@ -277,11 +277,17 @@ import './styles/observability.css';
 // import './styles/accessops.css';
 
 
+// Development-only fixture preview. Production routes always keep the normal authentication gate.
+const isXamPulseFixturePreview = (pathname: string): boolean =>
+    import.meta.env.DEV && import.meta.env.VITE_XAMPULSE_DEMO === 'true' && pathname.startsWith('/xampulse');
+
 // Protected Route wrapper — uses AuthContext so auth is checked once on app
 // mount, not re-checked every time this component remounts on navigation.
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const location = useLocation();
     const { isLoading, authReady, userRoles } = useAuth();
+
+    if (isXamPulseFixturePreview(location.pathname)) return <>{children}</>;
 
     if (isLoading || !authReady) {
         return (
@@ -567,6 +573,7 @@ const AppContent: React.FC = () => {
                             <Route path="/xamsecure/:tab" element={<XamSecurePage />} />
                             <Route path="/xampulse" element={<Navigate to="/xampulse/overview" replace />} />
                             <Route path="/xampulse/hosts/:instanceId" element={<XamPulsePage />} />
+                            <Route path="/xampulse/containers/:instanceId/:name" element={<XamPulsePage />} />
                             <Route path="/xampulse/:tab" element={<XamPulsePage />} />
                             <Route path="/xamlens" element={<Navigate to="/xamlens/cloud" replace />} />
                             <Route path="/xamlens/:tab" element={<XamLensPage />} />

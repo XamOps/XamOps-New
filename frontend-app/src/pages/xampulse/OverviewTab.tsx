@@ -1,63 +1,88 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Activity, AlertTriangle, ArrowUpRight, Bell, Cpu, Database, FileWarning, Gauge, OctagonAlert, Power, Rocket, Server, Settings2, type LucideIcon } from 'lucide-react';
 import { useViewContext } from '../../hooks/xampulse/useViewContext';
-import { useEvents, useOverview } from '../../hooks/xampulse/useXamPulseQueries';
+import { useEvents, useOverview, useXpAccounts } from '../../hooks/xampulse/useXamPulseQueries';
 import { QueryBoundary } from '../../components/XamPulse/ui/QueryBoundary';
-import { Card, EmptyState, KpiTile, LoadingGrid, SkeletonBlock } from '../../components/XamPulse/ui/ui';
-import { FleetHoneycomb, ScoreRing } from '../../components/XamPulse/charts/Visuals';
+import { Card, EmptyState, KpiTile, LoadingGrid, PageHead, SkeletonBlock, StatusPill, TonePill } from '../../components/XamPulse/ui/ui';
+import { formatAgo, formatBytes, formatCount, formatDateTime, formatPct } from '../../utils/xampulse/format';
 import { xamPulseHostPath } from '../../constants/xampulseTabs';
-import { formatAgo, formatBytes, formatCount, formatPct } from '../../utils/xampulse/format';
-import type { XpAttentionItem, XpEvent, XpOverview } from '../../types/xampulse';
+import type { XpAttentionItem, XpEvent, XpHealth, XpOverview } from '../../types/xampulse';
 
-const SEV_PILL: Record<XpAttentionItem['severity'], string> = { CRITICAL: 'crit', HIGH: 'crit', MEDIUM: 'warn', LOW: 'info' };
-const SEV_ICON: Record<XpAttentionItem['severity'], string> = { CRITICAL: '\u2716', HIGH: '\u25B2', MEDIUM: '\u25B2', LOW: '\u25CF' };
-const KIND_ICON: Record<XpEvent['kind'], string> = { DEPLOY: '\u21E7', EC2_STATE: '\u23FB', ALERT: '\u2757', ANOMALY: '\u223F', AGENT: '\u2699', CONFIG: '\u2699' };
+const SEV_TONE: Record<XpAttentionItem['severity'], 'crit' | 'warn' | 'info'> = { CRITICAL: 'crit', HIGH: 'crit', MEDIUM: 'warn', LOW: 'info' };
+const KIND_ICON: Record<XpEvent['kind'], LucideIcon> = { DEPLOY: Rocket, EC2_STATE: Power, ALERT: Bell, ANOMALY: Activity, AGENT: Cpu, CONFIG: Settings2 };
+const HEALTH_ORDER: XpHealth[] = ['CRIT', 'WARN', 'NO_DATA', 'OK'];
+function scopedEvidencePath(path: string, accountId: number): string {
+  const url = new URL(path, 'https://xampulse.local');
+  if (/^\/xampulse\/hosts\/[^/]+$/.test(url.pathname)) url.searchParams.set('accountId', String(accountId));
+  if (url.pathname === '/xampulse/alerts' && !url.searchParams.has('view')) url.searchParams.set('view', 'incidents');
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+const accountStateHealth = (state: XpOverview['state']): XpHealth => state === 'CONNECTED' ? 'OK' : state === 'DEGRADED' || state === 'VERIFYING' || state === 'DEPLOYING' ? 'WARN' : 'NO_DATA';
+const scoreHealth = (score: number | null): XpHealth => score == null ? 'NO_DATA' : score >= 80 ? 'OK' : score >= 60 ? 'WARN' : 'CRIT';
 
-const NarrativeHero: React.FC<{ o: XpOverview }> = ({ o }) => {
-  const lines = o.narrative.length ? o.narrative : [o.healthScore == null ? 'No data has arrived yet. Health appears once your first agent reports.' : 'Everything looks quiet.'];
+const EstateStatus: React.FC<{ overview: XpOverview; accountLabel: string }> = ({ overview, accountLabel }) => {
+  const health = scoreHealth(overview.healthScore);
+  const narrative = overview.narrative.length ? overview.narrative : [overview.lastDataAt ? 'No active narrative is available for this range.' : 'Health appears after telemetry starts reporting.'];
   return (
-    <div className="xp-hero">
-      <ScoreRing score={o.healthScore} />
-      <div style={{ flex: 1, minWidth: 260 }}>
-        <div className="xp-eyebrow">Mission Control</div>
-        <h1 className="xp-h1">{lines[0]}</h1>
-        {lines.slice(1).map((l) => <p key={l} className="xp-muted" style={{ margin: '6px 0 0', maxWidth: '70ch' }}>{l}</p>)}
-        <p className="xp-muted" style={{ margin: '10px 0 0', fontSize: 12 }}>Last data {formatAgo(o.lastDataAt)}. Scores learn your normal for about a week, so early readings can be less certain.</p>
+    <section className="xp-estate" aria-labelledby="xp-estate-title">
+      <div className="xp-estate__status">
+        <span className="xp-eyebrow">Estate health</span>
+        <div className="xp-row" style={{ gap: 10 }}>
+          <StatusPill health={health} />
+          <strong id="xp-estate-title" className="xp-estate__score">{overview.healthScore == null ? 'No score' : `${overview.healthScore} / 100`}</strong>
+        </div>
       </div>
-    </div>
+      <div className="xp-estate__body">
+        <strong>{narrative[0]}</strong>
+        {narrative.slice(1).map((line) => <p key={line}>{line}</p>)}
+        <div className="xp-estate__meta">
+          <span>{accountLabel}</span>
+          <StatusPill health={accountStateHealth(overview.state)} label={overview.state.replaceAll('_', ' ').toLowerCase()} />
+          <span>Telemetry {overview.lastDataAt ? `${formatAgo(overview.lastDataAt)} · ${formatDateTime(overview.lastDataAt)}` : 'has not arrived'}</span>
+        </div>
+      </div>
+    </section>
   );
 };
 
-const KpiStrip: React.FC<{ o: XpOverview }> = ({ o }) => {
-  const k = o.kpis;
+const KpiStrip: React.FC<{ overview: XpOverview }> = ({ overview }) => {
+  const k = overview.kpis;
+  const critical = overview.tiles.filter((tile) => tile.health === 'CRIT').length;
+  const warning = overview.tiles.filter((tile) => tile.health === 'WARN').length;
+  const hasFleetHealth = overview.tiles.length > 0;
+  const hasHostDenominator = k.hostsTotal > 0;
   return (
-    <div className="xp-grid xp-grid--kpi">
-      <KpiTile label="Hosts reporting" value={`${k.hostsReporting} / ${k.hostsTotal}`} hint={k.hostsReporting < k.hostsTotal ? `${k.hostsTotal - k.hostsReporting} not reporting` : 'All reporting'} />
-      <KpiTile label="Errors per minute" value={formatCount(k.errorsPerMin)} hint="Across all logs in range" />
-      <KpiTile label="Ingested (24h)" value={formatBytes(k.ingestBytes24h)} />
-      <KpiTile label="Open incidents" value={k.openIncidents} hint={k.openIncidents ? 'Needs a person' : 'None open'} />
-      <KpiTile label="Coverage" value={formatPct(k.coveragePct)} hint="Instances sending data" />
+    <div className="xp-grid xp-grid--kpi" aria-label="Operational summary">
+      <KpiTile icon={Server} tone="green" label="Reporting hosts" status={!hasHostDenominator ? 'NO_DATA' : k.hostsReporting < k.hostsTotal ? 'WARN' : 'OK'} value={`${k.hostsReporting} / ${k.hostsTotal}`} hint={`${formatPct(k.coveragePct)} coverage · selected range`} />
+      <KpiTile icon={OctagonAlert} tone="red" label="Critical hosts" status={!hasFleetHealth ? 'NO_DATA' : critical ? 'CRIT' : 'OK'} value={hasFleetHealth ? critical : '—'} hint={hasFleetHealth ? 'Derived from complete fleet health tiles' : 'No host health measurements in this range'} />
+      <KpiTile icon={AlertTriangle} tone="amber" label="Warning hosts" status={!hasFleetHealth ? 'NO_DATA' : warning ? 'WARN' : 'OK'} value={hasFleetHealth ? warning : '—'} hint={hasFleetHealth ? 'Derived from complete fleet health tiles' : 'No host health measurements in this range'} />
+      <KpiTile icon={Bell} tone="violet" label="Open incidents" status={k.openIncidents ? 'CRIT' : 'OK'} value={k.openIncidents} hint={k.openIncidents ? 'Needs triage' : 'None open'} />
+      <KpiTile icon={FileWarning} tone="indigo" label="Log errors" value={`${formatCount(k.errorsPerMin)} / min`} hint="Rate in selected range · no severity threshold configured" />
+      <KpiTile icon={Database} tone="indigo" label="Telemetry ingested" value={formatBytes(k.ingestBytes24h)} hint="Last 24 hours" />
     </div>
   );
 };
 
-const AttentionFeed: React.FC<{ items: XpAttentionItem[] }> = ({ items }) => {
+const AttentionFeed: React.FC<{ items: XpAttentionItem[]; accountName: (id: number) => string }> = ({ items, accountName }) => {
   const ctx = useViewContext();
-  if (items.length === 0) return <EmptyState title="Nothing needs your attention" body="No hosts are outside their normal range right now." />;
+  if (!items.length) return <EmptyState title="Nothing needs attention" body="No returned finding is currently prioritized for this selection." />;
   return (
-    <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {items.map((a) => (
-        <li key={a.id} className="xp-card xp-card--flat">
-          <div className="xp-row">
-            <span className={`xp-pill xp-pill--${SEV_PILL[a.severity]}`}><span aria-hidden="true">{SEV_ICON[a.severity]}</span>{a.severity}</span>
-            <strong>{a.title}</strong>
+    <ol className="xp-list xp-priority-list">
+      {items.map((item, index) => (
+        <li key={item.id} className="xp-item">
+          <div className="xp-item__head">
+            <span className="xp-rank" aria-label={`Priority ${index + 1}`}>{index + 1}</span>
+            <TonePill tone={SEV_TONE[item.severity]}>{item.severity}</TonePill>
+            <span className="xp-item__title">{item.title}</span>
             <span className="xp-spacer" />
-            <span className="xp-muted" style={{ fontSize: 12 }}>since {formatAgo(a.since)} · confidence {a.confidence.toLowerCase()}</span>
+            <span className="xp-item__meta">since {formatAgo(item.since)} · {item.confidence.toLowerCase()} confidence</span>
           </div>
-          <p style={{ margin: '8px 0' }}>{a.detail}</p>
-          <div className="xp-row">
-            {a.evidence.map((ev) => <Link key={ev.label} className="xp-btn" to={ctx.link(ev.deepLink)}>{ev.kind === 'LOG' ? 'Logs' : ev.kind === 'METRIC' ? 'Metric' : ev.kind === 'ALERT' ? 'Alert' : 'Event'}: {ev.label}</Link>)}
-            {a.instanceId && <Link className="xp-btn xp-btn--ghost" to={ctx.link(xamPulseHostPath(a.instanceId))}>Open host</Link>}
+          <p className="xp-item__body">{item.detail}</p>
+          <div className="xp-location"><strong>Impact:</strong> {accountName(item.accountId)}{item.instanceId ? ` · ${item.instanceId}` : ' · account-wide'}</div>
+          <div className="xp-item__actions">
+            {item.instanceId && <Link className="xp-btn xp-btn--primary xp-btn--sm" to={ctx.link(xamPulseHostPath(item.instanceId, item.accountId))}>Investigate host <ArrowUpRight size={12} aria-hidden="true" /></Link>}
+            {item.evidence.map((evidence) => <Link key={`${evidence.kind}-${evidence.label}`} className="xp-btn xp-btn--sm" to={ctx.link(scopedEvidencePath(evidence.deepLink, item.accountId))}>{evidence.label}</Link>)}
           </div>
         </li>
       ))}
@@ -65,50 +90,100 @@ const AttentionFeed: React.FC<{ items: XpAttentionItem[] }> = ({ items }) => {
   );
 };
 
-const WhatChangedRail: React.FC = () => {
+/** Overview shows the latest few changes; Previous / Next pages through the rest of the range. */
+const CHANGES_PER_PAGE = 5;
+
+const Changed: React.FC<{ accountName: (id: number) => string }> = ({ accountName }) => {
   const ctx = useViewContext();
   const events = useEvents(ctx.effectiveAccountIds, ctx.from, ctx.to);
+  const [page, setPage] = useState(0);
+  const scopeKey = `${ctx.effectiveAccountIds.join(',')}|${ctx.from}|${ctx.to}`;
+  useEffect(() => { setPage(0); }, [scopeKey]);
   return (
-    <Card title="What changed" id="xp-changed">
-      <QueryBoundary query={events} skeleton={<SkeletonBlock height={140} />}>
-        {(list) => list.length === 0 ? <p className="xp-muted" style={{ margin: 0 }}>No deploys, restarts or alerts in this range.</p> : (
-          <ul className="xp-timeline">
-            {list.slice().sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts)).map((e) => (
-              <li key={`${e.ts}-${e.title}`}>
-                <div><span aria-hidden="true">{KIND_ICON[e.kind]}</span> <strong>{e.title}</strong></div>
-                <div className="xp-muted" style={{ fontSize: 12 }}>{formatAgo(e.ts)}{e.detail ? ` · ${e.detail}` : ''}</div>
-              </li>
-            ))}
-          </ul>
-        )}
+    <Card title="What changed" id="xp-changed" actions={<span className="xp-eyebrow">Selected range</span>}>
+      <QueryBoundary query={events} skeleton={<SkeletonBlock height={180} label="Loading recent changes" />}>
+        {(list) => {
+          if (!list.length) return <EmptyState title="No recorded changes" body="No deploy, state, agent, alert, anomaly or configuration events were returned in this range." />;
+          const sorted = list.slice().sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts));
+          const pages = Math.ceil(sorted.length / CHANGES_PER_PAGE);
+          const current = Math.min(page, pages - 1);
+          const start = current * CHANGES_PER_PAGE;
+          const shown = sorted.slice(start, start + CHANGES_PER_PAGE);
+          return (
+            <>
+              <ul className="xp-timeline">
+                {shown.map((event) => {
+                  const Icon = KIND_ICON[event.kind] ?? Activity;
+                  // The title usually names the instance already; repeat the id below only when it does not.
+                  const showResource = !!event.resource && !event.title.includes(event.resource);
+                  const content = (
+                    <>
+                      <span className="xp-timeline__title">{event.title}</span>
+                      <span className="xp-timeline__meta">
+                        {accountName(event.accountId)}{showResource && <> · <span className="xp-mono">{event.resource}</span></>} · {formatAgo(event.ts)}{event.detail ? ` · ${event.detail}` : ''}
+                      </span>
+                    </>
+                  );
+                  return <li key={`${event.ts}-${event.title}`}><span className="xp-timeline__ic" aria-hidden="true"><Icon size={12} /></span>{event.resource.startsWith('i-') ? <Link to={ctx.link(xamPulseHostPath(event.resource, event.accountId))}>{content}</Link> : <span>{content}</span>}</li>;
+                })}
+              </ul>
+              {pages > 1 && (
+                <nav className="xp-pagination" aria-label="Change pages">
+                  <button type="button" className="xp-btn" disabled={current === 0} onClick={() => setPage(current - 1)}>Previous</button>
+                  <span>{start + 1}–{start + shown.length} of {sorted.length}</span>
+                  <button type="button" className="xp-btn" disabled={current >= pages - 1} onClick={() => setPage(current + 1)}>Next</button>
+                </nav>
+              )}
+            </>
+          );
+        }}
       </QueryBoundary>
+    </Card>
+  );
+};
+
+const FleetWhere: React.FC<{ overview: XpOverview; accountName: (id: number) => string }> = ({ overview, accountName }) => {
+  const ctx = useViewContext();
+  const counts = Object.fromEntries(HEALTH_ORDER.map((health) => [health, overview.tiles.filter((tile) => tile.health === health).length])) as Record<XpHealth, number>;
+  const ranked = overview.tiles.slice().sort((a, b) => HEALTH_ORDER.indexOf(a.health) - HEALTH_ORDER.indexOf(b.health) || (a.score ?? 101) - (b.score ?? 101));
+  if (!ranked.length) return <Card title="Where"><EmptyState title="No hosts yet" body="Hosts appear after telemetry starts reporting." /></Card>;
+  return (
+    <Card title="Where to look" id="xp-where" actions={<Link className="xp-btn xp-btn--sm" to={ctx.link('/xampulse/hosts')}>Open all hosts</Link>}>
+      <div className="xp-health-distribution" aria-label="Fleet health distribution">
+        {HEALTH_ORDER.map((health) => <div key={health}><StatusPill health={health} /><strong>{counts[health]}</strong></div>)}
+      </div>
+      <ol className="xp-fleet-list">
+        {ranked.slice(0, 8).map((host) => <li key={`${host.accountId}-${host.instanceId}`}>
+          <StatusPill health={host.health} />
+          <span><Link className="xp-cell-name" to={ctx.link(xamPulseHostPath(host.instanceId, host.accountId))}>{host.name}</Link><span className="xp-cell-sub">{accountName(host.accountId)} · {host.instanceId}</span></span>
+          <span className="xp-spacer" />
+          <span className="xp-mono">CPU {host.cpuPct == null ? '—' : `${host.cpuPct.toFixed(0)}%`} · memory {host.memPct == null ? '—' : `${host.memPct.toFixed(0)}%`}</span>
+          <Link className="xp-btn xp-btn--ghost xp-btn--sm" to={ctx.link(xamPulseHostPath(host.instanceId, host.accountId))}>Open <ArrowUpRight size={12} aria-hidden="true" /></Link>
+        </li>)}
+      </ol>
     </Card>
   );
 };
 
 const OverviewTab: React.FC = () => {
   const ctx = useViewContext();
-  const q = useOverview(ctx.scope);
+  const query = useOverview(ctx.scope);
+  const accounts = useXpAccounts();
+  const accountName = (id: number) => accounts.data?.find((account) => account.cloudAccountId === id)?.name ?? `Account ${id}`;
+  const selectedLabel = ctx.effectiveAccountIds.length === 1 ? accountName(ctx.effectiveAccountIds[0]) : `${ctx.effectiveAccountIds.length} accounts`;
   return (
     <>
-      <QueryBoundary query={q} skeleton={<><SkeletonBlock height={170} label="Loading fleet health" /><LoadingGrid count={5} height={92} /></>}>
-        {(o) => (
-          <>
-            <NarrativeHero o={o} />
-            <KpiStrip o={o} />
-            <div className="xp-grid xp-grid--main">
-              <Card title="Needs attention" id="xp-attn" actions={<span className="xp-muted" style={{ fontSize: 12 }}>Ranked by impact</span>}><AttentionFeed items={o.attention} /></Card>
-              <div className="xp-grid">
-                <Card title="Fleet map" id="xp-fleet">
-                  {o.tiles.length === 0
-                    ? <EmptyState title="No hosts yet" body="Hosts appear here as their agents start reporting." />
-                    : <FleetHoneycomb tiles={o.tiles} hrefFor={(t) => ctx.link(xamPulseHostPath(t.instanceId))} />}
-                </Card>
-                <WhatChangedRail />
-              </div>
-            </div>
-          </>
-        )}
+      <PageHead icon={Gauge} title="Overview" sub="Current estate health, recent change, active impact, location and the next investigation step." />
+      <QueryBoundary query={query} skeleton={<><SkeletonBlock height={128} label="Loading estate health" /><LoadingGrid count={6} height={96} /></>}>
+        {(overview) => <>
+          <EstateStatus overview={overview} accountLabel={selectedLabel} />
+          <KpiStrip overview={overview} />
+          <div className="xp-grid xp-grid--main">
+            <Card title="Needs attention now" id="xp-attn" actions={<span className="xp-eyebrow">Worst first</span>}><AttentionFeed items={overview.attention} accountName={accountName} /></Card>
+            <Changed accountName={accountName} />
+          </div>
+          <FleetWhere overview={overview} accountName={accountName} />
+        </>}
       </QueryBoundary>
     </>
   );

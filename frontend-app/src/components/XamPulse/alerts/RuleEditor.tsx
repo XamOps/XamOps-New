@@ -4,7 +4,7 @@ import { XpApiError } from '../../../api/xampulseErrors';
 import { describeRule, xampulseAlertsApi } from '../../../api/xampulseAlertsApi';
 import type { XpAlertRule, XpChannel, XpConditionType } from '../../../types/xampulse';
 import { Card, ErrorState, friendlyError } from '../ui/ui';
-import { formatDateTime } from '../../../utils/xampulse/format';
+import { BacktestPanel } from './BacktestPanel';
 
 export function blankRule(accountId: number): XpAlertRule {
   return {
@@ -38,7 +38,9 @@ export const RuleEditor: React.FC<Props> = ({ initial, channels, onSaved, onCanc
   const c = rule.condition;
   const setC = (patch: Partial<XpAlertRule['condition']>) => setRule({ ...rule, condition: { ...c, ...patch } });
   const save = useMutation({ mutationFn: () => (rule.id ? xampulseAlertsApi.updateRule(rule) : xampulseAlertsApi.createRule(rule)), onSuccess: onSaved });
-  const dry = useMutation({ mutationFn: () => xampulseAlertsApi.preview(rule) });
+  const [ranFor, setRanFor] = useState<string | null>(null);
+  const dry = useMutation({ mutationFn: (r: XpAlertRule) => xampulseAlertsApi.preview(r), onMutate: (r) => setRanFor(JSON.stringify(r)) });
+  const stale = dry.data !== undefined && ranFor !== JSON.stringify(rule);
   const conflict = save.error instanceof XpApiError && save.error.code === 'XP_STATE_CONFLICT';
 
   return (
@@ -75,6 +77,17 @@ export const RuleEditor: React.FC<Props> = ({ initial, channels, onSaved, onCanc
           {channels.length === 0 && <span className="xp-muted" style={{ fontSize: 12 }}>No channels yet. An admin can add one in the Channels view.</span>}
         </div>
       </div>
+      <details className="xp-rule-advanced">
+        <summary>Scope, grouping and routing</summary>
+        <div className="xp-grid xp-grid--2" style={{ marginTop: 12 }}>
+          <div className="xp-field"><label htmlFor="r-instances">Instance IDs (optional)</label><input id="r-instances" className="xp-input xp-input--mono" value={(rule.scope.instanceIds ?? []).join(', ')} onChange={(e) => setRule({ ...rule, scope: { ...rule.scope, instanceIds: e.target.value.split(',').map((value) => value.trim()).filter(Boolean) } })} placeholder="i-0123, i-0456" /></div>
+          <div className="xp-field"><label htmlFor="r-tag">Tag matcher (optional)</label><input id="r-tag" className="xp-input xp-input--mono" value={rule.scope.tag ?? ''} onChange={(e) => setRule({ ...rule, scope: { ...rule.scope, tag: e.target.value || undefined } })} placeholder="environment=production" /></div>
+          <div className="xp-field"><label htmlFor="r-group">Group by labels</label><input id="r-group" className="xp-input xp-input--mono" value={rule.grouping.by.join(', ')} onChange={(e) => setRule({ ...rule, grouping: { ...rule.grouping, by: e.target.value.split(',').map((value) => value.trim()).filter(Boolean) } })} /></div>
+          <div className="xp-field"><label htmlFor="r-dedupe">Repeat window</label><input id="r-dedupe" className="xp-input" value={rule.grouping.dedupeWindow} onChange={(e) => setRule({ ...rule, grouping: { ...rule.grouping, dedupeWindow: e.target.value } })} /></div>
+          <label className="xp-row"><input type="checkbox" checked={rule.routing.createTicket} onChange={(e) => setRule({ ...rule, routing: { ...rule.routing, createTicket: e.target.checked } })} />Create a ticket when this rule fires</label>
+          <div className="xp-field"><label htmlFor="r-runbook">Runbook URL (optional)</label><input id="r-runbook" type="url" className="xp-input" value={rule.routing.runbookUrl ?? ''} onChange={(e) => setRule({ ...rule, routing: { ...rule.routing, runbookUrl: e.target.value || undefined } })} placeholder="https://…" /></div>
+        </div>
+      </details>
       <label style={{ display: 'flex', gap: 8, marginTop: 12 }}><input type="checkbox" checked={rule.enabled} onChange={(e) => setRule({ ...rule, enabled: e.target.checked })} />Rule is enabled</label>
       {errs.length > 0 && <ul className="xp-err" aria-live="polite">{errs.map((e) => <li key={e}>{e}</li>)}</ul>}
       {conflict && (
@@ -83,15 +96,16 @@ export const RuleEditor: React.FC<Props> = ({ initial, channels, onSaved, onCanc
       {save.error && !conflict && <div style={{ marginTop: 12 }}><ErrorState error={save.error} compact /></div>}
       <div className="xp-row" style={{ marginTop: 16 }}>
         <button type="button" className="xp-btn xp-btn--primary" disabled={errs.length > 0 || save.isPending} onClick={() => save.mutate()}>{save.isPending ? 'Saving' : 'Save rule'}</button>
-        <button type="button" className="xp-btn" disabled={errs.length > 0 || dry.isPending} onClick={() => dry.mutate()}>{dry.isPending ? 'Testing' : 'Dry run on the last 24 hours'}</button>
+        <button type="button" className="xp-btn" disabled={errs.length > 0 || dry.isPending || c.type === 'METRIC_ANOMALY' || c.type === 'FORECAST'} onClick={() => dry.mutate(rule)}
+          title={c.type === 'METRIC_ANOMALY' || c.type === 'FORECAST' ? 'Anomaly and forecast rules depend on baselines rebuilt over time and cannot be replayed exactly' : undefined}>
+          {dry.isPending ? 'Replaying' : 'Backtest on the last 24 hours'}</button>
         <button type="button" className="xp-btn xp-btn--ghost" onClick={onCancel}>Cancel</button>
       </div>
       {dry.error && <p className="xp-err" role="alert">{friendlyError(dry.error)}</p>}
       {dry.data && (
-        <div className="xp-banner" style={{ marginTop: 12 }} role="status">
-          <strong>{dry.data.firings.length === 0 ? 'This rule would not have fired.' : `This rule would have fired ${dry.data.firings.length} time(s) and notified ${dry.data.wouldNotify}.`}</strong>
-          <span className="xp-muted"> Checked {dry.data.evaluatedPoints} data points.</span>
-          <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>{dry.data.firings.slice(0, 5).map((f) => <li key={f.from}>{formatDateTime(f.from)} to {formatDateTime(f.to)}, {Object.values(f.group).join(' ') || 'all hosts'}, peak {f.peak}</li>)}</ul>
+        <div className={stale ? 'xp-backtest--stale' : undefined}>
+          {stale && <p className="xp-banner xp-banner--warn" role="status" style={{ marginTop: 12 }}>The rule changed since this backtest. Run it again to see the new result.</p>}
+          <BacktestPanel p={dry.data} />
         </div>
       )}
     </Card>

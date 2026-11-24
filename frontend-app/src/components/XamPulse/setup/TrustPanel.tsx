@@ -29,6 +29,7 @@ export const TrustBody: React.FC<{ t: XpTrustPanel; compact?: boolean }> = ({ t,
     {!compact && <List title="Who can see it" items={t.access} />}
     {!compact && <List title="Your controls" items={t.controls} />}
     <div className="xp-banner xp-banner--ok"><strong>Connection role:</strong> {t.permissionsDiff.connectionRoleNote}<br /><strong>No remote commands:</strong> {t.permissionsDiff.noRunCommand}</div>
+    {!compact && <details><summary>Least-privilege details</summary><h3>Archive role</h3><ul>{t.permissionsDiff.archiveRole.map((item) => <li key={item} className="xp-mono">{item}</li>)}</ul><h3>Connection role grants</h3><ul>{t.permissionsDiff.connectionRoleGrants.map((item) => <li key={item} className="xp-mono">{item}</li>)}</ul>{t.templateSha256 && <p className="xp-muted">Template SHA-256: <span className="xp-mono">{t.templateSha256}</span></p>}</details>}
   </div>
 );
 

@@ -1,15 +1,23 @@
 import React from 'react';
+import { Lightbulb } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useViewContext } from '../../hooks/xampulse/useViewContext';
-import { useForecasts, useInsights, useUsage } from '../../hooks/xampulse/useXamPulseQueries';
+import { useForecasts, useInsights } from '../../hooks/xampulse/useXamPulseQueries';
 import { QueryBoundary } from '../../components/XamPulse/ui/QueryBoundary';
-import { Card, EmptyState, SkeletonBlock } from '../../components/XamPulse/ui/ui';
+import { Card, EmptyState, SkeletonBlock, PageHead, TonePill } from '../../components/XamPulse/ui/ui';
 import { ForecastFan } from '../../components/XamPulse/charts/Visuals';
+import { xamPulseHostPath } from '../../constants/xampulseTabs';
 import { formatAgo, formatBytes, formatUsd } from '../../utils/xampulse/format';
 import type { XpInsight, XpUsage } from '../../types/xampulse';
 
 const KIND_LABEL: Record<XpInsight['kind'], string> = { NARRATIVE: 'Summary', ANOMALY: 'Unusual', WHAT_CHANGED: 'What changed', COST: 'Log cost', RIGHTSIZING: 'Rightsizing', NEW_PATTERN: 'New pattern' };
 const SEV_PILL: Record<XpInsight['severity'], string> = { INFO: 'info', LOW: 'info', MEDIUM: 'warn', HIGH: 'crit' };
+function scopedEvidencePath(path: string, accountId: number): string {
+  const url = new URL(path, 'https://xampulse.local');
+  if (/^\/xampulse\/hosts\/[^/]+$/.test(url.pathname)) url.searchParams.set('accountId', String(accountId));
+  if (url.pathname === '/xampulse/alerts' && !url.searchParams.has('view')) url.searchParams.set('view', 'incidents');
+  return `${url.pathname}${url.search}${url.hash}`;
+}
 
 export const UsagePanel: React.FC<{ u: XpUsage }> = ({ u }) => {
   const days = Array.from(new Set(u.byDay.map((d) => d.day)));
@@ -18,23 +26,26 @@ export const UsagePanel: React.FC<{ u: XpUsage }> = ({ u }) => {
   return (
     <div className="xp-grid xp-grid--2">
       <div>
-        <h3 style={{ margin: '0 0 8px' }}>Ingested per day</h3>
-        <svg viewBox="0 0 300 90" width="100%" height={110} role="img" aria-label={`Daily ingest for ${days.length} days, peak ${formatBytes(max)}`} preserveAspectRatio="none">
-          {totals.map((t, i) => <rect key={days[i]} x={i * (300 / totals.length) + 3} width={300 / totals.length - 6} y={88 - (t / max) * 84} height={(t / max) * 84} fill="var(--xp-accent)" rx={3} />)}
-        </svg>
-        <div className="xp-row xp-muted" style={{ justifyContent: 'space-between', fontSize: 11 }}><span>{days[0]}</span><span>{days[days.length - 1]}</span></div>
+        <div className="xp-row" style={{ marginBottom: 14 }}><h3 style={{ margin: 0 }}>Ingested per day</h3><span className="xp-spacer" /><span className="xp-legend__v">peak {formatBytes(max)}</span></div>
+        <div className="xp-dbars" role="img" aria-label={`Daily ingest for ${days.length} days, peak ${formatBytes(max)}`}>
+          {totals.map((t, i) => <span key={days[i]} data-last={i === totals.length - 1} title={`${days[i]}: ${formatBytes(t)}`} style={{ height: `${Math.max(2, (t / max) * 100)}%` }} />)}
+        </div>
+        <div className="xp-axis-row" style={{ borderTop: '1px solid var(--xp-edge)', paddingTop: 6 }}><span>{days[0]}</span><span>{days[days.length - 1]}</span></div>
       </div>
       <div>
-        <h3 style={{ margin: '0 0 8px' }}>Where log volume comes from</h3>
-        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        <h3 style={{ margin: '0 0 14px' }}>Where log volume comes from</h3>
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
           {u.bySource.map((s) => (
-            <li key={s.source} style={{ marginBottom: 6 }}>
-              <div className="xp-row"><span>{s.source}</span><span className="xp-spacer" /><span className="xp-muted">{formatBytes(s.bytes)} · {s.pct}%</span></div>
-              <div className="xp-bar" style={{ width: '100%', marginRight: 0 }} role="img" aria-label={`${s.source} ${s.pct} percent`}><i style={{ width: `${s.pct}%` }} /></div>
+            <li key={s.source}>
+              <div className="xp-row" style={{ marginBottom: 6, fontSize: 12.5 }}><span className="xp-mono" style={{ color: 'var(--xp-text2)' }}>{s.source}</span><span className="xp-spacer" /><span className="xp-legend__v">{formatBytes(s.bytes)} · {s.pct.toFixed(1)}%</span></div>
+              <div className="xp-bar" style={{ width: '100%', marginRight: 0 }} role="img" aria-label={`${s.source} ${s.pct.toFixed(1)} percent`}><i style={{ width: `${s.pct}%` }} /></div>
             </li>
           ))}
         </ul>
-        <p className="xp-muted" style={{ fontSize: 12 }}>Hot storage {formatBytes(u.hotBytes)} · archive {formatBytes(u.archiveBytes)} · projected AWS cost {formatUsd(u.projectedMonthlyCustomerAwsUsd)} per month in your account.</p>
+        <p className="xp-hint" style={{ marginTop: 16 }}>
+          Hot storage {formatBytes(u.hotBytes)} · archive {u.archiveBytes > 0 ? formatBytes(u.archiveBytes) : 'off or not measured'} · projected AWS cost {u.projectedMonthlyCustomerAwsUsd == null ? 'not available' : `${formatUsd(u.projectedMonthlyCustomerAwsUsd)} per month in your account`}.
+          {u.quotaGbPerDay == null ? ' Daily quota is not configured.' : ` Daily quota ${u.quotaGbPerDay.toLocaleString()} GB/day.`}
+        </p>
       </div>
     </div>
   );
@@ -45,21 +56,21 @@ const InsightsTab: React.FC = () => {
   const accountId = ctx.effectiveAccountIds[0];
   const feed = useInsights(ctx.scope);
   const fc = useForecasts(accountId);
-  const usage = useUsage(accountId);
   return (
     <>
-      <div className="xp-row"><h1 className="xp-h1" style={{ fontSize: 22 }}>Insights</h1><span className="xp-muted">Plain-language findings with the evidence behind them</span></div>
+      <PageHead icon={Lightbulb} title="Insights" sub="Plain-language findings with the evidence behind them." />
       <div className="xp-grid xp-grid--main">
         <Card title="What we noticed" id="xp-feed">
           <QueryBoundary query={feed} skeleton={<SkeletonBlock height={240} />}>
             {(list) => list.length === 0 ? <EmptyState title="Still learning your normal" body="Insights need about a week of data to be reliable. Until then, check Mission Control." /> : (
-              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {list.map((i) => (
-                  <li key={i.id} className="xp-card xp-card--flat">
-                    <div className="xp-row"><span className={`xp-pill xp-pill--${SEV_PILL[i.severity]}`}>{KIND_LABEL[i.kind]}</span><strong>{i.title}</strong><span className="xp-spacer" /><span className="xp-muted" style={{ fontSize: 12 }}>{formatAgo(i.asOf)} · confidence {i.confidence.toLowerCase()}</span></div>
-                    <p style={{ margin: '8px 0' }}>{i.body}</p>
-                    {i.kind === 'COST' && <p className="xp-muted" style={{ margin: '0 0 8px', fontSize: 12 }}>Suggestion only. XamPulse never drops your logs on its own.</p>}
-                    <div className="xp-row">{i.evidence.map((ev) => <Link key={ev.label} className="xp-btn" to={ctx.link(ev.deepLink)}>{ev.label}</Link>)}</div>
+              <ul className="xp-list">
+                {list.slice().sort((a, b) => ({ HIGH: 0, MEDIUM: 1, LOW: 2, INFO: 3 }[a.severity] - { HIGH: 0, MEDIUM: 1, LOW: 2, INFO: 3 }[b.severity])).map((i) => (
+                  <li key={i.id} className="xp-item">
+                    <div className="xp-item__head"><TonePill tone={SEV_PILL[i.severity] as 'crit' | 'warn' | 'info'}>{KIND_LABEL[i.kind]}</TonePill><span className="xp-item__title">{i.title}</span><span className="xp-spacer" /><span className="xp-item__meta"><span className="xp-mono">{formatAgo(i.asOf)}</span> · confidence {i.confidence.toLowerCase()}</span></div>
+                    <p className="xp-item__body">{i.body}</p>
+                    <div className="xp-location">Account {i.accountId}{i.instanceId ? ` · host ${i.instanceId}` : ' · account-wide'} · as of {formatAgo(i.asOf)}</div>
+                    {i.kind === 'COST' && <p className="xp-muted" style={{ margin: '-4px 0 10px', fontSize: 11.5 }}>Suggestion only. XamPulse never drops your logs on its own.</p>}
+                    <div className="xp-item__actions">{i.instanceId && <Link className="xp-btn xp-btn--primary xp-btn--sm" to={ctx.link(xamPulseHostPath(i.instanceId, i.accountId))}>Open host</Link>}{i.evidence.map((ev) => <Link key={ev.label} className="xp-btn xp-btn--sm" to={ctx.link(scopedEvidencePath(ev.deepLink, i.accountId))}>{ev.label}</Link>)}</div>
                   </li>
                 ))}
               </ul>
@@ -69,14 +80,11 @@ const InsightsTab: React.FC = () => {
         <Card title="Disk forecasts" id="xp-fc">
           <QueryBoundary query={fc} skeleton={<SkeletonBlock height={120} />}>
             {(list) => list.length === 0 ? <p className="xp-muted" style={{ margin: 0 }}>No filesystem is trending towards full.</p> : (
-              <div className="xp-grid">{list.map((f) => <div key={`${f.instanceId}${f.resource}`}><div className="xp-muted xp-mono" style={{ fontSize: 12 }}>{f.instanceId}</div><ForecastFan f={f} /></div>)}</div>
+              <div className="xp-grid" style={{ gap: 22 }}>{list.map((f) => <div key={`${f.accountId}${f.instanceId}${f.resource}`}><div className="xp-row" style={{ marginBottom: 6 }}><Link to={ctx.link(xamPulseHostPath(f.instanceId, f.accountId))}>{f.instanceId} · {f.resource}</Link><span className="xp-spacer" /><TonePill tone={f.r2 >= 0.8 ? 'ok' : f.r2 >= 0.5 ? 'warn' : 'nodata'}>{f.r2 >= 0.8 ? 'High confidence' : f.r2 >= 0.5 ? 'Limited confidence' : 'Low confidence'} · r² {f.r2.toFixed(2)}</TonePill></div><ForecastFan f={f} /></div>)}</div>
             )}
           </QueryBoundary>
         </Card>
       </div>
-      <Card title="Log volume and cost" id="xp-usage">
-        <QueryBoundary query={usage} skeleton={<SkeletonBlock height={160} />}>{(u) => <UsagePanel u={u} />}</QueryBoundary>
-      </Card>
     </>
   );
 };

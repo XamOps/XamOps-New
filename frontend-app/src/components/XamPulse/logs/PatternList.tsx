@@ -11,21 +11,23 @@ export function templateToQuery(template: string): string {
   return `"${longest.replace(/"/g, '')}"`;
 }
 
-export const PatternList: React.FC<{ patterns: XpLogPattern[]; onPick: (p: XpLogPattern) => void }> = ({ patterns, onPick }) => {
-  if (patterns.length === 0) return <EmptyState title="No patterns yet" body="Patterns group similar log lines so a flood of 10,000 lines reads as 3 stories." />;
-  return (
-    <div className="xp-table-wrap"><table className="xp-table">
-      <caption className="xp-sr">Log patterns, most frequent first</caption>
-      <thead><tr><th scope="col">Pattern</th><th scope="col" className="xp-num">Count</th><th scope="col" className="xp-num">Change</th><th scope="col">Trend</th><th scope="col">First seen</th></tr></thead>
-      <tbody>{patterns.map((p) => (
-        <tr key={p.patternId} data-clickable="true" tabIndex={0} onClick={() => onPick(p)} onKeyDown={(e) => { if (e.key === 'Enter') onPick(p); }} aria-label={`Pattern ${p.template}. Filter logs to this pattern.`}>
-          <td style={{ maxWidth: 520, overflow: 'hidden', textOverflow: 'ellipsis' }}><SeverityBadge severity={p.severity} /> <span className="xp-mono">{p.template}</span> {p.isNew && <span className="xp-pill xp-pill--info">New</span>}</td>
-          <td className="xp-num">{formatCount(p.count)}</td>
-          <td className="xp-num">{p.isNew ? 'new' : p.deltaPct == null ? '\u2014' : `${p.deltaPct > 0 ? '+' : ''}${p.deltaPct}%`}</td>
-          <td><Sparkline values={p.trend} label="Pattern trend" /></td>
-          <td>{formatAgo(p.firstSeen)}</td>
-        </tr>
-      ))}</tbody>
-    </table></div>
-  );
+/** The first literal words of a line, quoted, to filter by "this kind of line". */
+export function lineToPatternQuery(body: string): string {
+  const first = body.split('\n')[0];
+  return templateToQuery(first.replace(/\d+/g, '<N>'));
+}
+
+export const PatternList: React.FC<{ patterns: XpLogPattern[]; onPick: (p: XpLogPattern) => void; onSample?: (p: XpLogPattern) => void }> = ({ patterns, onPick, onSample }) => {
+  if (!patterns.length) return <EmptyState title="No patterns yet" body="Patterns group similar log lines so a flood becomes a small set of stories." />;
+  return <div className="xp-table-wrap"><table className="xp-table">
+    <caption className="xp-sr">Log patterns, most frequent first</caption>
+    <thead><tr><th scope="col">Pattern</th><th scope="col" className="xp-num">Count</th><th scope="col" className="xp-num">Change</th><th scope="col">Trend</th><th scope="col">First seen</th><th scope="col"><span className="xp-sr">Actions</span></th></tr></thead>
+    <tbody>{patterns.map((pattern) => <tr key={pattern.patternId}>
+      <td style={{ maxWidth: 520, whiteSpace: 'normal' }}><SeverityBadge severity={pattern.severity} /> <span className="xp-mono">{pattern.template}</span> {pattern.isNew && <span className="xp-pill xp-pill--info">New</span>}</td>
+      <td className="xp-num xp-mono">{formatCount(pattern.count)}</td>
+      <td className="xp-num xp-mono" data-status={pattern.isNew || (pattern.deltaPct ?? 0) > 50 ? 'warning' : undefined}>{pattern.isNew ? 'new' : pattern.deltaPct == null ? '—' : `${pattern.deltaPct > 0 ? '+' : ''}${pattern.deltaPct}%`}</td>
+      <td><Sparkline values={pattern.trend} label={`${pattern.template} occurrence trend`} /></td><td className="xp-mono">{formatAgo(pattern.firstSeen)}</td>
+      <td><div className="xp-row"><button type="button" className="xp-btn xp-btn--sm" onClick={() => onPick(pattern)}>Filter lines</button>{onSample && <button type="button" className="xp-btn xp-btn--ghost xp-btn--sm" onClick={() => onSample(pattern)}>Open sample</button>}</div></td>
+    </tr>)}</tbody>
+  </table></div>;
 };

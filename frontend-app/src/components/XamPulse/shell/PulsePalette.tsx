@@ -12,7 +12,7 @@ export const PulsePalette: React.FC<{ open: boolean; onClose: () => void }> = ({
   const navigate = useNavigate();
   const ctx = useViewContext();
   const prefs = usePrefs();
-  const hosts = useHosts(ctx.effectiveAccountIds, '');
+  const hosts = useHosts(ctx.effectiveAccountIds, { size: 50, sort: 'health' });
   const [term, setTerm] = useState('');
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -27,7 +27,7 @@ export const PulsePalette: React.FC<{ open: boolean; onClose: () => void }> = ({
       { id: 'theme', label: `Switch to ${prefs.theme === 'light' ? 'dark' : 'light'} theme`, run: () => setPrefs({ theme: prefs.theme === 'light' ? 'dark' : 'light' }) },
       { id: 'density', label: `Use ${prefs.density === 'compact' ? 'comfortable' : 'compact'} density`, run: () => setPrefs({ density: prefs.density === 'compact' ? 'comfortable' : 'compact' }) },
     ];
-    (hosts.data?.items ?? []).forEach((h) => list.push({ id: `host-${h.instanceId}`, label: `Jump to host ${h.name}`, hint: h.instanceId, run: () => navigate(ctx.link(xamPulseHostPath(h.instanceId))) }));
+    (hosts.data?.items ?? []).forEach((h) => list.push({ id: `host-${h.accountId}-${h.instanceId}`, label: `Jump to host ${h.name}`, hint: h.instanceId, run: () => navigate(ctx.link(xamPulseHostPath(h.instanceId, h.accountId))) }));
     return list;
   }, [navigate, ctx, prefs.theme, prefs.density, hosts.data]);
 
@@ -45,7 +45,7 @@ export const PulsePalette: React.FC<{ open: boolean; onClose: () => void }> = ({
     <>
       <div className="xp-scrim" onClick={onClose} aria-hidden="true" />
       <div className="xp-palette" role="dialog" aria-modal="true" aria-label="XamPulse actions">
-        <input ref={inputRef} className="xp-input" style={{ width: '100%', border: 0, borderBottom: '1px solid var(--xp-border)', borderRadius: 0, padding: 14, fontSize: 16 }}
+        <input ref={inputRef} className="xp-input" style={{ width: '100%', padding: '0 18px' }}
           placeholder="Type an action or a host name" aria-label="Search actions" role="combobox" aria-expanded="true" aria-controls="xp-pal-list" aria-activedescendant={shown[active] ? `xp-pal-${shown[active].id}` : undefined}
           value={term} onChange={(e) => setTerm(e.target.value)}
           onKeyDown={(e) => {
@@ -58,7 +58,7 @@ export const PulsePalette: React.FC<{ open: boolean; onClose: () => void }> = ({
           {shown.length === 0 && <li className="xp-muted" aria-selected="false" role="option">No matching actions</li>}
           {shown.slice(0, 40).map((i, idx) => (
             <li key={i.id} id={`xp-pal-${i.id}`} role="option" aria-selected={idx === active} onMouseEnter={() => setActive(idx)} onClick={() => choose(i)}>
-              <span>{i.label}</span><span className="xp-muted" style={{ fontSize: 12 }}>{i.hint}</span>
+              <span>{i.label}</span><span className="xp-muted xp-mono" style={{ fontSize: 11 }}>{i.hint}</span>
             </li>
           ))}
         </ul>

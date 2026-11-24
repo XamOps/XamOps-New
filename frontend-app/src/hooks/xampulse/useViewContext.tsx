@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import type { XpScope } from '../../types/xampulse';
 import { isRangePreset, rangeMs, type RangePreset } from '../../utils/xampulse/format';
@@ -81,6 +82,7 @@ export const ViewContextProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [sp, setSp] = useSearchParams();
   const state = useMemo(() => parseViewState(sp), [sp]);
   const accounts = useXpAccounts();
+  const queryClient = useQueryClient();
   const [anchor, setAnchor] = useState<number>(() => snap(Date.now()));
 
   useEffect(() => {
@@ -94,7 +96,10 @@ export const ViewContextProvider: React.FC<{ children: React.ReactNode }> = ({ c
     if ('range' in patch) setAnchor(snap(Date.now()));
   }, [setSp]);
 
-  const refresh = useCallback(() => setAnchor(snap(Date.now())), []);
+  const refresh = useCallback(() => {
+    setAnchor(Date.now());
+    void queryClient.invalidateQueries({ queryKey: ['xp'] });
+  }, [queryClient]);
 
   const effectiveAccountIds = useMemo(() => {
     if (state.accountIds.length) return state.accountIds;

@@ -6,7 +6,7 @@ export type XpDensity = 'comfortable' | 'compact';
 export interface XpPrefs { theme: XpThemePref; density: XpDensity; logWrap: boolean }
 
 export const PREFS_KEY = 'xp:prefs:v1';
-export const DEFAULT_PREFS: XpPrefs = { theme: 'system', density: 'comfortable', logWrap: false };
+export const DEFAULT_PREFS: XpPrefs = { theme: 'light', density: 'comfortable', logWrap: false };
 
 /** Parses stored JSON, ignoring anything that is not a known value. */
 export function parsePrefs(raw: string | null): XpPrefs {
@@ -60,8 +60,8 @@ export function usePrefs(): XpPrefs {
 export function resolveTheme(pref: XpThemePref): 'light' | 'dark' {
   if (pref !== 'system') return pref;
   try {
-    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   } catch {
-    return 'dark';
+    return 'light';
   }
 }

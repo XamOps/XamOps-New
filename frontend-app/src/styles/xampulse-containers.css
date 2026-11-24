@@ -1,0 +1,176 @@
+/* XamPulse Containers: the list and Container 360. Scoped to .xp-ct so no other XamPulse tab changes.
+   Built for the light theme first, on the shared --xp-* tokens only (so the contrast test still covers every colour and
+   dark keeps working). Same craft as the xam-cloud console:
+   - colour carries state only: the status pill, a number past its threshold, a meter past its threshold. Data is ink;
+     charts are blue then violet. No tinted cards, no green bars on numbers that are in trouble;
+   - one white panel per job (table, vitals, diagnosis, usage, logs, history), hairlines inside it, never boxes in boxes;
+   - Inter for words, mono for what a machine wrote (ids, images, times, counts), small uppercase tracked labels;
+   - hover and focus are 150ms colour changes. */
+
+.xp-ct { display: grid; gap: 20px; min-width: 0; }
+
+/* ---------- panel ---------- */
+.xp-ct-panel { position: relative; min-width: 0; background: var(--xp-surface); border: 1px solid var(--xp-edge); border-radius: var(--xp-radius);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+.xp-root[data-theme='dark'] .xp-ct-panel { box-shadow: none; }
+.xp-ct-panel__head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 48px; padding: 10px 16px; border-bottom: 1px solid var(--xp-line); }
+.xp-ct-panel__title { margin: 0; font-family: var(--xp-font); font-size: 13px; font-weight: 600; letter-spacing: -0.005em; color: var(--xp-text); }
+.xp-ct-panel__hint { font-size: 11.5px; color: var(--xp-muted); }
+.xp-ct-label { font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--xp-muted); }
+
+/* ---------- list: toolbar ---------- */
+.xp-ct-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 10px 12px; border-bottom: 1px solid var(--xp-line); }
+.xp-ct-search { position: relative; flex: 0 1 300px; min-width: 200px; }
+.xp-ct-search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--xp-muted); pointer-events: none; }
+.xp-ct-search .xp-input { width: 100%; height: 32px; padding-left: 32px; font-size: 12.5px; }
+.xp-ct .xp-seg__count { margin-left: 5px; font-family: var(--xp-mono); font-size: 10.5px; font-weight: 400; opacity: 0.75; }
+.xp-ct .xp-seg button[aria-pressed='true'] .xp-seg__count { opacity: 0.8; }
+.xp-ct .xp-seg button:disabled { opacity: 0.45; cursor: default; }
+
+/* ---------- list: table ---------- */
+.xp-ct-tablewrap { overflow-x: auto; }
+.xp-ct-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.xp-ct-table th { height: 34px; padding: 0 14px; background: color-mix(in srgb, var(--xp-text) 2.5%, var(--xp-surface)); border-bottom: 1px solid var(--xp-line);
+  color: var(--xp-muted); font-size: 10.5px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; text-align: left; white-space: nowrap; }
+.xp-ct-table th.xp-num, .xp-ct-table td.xp-num { text-align: right; }
+.xp-ct-table th button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font: inherit; letter-spacing: inherit; text-transform: inherit; transition: color 150ms ease-out; }
+.xp-ct-table th button:hover { color: var(--xp-text2); }
+.xp-ct-table th button:focus-visible { outline: 2px solid var(--xp-accent-text); outline-offset: 2px; border-radius: 3px; }
+.xp-ct-table th[aria-sort='ascending'] button, .xp-ct-table th[aria-sort='descending'] button { color: var(--xp-text); }
+.xp-ct-table th:first-child, .xp-ct-table td:first-child { padding-left: 16px; }
+.xp-ct-table th:last-child, .xp-ct-table td:last-child { padding-right: 16px; }
+.xp-ct-table td { height: 54px; padding: 0 14px; border-bottom: 1px solid var(--xp-line); vertical-align: middle; white-space: nowrap; color: var(--xp-text2); }
+.xp-ct-table tbody tr:last-child td { border-bottom: 0; }
+.xp-ct-table tbody tr { transition: background-color 150ms ease-out; }
+.xp-ct-table tbody tr[data-clickable='true'] { cursor: pointer; }
+.xp-ct-table tbody tr:hover, .xp-ct-table tbody tr:focus-within { background: var(--xp-hover); }
+
+.xp-ct-name { color: var(--xp-text); font-weight: 500; font-size: 13px; text-decoration: none; }
+.xp-ct-name:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, var(--xp-text) 35%, transparent); }
+.xp-ct-sub { display: block; max-width: 340px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; font-family: var(--xp-mono); font-size: 11px; color: var(--xp-muted); }
+.xp-ct-sub--sans { font-family: var(--xp-font); font-size: 11.5px; }
+.xp-ct-host { font-family: var(--xp-mono); font-size: 12px; color: var(--xp-text2); text-decoration: none; }
+.xp-ct-host:hover { color: var(--xp-text); text-decoration: underline; text-underline-offset: 3px; }
+.xp-ct-n { font-family: var(--xp-mono); font-size: 12px; color: var(--xp-text2); font-variant-numeric: tabular-nums; }
+.xp-ct-n[data-zero='true'] { color: var(--xp-muted); }
+.xp-ct-n[data-tone='warn'], a.xp-ct-n[data-tone='warn'] { color: var(--xp-warn); font-weight: 600; }
+.xp-ct-n[data-tone='crit'], a.xp-ct-n[data-tone='crit'] { color: var(--xp-crit); font-weight: 600; }
+a.xp-ct-n { text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); text-underline-offset: 3px; }
+.xp-ct-table td.xp-num .xp-ct-sub { margin-left: auto; }
+.xp-ct-empty-row td { height: auto; padding: 36px 16px; text-align: center; color: var(--xp-muted); white-space: normal; }
+
+/* meter: ink bar on a quiet track; it turns warn / crit only past the thresholds, so a full bar is never green */
+.xp-ct .xp-bar { width: 56px; height: 4px; margin-right: 8px; background: var(--xp-track); }
+.xp-ct .xp-bar > i { background: color-mix(in srgb, var(--xp-text) 45%, transparent); }
+.xp-ct .xp-meter[data-level='warn'] .xp-bar > i { background: var(--xp-fill-warn); }
+.xp-ct .xp-meter[data-level='crit'] .xp-bar > i { background: var(--xp-fill-crit); }
+.xp-ct .xp-meter__v { min-width: 30px; font-size: 12px; }
+
+.xp-ct-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; min-height: 44px; padding: 8px 16px;
+  border-top: 1px solid var(--xp-line); font-size: 11.5px; color: var(--xp-muted); }
+.xp-ct-foot nav { display: flex; align-items: center; gap: 10px; }
+
+/* skeleton rows in the table's shape */
+.xp-ct-skel { padding: 4px 16px; }
+.xp-ct-skel > div { display: grid; grid-template-columns: 2fr 1fr 1.2fr 0.6fr 1fr 0.5fr 0.6fr 0.7fr; gap: 24px; align-items: center; height: 54px; border-bottom: 1px solid var(--xp-line); }
+.xp-ct-skel > div:last-child { border-bottom: 0; }
+.xp-ct-skel span { display: block; height: 8px; border-radius: 4px; background: var(--xp-track); }
+.xp-ct-skel span:first-child { width: 70%; }
+@media (prefers-reduced-motion: no-preference) { .xp-ct-skel span { animation: xp-shimmer 1.6s ease-in-out infinite; } }
+
+/* ---------- Container 360: header ---------- */
+.xp-ct-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; font-family: var(--xp-mono); font-size: 11.5px; color: var(--xp-muted); }
+.xp-ct-crumbs a { color: var(--xp-muted); text-decoration: none; transition: color 150ms ease-out; }
+.xp-ct-crumbs a:hover { color: var(--xp-text); }
+.xp-ct-crumbs [aria-current='page'] { color: var(--xp-text2); }
+.xp-ct-crumbs__sep { color: color-mix(in srgb, var(--xp-muted) 60%, transparent); }
+.xp-ct-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 24px; }
+.xp-ct-head__l { min-width: 0; }
+.xp-ct-head__title { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.xp-ct-head__title > svg { color: var(--xp-muted); flex: none; }
+.xp-ct-title { margin: 0; font-family: var(--xp-font); font-size: 22px; font-weight: 500; line-height: 1.2; letter-spacing: -0.02em; color: var(--xp-text); }
+.xp-ct-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; margin-top: 6px; font-family: var(--xp-mono); font-size: 11.5px; color: var(--xp-muted); }
+.xp-ct-meta > span + span::before { content: '·'; margin: 0 8px; color: color-mix(in srgb, var(--xp-muted) 60%, transparent); }
+.xp-ct-meta .xp-ct-image { color: var(--xp-text2); }
+.xp-ct-head__r { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.xp-ct-copy { all: unset; cursor: pointer; display: inline-grid; place-items: center; width: 20px; height: 20px; margin-left: 4px; border-radius: 4px; color: var(--xp-muted);
+  vertical-align: middle; transition: background-color 150ms ease-out, color 150ms ease-out; }
+.xp-ct-copy:hover { background: var(--xp-hover); color: var(--xp-text); }
+.xp-ct-copy:focus-visible { outline: 2px solid var(--xp-accent-text); outline-offset: 1px; }
+.xp-ct-copy[data-done='true'] { color: var(--xp-ok); }
+
+/* ---------- vitals strip: one panel, columns split by hairlines (inset shadows, so wrapping stays correct) ---------- */
+.xp-ct-vitals { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); overflow: hidden; }
+/* flex column on both the div and the button: a <button> would otherwise centre its content vertically */
+.xp-ct-vital { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; min-width: 0; padding: 14px 16px 15px;
+  box-shadow: -1px 0 0 var(--xp-line), 0 -1px 0 var(--xp-line); text-align: left; }
+button.xp-ct-vital { all: unset; box-sizing: border-box; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; min-width: 0;
+  padding: 14px 16px 15px; box-shadow: -1px 0 0 var(--xp-line), 0 -1px 0 var(--xp-line); cursor: pointer; transition: background-color 150ms ease-out; }
+button.xp-ct-vital:hover { background: var(--xp-hover); }
+button.xp-ct-vital:focus-visible { outline: 2px solid var(--xp-accent-text); outline-offset: -2px; }
+.xp-ct-vital__v { display: block; margin-top: 7px; font-size: 20px; font-weight: 450; line-height: 1.1; letter-spacing: -0.02em; color: var(--xp-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.xp-ct-vital[data-tone='warn'] .xp-ct-vital__v { color: var(--xp-warn); }
+.xp-ct-vital[data-tone='crit'] .xp-ct-vital__v { color: var(--xp-crit); }
+.xp-ct-vital__s { display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--xp-muted); }
+.xp-ct-vital__bar { display: block; height: 3px; margin-top: 9px; border-radius: 999px; background: var(--xp-track); overflow: hidden; }
+.xp-ct-vital__bar > i { display: block; height: 100%; border-radius: 999px; background: color-mix(in srgb, var(--xp-text) 45%, transparent); transition: width 700ms ease-out; }
+.xp-ct-vital[data-tone='warn'] .xp-ct-vital__bar > i { background: var(--xp-fill-warn); }
+.xp-ct-vital[data-tone='crit'] .xp-ct-vital__bar > i { background: var(--xp-fill-crit); }
+
+/* ---------- diagnosis: every problem once, worst first; the lead one is the verdict ---------- */
+.xp-ct-issues { list-style: none; margin: 0; padding: 0; }
+.xp-ct-issue { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: 4px 16px; align-items: start; padding: 14px 16px; border-top: 1px solid var(--xp-line); }
+.xp-ct-issue:first-child { border-top: 0; }
+.xp-ct-issue > .xp-pill { justify-self: start; margin-top: 2px; }
+.xp-ct-issue__title { margin: 0; font-size: 13.5px; font-weight: 600; line-height: 1.4; color: var(--xp-text); }
+.xp-ct-issue--lead .xp-ct-issue__title { font-size: 15px; letter-spacing: -0.01em; }
+.xp-ct-issue__cause { margin: 3px 0 0; max-width: 92ch; font-size: 12.5px; color: var(--xp-text2); }
+.xp-ct-issue__next { margin: 6px 0 0; max-width: 92ch; font-size: 12.5px; color: var(--xp-text); }
+.xp-ct-issue__next .xp-ct-label { margin-right: 8px; }
+.xp-ct-evidence { display: flex; flex-wrap: wrap; gap: 2px 0; margin: 7px 0 0; padding: 0; list-style: none; font-family: var(--xp-mono); font-size: 11px; color: var(--xp-muted); }
+.xp-ct-evidence li + li::before { content: '·'; margin: 0 8px; }
+.xp-ct-evidence b { font-weight: 500; color: var(--xp-text2); }
+
+/* ---------- resource usage: one panel, charts split by hairlines ---------- */
+.xp-ct-charts__row { display: grid; grid-template-columns: repeat(var(--xp-ct-cols, 2), minmax(0, 1fr)); }
+.xp-ct-charts__row + .xp-ct-charts__row { border-top: 1px solid var(--xp-line); }
+.xp-ct-chart { min-width: 0; padding: 14px 16px 12px; }
+.xp-ct-chart + .xp-ct-chart { border-left: 1px solid var(--xp-line); }
+.xp-ct-chart__title { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--xp-text); }
+.xp-ct-chart__hint { margin: 2px 0 6px; font-size: 11.5px; color: var(--xp-muted); }
+.xp-ct-chart__none { margin: 18px 0; font-size: 12px; color: var(--xp-muted); }
+/* two-series legends wrap to two lines in a third-width chart: every legend in the row reserves two, so the plots line up */
+.xp-ct-charts__row[data-cols='3'] .xp-legend { min-height: 38px; align-content: flex-start; }
+@media (max-width: 980px) {
+  .xp-ct-charts__row { grid-template-columns: minmax(0, 1fr); }
+  .xp-ct-chart + .xp-ct-chart { border-left: 0; border-top: 1px solid var(--xp-line); }
+}
+
+/* ---------- logs card (ContainerLogs) inside the container page ---------- */
+.xp-ct .xp-card h2 { font-family: var(--xp-font); font-size: 13px; font-weight: 600; letter-spacing: -0.005em; }
+.xp-ct .xp-card { border-radius: var(--xp-radius); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+.xp-root[data-theme='dark'] .xp-ct .xp-card { box-shadow: none; }
+.xp-ct .xp-logbox { border-color: var(--xp-line); border-radius: var(--xp-radius-sm); }
+
+/* ---------- history: changes + versions ---------- */
+.xp-ct-history { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 980px) { .xp-ct-history { grid-template-columns: minmax(0, 1fr); } }
+.xp-ct-history .xp-changes { padding: 2px 16px 4px; }
+.xp-ct-history .xp-change { border-bottom-color: var(--xp-line); }
+.xp-ct-history .xp-change__effect { height: 22px; }
+/* the change verdict keeps its dot and colour but drops the tinted block, so it reads as a label, not an alert */
+.xp-ct-history .xp-change .xp-pill { padding-left: 0; padding-right: 4px; background: transparent; }
+.xp-ct-history > .xp-ct-panel > p { margin: 0; padding: 14px 16px; }
+.xp-ct-versions { list-style: none; margin: 0; padding: 0; }
+.xp-ct-versions li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 11px 16px; border-top: 1px solid var(--xp-line); }
+.xp-ct-versions li:first-child { border-top: 0; }
+.xp-ct-versions__image { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--xp-mono); font-size: 12px; color: var(--xp-text); }
+.xp-ct-versions__meta { grid-column: 1 / -1; font-family: var(--xp-mono); font-size: 11px; color: var(--xp-muted); }
+
+@media (max-width: 640px) {
+  .xp-ct { gap: 14px; }
+  .xp-ct-search { flex: 1 1 100%; }
+  .xp-ct-issue { grid-template-columns: minmax(0, 1fr); }
+  .xp-ct-issue > .xp-btn { justify-self: start; }
+  .xp-ct-title { font-size: 19px; }
+}

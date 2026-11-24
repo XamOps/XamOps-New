@@ -77,11 +77,11 @@ export const VirtualLogList: React.FC<Props> = ({ rows, selectedId, onSelect, wr
             const i = start + k;
             return (
               <div key={r.id} id={`xp-lr-${r.id}`} role="row" aria-rowindex={i + 1} aria-selected={selectedId === r.id || (i === active && selectedId == null)}
-                className="xp-logrow" data-sev={r.severity} data-wrap={wrap} style={{ top: i * rowH, height: rowH, outline: i === active ? '1px solid var(--xp-accent)' : undefined, outlineOffset: -1 }}
+                className="xp-logrow" data-sev={r.severity} data-wrap={wrap} style={{ top: i * rowH, height: rowH, boxShadow: i === active ? 'inset 0 0 0 1px color-mix(in srgb, var(--xp-series-1) 60%, transparent)' : undefined }}
                 onClick={() => { setActive(i); onSelect(r); }}>
                 <span role="gridcell" className="ts">{formatClock(r.ts, true)}</span>
                 <span role="gridcell"><SeverityBadge severity={r.severity} /></span>
-                <span role="gridcell" className="svc" title={r.instanceId}>{r.service}</span>
+                <span role="gridcell" className="svc" title={`${r.service} · ${r.instanceId}`}><span>{r.service}</span><small>{r.instanceId}</small></span>
                 <span role="gridcell" className="body">{wrap ? r.body : r.body.split('\n')[0]}</span>
               </div>
             );

@@ -18,7 +18,7 @@ export const LogDetailDrawer: React.FC<Props> = ({ row, onClose, onFilter, onSho
   const [copied, setCopied] = useState(false);
   const ctxQ = useQuery({ queryKey: ['xp', isXpDemo() ? 'demo' : 'live', 'logctx', row.accountId, row.id], queryFn: () => xampulseApi.logContext(row.accountId, row.id, 20, 20), retry: false });
   const fields: [string, string][] = [
-    ['Time', formatDateTime(row.ts)], ['Host', row.instanceId], ['Service', row.service], ['Source', row.source], ['Region', row.region],
+    ['Time', formatDateTime(row.ts)], ['Row ID', row.id], ['Account', String(row.accountId)], ['Host', row.instanceId], ['Service', row.service], ['Source', row.source], ['Region', row.region],
     ...(row.containerId ? ([['Container', row.containerId]] as [string, string][]) : []), ...(row.traceId ? ([['Trace id', row.traceId]] as [string, string][]) : []),
     ...Object.keys(row.attrs).filter((k) => k !== 'xp.demo').map((k): [string, string] => [`attr.${k}`, row.attrs[k]]),
   ];

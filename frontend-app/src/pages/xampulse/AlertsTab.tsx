@@ -1,19 +1,21 @@
-import React, { useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Bell } from 'lucide-react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { describeRule, xampulseAlertsApi, type IncidentVerb } from '../../api/xampulseAlertsApi';
 import { isXpDemo } from '../../api/xampulseApi';
 import { useViewContext } from '../../hooks/xampulse/useViewContext';
 import { useChannels, useIncidents, useRules, useSilences } from '../../hooks/xampulse/useXamPulseQueries';
 import { QueryBoundary } from '../../components/XamPulse/ui/QueryBoundary';
-import { Card, EmptyState, ErrorState, SkeletonBlock, friendlyError } from '../../components/XamPulse/ui/ui';
+import { Card, EmptyState, ErrorState, SkeletonBlock, friendlyError, TonePill, PageHead } from '../../components/XamPulse/ui/ui';
 import { RuleEditor, blankRule } from '../../components/XamPulse/alerts/RuleEditor';
 import { useIsXpAdmin } from '../../components/XamPulse/shell/useXamTabAccess';
+import { xamPulseHostPath } from '../../constants/xampulseTabs';
 import { formatAgo, formatDateTime } from '../../utils/xampulse/format';
 import type { XpAlertRule, XpChannelInput, XpIncident } from '../../types/xampulse';
 
 type Sub = 'rules' | 'incidents' | 'silences' | 'channels';
-const SUBS: [Sub, string][] = [['rules', 'Rules'], ['incidents', 'Incidents'], ['silences', 'Silences'], ['channels', 'Channels']];
+const SUBS: [Sub, string][] = [['incidents', 'Incidents'], ['rules', 'Rules'], ['silences', 'Silences'], ['channels', 'Channels']];
 const SEV_PILL: Record<XpIncident['severity'], string> = { CRITICAL: 'crit', HIGH: 'crit', MEDIUM: 'warn', LOW: 'info' };
 
 const useRefresh = () => {
@@ -25,12 +27,17 @@ const IncidentsView: React.FC = () => {
   const ctx = useViewContext();
   const q = useIncidents(ctx.effectiveAccountIds);
   const refresh = useRefresh();
-  const [open, setOpen] = useState<number | null>(null);
-  const [comment, setComment] = useState('');
+  const [params] = useSearchParams();
+  const [open, setOpen] = useState<number | null>(() => {
+    const value = Number(params.get('incident'));
+    return Number.isInteger(value) && value > 0 ? value : null;
+  });
+  const [comments, setComments] = useState<Record<number, string>>({});
+  const comment = (id: number) => comments[id] ?? '';
   const act = useMutation({
     mutationFn: ({ id, verb }: { id: number; verb: IncidentVerb }) =>
-      xampulseAlertsApi.incidentAction(id, verb, verb === 'snooze' ? { snoozeUntil: new Date(Date.now() + 3_600_000).toISOString() } : verb === 'comment' ? { comment } : {}),
-    onSuccess: () => { setComment(''); void refresh(); },
+      xampulseAlertsApi.incidentAction(id, verb, verb === 'snooze' ? { snoozeUntil: new Date(Date.now() + 3_600_000).toISOString() } : verb === 'comment' ? { comment: comment(id) } : {}),
+    onSuccess: (_result, variables) => { setComments((current) => ({ ...current, [variables.id]: '' })); void refresh(); },
   });
   return (
     <QueryBoundary query={q} skeleton={<SkeletonBlock height={200} />}>
@@ -40,13 +47,15 @@ const IncidentsView: React.FC = () => {
           {page.items.map((i) => (
             <Card key={i.id}>
               <div className="xp-row">
-                <span className={`xp-pill xp-pill--${SEV_PILL[i.severity]}`}>{i.severity}</span>
-                <strong>{i.title}</strong>
+                <TonePill tone={SEV_PILL[i.severity] as 'crit' | 'warn' | 'info'} live={i.state === 'OPEN' && (i.severity === 'CRITICAL' || i.severity === 'HIGH')}>{i.severity}</TonePill>
+                <span className="xp-item__title">{i.title}</span>
                 <span className="xp-pill xp-pill--nodata">{i.state}</span>
                 <span className="xp-spacer" />
-                <span className="xp-muted">opened {formatAgo(i.openedAt)}</span>
+                <span className="xp-item__meta">opened <span className="xp-mono">{formatAgo(i.openedAt)}</span></span>
               </div>
-              <p style={{ margin: '8px 0' }}>{i.summary}</p>
+              <p className="xp-item__body">{i.summary}</p>
+              <div className="xp-location">Account {i.accountId} · {i.instanceIds.length} impacted host{i.instanceIds.length === 1 ? '' : 's'} · {i.ruleIds.length} rule{i.ruleIds.length === 1 ? '' : 's'}{i.ackBy ? ` · acknowledged by ${i.ackBy}` : ''}{i.resolvedAt ? ` · resolved ${formatAgo(i.resolvedAt)}` : ''}</div>
+              {i.instanceIds.length > 0 && <div className="xp-item__actions">{i.instanceIds.map((id) => <Link key={id} className="xp-btn xp-btn--sm" to={ctx.link(xamPulseHostPath(id, i.accountId))}>{id}</Link>)}</div>}
               <div className="xp-row">
                 <button type="button" className="xp-btn" disabled={act.isPending || i.state !== 'OPEN'} onClick={() => act.mutate({ id: i.id, verb: 'ack' })}>Acknowledge</button>
                 <button type="button" className="xp-btn" disabled={act.isPending || i.state === 'RESOLVED'} onClick={() => act.mutate({ id: i.id, verb: 'snooze' })}>Snooze 1h</button>
@@ -55,11 +64,11 @@ const IncidentsView: React.FC = () => {
               </div>
               {open === i.id && (
                 <div style={{ marginTop: 12 }}>
-                  <ul className="xp-timeline">{i.timeline.map((t) => <li key={`${t.ts}-${t.text}`}><strong>{t.text}</strong><div className="xp-muted" style={{ fontSize: 12 }}>{formatDateTime(t.ts)}</div></li>)}</ul>
+                  <ul className="xp-timeline">{i.timeline.map((t) => <li key={`${t.ts}-${t.text}`}><span className="xp-timeline__ic" aria-hidden="true"><span className="xp-dot" /></span><span><span className="xp-eyebrow">{t.kind}</span><br />{t.text}</span><span className="xp-timeline__meta">{formatDateTime(t.ts)}</span></li>)}</ul>
                   <div className="xp-row" style={{ marginTop: 8 }}>
                     <label className="xp-sr" htmlFor={`xp-cm-${i.id}`}>Comment</label>
-                    <input id={`xp-cm-${i.id}`} className="xp-input" placeholder="Add a comment" value={comment} onChange={(e) => setComment(e.target.value)} style={{ flex: 1 }} />
-                    <button type="button" className="xp-btn" disabled={!comment.trim() || act.isPending} onClick={() => act.mutate({ id: i.id, verb: 'comment' })}>Post</button>
+                    <input id={`xp-cm-${i.id}`} className="xp-input" placeholder="Add a comment" value={comment(i.id)} onChange={(e) => setComments((current) => ({ ...current, [i.id]: e.target.value }))} style={{ flex: 1 }} />
+                    <button type="button" className="xp-btn" disabled={!comment(i.id).trim() || act.isPending} onClick={() => act.mutate({ id: i.id, verb: 'comment' })}>Post</button>
                   </div>
                 </div>
               )}
@@ -74,10 +83,10 @@ const IncidentsView: React.FC = () => {
 const RulesView: React.FC<{ initialPrefill: Partial<XpAlertRule['condition']> | null; startNew: boolean }> = ({ initialPrefill, startNew }) => {
   const ctx = useViewContext();
   const rules = useRules(ctx.effectiveAccountIds);
-  const channels = useChannels(ctx.effectiveAccountIds[0], true);
   const refresh = useRefresh();
   const accountId = ctx.effectiveAccountIds[0] ?? 0;
   const [editing, setEditing] = useState<XpAlertRule | null>(() => (initialPrefill || startNew ? { ...blankRule(accountId), condition: { ...blankRule(accountId).condition, ...(initialPrefill ?? {}) } } : null));
+  const channels = useChannels(ctx.effectiveAccountIds[0], editing !== null);
   const toggle = useMutation({ mutationFn: (r: XpAlertRule) => xampulseAlertsApi.updateRule({ ...r, enabled: !r.enabled }), onSuccess: () => { void refresh(); } });
   const del = useMutation({ mutationFn: (id: number) => xampulseAlertsApi.deleteRule(id), onSuccess: () => { void refresh(); } });
   return (
@@ -90,11 +99,11 @@ const RulesView: React.FC<{ initialPrefill: Partial<XpAlertRule['condition']> | 
             <thead><tr><th scope="col">Rule</th><th scope="col">What it does</th><th scope="col">Severity</th><th scope="col">Enabled</th><th scope="col"><span className="xp-sr">Actions</span></th></tr></thead>
             <tbody>{list.map((r) => (
               <tr key={r.id}>
-                <td><strong>{r.name}</strong></td>
-                <td style={{ whiteSpace: 'normal', maxWidth: 520 }}>{describeRule(r)}</td>
-                <td>{r.severity}</td>
-                <td><button type="button" role="switch" aria-checked={r.enabled} className="xp-btn" disabled={toggle.isPending} onClick={() => toggle.mutate(r)}>{r.enabled ? 'On' : 'Off'}</button></td>
-                <td><div className="xp-row"><button type="button" className="xp-btn" onClick={() => setEditing(r)}>Edit</button><button type="button" className="xp-btn xp-btn--danger" onClick={() => { if (r.id !== undefined && window.confirm(`Delete "${r.name}"?`)) del.mutate(r.id); }}>Delete</button></div></td>
+                <td><span className="xp-cell-name">{r.name}</span></td>
+                <td style={{ whiteSpace: 'normal', maxWidth: 520, color: 'var(--xp-text2)', padding: '10px 12px' }}>{describeRule(r)}</td>
+                <td><TonePill tone={r.severity === 'CRITICAL' || r.severity === 'HIGH' ? 'crit' : r.severity === 'MEDIUM' ? 'warn' : 'info'}>{r.severity}</TonePill></td>
+                <td><button type="button" role="switch" aria-checked={r.enabled} className="xp-switch" disabled={toggle.isPending} onClick={() => toggle.mutate(r)}><span className="xp-sr">{r.enabled ? 'On' : 'Off'}</span></button></td>
+                <td><div className="xp-row"><button type="button" className="xp-btn xp-btn--sm" onClick={() => setEditing(r)}>Edit</button><button type="button" className="xp-btn xp-btn--sm xp-btn--danger" onClick={() => { if (r.id !== undefined && window.confirm(`Delete "${r.name}"?`)) del.mutate(r.id); }}>Delete</button></div></td>
               </tr>
             ))}</tbody>
           </table></div>
@@ -134,8 +143,8 @@ const SilencesView: React.FC = () => {
       <QueryBoundary query={q} skeleton={<SkeletonBlock height={120} />}>
         {(list) => list.length === 0 ? <p className="xp-muted">No active silences.</p> : (
           <div className="xp-table-wrap"><table className="xp-table"><caption className="xp-sr">Silences</caption>
-            <thead><tr><th scope="col">Reason</th><th scope="col">Until</th><th scope="col"><span className="xp-sr">Actions</span></th></tr></thead>
-            <tbody>{list.map((s) => <tr key={s.id}><td>{s.reason}</td><td>{formatDateTime(s.endsAt)}</td><td><button type="button" className="xp-btn xp-btn--danger" onClick={() => { if (s.id !== undefined) del.mutate(s.id); }}>End</button></td></tr>)}</tbody>
+            <thead><tr><th scope="col">Reason</th><th scope="col">Scope</th><th scope="col">Starts</th><th scope="col">Ends</th><th scope="col"><span className="xp-sr">Actions</span></th></tr></thead>
+            <tbody>{list.map((s) => <tr key={s.id}><td>{s.reason}</td><td>{s.matcher.instanceIds?.length ? `${s.matcher.instanceIds.length} host(s)` : s.matcher.ruleIds?.length ? `${s.matcher.ruleIds.length} rule(s)` : s.matcher.severity?.length ? s.matcher.severity.join(', ') : 'All alerts'}<span className="xp-cell-sub">Account {s.accountId}</span></td><td className="xp-mono">{formatDateTime(s.startsAt)}</td><td className="xp-mono">{formatDateTime(s.endsAt)}</td><td><button type="button" className="xp-btn xp-btn--danger" onClick={() => { if (s.id !== undefined) del.mutate(s.id); }}>End</button></td></tr>)}</tbody>
           </table></div>
         )}
       </QueryBoundary>
@@ -145,7 +154,7 @@ const SilencesView: React.FC = () => {
 
 const ChannelsView: React.FC<{ admin: boolean }> = ({ admin }) => {
   const ctx = useViewContext();
-  const q = useChannels(ctx.effectiveAccountIds[0], true);
+  const q = useChannels(ctx.effectiveAccountIds[0], admin);
   const refresh = useRefresh();
   const [form, setForm] = useState<{ kind: XpChannelInput['kind']; name: string; value: string }>({ kind: 'SLACK', name: '', value: '' });
   const [tested, setTested] = useState<number | null>(null);
@@ -155,6 +164,7 @@ const ChannelsView: React.FC<{ admin: boolean }> = ({ admin }) => {
   });
   const test = useMutation({ mutationFn: (id: number) => xampulseAlertsApi.testChannel(id), onSuccess: (_d, id) => setTested(id) });
   const del = useMutation({ mutationFn: (id: number) => xampulseAlertsApi.deleteChannel(id), onSuccess: () => { void refresh(); } });
+  if (!admin) return <Card><EmptyState title="Notification channels are administrator-only" body="Destinations are write-only and masked. Ask an administrator to review or change them." /></Card>;
   return (
     <>
       {!admin && <div className="xp-banner xp-banner--warn" role="note">Only administrators can add or change notification channels. You can see which ones exist.</div>}
@@ -164,7 +174,7 @@ const ChannelsView: React.FC<{ admin: boolean }> = ({ admin }) => {
           <div className="xp-table-wrap"><table className="xp-table"><caption className="xp-sr">Notification channels</caption>
             <thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Destination (masked)</th><th scope="col"><span className="xp-sr">Actions</span></th></tr></thead>
             <tbody>{list.map((c) => (
-              <tr key={c.id}><td>{c.name}</td><td>{c.kind}</td><td className="xp-mono">{c.summary}</td>
+              <tr key={c.id}><td className="xp-cell-name">{c.name}</td><td><span className="xp-pill xp-pill--nodata">{c.kind}</span></td><td className="xp-mono">{c.summary}</td>
                 <td>{admin && <div className="xp-row"><button type="button" className="xp-btn" onClick={() => test.mutate(c.id)} disabled={test.isPending}>Send test</button><button type="button" className="xp-btn xp-btn--danger" onClick={() => del.mutate(c.id)}>Delete</button>{tested === c.id && <span className="xp-pill xp-pill--ok" role="status">Test sent</span>}</div>}</td></tr>
             ))}</tbody>
           </table></div>
@@ -188,16 +198,25 @@ const ChannelsView: React.FC<{ admin: boolean }> = ({ admin }) => {
 };
 
 const AlertsTab: React.FC = () => {
-  const [sub, setSub] = useState<Sub>('rules');
+  const [params, setParams] = useSearchParams();
   const admin = useIsXpAdmin();
   const location = useLocation();
+  const navigate = useNavigate();
   const state = (location.state ?? null) as { prefill?: { metric?: string; agg?: XpAlertRule['condition']['agg'] }; newRule?: boolean } | null;
+  const requested = params.get('view');
+  const hasRuleIntent = !!(state?.prefill || state?.newRule);
+  const sub: Sub = hasRuleIntent ? 'rules' : requested === 'rules' || requested === 'silences' || requested === 'channels' ? requested : 'incidents';
+  useEffect(() => {
+    if (!hasRuleIntent) return;
+    const next = new URLSearchParams(params);
+    next.set('view', 'rules');
+    navigate({ pathname: location.pathname, search: `?${next.toString()}`, hash: location.hash }, { replace: true, state: null });
+  }, [hasRuleIntent, location.hash, location.pathname, navigate, params]);
+  const selectSub = (next: Sub) => setParams((current) => { const copy = new URLSearchParams(current); copy.set('view', next); if (next !== 'incidents') copy.delete('incident'); return copy; }, { replace: true });
   return (
     <>
-      <div className="xp-row">
-        <h1 className="xp-h1" style={{ fontSize: 22 }}>Alerts</h1>
-        <div className="xp-seg" role="group" aria-label="Alerts view">{SUBS.map(([id, label]) => <button key={id} type="button" aria-pressed={sub === id} onClick={() => setSub(id)}>{label}</button>)}</div>
-      </div>
+      <PageHead icon={Bell} title="Alerts" sub="Incidents are the operational queue; rules, silences and channels control what happens next."
+        extra={<div className="xp-seg" role="group" aria-label="Alerts view">{SUBS.map(([id, label]) => <button key={id} type="button" aria-pressed={sub === id} onClick={() => selectSub(id)}>{label}</button>)}</div>} />
       {isXpDemo() && sub !== 'channels' && <div className="xp-banner" role="note">DEMO: alerts created in demo mode never send external notifications.</div>}
       {sub === 'rules' && <RulesView initialPrefill={state?.prefill ?? null} startNew={!!state?.newRule} />}
       {sub === 'incidents' && <IncidentsView />}

@@ -55,12 +55,92 @@ export interface XpHostSummary {
   lanes: XpLane[];
   series: Record<string, [number, number][]>;
   recentErrors: XpLogRow[]; events: XpEvent[]; openIncidents: XpIncident[];
-  rightsizing?: { note: string; observedP95Cpu: number; observedP95Mem: number; link: string };
 }
 export interface XpProcessRow { pid: number; name: string; user?: string; cpuPct: number; memPct: number; memBytes?: number; threads?: number }
+/**
+ * Throttle Radar for one host. Each finding is a limit that was measured to be hit in the range, with the numbers
+ * behind it (shares are 0..1, *_pct already percent). A signal is OK (measured, nothing hit), LIMITED (a finding) or
+ * NOT_MEASURED (this host cannot provide it; note says why). NOT_MEASURED is never shown as healthy.
+ */
+export interface XpLimitFinding {
+  severity: 'CRITICAL' | 'WARNING' | 'INFO'; code: string; source: 'AWS' | 'KERNEL' | 'CONTAINER';
+  title: string; detail: string; fix: string; evidence: Record<string, number>;
+}
+export interface XpLimitSignal { code: string; label: string; state: 'OK' | 'LIMITED' | 'NOT_MEASURED'; note?: string }
+export interface XpHostLimits { instanceId: string; from: string; to: string; findings: XpLimitFinding[]; signals: XpLimitSignal[] }
+
+/**
+ * Change Intelligence: something that changed on a host and what the measurements did right after. Effects say what
+ * FOLLOWED a change, never that it caused it; `overlapping` means another change happened within 10 minutes.
+ */
+export type XpChangeKind = 'DEPLOY' | 'RECREATE' | 'CONTAINER_START' | 'CONTAINER_STOP' | 'RESTART' | 'REBOOT' | 'DATA_GAP'
+  | 'PACKAGE' | 'CONFIG' | 'EC2_STATE' | 'AGENT';
+export interface XpChangeEffect { signal: string; label: string; unit: string; before: number; after: number; relative: number; strength: 'STRONG' | 'MODERATE' }
+export interface XpChange {
+  ts: string; instanceId: string; kind: XpChangeKind | string; title: string; detail: string; source: 'AGENT' | 'LOGS' | 'PLATFORM' | string;
+  subject?: string; verdict?: 'FOLLOWED_BY_CHANGE' | 'NO_CLEAR_EFFECT' | 'TOO_RECENT' | 'NOT_ENOUGH_DATA'; overlapping: boolean; effects: XpChangeEffect[];
+}
+
+/**
+ * Fleet twin: the host against its peers (same Auto Scaling group, else same type and name pattern). verdict HIGHER /
+ * LOWER is an outlier (robust z >= 3.5 and a real difference); indicative when only two peers have a value.
+ */
+export interface XpPeerMetric {
+  key: string; label: string; unit: string; value: number | null; peerMedian: number | null; peerMin: number | null; peerMax: number | null;
+  z: number | null; verdict: 'HIGHER' | 'LOWER' | 'IN_LINE' | 'NO_DATA' | 'TOO_FEW'; indicative: boolean; peerValues: Record<string, number>;
+}
+export interface XpPeers { instanceId: string; basis: 'ASG' | 'TYPE_NAME' | 'NONE'; basisLabel?: string; peers: { instanceId: string; name?: string }[]; metrics: XpPeerMetric[]; note?: string }
+
+/**
+ * Exposure check: listening sockets (agent) against security group inbound rules (EC2). exposure: INTERNET, PUBLIC_RANGE,
+ * PRIVATE, BLOCKED (no rule lets it in) or LOCAL (loopback). measured false: the agent does not report sockets yet.
+ */
+export interface XpExposureSocket { protocol: string; port: number; bind: string; address: string; service?: string; exposure: 'INTERNET' | 'PUBLIC_RANGE' | 'PRIVATE' | 'BLOCKED' | 'LOCAL'; via?: string }
+export interface XpExposure { instanceId: string; publicIp?: string; measured: boolean; securityGroups: string[]; sockets: XpExposureSocket[]; findings: XpLimitFinding[]; note?: string }
+
+/** Cost against use over the range. No price is never shown as $0: hourlyUsd is absent and a note says why. */
+export interface XpCostPerf {
+  instanceId: string; instanceType?: string; vcpus?: number; memoryGiB?: number; lifecycle?: string; platform?: string;
+  hourlyUsd?: number; monthlyUsd?: number; priceBasis?: 'ON_DEMAND_LIST' | 'SPOT_CURRENT';
+  cpuAvgPct?: number; cpuP95Pct?: number; memAvgPct?: number; memP95Pct?: number; usedVcpusAvg?: number; costPerUsedVcpuHour?: number;
+  verdict: 'UNDERSIZED' | 'FITS' | 'OVERSIZED' | 'BURSTABLE' | 'NOT_ENOUGH_DATA'; verdictText: string; notes: string[];
+}
+
+/** Read-only runbooks over SSM: fixed scripts (shown as they run), audited, off unless the deployment turns them on. */
+export interface XpRunbook { id: string; title: string; description: string; script: string }
+export interface XpRunbookCatalog { enabled: boolean; runbooks: XpRunbook[] }
+export interface XpRunbookStarted { commandId: string; runbook: string }
+export interface XpRunbookResult {
+  commandId: string; runbook: string; status: 'PENDING' | 'IN_PROGRESS' | 'SUCCESS' | 'FAILED' | 'TIMED_OUT' | 'CANCELLED';
+  output: string; error: string; truncated: boolean;
+}
+
+/** Investigate: each usual explanation checked against measurements. Never claims a cause. */
+export interface XpHypothesis {
+  code: string; title: string; status: 'SUPPORTED' | 'RULED_OUT' | 'NOT_MEASURABLE'; confidence?: 'HIGH' | 'MEDIUM' | 'LOW'; weight: number;
+  evidence: string[]; section?: string; logsQuery?: string;
+}
+export interface XpInvestigation { instanceId: string; from: string; to: string; summary: string; hypotheses: XpHypothesis[]; peers?: XpPeers }
+
+/** Container 360: one container (by name on one host) through every redeploy in the range. */
+export interface XpContainerSummary {
+  instanceId: string; name: string; containerId: string; image: string; firstSeen: string; lastSeen: string;
+  memLimitBytes?: number | null; restarts?: number | null;
+  versions: { containerId: string; image: string; firstSeen: string; lastSeen: string }[];
+  /** cpu (% of one CPU), memory and memory_limit (bytes), throttled_pct, network_rx/tx and disk_read/write (bytes/s),
+   *  uptime (seconds since start) and host_memory (the host's total bytes, one point). */
+  series: Record<string, [number, number][]>;
+  findings: XpLimitFinding[]; changes: XpChange[]; recentErrors: XpLogRow[];
+}
+
 export interface XpContainerRow {
-  accountId: number; instanceId: string; containerId: string; name: string; image?: string; state?: string;
-  cpuPct?: number | null; memBytes?: number | null; restarts?: number | null; lastSeenAt?: string | null;
+  accountId: number; instanceId: string; containerId: string; name: string; image?: string;
+  /** Percent of ONE CPU, as Docker reports it: 100 = one full core, so it can exceed 100 on multi-core hosts. */
+  cpuPct?: number | null; memBytes?: number | null; memLimitBytes?: number | null; restarts?: number | null; lastSeenAt?: string | null;
+  /** True when the reported limit is the host's memory (no limit set); null when the host's memory is unknown. */
+  memLimitIsHost?: boolean | null;
+  /** ERROR + FATAL log lines in the last 15 minutes. */
+  errors?: number | null;
 }
 export interface XpUsage {
   range: string; byDay: { day: string; signal: 'LOGS' | 'METRICS'; bytesIn: number; bytesStored: number }[];
@@ -80,7 +160,7 @@ export interface XpLogHistogramResponse { bucketSec: number; buckets: { t: strin
 export interface XpLogFacetsRequest { scope: XpScope; query: string; fields: string[]; topN?: number }
 export interface XpLogFacetsResponse { approx: boolean; facets: { field: string; values: { value: string; count: number }[] }[] }
 export interface XpLogPatternsRequest { scope: XpScope; query: string; compareToPrevious?: boolean; limit?: number }
-export interface XpLogPattern { patternId: string; template: string; count: number; deltaPct: number | null; isNew: boolean; trend: number[]; firstSeen: string; sampleId: string; severity: XpSeverity }
+export interface XpLogPattern { patternId: string; template: string; count: number; deltaPct: number | null; isNew: boolean; trend: number[]; firstSeen: string; sampleId: string; sampleAccountId: number; severity: XpSeverity }
 export interface XpLogPatternsResponse { patterns: XpLogPattern[] }
 export interface XpLogContextResponse { before: XpLogRow[]; anchor: XpLogRow; after: XpLogRow[] }
 export interface XpTailTicketRequest { scope: XpScope; query: string }
@@ -117,7 +197,20 @@ export interface XpAlertRule {
   grouping: { by: string[]; dedupeWindow: string };
   routing: { channelIds: number[]; createTicket: boolean; runbookUrl?: string };
 }
-export interface XpAlertPreview { firings: { from: string; to: string; group: Record<string, string>; peak: number }[]; evaluatedPoints: number; wouldNotify: number }
+/**
+ * One firing in a backtest. from: first breaching evaluation; firedAt: when it fired (after "for"); to: recovery, or
+ * the end of the range when ongoing. peak: worst value (highest for >, lowest for <; null when only missing data).
+ * notified is false for a repeat inside the dedupe window and for a quick re-open, which alerting does not send either.
+ */
+export interface XpFiring { from: string; firedAt?: string; to: string; group: Record<string, string>; peak: number | null; ongoing?: boolean; notified?: boolean }
+/** Alert backtest: the rule replayed once a minute with live alerting's queries, state machine and dedupe. */
+export interface XpAlertPreview {
+  firings: XpFiring[]; evaluatedPoints: number; wouldNotify: number;
+  from?: string; to?: string; op?: string; threshold?: number; groups?: number; resolved?: number; suppressedRepeats?: number; quietReopens?: number;
+  /** The value the rule compared with its threshold, minute by minute ([epochMs, value]), for the groups most worth seeing. */
+  series?: { group: string; points: [number, number][] }[];
+  notes?: string[];
+}
 export interface XpIncident {
   id: number; accountId: number; title: string; severity: XpRuleSeverity; state: 'OPEN' | 'ACKED' | 'SNOOZED' | 'RESOLVED';
   openedAt: string; resolvedAt?: string; ackBy?: string; ruleIds: number[]; instanceIds: string[]; summary: string;
@@ -149,6 +242,7 @@ export interface XpAuditEntry { ts: string; userId: number; accountId: number | 
 // ---- setup ----
 export interface XpSetupOverview {
   state: XpAccountState; demo: boolean; homeRegion?: string; bucket?: { name: string; region: string; mode: 'CREATE' | 'EXISTING' };
+  archive?: { state: 'OFF' | 'OK' | 'FAILING'; failures: number; lastError?: string; watermark?: string };
   regions: { region: string; candidateInstances: number; stackState: 'NONE' | 'DEPLOYING' | 'OK' | 'FAILED'; targetMode: 'INSTANCES' | 'ALL_MANAGED' | 'TAG'; covered: number; reporting: number }[];
   instances: { total: number; ssmManaged: number; inScope: number; enrolled: number; reporting: number; notCovered: number };
   coveragePct: number; lastDataAt: string | null;
@@ -179,7 +273,7 @@ export interface XpSetupPlanResponse {
     customerCostEstimate: { s3Usd: number; kmsUsd: number; notes: string[] };
     connectionRoleGrants: string[]; templateSha256: string; templateUrl: string;
   };
-  stacks: { region: string; kind: 'GLOBAL' | 'REGIONAL'; stackName: string; quickCreateUrl: string }[];
+  stacks: XpStackLink[];
   warnings: string[];
 }
 export interface XpStackStatus { region: string; kind: 'GLOBAL' | 'REGIONAL'; stackName: string; status: string; reason?: string; events: string[]; outputs?: Record<string, string> }
@@ -191,4 +285,37 @@ export interface XpLogSource { id?: number; kind: 'SYSTEM' | 'DOCKER' | 'CUSTOM'
 export interface XpDemoStatus { demo: boolean; seededAt?: string; hosts: number; message: string }
 export interface XpCollectionUpdate { enabled: boolean; level: XpCollectionLevel; sources?: string[] }
 export interface XpRegionPlanRequest { targetMode: XpTargetMode; instanceIds?: string[]; tagKey?: string; tagValue?: string; confirmAllManaged?: boolean }
-export interface XpStackLink { region: string; kind: 'GLOBAL' | 'REGIONAL'; stackName: string; quickCreateUrl: string }
+export interface XpStackLink {
+  region: string; kind: 'GLOBAL' | 'REGIONAL'; stackName: string;
+  /** Set when the stack does not exist yet (action CREATE). */
+  quickCreateUrl?: string;
+  action?: 'CREATE' | 'UPDATE';
+  /** Set when the stack already exists (action UPDATE): console Update stack flow. */
+  updateUrl?: string;
+  /** UPDATE only: the parameters to change; '' means clear. Others keep their previous value. */
+  parameters?: Record<string, string>;
+}
+
+// ---------------------------------------------------------------- EC2 (AWS view, no agent)
+
+export interface XpEc2Volume { volumeId: string; device?: string; type: string; sizeGiB: number; iops?: number; throughputMiBps?: number; encrypted: boolean; deleteOnTermination: boolean }
+export interface XpEc2Finding { severity: 'CRITICAL' | 'WARNING' | 'INFO'; title: string; detail: string }
+export interface XpEc2ScheduledEvent { code: string; description?: string; notBefore?: string; notAfter?: string }
+/** What AWS knows about the instance, from free EC2/Auto Scaling APIs. */
+export interface XpEc2Facts {
+  instanceId: string; region: string; name: string; state?: string;
+  instanceType: string; vcpus?: number; memoryMiB?: number; architecture?: string; platform?: string;
+  burstable: boolean; cpuCredits?: string; networkPerformance?: string; ebsBaselineIops?: number; ebsBaselineMbps?: number;
+  availabilityZone?: string; vpcId?: string; subnetId?: string; privateIp?: string; publicIp?: string;
+  amiId?: string; amiName?: string; amiCreatedAt?: string; launchTime?: string;
+  lifecycle: string; autoScalingGroup?: string; autoScalingLifecycleState?: string;
+  iamInstanceProfile?: string; securityGroups: string[]; imdsV2Required: boolean; ebsOptimized: boolean; detailedMonitoring: boolean;
+  tags: Record<string, string>; volumes: XpEc2Volume[]; status: { system: string; instance: string };
+  scheduledEvents: XpEc2ScheduledEvent[]; findings: XpEc2Finding[]; fetchedAt: string;
+}
+/** CloudWatch data in operator units; source REFRESH = fetched now (billed), STORED = earlier fetches (free). */
+export interface XpCloudWatchView {
+  instanceId: string; region?: string; from: string; to: string; periodSec: number;
+  instance: Record<string, [number, number][]>; volumes: Record<string, Record<string, [number, number][]>>;
+  source: 'REFRESH' | 'STORED'; lastFetchedAt?: string; metricsRequested?: number; estimatedCostUsd?: number; note?: string;
+}

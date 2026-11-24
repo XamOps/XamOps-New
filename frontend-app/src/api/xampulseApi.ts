@@ -5,23 +5,32 @@
  */
 import { apiFetch } from '../utils/apiClient';
 import { demoRequest } from '../demo/xampulseDemo';
+import { isDemoMode } from '../demo/demoConfig';
 import { XpApiError } from './xampulseErrors';
 
 export { XpApiError };
 import type {
-  XpAccountRef, XpErrorEnvelope, XpEvent, XpForecast, XpHealthScore, XpHostRow, XpHostSummary,
+  XpAccountRef, XpChange, XpCloudWatchView, XpContainerSummary, XpEc2Facts, XpErrorEnvelope, XpEvent, XpForecast, XpHealthScore, XpHostLimits, XpHostRow, XpHostSummary,
   XpInsight, XpLogContextResponse, XpLogFacetsRequest, XpLogFacetsResponse, XpLogHistogramRequest,
   XpLogHistogramResponse, XpLogPatternsRequest, XpLogPatternsResponse, XpLogSearchRequest, XpLogSearchResponse,
   XpMetricCatalogEntry, XpMetricQueryRequest, XpMetricQueryResponse, XpOverview, XpPage, XpProcessRow,
   XpContainerRow, XpStatus, XpTailTicket, XpTailTicketRequest, XpTrustPanel, XpUsage, XpArchiveSearchRequest,
-  XpArchiveEstimate, XpSavedView,
+  XpArchiveEstimate, XpSavedView, XpInvestigation, XpPeers, XpExposure, XpCostPerf,
+  XpRunbookCatalog, XpRunbookStarted, XpRunbookResult,
 } from '../types/xampulse';
 
 export const XP_BASE = '/api/xamops/xampulse';
 const QUERY_TIMEOUT_MS = 20_000;
 
-/** Demo data is opt-in only: dev server with localStorage xp:demo=1, or a build with VITE_XAMPULSE_DEMO=true. */
+/**
+ * Rule (Aditya, 2026-11-23): XamPulse shows real data to every user. Sample data is shown only in the demo
+ * account's session (demo.xamops@xammer.in, the app-wide demo mode set at login in demo/demoConfig), so the demo
+ * user sees the same kind of estate in XamPulse as in the rest of XamOps.
+ * A production build never shows sample data to anyone else. VITE_XAMPULSE_DEMO / localStorage xp:demo=1 only work
+ * on the local dev server, for automated screenshot tests; they are ignored in any built bundle.
+ */
 export function isXpDemo(): boolean {
+  if (isDemoMode()) return true;
   let flag = false;
   let dev = false;
   try {
@@ -31,9 +40,10 @@ export function isXpDemo(): boolean {
   } catch {
     /* non-Vite runtime */
   }
+  if (!dev) return false;
   if (flag) return true;
   try {
-    return dev && window.localStorage.getItem('xp:demo') === '1';
+    return window.localStorage.getItem('xp:demo') === '1';
   } catch {
     return false;
   }
@@ -104,13 +114,43 @@ export const xampulseApi = {
   hosts: (q: { accountIds: number[]; q?: string; state?: string; page?: number; size?: number; sort?: string }) => xpGet<XpPage<XpHostRow>>('/hosts', q),
   hostSummary: (accountId: number, instanceId: string, from: string, to: string) =>
     xpGet<XpHostSummary>(`/hosts/${encodeURIComponent(instanceId)}/summary`, { accountId, from, to }),
-  // The server does not expose per-host processes yet (404): treat that as "no process data" instead of an error.
+  // Throttle Radar: limits hit in the range, from agent data and CloudWatch data already fetched. No billed call.
+  hostLimits: (accountId: number, instanceId: string, from: string, to: string) =>
+    xpGet<XpHostLimits>(`/hosts/${encodeURIComponent(instanceId)}/limits`, { accountId, from, to }),
+  containerSummary: (accountId: number, instanceId: string, name: string, from: string, to: string) =>
+    xpGet<XpContainerSummary>(`/containers/${encodeURIComponent(instanceId)}/${encodeURIComponent(name)}/summary`, { accountId, from, to }),
+  hostChanges: (accountId: number, instanceId: string, from: string, to: string) =>
+    xpGet<XpChange[]>(`/hosts/${encodeURIComponent(instanceId)}/changes`, { accountId, from, to }),
+  // Investigate: every usual explanation checked against measurements (no billed call).
+  investigate: (accountId: number, instanceId: string, from: string, to: string) =>
+    xpGet<XpInvestigation>(`/hosts/${encodeURIComponent(instanceId)}/investigate`, { accountId, from, to }),
+  // Exposure: listening sockets against security groups (EC2 API, not billed). Cost: list price against use.
+  hostExposure: (accountId: number, instanceId: string) =>
+    xpGet<XpExposure>(`/hosts/${encodeURIComponent(instanceId)}/exposure`, { accountId }),
+  hostCost: (accountId: number, instanceId: string, from: string, to: string) =>
+    xpGet<XpCostPerf>(`/hosts/${encodeURIComponent(instanceId)}/cost`, { accountId, from, to }),
+  runbooks: () => xpGet<XpRunbookCatalog>('/runbooks'),
+  runRunbook: (accountId: number, instanceId: string, runbookId: string) =>
+    xpRequest<XpRunbookStarted>('POST', `/hosts/${encodeURIComponent(instanceId)}/runbooks/${encodeURIComponent(runbookId)}`, { query: { accountId } }),
+  runbookResult: (accountId: number, instanceId: string, commandId: string) =>
+    xpGet<XpRunbookResult>(`/hosts/${encodeURIComponent(instanceId)}/runbooks/commands/${encodeURIComponent(commandId)}`, { accountId }),
+  hostPeers: (accountId: number, instanceId: string, from: string, to: string) =>
+    xpGet<XpPeers>(`/hosts/${encodeURIComponent(instanceId)}/peers`, { accountId, from, to }),
+  hostAws: (accountId: number, instanceId: string) =>
+    xpGet<XpEc2Facts>(`/hosts/${encodeURIComponent(instanceId)}/aws`, { accountId }),
+  // Free: earlier CloudWatch fetches kept by XamOps. Never calls CloudWatch.
+  hostCloudWatch: (accountId: number, instanceId: string, from: string, to: string) =>
+    xpGet<XpCloudWatchView>(`/hosts/${encodeURIComponent(instanceId)}/cloudwatch`, { accountId, from, to }),
+  // Billed to the customer's AWS account (GetMetricData); only on an explicit Refresh.
+  refreshHostCloudWatch: (accountId: number, instanceId: string, from: string, to: string) =>
+    xpRequest<XpCloudWatchView>('POST', `/hosts/${encodeURIComponent(instanceId)}/cloudwatch/refresh`, { query: { accountId, from, to } }),
+  // Process samples are available when the host uses collection level T2; a 404 means no process data for this server/range.
   hostProcesses: (accountId: number, instanceId: string, at?: string) =>
     xpGet<XpProcessRow[]>(`/hosts/${encodeURIComponent(instanceId)}/processes`, { accountId, at }).catch((e: unknown) => {
       if (e instanceof XpApiError && e.status === 404) return [] as XpProcessRow[];
       throw e;
     }),
-  containers: (accountIds: number[], q?: string) => xpGet<XpPage<XpContainerRow>>('/containers', { accountIds, q }),
+  containers: (q: { accountIds: number[]; q?: string; page?: number; size?: number; sort?: string }) => xpGet<XpPage<XpContainerRow>>('/containers', q),
   logSearch: (req: XpLogSearchRequest, signal?: AbortSignal) => xpPost<XpLogSearchResponse>('/logs/search', req, signal),
   logHistogram: (req: XpLogHistogramRequest, signal?: AbortSignal) => xpPost<XpLogHistogramResponse>('/logs/histogram', req, signal),
   logFacets: (req: XpLogFacetsRequest, signal?: AbortSignal) => xpPost<XpLogFacetsResponse>('/logs/facets', req, signal),
