@@ -147,6 +147,25 @@ Pending (Aditya): SSM runbooks on (needs `ssm:SendCommand` on the connection rol
   column on Containers. Gateway `transform/log_level` raises severity from the line text (Docker sends all as INFO).
 * **D. Answers:** Investigate (supported / ruled out / not measurable), scenario playbooks, merged timeline (Step 4).
 
+## 7b. Working order agreed 2026-11-24 (after the external review)
+
+1. Honesty fixes: no "create a ticket" option until ticketing exists; no rightsizing insight until real data
+   produces one. **Done 2026-11-24** (pinned by `components/XamPulse/alerts/honesty.test.tsx`).
+2. Baseline bands and compare (previous period / yesterday / last week) on Host 360 and Metrics. **Done 2026-11-24.**
+   Found and fixed on the way: baselines averaged a metric's label series (CPU learned a constant 12.5% on an
+   83%-busy host, memory 18.8% for 68%), and the 14-day window could never give an hour of the week the 3 samples
+   it needs, so no baseline was ever written. Now one definition (`BaselineSignal`) for the baseline job, anomaly
+   rules, Metrics bands and Host 360; daily rhythm after 3 days, weekly after 3 weeks (28-day window).
+3. Cheap Throttle Radar checks from the instance: file descriptors, ephemeral ports, inodes, TCP retransmits,
+   listen-queue overflow. **Built 2026-11-24**: radar has 12 checks (inodes from hostmetrics on every agent; the
+   other four from the xampulse_ec2 receiver in agent 1.3.0: `xp.fs.file_handles`, `xp.process.open_files`,
+   `xp.net.local_ports`, `xp.tcp.segments`, `xp.tcp.listen_queue`), and Investigate has two more causes (OS limit,
+   network loss). Release 1.3.0 built in `~/Desktop/xampulse-release-1.3.0`; live once uploaded to S3 `latest/`.
+4. "What's different" on a dragged range, built on Investigate (supported / ruled out / cannot tell).
+5. Fault-injection lab: ~15 scenarios on a dedicated lab instance (not the shared UAT box), time to correct
+   diagnosis in XamPulse vs Datadog / New Relic.
+6. Group-by in lists (tag, ASG, account), then a minimal dashboard as a grid of saved Metrics views.
+
 ## 8. Known bugs outside the steps
 
 * Setup wizard does not keep the existing bucket/KMS settings when changing monitoring.
