@@ -87,6 +87,12 @@ public final class VerifyPreconditionsStep extends AwsStep {
         program.config().path("overrides").forEach(n -> targetTypes.add(n.asText()));
         if (!allowBurstable && !targetTypes.isEmpty()) {
             facts.overrideTypes().stream().filter(t -> !targetTypes.contains(t)).forEach(removing::add);
+            // Types XamOps added that are already gone still mark the plan as an option-off removal.
+            program.config().path("options").path("burstableRemoved").forEach(n -> {
+                if (!removing.contains(n.asText())) {
+                    removing.add(n.asText());
+                }
+            });
         }
         // A policy XamOps owns that the customer edited is put back by this very op, so its Max=100 blocker is
         // dropped here as it is at plan time; a customer's own policy keeps it.

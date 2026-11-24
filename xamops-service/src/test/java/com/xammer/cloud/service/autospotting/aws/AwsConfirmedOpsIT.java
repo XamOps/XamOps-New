@@ -110,6 +110,28 @@ class AwsConfirmedOpsIT {
         burstableOff(List.of(T3_MICRO, T3A_MICRO), List.of("t3.micro", "t3a.micro"), List.of(T3_MICRO),
                 "[\"t3a.micro\",\"t3a.small\"]");
     }
+    /** Review follow-up 2: every remembered added type is already gone; the option-off plan must still confirm. */
+    @Test
+    void turningBurstableOffWhenEveryRememberedTypeIsAlreadyGoneIsNotBlockedAndSucceeds() {
+        String desired = desiredWith(List.of("t3.micro"),
+                ",\"options\":{\"allowBurstable\":true,\"burstableAdded\":[\"t3a.micro\",\"t3a.small\"]}");
+        try (AwsOpsHarness h = new AwsOpsHarness(converted(List.of(T3_MICRO), null), GroupState.ACTIVE, "MANAGED",
+                desired, null, null, null)) {
+            h.f.aws.burstableWorld();
+            for (int i = 1; i <= 3; i++) {
+                h.f.spotInstances.add("i-" + (5 - i));
+            }
+            UUID op = h.planAndConfirm(request(OperationKind.CONFIG_APPLY, false, desired));
+            assertThat(h.runToEnd(op)).as("op error " + h.jdbc.queryForList(
+                    "SELECT error_code FROM spot_operation WHERE id = ?", String.class, op)).isEqualTo("SUCCEEDED");
+            assertThat(h.groupState()).isEqualTo("ACTIVE");
+            assertThat(h.f.updates.stream().filter(r -> sentOverrides(r) != null))
+                    .as("nothing to remove, so no override list is sent").isEmpty();
+            assertThat(h.f.group().mixedInstancesPolicy().launchTemplate().overrides()).isEqualTo(List.of(T3_MICRO));
+            assertThat(h.jdbc.queryForObject("SELECT desired_config->'options'->>'allowBurstable' FROM spot_group"
+                    + " WHERE id = ?", String.class, h.f.groupId)).isEqualTo("false");
+        }
+    }
     @Test
     void turningBurstableOffOnASmallBurstableGroupWithNoOtherAlternativeIsNotBlockedAndSucceeds() {
         burstableOff(List.of(T3_MICRO, T3A_MICRO), List.of("t3.micro", "t3a.micro"), List.of(T3_MICRO));

@@ -283,6 +283,11 @@ public class AwsSpotProvider implements SpotProvider {
         if (!burstableAdded.isEmpty()) {
             opts.set("burstableAdded", strings(burstableAdded));
         }
+        if (g.mixedInstancesPolicy() && !allowBurstable && !storedBurstableAdded.isEmpty()) {
+            // The option is being turned off: step 0 reads this to know the plan only retires types, even when
+            // none of them is live any more (so "no other type to add" does not block the removal).
+            opts.set("burstableRemoved", strings(storedBurstableAdded));
+        }
         return n;
     }
 
