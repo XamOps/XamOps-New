@@ -28,7 +28,7 @@ class DeployFilesContractTest {
             found++;
             assertTrue(m.group(1).startsWith("127.0.0.1:"), "port not loopback-bound: " + m.group(1));
         }
-        assertEquals(3, found, "8123, 9000 and 4318");
+        assertEquals(4, found, "8123, 9000, 4318 and the optional local edge on 8088");
         assertFalse(compose.contains("0.0.0.0:"));
     }
 
@@ -73,6 +73,22 @@ class DeployFilesContractTest {
     }
 
     @Test
+    void gatewayReadsTheLogLevelFromTheLineBecauseDockerSendsEverythingAsInfo() throws IOException {
+        // Without this, container logs are all INFO: the container page's Error+ filter, the errors column and the
+        // verdict would all say "no errors" on a container that is failing.
+        String gw = read("otel-gateway.yaml");
+        assertTrue(gw.contains("processors: [transform/strip_client_xp, resource/stamp_trusted_xp, transform/log_level, batch]"),
+                "log_level must run in the logs pipeline, after the trusted attributes are stamped");
+        int block = gw.indexOf("transform/log_level:");
+        assertTrue(block > 0);
+        String rules = gw.substring(block, gw.indexOf("\nservice:", block) > 0 ? gw.indexOf("\nservice:", block) : gw.length());
+        for (String level : new String[]{"FATAL", "ERROR", "WARN"}) {
+            assertTrue(rules.contains("\"" + level + "\""), "no rule sets " + level);
+        }
+        assertTrue(rules.contains("IsString(body)"), "only text bodies are parsed");
+    }
+
+    @Test
     void edgeProxyClearsTheDemoHeaderOnIngest() throws IOException {
         String nginx = Files.readString(Path.of("../api-gateway/nginx-prod.conf"), StandardCharsets.UTF_8);
         assertTrue(nginx.contains("proxy_set_header X-Xp-Demo \"\";"));
@@ -91,6 +107,33 @@ class DeployFilesContractTest {
         int auth = nginx.indexOf("location = /_xp_auth");
         String authBlock = nginx.substring(auth, nginx.indexOf('}', auth));
         assertTrue(authBlock.contains("include /etc/nginx/xampulse-secret.conf;"), "the secret include must stay in /_xp_auth");
+    }
+
+    /**
+     * Without an explicit Host, nginx sends the upstream name (xamops_service) and Tomcat rejects the underscore with
+     * 400, which auth_request turns into a 500 for every ingest request. Pinned for prod and the local edge.
+     */
+    @Test
+    void theAuthSubrequestSetsAHostTomcatAccepts() throws IOException {
+        for (String conf : new String[] {
+                Files.readString(Path.of("../api-gateway/nginx-prod.conf"), StandardCharsets.UTF_8),
+                read("nginx/local-edge.conf.template")}) {
+            int auth = conf.indexOf("location = /_xp_auth");
+            assertTrue(auth >= 0);
+            String authBlock = conf.substring(auth, conf.indexOf('}', auth));
+            assertTrue(authBlock.contains("proxy_set_header Host $host;"), "/_xp_auth must set Host");
+        }
+    }
+
+    @Test
+    void localEdgeIsOptionalLoopbackOnlyAndTakesTheSecretFromTheEnvironment() throws IOException {
+        String compose = read("docker-compose.yml");
+        assertTrue(compose.contains("profiles: [\"edge\"]"), "the edge must not start with a plain `docker compose up`");
+        assertTrue(compose.contains("\"127.0.0.1:8088:8088\""));
+        String edge = read("nginx/local-edge.conf.template");
+        assertTrue(edge.contains("proxy_set_header X-Xp-Internal \"${XP_INTERNAL_SECRET}\";"), "secret comes from .env, never the repo");
+        assertTrue(edge.contains("proxy_set_header X-Xp-Tenant $xp_tenant;"), "client tenant headers are overwritten");
+        assertFalse(read(".env.example").matches("(?s).*XP_INTERNAL_SECRET=[0-9a-f]{16,}.*"), ".env.example must not carry a secret");
     }
     @Test
     void demoSeederIsOffByDefaultAndLoopbackOnly() throws IOException {

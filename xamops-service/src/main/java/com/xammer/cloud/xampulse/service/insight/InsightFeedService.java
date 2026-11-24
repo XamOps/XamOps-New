@@ -3,6 +3,7 @@ package com.xammer.cloud.xampulse.service.insight;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.xampulse.dto.*;
 import com.xammer.cloud.xampulse.service.alert.IncidentService;
+import com.xammer.cloud.xampulse.service.query.UsageMeteringService;
 import com.xammer.cloud.xampulse.service.query.*;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
@@ -80,9 +81,13 @@ public class InsightFeedService {
             XpUsage u = usage.usage(user, account, "7d");
             if (!u.bySource().isEmpty() && u.bySource().get(0).pct() >= 40) {
                 XpUsageSource top = u.bySource().get(0);
-                out.add(new XpInsight("cost:" + account, "COST", "INFO", "One source dominates your log volume",
-                        String.format(Locale.ROOT, "%s produced %.0f%% of the logs ingested in the last 7 days.", top.source(), top.pct()),
-                        account, null, List.of(new XpEvidence("LOG", "Volume by source", "/xampulse/insights")), "HIGH", now));
+                boolean unnamed = UsageMeteringService.UNNAMED_SOURCE.equals(top.source());
+                out.add(new XpInsight("cost:" + account, "COST", "INFO",
+                        unnamed ? "Most of your logs have no service name" : "One service dominates your log volume",
+                        unnamed ? String.format(Locale.ROOT, "%.0f%% of the logs ingested in the last 7 days carry no service name, so they "
+                                + "cannot be filtered or costed by service. Agents from 1.1.0 name system logs after the program that wrote them.", top.pct())
+                                : String.format(Locale.ROOT, "%s produced %.0f%% of the logs ingested in the last 7 days.", top.source(), top.pct()),
+                        account, null, List.of(new XpEvidence("LOG", "Volume by service", "/xampulse/setup?view=usage&accounts=" + account)), "HIGH", now));
             }
             for (XpIncident inc : incidents.activeFor(account)) {
                 if (!List.of("CRITICAL", "HIGH").contains(inc.severity())) {

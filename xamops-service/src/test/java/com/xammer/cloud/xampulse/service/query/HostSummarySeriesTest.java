@@ -97,7 +97,7 @@ class HostSummarySeriesTest {
         List<Object> params = sql.params();
         // Per-core, per-mount and per-direction queries group by a label: value lands in g0.
         if (s.contains("'cpu='")) {
-            return List.of(groupedRow("0", 0.9), groupedRow("1", 0.8)); // idle fractions -> 10% and 20%
+            return List.of(groupedRow("cpu0", 0.9), groupedRow("cpu1", 0.8)); // the agent labels CPUs cpu0, cpu1; idle -> 10% and 20%
         }
         if (s.contains("'mountpoint='")) {
             return List.of(groupedRow("/", 0.42), groupedRow("/var", 0.55));
@@ -110,7 +110,7 @@ class HostSummarySeriesTest {
         // Ungrouped percent series: discriminate by the bound metric and state filter.
         String metric = metricParam(params);
         boolean steal = params.contains("state=steal");
-        boolean iowait = params.contains("state=iowait");
+        boolean iowait = params.contains("state=wait"); // the agent's real label for I/O wait
         boolean pagingUsed = "system.paging.utilization".equals(metric) && params.contains("state=used");
         boolean cpuIdle = "system.cpu.utilization".equals(metric) && params.contains("state=idle");
         boolean memUsed = "system.memory.utilization".equals(metric) && params.contains("state=used");
@@ -136,6 +136,29 @@ class HostSummarySeriesTest {
         }
         if (load) {
             return List.of(point(1.5));
+        }
+        // CPU tab: user and system time, vCPU count, 5m load, run queue and process creation are reported;
+        // softirq, interrupt, nice and the 15m load are not, so their keys must be absent.
+        if ("system.cpu.utilization".equals(metric) && params.contains("state=user")) {
+            return List.of(point(0.6));
+        }
+        if ("system.cpu.utilization".equals(metric) && params.contains("state=system")) {
+            return List.of(point(0.12));
+        }
+        if ("system.cpu.logical.count".equals(metric)) {
+            return List.of(point(2));
+        }
+        if ("system.cpu.load_average.5m".equals(metric)) {
+            return List.of(point(1.2));
+        }
+        if ("system.processes.count".equals(metric) && params.contains("status=running")) {
+            return List.of(point(3));
+        }
+        if ("system.processes.count".equals(metric) && params.contains("status=blocked")) {
+            return List.of(point(1));
+        }
+        if ("system.processes.created".equals(metric)) {
+            return List.of(point(4.0));
         }
         // latestMetrics / errorVolume and other scaffolding queries return nothing.
         return List.of();
@@ -192,8 +215,20 @@ class HostSummarySeriesTest {
                 "system.disk.io{direction=read}",
                 "system.disk.io{direction=write}",
                 "system.network.io{direction=receive}",
-                "system.network.io{direction=transmit}");
+                "system.network.io{direction=transmit}",
+                // CPU tab, only the reported ones (no softirq / interrupt / nice / 15m load keys).
+                "system.cpu.utilization{state=user}",
+                "system.cpu.utilization{state=system}",
+                "system.cpu.load_average.5m",
+                "system.cpu.logical.count",
+                "system.processes.count{status=running}",
+                "system.processes.count{status=blocked}",
+                "system.processes.created");
         assertThat(series.keySet()).containsExactlyInAnyOrderElementsOf(expected);
+        assertThat(series.get("system.cpu.utilization{state=user}").get(0)[1]).isCloseTo(60.0, org.assertj.core.data.Offset.offset(1e-6));
+        assertThat(series.get("system.cpu.logical.count").get(0)[1]).isEqualTo(2.0);
+        assertThat(series.get("system.processes.count{status=blocked}").get(0)[1]).isEqualTo(1.0);
+        assertThat(series.get("system.processes.created").get(0)[1]).isEqualTo(4.0);
 
         // Original keys keep their meaning: cpu total = (1 - idle) * 100, mem = used * 100, fs = max * 100, load raw.
         org.assertj.core.data.Offset<Double> eps = org.assertj.core.data.Offset.offset(1e-6);

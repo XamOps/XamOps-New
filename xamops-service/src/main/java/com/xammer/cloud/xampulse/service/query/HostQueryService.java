@@ -34,6 +34,18 @@ public class HostQueryService {
     private static final Set<String> SORTS = Set.of("name", "cpu", "mem", "health", "lastSeen");
     private static final Duration LIVE_WINDOW = Duration.ofMinutes(15);
 
+    /**
+     * Whole block devices on EC2 (Nitro NVMe, Xen xvd, sd/vd). Partitions (nvme0n1p1, xvda1), loop, dm-* and md*
+     * are left out because their bytes are already counted on the disk underneath.
+     */
+    static final String WHOLE_DISK = "nvme[0-9]+n[0-9]+|xvd[a-z]+|sd[a-z]+|vd[a-z]+";
+
+    /**
+     * Interfaces that carry the instance's own traffic in and out (ENA eth/ens/enp/eno, Xen enX). lo, docker0, br-*,
+     * veth*, cni*, eni* and tunnels are left out: they are host-internal or a second view of bytes the NIC counts.
+     */
+    static final String PHYSICAL_NIC = "eth[0-9]+|ens[0-9]+|enp[0-9a-z]+|eno[0-9]+|enX[0-9]+";
+
     private final QueryScopeFactory scopes;
     private final ClickHouseExecutor executor;
     private final XpAgentRepository agents;
@@ -42,6 +54,14 @@ public class HostQueryService {
     private final LogQueryService logs;
     private final EventQueryService events;
     private final TenantScopedQueryBuilder builder = new TenantScopedQueryBuilder();
+
+    /** Optional: EC2 Name tag and instance type for the host list. Without it hosts are named by instance id. */
+    private com.xammer.cloud.xampulse.service.insight.TopologyService topology;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setTopology(com.xammer.cloud.xampulse.service.insight.TopologyService topology) {
+        this.topology = topology;
+    }
 
     public HostQueryService(QueryScopeFactory scopes, ClickHouseExecutor executor, XpAgentRepository agents,
                             HealthScoreService health, IncidentService incidents, LogQueryService logs, EventQueryService events) {
@@ -87,15 +107,36 @@ public class HostQueryService {
         if (!SORTS.contains(key)) {
             throw XamPulseException.invalid("Unknown sort field.");
         }
-        Comparator<XpHostRow> c = switch (key) {
-            case "name" -> Comparator.comparing(XpHostRow::name, String.CASE_INSENSITIVE_ORDER);
-            case "cpu" -> Comparator.comparing(XpHostRow::cpuPct, Comparator.nullsLast(Comparator.naturalOrder()));
-            case "mem" -> Comparator.comparing(XpHostRow::memPct, Comparator.nullsLast(Comparator.naturalOrder()));
-            case "lastSeen" -> Comparator.comparing(XpHostRow::lastSeenAt, Comparator.nullsLast(Comparator.naturalOrder()));
-            // Worst first: low score first, unknown (null) after known.
-            default -> Comparator.comparing(XpHostRow::score, Comparator.nullsLast(Comparator.naturalOrder()));
+        return switch (key) {
+            case "name" -> desc
+                    ? Comparator.comparing(XpHostRow::name, String.CASE_INSENSITIVE_ORDER.reversed())
+                    : Comparator.comparing(XpHostRow::name, String.CASE_INSENSITIVE_ORDER);
+            case "cpu" -> Comparator.comparing(XpHostRow::cpuPct, valueOrder(desc));
+            case "mem" -> Comparator.comparing(XpHostRow::memPct, valueOrder(desc));
+            case "lastSeen" -> Comparator.comparing(XpHostRow::lastSeenAt, valueOrder(desc));
+            // Health order is operational severity, not the nullable score: CRIT, WARN, NO_DATA, OK.
+            default -> {
+                Comparator<XpHostRow> health = Comparator.comparingInt(row -> healthRank(row.health()));
+                if (desc) {
+                    health = health.reversed();
+                }
+                yield health.thenComparing(XpHostRow::score, valueOrder(desc));
+            }
         };
-        return desc ? c.reversed() : c;
+    }
+
+    private static <T extends Comparable<? super T>> Comparator<T> valueOrder(boolean desc) {
+        Comparator<T> values = Comparator.naturalOrder();
+        return Comparator.nullsLast(desc ? values.reversed() : values);
+    }
+
+    private static int healthRank(XpHealth value) {
+        return switch (value) {
+            case CRIT -> 0;
+            case WARN -> 1;
+            case NO_DATA -> 2;
+            case OK -> 3;
+        };
     }
 
     /** All hosts for already-authorised accounts. {@code scope} must be a short live window ending at {@code now}. */
@@ -117,10 +158,18 @@ public class HostQueryService {
             }
         }
         Map<Long, Map<String, List<Double>>> sparks = sparks(scope, now);
+        Map<Long, Map<String, double[]>> net = networkRates(scope);
 
         List<XpHostRow> out = new ArrayList<>();
         for (Long tenant : scope.accountIds()) {
-            for (XpAgent a : agents.findByCloudAccountId(tenant)) {
+            List<XpAgent> tenantAgents = agents.findByCloudAccountId(tenant);
+            // Name tag and instance type from the cached EC2 lookup (free, 10 minutes); the instance id when unknown.
+            Map<String, com.xammer.cloud.xampulse.service.aws.Ec2FactsService.PeerKey> ec2 = topology == null ? Map.of()
+                    : topology.keys(tenant, tenantAgents.stream().map(XpAgent::getInstanceId).toList());
+            for (XpAgent a : tenantAgents) {
+                var key = ec2.get(a.getInstanceId());
+                String name = key != null && key.name() != null && !key.name().isBlank() ? key.name() : a.getInstanceId();
+                String type = key == null ? null : key.instanceType();
                 Live l = live.getOrDefault(tenant, Map.of()).get(a.getInstanceId());
                 Long secondsSince = l == null || l.lastTs == 0 ? null : Math.max(0, now.getEpochSecond() - l.lastTs);
                 Double errPerMin = errors.getOrDefault(tenant, Map.of()).get(a.getInstanceId());
@@ -128,13 +177,18 @@ public class HostQueryService {
                         l == null ? null : l.cpuPct(), l == null ? null : l.memPct(), l == null ? null : l.diskPct(),
                         secondsSince, l == null ? null : (errPerMin == null ? 0.0 : errPerMin)));
                 Instant lastSeen = l != null && l.lastTs > 0 ? Instant.ofEpochSecond(l.lastTs) : a.getLastSeenAt();
-                out.add(new XpHostRow(tenant, a.getInstanceId(), a.getInstanceId(), a.getRegion(),
-                        a.getOs() == null ? "linux" : a.getOs().toLowerCase(Locale.ROOT), null, "unknown",
+                double[] rates = net.getOrDefault(tenant, Map.of()).get(a.getInstanceId());
+                // State and tags come from the same cached DescribeInstances; when EC2 cannot be read they stay
+                // empty (state omitted) rather than being guessed.
+                out.add(new XpHostRow(tenant, a.getInstanceId(), name, a.getRegion(),
+                        a.getOs() == null ? "linux" : a.getOs().toLowerCase(Locale.ROOT), type, key == null ? null : key.state(),
                         res.health(), res.score(), res.reason(),
                         l == null ? null : l.cpuPct(), l == null ? null : l.memPct(), l == null ? null : l.diskPct(),
-                        null, null, l == null ? null : l.load1,
+                        rates == null || Double.isNaN(rates[0]) ? null : rates[0], rates == null || Double.isNaN(rates[1]) ? null : rates[1],
+                        l == null ? null : l.load1,
                         sparks.getOrDefault(tenant, Map.of()).getOrDefault(a.getInstanceId(), List.of()),
-                        lastSeen, agentStatus(a, now), a.getCollectionLevel(), Map.of()));
+                        lastSeen, agentStatus(a, now), a.getCollectionLevel(),
+                        key == null || key.tags() == null ? Map.of() : key.tags()));
             }
         }
         return out;
@@ -149,6 +203,39 @@ public class HostQueryService {
             case "ACTIVE", "PENDING", "STALE", "REVOKED" -> st;
             default -> "NONE";
         };
+    }
+
+    /**
+     * Latest network rate per host, bytes/s {in, out}, over the live window. system.network.io is a cumulative counter
+     * per device, so this is the same counter-rate query the host page charts use (resets dropped), on the instance's
+     * real NICs only (lo, docker0, veth* never left the host). NaN for a direction with no rate yet; the host is
+     * absent when nothing was measured, so the list says "no data" instead of 0 B/s.
+     */
+    Map<Long, Map<String, double[]>> networkRates(QueryScope live) {
+        MetricSpec spec = new MetricSpec("system.network.io", "rate", List.of("instance_id", "direction"),
+                List.of(new MetricSpec.LabelFilter("device", "=~", PHYSICAL_NIC)));
+        TenantScopedQueryBuilder.MetricPlan plan = TenantScopedQueryBuilder.planMetric(live, 60);
+        Map<Long, Map<String, double[]>> out = new HashMap<>();
+        for (ClickHouseExecutor.TenantRows tr : executor.queryEach(live, s -> builder.metricSeries(s, spec, plan))) {
+            Map<String, double[]> m = out.computeIfAbsent(tr.tenantId(), k -> new HashMap<>());
+            Map<String, Long> lastT = new HashMap<>();
+            for (Map<String, Object> r : tr.rows()) {
+                Double v = Rows.dOrNull(r, "v");
+                String instance = Rows.s(r, "g0");
+                String dir = Rows.s(r, "g1");
+                int idx = "receive".equals(dir) ? 0 : "transmit".equals(dir) ? 1 : -1;
+                long t = Rows.l(r, "t");
+                if (v == null || idx < 0 || instance == null) {
+                    continue;
+                }
+                String k = instance + "|" + idx;
+                if (lastT.getOrDefault(k, Long.MIN_VALUE) < t) {
+                    lastT.put(k, t);
+                    m.computeIfAbsent(instance, x -> new double[] {Double.NaN, Double.NaN})[idx] = Math.max(0, v);
+                }
+            }
+        }
+        return out;
     }
 
     private Map<Long, Map<String, List<Double>>> sparks(QueryScope live, Instant now) {
@@ -194,31 +281,69 @@ public class HostQueryService {
         // percentages (value * 100); disk/network I/O are byte rates grouped by direction.
         series.put("system.cpu.utilization{state=steal}", percentSeries(hostScope, plan,
                 new MetricSpec("system.cpu.utilization", "avg", List.of(), List.of(new MetricSpec.LabelFilter("state", "=", "steal"))), false));
+        // The OpenTelemetry hostmetrics scraper names I/O wait "wait" (states: user, system, idle, interrupt, nice,
+        // softirq, steal, wait); the UI key stays {state=iowait}. Querying "iowait" matched nothing on real hosts.
         series.put("system.cpu.utilization{state=iowait}", percentSeries(hostScope, plan,
-                new MetricSpec("system.cpu.utilization", "avg", List.of(), List.of(new MetricSpec.LabelFilter("state", "=", "iowait"))), false));
+                new MetricSpec("system.cpu.utilization", "avg", List.of(), List.of(new MetricSpec.LabelFilter("state", "=", "wait"))), false));
+        // CPU tab: the rest of the CPU-time breakdown (user = application code, system = kernel, softirq/interrupt =
+        // packet and device work, nice = low-priority jobs), the load trend, the vCPU count that turns load into
+        // "load per vCPU", the run queue (running vs blocked on I/O) and how fast processes are being created.
+        // Each key is present only when the host reports it, so the UI can say "not reported" instead of drawing 0.
+        for (String st : List.of("user", "system", "softirq", "interrupt", "nice")) {
+            putIfAny(series, "system.cpu.utilization{state=" + st + "}", percentSeries(hostScope, plan,
+                    new MetricSpec("system.cpu.utilization", "avg", List.of(), List.of(new MetricSpec.LabelFilter("state", "=", st))), false));
+        }
+        putIfAny(series, "system.cpu.load_average.5m", percentSeries(hostScope, plan,
+                new MetricSpec("system.cpu.load_average.5m", "avg", List.of(), List.of()), null));
+        putIfAny(series, "system.cpu.load_average.15m", percentSeries(hostScope, plan,
+                new MetricSpec("system.cpu.load_average.15m", "avg", List.of(), List.of()), null));
+        putIfAny(series, "system.cpu.logical.count", percentSeries(hostScope, plan,
+                new MetricSpec("system.cpu.logical.count", "max", List.of(), List.of()), null));
+        for (String status : List.of("running", "blocked")) {
+            putIfAny(series, "system.processes.count{status=" + status + "}", percentSeries(hostScope, plan,
+                    new MetricSpec("system.processes.count", "avg", List.of(), List.of(new MetricSpec.LabelFilter("status", "=", status))), null));
+        }
+        putIfAny(series, "system.processes.created", percentSeries(hostScope, plan,
+                new MetricSpec("system.processes.created", "rate", List.of(), List.of()), null));
         series.put("system.paging.utilization", percentSeries(hostScope, plan,
                 new MetricSpec("system.paging.utilization", "avg", List.of(), List.of(new MetricSpec.LabelFilter("state", "=", "used"))), false));
-        // Per-core CPU: one key per 'cpu' label value, non-idle = (1 - idle) * 100.
+        // Per-core CPU: the agent's separate per-core stream (xp.cpu.core.utilization, idle only, one series per
+        // logical CPU) so the per-state totals above stay per host. Non-idle = (1 - idle) * 100. The agent labels
+        // CPUs "cpu0", "cpu1": the key uses the bare number the UI parses.
         fanInvertedByLabel(series, hostScope, plan, "cpu",
-                new MetricSpec("system.cpu.utilization", "avg", List.of("cpu"), List.of(new MetricSpec.LabelFilter("state", "=", "idle"))),
-                v -> "system.cpu.utilization{cpu=" + v + "}");
+                new MetricSpec("xp.cpu.core.utilization", "avg", List.of("cpu"), List.of(new MetricSpec.LabelFilter("state", "=", "idle"))),
+                v -> "system.cpu.utilization{cpu=" + v.replaceFirst("^cpu", "") + "}");
         // Per-mount filesystem usage: one key per mountpoint, used fraction * 100.
         fanScaledByLabel(series, hostScope, plan, "mountpoint",
                 new MetricSpec("system.filesystem.utilization", "max", List.of("mountpoint"), List.of()),
                 v -> "system.filesystem.utilization{mountpoint=" + v + "}");
-        // Disk and network I/O as byte rates, grouped by direction.
-        fanRawByLabel(series, hostScope, plan, "direction",
-                new MetricSpec("system.disk.io", "rate", List.of("direction"), List.of(new MetricSpec.LabelFilter("direction", "=", "read"))),
-                v -> "system.disk.io{direction=" + v + "}");
-        fanRawByLabel(series, hostScope, plan, "direction",
-                new MetricSpec("system.disk.io", "rate", List.of("direction"), List.of(new MetricSpec.LabelFilter("direction", "=", "write"))),
-                v -> "system.disk.io{direction=" + v + "}");
-        fanRawByLabel(series, hostScope, plan, "direction",
-                new MetricSpec("system.network.io", "rate", List.of("direction"), List.of(new MetricSpec.LabelFilter("direction", "=", "receive"))),
-                v -> "system.network.io{direction=" + v + "}");
-        fanRawByLabel(series, hostScope, plan, "direction",
-                new MetricSpec("system.network.io", "rate", List.of("direction"), List.of(new MetricSpec.LabelFilter("direction", "=", "transmit"))),
-                v -> "system.network.io{direction=" + v + "}");
+        // Disk and network I/O as byte rates (bytes per second), grouped by direction. Only whole physical disks and
+        // the instance's real NICs are added up: a partition repeats its disk's bytes, and lo, docker0, br-*, veth*
+        // carry traffic that never left the host or is already counted on the NIC.
+        for (String dir : List.of("read", "write")) {
+            fanRawByLabel(series, hostScope, plan, "direction",
+                    new MetricSpec("system.disk.io", "rate", List.of("direction"), List.of(
+                            new MetricSpec.LabelFilter("direction", "=", dir), new MetricSpec.LabelFilter("device", "=~", WHOLE_DISK))),
+                    v -> "system.disk.io{direction=" + v + "}");
+        }
+        for (String dir : List.of("receive", "transmit")) {
+            fanRawByLabel(series, hostScope, plan, "direction",
+                    new MetricSpec("system.network.io", "rate", List.of("direction"), List.of(
+                            new MetricSpec.LabelFilter("direction", "=", dir), new MetricSpec.LabelFilter("device", "=~", PHYSICAL_NIC))),
+                    v -> "system.network.io{direction=" + v + "}");
+        }
+        // Pressure (PSI, xampulse_ec2): the rate of stall seconds is the share of time stalled; shown in percent.
+        // Absent (no key) when the host reports no PSI, so the UI can say "not measurable" instead of drawing zero.
+        fanScaledByLabel(series, hostScope, plan, "resource",
+                new MetricSpec("xp.pressure.stall_time", "rate", List.of("resource"), List.of(new MetricSpec.LabelFilter("level", "=", "some"))),
+                v -> "xp.pressure{resource=" + v + ",level=some}");
+        fanScaledByLabel(series, hostScope, plan, "resource",
+                new MetricSpec("xp.pressure.stall_time", "rate", List.of("resource"), List.of(new MetricSpec.LabelFilter("level", "=", "full"))),
+                v -> "xp.pressure{resource=" + v + ",level=full}");
+        // AWS network allowances (xampulse_ec2): packets per second over each allowance, all ENA interfaces together.
+        fanRawByLabel(series, hostScope, plan, "allowance",
+                new MetricSpec("xp.ena.allowance_exceeded", "rate", List.of("allowance"), List.of()),
+                v -> "xp.ena.allowance_exceeded{allowance=" + v + "}");
 
         List<XpLogRow> recentErrors = logs.search(user, new XpLogSearchRequest(
                 new XpScope(List.of(accountId), null, from, to, new XpResourceFilter(List.of(instanceId), null, null)),
@@ -229,6 +354,12 @@ public class HostQueryService {
     }
 
     /** @param invertAndScale true: (1-v)*100; false: v*100; null: raw value */
+    private static void putIfAny(Map<String, List<double[]>> series, String key, List<double[]> points) {
+        if (!points.isEmpty()) {
+            series.put(key, points);
+        }
+    }
+
     private List<double[]> percentSeries(QueryScope scope, TenantScopedQueryBuilder.MetricPlan plan, MetricSpec spec, Boolean invertAndScale) {
         List<double[]> pts = new ArrayList<>();
         for (ClickHouseExecutor.TenantRows tr : executor.queryEach(scope, s -> builder.metricSeries(s, spec, plan))) {

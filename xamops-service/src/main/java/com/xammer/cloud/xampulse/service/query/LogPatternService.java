@@ -35,7 +35,7 @@ public class LogPatternService {
         int limit = req.limit() == null ? 30 : req.limit();
         boolean compare = req.compareToPrevious() == null || req.compareToPrevious();
 
-        record Acc(String template, long count, long firstMs, String sampleId, String severity) {}
+        record Acc(String template, long count, long firstMs, String sampleId, Long sampleAccountId, String severity) {}
         Map<String, Acc> merged = new LinkedHashMap<>();
         for (ClickHouseExecutor.TenantRows tr : executor.queryEach(scope, s -> builder.patterns(s, filter, limit))) {
             for (Map<String, Object> r : tr.rows()) {
@@ -45,7 +45,7 @@ public class LogPatternService {
                 long count = Rows.l(r, "c") + (prev == null ? 0 : prev.count());
                 long first = prev == null ? Rows.l(r, "first_ms") : Math.min(prev.firstMs(), Rows.l(r, "first_ms"));
                 merged.put(tpl, new Acc(Rows.s(r, "template"), count, first, prev == null ? sample : prev.sampleId(),
-                        severityName((int) Rows.l(r, "sev"))));
+                        prev == null ? tr.tenantId() : prev.sampleAccountId(), severityName((int) Rows.l(r, "sev"))));
             }
         }
         List<String> top = merged.entrySet().stream()
@@ -88,7 +88,7 @@ public class LogPatternService {
                 trend.add(v);
             }
             out.add(new XpPattern(tpl, a.template(), a.count(), delta, isNew, trend, Instant.ofEpochMilli(a.firstMs()),
-                    a.sampleId(), XpSeverity.valueOf(a.severity())));
+                    a.sampleId(), a.sampleAccountId(), XpSeverity.valueOf(a.severity())));
         }
         return new XpLogPatternsResponse(out);
     }

@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
 @ConditionalOnProperty(name = "xampulse.enabled", havingValue = "true")
 public class LogQueryService {
 
-    private static final Pattern CURSOR = Pattern.compile("^(\\d{1,19})\\.(\\d{1,20})$");
+    private static final Pattern CURSOR = Pattern.compile("^(\\d{1,19})\\|(\\d{1,19})\\|([A-Za-z0-9._:\\-]{0,64})\\|(\\d{1,20})$");
     private static final long[] NICE_BUCKETS = {1, 5, 10, 15, 30, 60, 300, 600, 900, 1800, 3600, 10800, 21600, 43200, 86400};
 
     private final QueryScopeFactory scopes;
@@ -53,7 +53,10 @@ public class LogQueryService {
                 merged.add(Rows.logRow(r));
             }
         }
-        Comparator<XpLogRow> cmp = Comparator.comparing(XpLogRow::ts).thenComparing(XpLogRow::id);
+        Comparator<XpLogRow> cmp = Comparator.comparing(XpLogRow::ts)
+                .thenComparing(XpLogRow::accountId)
+                .thenComparing(XpLogRow::instanceId)
+                .thenComparing(row -> LogRowIdCodec.decode(row.id()).bodyHash(), LogQueryService::compareDecimal);
         merged.sort(desc ? cmp.reversed() : cmp);
         boolean truncated = merged.size() > limit;
         List<XpLogRow> page = truncated ? new ArrayList<>(merged.subList(0, limit)) : merged;
@@ -61,7 +64,7 @@ public class LogQueryService {
         if (truncated && !page.isEmpty()) {
             XpLogRow last = page.get(page.size() - 1);
             LogRowIdCodec.RowRef ref = LogRowIdCodec.decode(last.id());
-            next = encodeCursor(ref.tsMs(), ref.bodyHash());
+            next = encodeCursor(ref.tsMs(), ref.tenantId(), ref.instanceId(), ref.bodyHash());
         }
         long tookMs = (System.nanoTime() - started) / 1_000_000;
         return new XpLogSearchResponse(page, next, new XpScanned(page.size(), 0), tookMs, truncated,
@@ -97,8 +100,14 @@ public class LogQueryService {
         return NICE_BUCKETS[NICE_BUCKETS.length - 1];
     }
 
-    static String encodeCursor(long tsMs, String hash) {
-        return Base64.getUrlEncoder().withoutPadding().encodeToString((tsMs + "." + hash).getBytes(StandardCharsets.UTF_8));
+    private static int compareDecimal(String a, String b) {
+        int length = Integer.compare(a.length(), b.length());
+        return length != 0 ? length : a.compareTo(b);
+    }
+
+    static String encodeCursor(long tsMs, long tenantId, String instanceId, String hash) {
+        String raw = tsMs + "|" + tenantId + "|" + instanceId + "|" + hash;
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
     }
 
     static TenantScopedQueryBuilder.LogCursor decodeCursor(String cursor) {
@@ -111,7 +120,7 @@ public class LogQueryService {
             if (!m.matches()) {
                 throw XamPulseException.invalid("Invalid cursor.");
             }
-            return new TenantScopedQueryBuilder.LogCursor(Long.parseLong(m.group(1)), m.group(2));
+            return new TenantScopedQueryBuilder.LogCursor(Long.parseLong(m.group(1)), Long.parseLong(m.group(2)), m.group(3), m.group(4));
         } catch (IllegalArgumentException e) {
             throw XamPulseException.invalid("Invalid cursor.");
         }

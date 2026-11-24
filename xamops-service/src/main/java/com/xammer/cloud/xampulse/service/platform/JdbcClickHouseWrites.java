@@ -5,6 +5,7 @@ import com.xammer.cloud.xampulse.config.ClickHouseConnections;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -24,7 +25,8 @@ public class JdbcClickHouseWrites implements ClickHouseWrites {
     /** The only tables this seam may write, each with its exact, ordered column set. */
     private static final Map<String, Set<String>> ALLOWED = Map.of(
             "xp_baseline", Set.of("tenant_id", "metric", "instance_id", "hour_of_week", "med", "mad", "updated_at"),
-            "xp_events", Set.of("tenant_id", "ts", "kind", "resource", "title", "detail"));
+            "xp_events", Set.of("tenant_id", "ts", "kind", "resource", "title", "detail"),
+            "xp_cloudwatch_points", Set.of("tenant_id", "instance_id", "metric", "dimension", "ts", "value", "fetched_at"));
 
     private final ClickHouseConnections connections;
 
@@ -60,7 +62,7 @@ public class JdbcClickHouseWrites implements ClickHouseWrites {
             int pending = 0;
             for (List<Object> row : rows) {
                 for (int i = 0; i < row.size(); i++) {
-                    ps.setObject(i + 1, row.get(i));
+                    ps.setObject(i + 1, utcIfInstant(row.get(i)));
                 }
                 ps.addBatch();
                 if (++pending == CHUNK) {
@@ -72,6 +74,17 @@ public class JdbcClickHouseWrites implements ClickHouseWrites {
                 ps.executeBatch();
             }
         }
+    }
+
+    /**
+     * Every XamPulse time column is {@code DateTime64(.., 'UTC')}. clickhouse-jdbc 0.11.0 reads a
+     * {@link java.sql.Timestamp} (and a {@link java.time.LocalDateTime}) in the JVM's default zone, so on a backend
+     * running in IST an event written "now" was stored 5h30 in the future and the reader's time window missed it.
+     * An {@link Instant} is written exactly in any zone (checked against the driver for Timestamp, LocalDateTime,
+     * OffsetDateTime, ZonedDateTime and Instant under Asia/Kolkata and UTC), so timestamps are bound as Instants.
+     */
+    static Object utcIfInstant(Object v) {
+        return v instanceof java.sql.Timestamp t ? t.toInstant() : v;
     }
 
     private static String placeholders(int n) {

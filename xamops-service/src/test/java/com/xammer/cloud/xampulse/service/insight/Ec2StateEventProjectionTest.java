@@ -26,34 +26,57 @@ class Ec2StateEventProjectionTest {
     }
 
     @Test
-    void recordsEachStateOncePerHourThenDedupes() throws Exception {
+    void theFirstPassIsTheBaselineAndRepeatsOfTheSameStateAreNotChanges() throws Exception {
         FakeClickHouseWrites writes = new FakeClickHouseWrites();
         EventWriter writer = new EventWriter(writes);
-        Ec2StateSource source = tenant -> List.of(new Ec2Instance("i-1", "running"), new Ec2Instance("i-2", "stopped"));
+        Ec2StateSource source = tenant -> List.of(new Ec2Instance("i-0aaaaaaaa1", "running"), new Ec2Instance("i-0aaaaaaaa2", "stopped"));
         Ec2StateEventProjection p = new Ec2StateEventProjection(
                 mock(XpAccountConfigRepository.class), source, writer, schedulingOn());
 
         p.runForAccount(7L, now);
-        p.runForAccount(7L, now.plusSeconds(600)); // same hour -> deduped
+        p.runForAccount(7L, now.plusSeconds(3600));
+        p.runForAccount(7L, now.plusSeconds(7200));
 
-        assertEquals(2, writes.calls.size(), "two instances, each written once in the hour");
-        assertEquals("EC2_STATE", writes.calls.get(0).rows().get(0).get(2));
+        assertTrue(writes.calls.isEmpty(), "nothing changed: an instance that stays running is not an event every hour");
     }
 
     @Test
-    void aStateChangeWithinTheHourIsANewEvent() throws Exception {
+    void aStateChangeOrANewInstanceIsAnEventOnce() throws Exception {
         FakeClickHouseWrites writes = new FakeClickHouseWrites();
         EventWriter writer = new EventWriter(writes);
-        boolean[] stopped = {false};
-        Ec2StateSource source = tenant -> List.of(new Ec2Instance("i-1", stopped[0] ? "stopped" : "running"));
+        boolean[] later = {false};
+        Ec2StateSource source = tenant -> later[0]
+                ? List.of(new Ec2Instance("i-0aaaaaaaa1", "stopped"), new Ec2Instance("i-0bbbbbbbb2", "running"))
+                : List.of(new Ec2Instance("i-0aaaaaaaa1", "running"));
         Ec2StateEventProjection p = new Ec2StateEventProjection(
                 mock(XpAccountConfigRepository.class), source, writer, schedulingOn());
 
         p.runForAccount(7L, now);
-        stopped[0] = true;
+        later[0] = true;
+        p.runForAccount(7L, now.plusSeconds(60));
+        p.runForAccount(7L, now.plusSeconds(120));
+
+        assertEquals(2, writes.calls.size(), "running -> stopped, and a new instance; each once");
+        assertEquals("EC2 i-0aaaaaaaa1 is stopped", writes.calls.get(0).rows().get(0).get(4));
+        assertEquals("was running", writes.calls.get(0).rows().get(0).get(5));
+        assertEquals("new instance", writes.calls.get(1).rows().get(0).get(5));
+    }
+
+    @Test
+    void keyPairsVolumesAndOtherEc2ResourcesAreNotInstances() throws Exception {
+        FakeClickHouseWrites writes = new FakeClickHouseWrites();
+        boolean[] later = {false};
+        Ec2StateSource source = tenant -> later[0]
+                ? List.of(new Ec2Instance("key-0fde76a1a1243620c", "Available"), new Ec2Instance("vol-0abc12345", "in-use"))
+                : List.of(new Ec2Instance("i-0aaaaaaaa1", "running"));
+        Ec2StateEventProjection p = new Ec2StateEventProjection(
+                mock(XpAccountConfigRepository.class), source, new EventWriter(writes), schedulingOn());
+
+        p.runForAccount(7L, now);
+        later[0] = true;
         p.runForAccount(7L, now.plusSeconds(60));
 
-        assertEquals(2, writes.calls.size(), "running then stopped are distinct (resource,state) keys");
+        assertTrue(writes.calls.isEmpty(), "only i-... ids are instances; an empty instance read keeps the baseline");
     }
 
     @Test
@@ -72,20 +95,24 @@ class Ec2StateEventProjectionTest {
     void oneAccountFailingDoesNotStopTheOthers() {
         FakeClickHouseWrites writes = new FakeClickHouseWrites();
         EventWriter writer = new EventWriter(writes);
+        String[] state9 = {"running"};
         Ec2StateSource source = tenant -> {
             if (tenant == 7L) {
                 throw new RuntimeException("source blew up for 7");
             }
-            return List.of(new Ec2Instance("i-9", "running"));
+            return List.of(new Ec2Instance("i-0999999999", state9[0]));
         };
         XpAccountConfigRepository configs = mock(XpAccountConfigRepository.class);
         when(configs.findAll()).thenReturn(List.of(account(7L, "CONNECTED"), account(9L, "CONNECTED")));
         Ec2StateEventProjection p = new Ec2StateEventProjection(configs, source, writer, schedulingOn());
 
+        p.runAll(); // baseline for 9
+        p.runForAccount(9L, now); // still the same: nothing
+        state9[0] = "stopped";
         p.runAll();
 
-        assertEquals(1, writes.calls.size());
-        assertEquals("i-9", writes.calls.get(0).rows().get(0).get(3));
+        assertEquals(1, writes.calls.size(), "account 7 failing every time does not stop account 9's change");
+        assertEquals("i-0999999999", writes.calls.get(0).rows().get(0).get(3));
     }
 
     @Test

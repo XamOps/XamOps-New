@@ -287,6 +287,66 @@ class OnboardingServicesTest {
         assertEquals(stored.getArchiveExternalIdEnc(), p.get("param_PulseExternalId"));
     }
 
+    /** Simulates the stack watcher having seen the stack complete. */
+    private void stackIsLive(String region, String stackId) {
+        regionRows.get(region).setState("OK");
+        regionRows.get(region).setStackId(stackId);
+        stored.setState("VERIFYING");
+    }
+
+    @Test
+    void replanningALiveAccountGivesAnUpdateLinkListingOnlyTheChangedParameters() {
+        service.plan(account, planCreate(inst("ap-south-1", 1)), null, "ip");
+        stackIsLive("ap-south-1", "arn:aws:cloudformation:ap-south-1:123456789012:stack/XamOpsXamPulse-123456789012/abc");
+
+        XpSetupPlanRequest.RegionSelection other = new XpSetupPlanRequest.RegionSelection("ap-south-1", "INSTANCES",
+                List.of("i-0aaaaaaaaaaaaaaaa"), null, null, null);
+        XpStackLink link = service.plan(account, planCreate(other), null, "ip").stacks().get(0);
+
+        assertEquals("UPDATE", link.action());
+        assertNull(link.quickCreateUrl(), "quick-create would fail for an existing stack");
+        assertTrue(link.updateUrl().contains("#/stacks/update/template?stackId=arn%3Aaws%3Acloudformation"), link.updateUrl());
+        assertEquals(Map.of("InstanceIds", "i-0aaaaaaaaaaaaaaaa"), link.parameters());
+        assertEquals("[\"i-0aaaaaaaaaaaaaaaa\"]", regionRows.get("ap-south-1").getTargetInstanceIdsJson());
+    }
+
+    @Test
+    void anUnchangedReplanListsNoParametersAndARetentionChangeListsTheLifecycleDays() {
+        service.plan(account, planCreate(inst("ap-south-1", 1)), null, "ip");
+        stackIsLive("ap-south-1", "sid");
+        assertEquals(Map.of(), service.plan(account, planCreate(inst("ap-south-1", 1)), null, "ip").stacks().get(0).parameters());
+
+        XpSetupPlanRequest longer = new XpSetupPlanRequest(new XpSetupPlanRequest.Bucket("CREATE", null, "ap-south-1"),
+                new XpSetupPlanRequest.Kms("CREATE", null), "ap-south-1", List.of(inst("ap-south-1", 1)), new XpRetention(14, 30, 90, 730), null);
+        assertEquals(Map.of("ExpireAfterDays", "730"), service.plan(account, longer, null, "ip").stacks().get(0).parameters());
+    }
+
+    @Test
+    void shrinkingTheInstanceListClearsTheUnusedChunkAndSwitchingToTagsSetsTheTagParameters() {
+        service.plan(account, planCreate(inst("ap-south-1", 60)), null, "ip");
+        stackIsLive("ap-south-1", "sid");
+        Map<String, String> p = service.plan(account, planCreate(inst("ap-south-1", 3)), null, "ip").stacks().get(0).parameters();
+        assertEquals("", p.get("InstanceIds2"), "the second chunk must be cleared");
+        assertEquals(3, p.get("InstanceIds").split(",").length);
+
+        XpStackLink tag = service.regionPlan(account, "ap-south-1", new XpRegionPlanRequest("TAG", null, "team", "obs", null), null, "ip");
+        assertEquals("UPDATE", tag.action());
+        assertEquals("Tag", tag.parameters().get("TargetMode"));
+        assertEquals("team", tag.parameters().get("ObserveTagKey"));
+        assertEquals("obs", tag.parameters().get("ObserveTagValue"));
+        assertEquals("", tag.parameters().get("InstanceIds"));
+    }
+
+    @Test
+    void aRegionWhoseStackIsNotLiveStillGetsAQuickCreateLink() {
+        service.plan(account, planCreate(inst("ap-south-1", 1)), null, "ip");
+        stackIsLive("ap-south-1", "sid");
+        XpStackLink link = service.regionPlan(account, "us-west-2", new XpRegionPlanRequest("INSTANCES", ids(2), null, null, null), null, "ip");
+        assertEquals("CREATE", link.action());
+        assertNotNull(link.quickCreateUrl());
+        assertNull(link.parameters());
+    }
+
     @Test
     void regionPlansNeedASetUpAccountAndValidTargets() {
         assertThrows(XamPulseException.class, () -> service.regionPlan(account, "us-west-2", new XpRegionPlanRequest("INSTANCES", ids(1), null, null, null), null, "ip"));

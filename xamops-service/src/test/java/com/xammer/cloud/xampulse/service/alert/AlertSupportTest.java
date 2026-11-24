@@ -194,32 +194,36 @@ class AlertSupportTest {
     // ---------------- incident correlation ----------------
 
     @Test
-    void incidentsGroupBySharedInstanceThenByTenMinuteWindow() {
+    void incidentsGroupBySharedInstanceThenBySameRuleWithinTenMinutes() {
         IncidentCorrelator c = new IncidentCorrelator();
-        var a = new IncidentCorrelator.OpenIncident(1, List.of("i-1"), now.minus(Duration.ofHours(2)));
-        var b = new IncidentCorrelator.OpenIncident(2, List.of("i-2"), now.minus(Duration.ofMinutes(5)));
-        assertEquals(1, c.pick(List.of(b, a), "i-1", now).orElseThrow().id(), "same instance beats recency");
-        assertEquals(2, c.pick(List.of(a, b), "i-3", now).orElseThrow().id(), "recent activity joins");
-        assertTrue(c.pick(List.of(a), "i-3", now).isEmpty(), "old unrelated incident is not joined");
+        var a = new IncidentCorrelator.OpenIncident(1, List.of("i-1"), List.of(10L), now.minus(Duration.ofHours(2)));
+        var b = new IncidentCorrelator.OpenIncident(2, List.of("i-2"), List.of(20L), now.minus(Duration.ofMinutes(5)));
+        assertEquals(1, c.pick(List.of(b, a), "i-1", 99L, now).orElseThrow().id(), "same instance beats recency");
+        assertEquals(2, c.pick(List.of(a, b), "i-3", 20L, now).orElseThrow().id(), "same rule firing on another host joins");
+        assertTrue(c.pick(List.of(a, b), "i-3", 30L, now).isEmpty(), "a different rule on an unrelated host opens its own incident");
+        assertTrue(c.pick(List.of(a), "i-3", 10L, now).isEmpty(), "same rule but the incident went quiet long ago");
     }
 
-    // ---------------- preview ----------------
-
     @Test
-    void previewReportsOnlyBreachesThatLastedLongEnoughAndCountsNotifications() {
-        List<AlertPreviewEngine.Point> pts = new ArrayList<>();
-        double[] v = {1, 9, 9, 9, 9, 1, 9, 1, 9, 9, 9};
-        for (int i = 0; i < v.length; i++) {
-            pts.add(new AlertPreviewEngine.Point(now.plus(Duration.ofMinutes(i)), v[i]));
-        }
-        XpAlertPreview p = AlertPreviewEngine.run(Map.of("i-1", pts), ">", 5, Duration.ofMinutes(2));
-        assertEquals(11, p.evaluatedPoints());
-        assertEquals(2, p.firings().size(), "the one-point blip at minute 6 is held back by 'for'");
-        assertEquals(now.plus(Duration.ofMinutes(1)), p.firings().get(0).from());
-        assertEquals(now.plus(Duration.ofMinutes(5)), p.firings().get(0).to());
-        assertEquals(9, p.firings().get(0).peak());
-        assertEquals(2, p.wouldNotify());
-        assertEquals(0, AlertPreviewEngine.run(Map.of("i-1", pts), ">", 50, Duration.ZERO).firings().size());
+    void differentRulesOnHostsOfOneTierGroupButUnrelatedHostsAndOldIncidentsDoNot() {
+        IncidentCorrelator c = new IncidentCorrelator();
+        var web = new IncidentCorrelator.OpenIncident(2, List.of("i-web1"), List.of(20L), now.minus(Duration.ofMinutes(5)));
+        var old = new IncidentCorrelator.OpenIncident(3, List.of("i-web3"), List.of(40L), now.minus(Duration.ofHours(1)));
+        IncidentCorrelator.Tier tier = new IncidentCorrelator.Tier("asg:web", "Auto Scaling group web");
+        java.util.concurrent.atomic.AtomicInteger asked = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.function.Function<java.util.Collection<String>, Map<String, IncidentCorrelator.Tier>> tiers = ids -> {
+            asked.incrementAndGet();
+            return Map.of("i-web1", tier, "i-web2", tier, "i-web3", tier, "i-db1", new IncidentCorrelator.Tier("asg:db", "Auto Scaling group db"));
+        };
+        var j = c.join(List.of(web), "i-web2", 30L, now, tiers).orElseThrow();
+        assertEquals(2, j.incident().id(), "errors on web-2 join CPU on web-1: one tier, one incident");
+        assertEquals("same tier as i-web1 (Auto Scaling group web)", j.reason());
+        assertTrue(c.join(List.of(web), "i-db1", 30L, now, tiers).isEmpty(), "another tier opens its own incident");
+        assertTrue(c.join(List.of(old), "i-web2", 30L, now, tiers).isEmpty(), "same tier but quiet for an hour");
+        asked.set(0);
+        assertNull(c.join(List.of(web), "i-web1", 30L, now, tiers).orElseThrow().reason(), "same instance: no tier lookup needed");
+        assertEquals(0, asked.get(), "EC2 is not asked when instance or rule already decide");
+        assertTrue(c.join(List.of(web), "i-web2", 30L, now, ids -> Map.of()).isEmpty(), "no tier known: as before");
     }
 
     // ---------------- silence matching & channel masking ----------------

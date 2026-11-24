@@ -72,9 +72,9 @@ class ProcessQueryServiceTest {
     void joinsTheTwoMetricsPerPidAndOrdersByCpuDescending() {
         List<Map<String, Object>> rows = List.of(
                 row("process.cpu.utilization", "10", "java", "root", 0.20),
-                row("process.memory.utilization", "10", "java", "root", 0.40),
+                row("process.memory.utilization", "10", "java", "root", 40.0), // already a percentage (0..100)
                 row("process.cpu.utilization", "11", "nginx", "www", 0.50),
-                row("process.memory.utilization", "11", "nginx", "www", 0.10));
+                row("process.memory.utilization", "11", "nginx", "www", 10.0));
         List<XpProcessRow> out = serviceReturning(rows).topProcesses(user, ACCOUNT, INSTANCE, Instant.parse("2026-10-30T10:00:00Z"));
 
         assertThat(out).hasSize(2);

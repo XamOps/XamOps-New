@@ -48,7 +48,7 @@ public final class Rows {
         long tenant = l(row, "tenant_id");
         long tsMs = l(row, "ts_ms");
         String instance = s(row, "instance_id");
-        String sev = s(row, "severity");
+        String sev = row.containsKey("severity_name") ? s(row, "severity_name") : s(row, "severity"); // archive rows keep "severity"
         XpSeverity severity;
         try {
             severity = XpSeverity.valueOf(sev);

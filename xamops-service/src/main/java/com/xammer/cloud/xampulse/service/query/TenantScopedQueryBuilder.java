@@ -3,6 +3,7 @@ package com.xammer.cloud.xampulse.service.query;
 import com.xammer.cloud.xampulse.dto.XpSeverity;
 import com.xammer.cloud.xampulse.exception.XamPulseException;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -25,10 +26,16 @@ import java.util.regex.Pattern;
 public final class TenantScopedQueryBuilder {
 
     private static final Pattern SAFE_KEY = Pattern.compile("^[A-Za-z0-9_.\\-]{1,64}$");
+    private static final Pattern INSTANCE = Pattern.compile("^[A-Za-z0-9._:\\-]{0,64}$");
     private static final Pattern DIGITS = Pattern.compile("^[0-9]{1,20}$");
 
+    /**
+     * Never alias an expression with a column's own name: ClickHouse resolves a name in WHERE to a SELECT alias first,
+     * so "toString(severity) AS severity" turned the severity filter into toUInt8('INFO') and every filtered log query
+     * failed (seen from ClickHouse 25.8 on).
+     */
     static final String LOG_COLUMNS = "tenant_id, toUnixTimestamp64Milli(ts) AS ts_ms, region, instance_id, service, source, "
-            + "toString(severity) AS severity, body, attrs, trace_id, container_id, "
+            + "toString(severity) AS severity_name, body, attrs, trace_id, container_id, "
             + "toString(cityHash64(body)) AS body_hash, toUnixTimestamp64Milli(ingest_ts) AS ingest_ms";
 
     /** Pattern template used for display. '#' (not '?') so the text never contains a placeholder character. */
@@ -37,9 +44,10 @@ public final class TenantScopedQueryBuilder {
     /** Rollup table choice for a metric time range. */
     public record MetricPlan(String table, int tableStepSec, int stepSec) {}
 
-    public record LogCursor(long tsMs, String bodyHash) {
+    public record LogCursor(long tsMs, long tenantId, String instanceId, String bodyHash) {
         public LogCursor {
-            if (bodyHash == null || !DIGITS.matcher(bodyHash).matches()) {
+            if (tenantId <= 0 || instanceId == null || !INSTANCE.matcher(instanceId).matches()
+                    || bodyHash == null || !DIGITS.matcher(bodyHash).matches()) {
                 throw XamPulseException.invalid("Invalid cursor.");
             }
         }
@@ -51,15 +59,14 @@ public final class TenantScopedQueryBuilder {
         Q q = start("SELECT " + LOG_COLUMNS + " FROM xp_logs", scope);
         logWhere(q, scope, filter);
         if (cursor != null) {
-            if (desc) {
-                q.add(" AND (ts < fromUnixTimestamp64Milli(?) OR (ts = fromUnixTimestamp64Milli(?) AND cityHash64(body) < toUInt64(?)))",
-                        cursor.tsMs(), cursor.tsMs(), cursor.bodyHash());
-            } else {
-                q.add(" AND (ts > fromUnixTimestamp64Milli(?) OR (ts = fromUnixTimestamp64Milli(?) AND cityHash64(body) > toUInt64(?)))",
-                        cursor.tsMs(), cursor.tsMs(), cursor.bodyHash());
-            }
+            String op = desc ? "<" : ">";
+            q.add(" AND (ts, tenant_id, instance_id, cityHash64(body)) " + op
+                            + " (fromUnixTimestamp64Milli(?), toUInt64(?), ?, toUInt64(?))",
+                    cursor.tsMs(), cursor.tenantId(), cursor.instanceId(), cursor.bodyHash());
         }
-        q.add(desc ? " ORDER BY ts DESC, cityHash64(body) DESC" : " ORDER BY ts ASC, cityHash64(body) ASC");
+        q.add(desc
+                ? " ORDER BY ts DESC, tenant_id DESC, instance_id DESC, cityHash64(body) DESC"
+                : " ORDER BY ts ASC, tenant_id ASC, instance_id ASC, cityHash64(body) ASC");
         q.add(" LIMIT ?", clampLimit(limit));
         return q.build(scope);
     }
@@ -187,6 +194,9 @@ public final class TenantScopedQueryBuilder {
     }
 
     public ScopedSql metricSeries(QueryScope scope, MetricSpec spec, MetricPlan plan) {
+        if ("rate".equals(spec.agg())) {
+            return counterRateSeries(scope, spec, plan);
+        }
         StringBuilder sel = new StringBuilder("SELECT toUnixTimestamp(toStartOfInterval(ts, INTERVAL " + plan.stepSec()
                 + " SECOND)) AS t");
         StringBuilder grp = new StringBuilder("t");
@@ -196,12 +206,69 @@ public final class TenantScopedQueryBuilder {
             grp.append(", g").append(i);
             i++;
         }
-        sel.append(", ").append(aggExpr(spec.agg(), plan.stepSec())).append(" AS v FROM ").append(plan.table());
+        sel.append(", ").append(aggExpr(spec.agg())).append(" AS v FROM ").append(plan.table());
         Q q = start(sel.toString(), scope);
         q.add(" AND metric = ?", spec.metric());
         q.add(" AND ts >= toDateTime(?, 'UTC') AND ts < toDateTime(?, 'UTC')", scope.from().getEpochSecond(), scope.to().getEpochSecond());
         inList(q, "instance_id", scope.instanceIds());
-        for (MetricSpec.LabelFilter f : spec.filters()) {
+        labelFilters(q, spec.filters());
+        q.add(" GROUP BY " + grp + " ORDER BY t ASC");
+        return q.build(scope);
+    }
+
+    /**
+     * Per-second rate of a cumulative counter (disk bytes, network bytes, packets, CPU time).
+     *
+     * <p>A counter only means something per series, so the rate is worked out for each (instance, label set) before
+     * anything is added up: the last value in each step bucket minus the last value of that series' previous bucket,
+     * divided by the time between the two. The per-series rates are then summed per group, which gives the total
+     * across the selected devices. One bucket before the range is read so the first bucket has a predecessor; a
+     * series' first bucket has none and is left out rather than guessed.
+     *
+     * <p>A smaller value than before means the counter restarted (host reboot, container or process restart). How
+     * much was counted before the restart, and when it happened, is unknown: after a reboot with a gap, "new value /
+     * elapsed time" read 14 KB/s for a host doing 150 KB/s. So such a bucket is left out, and so is the group's
+     * bucket, because a total without one of its members is too low. Every value returned is an exactly measured
+     * increase; a restart shows as one missing point, never as a spike, a dip or a negative rate.
+     *
+     * <p>The previous formula, {@code (max - min) / step} over the whole group, mixed different devices' lifetime
+     * counters (a bridge's total minus an idle interface's zero) and missed the increase between buckets.
+     */
+    private ScopedSql counterRateSeries(QueryScope scope, MetricSpec spec, MetricPlan plan) {
+        int step = plan.stepSec();
+        long firstBucket = Math.floorDiv(scope.from().getEpochSecond(), step) * step;
+        StringBuilder sel = new StringBuilder("SELECT t");
+        StringBuilder grp = new StringBuilder("t");
+        int i = 0;
+        for (String g : spec.groupBy()) {
+            sel.append(", ").append(groupExpr(g)).append(" AS g").append(i);
+            grp.append(", g").append(i);
+            i++;
+        }
+        sel.append(", sum(r) AS v FROM (SELECT t, instance_id, labels_key, lv < prev_lv AS restarted, ")
+                .append("if(restarted, 0, (lv - prev_lv) / (toInt64(t) - toInt64(prev_t))) AS r FROM (")
+                .append(PREVIOUS_BUCKET)
+                .append("SELECT toUnixTimestamp(toStartOfInterval(ts, INTERVAL ").append(step)
+                .append(" SECOND)) AS t, instance_id, labels_key, argMaxMerge(last_state) AS lv FROM ").append(plan.table());
+        Q q = start(sel.toString(), scope);
+        q.add(" AND metric = ?", spec.metric());
+        q.add(" AND ts >= toDateTime(?, 'UTC') AND ts < toDateTime(?, 'UTC')", firstBucket - step, scope.to().getEpochSecond());
+        inList(q, "instance_id", scope.instanceIds());
+        labelFilters(q, spec.filters());
+        q.add(" GROUP BY t, instance_id, labels_key)" + SERIES_WINDOW + ") WHERE prev_t > 0 AND t >= ?)", firstBucket);
+        q.add(" GROUP BY " + grp + " HAVING max(restarted) = 0 ORDER BY t ASC");
+        return q.build(scope);
+    }
+
+    /** Adds the previous bucket's value and time to each row of one series (first row: 0, filtered out by callers). */
+    private static final String PREVIOUS_BUCKET = "SELECT t, instance_id, labels_key, lv, "
+            + "lagInFrame(lv, 1, toFloat64(0)) OVER w AS prev_lv, lagInFrame(t, 1, toUInt32(0)) OVER w AS prev_t FROM (";
+
+    private static final String SERIES_WINDOW =
+            " WINDOW w AS (PARTITION BY instance_id, labels_key ORDER BY t ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)";
+
+    private static void labelFilters(Q q, List<MetricSpec.LabelFilter> filters) {
+        for (MetricSpec.LabelFilter f : filters) {
             switch (f.op()) {
                 case "=" -> q.add(" AND has(splitByChar(',', labels_key), ?)", f.key() + "=" + f.value());
                 case "!=" -> q.add(" AND NOT has(splitByChar(',', labels_key), ?)", f.key() + "=" + f.value());
@@ -209,8 +276,6 @@ public final class TenantScopedQueryBuilder {
                         "^" + escapeRegex(f.key()) + "=(?:" + f.value() + ")$");
             }
         }
-        q.add(" GROUP BY " + grp + " ORDER BY t ASC");
-        return q.build(scope);
     }
 
     /** Latest value of each (instance, metric, label set) since {@code sinceEpochSec}; used by host and container views. */
@@ -260,27 +325,44 @@ public final class TenantScopedQueryBuilder {
      * the process identity labels. Reads raw {@code xp_metric_points} (process metrics live only at collection
      * level T2) and keeps, per {@code (metric, pid)}, the most recent point that is not after the timestamp.
      *
+     * <p>hostmetrics reports {@code process.cpu.utilization} as one series per CPU state (user, system, wait), all
+     * stamped with the scrape's time, and each a fraction of the whole host. The states of one scrape are added up
+     * first, then the latest scrape wins; picking one series' latest value would show a single state (often "wait",
+     * near zero) for a process that is busy.
+     *
      * <p>Tenant predicate first; {@code instanceId} and the timestamp are bound parameters. The process identity
      * labels are read out of the {@code labels} map by constant key names, never from user text. Returns one row
      * per {@code (metric, pid)} with columns {@code metric, pid, name, user, threads, v}.
      */
     public ScopedSql processLatest(QueryScope scope, String instanceId, long atEpochSec) {
-        Q q = start("SELECT metric, labels['process.pid'] AS pid, "
-                + "argMax(labels['process.executable.name'], ts) AS name, "
-                + "argMax(labels['process.owner'], ts) AS user, "
-                + "argMax(labels['process.threads'], ts) AS threads, "
-                + "argMax(value, ts) AS v FROM xp_metric_points", scope);
+        Q q = start("SELECT metric, pid, argMax(name, t) AS name, argMax(user, t) AS user, '' AS threads, argMax(v, t) AS v FROM ("
+                + "SELECT metric, labels['process.pid'] AS pid, ts AS t, any(labels['process.executable.name']) AS name, "
+                + "any(labels['process.owner']) AS user, sum(value) AS v FROM xp_metric_points", scope);
         q.add(" AND instance_id = ?", instanceId);
         q.add(" AND metric IN ('process.cpu.utilization', 'process.memory.utilization')");
         q.add(" AND ts <= fromUnixTimestamp64Milli(?)", atEpochSec * 1000L);
         q.add(" AND ts >= fromUnixTimestamp64Milli(?)", (atEpochSec - PROCESS_LOOKBACK_SEC) * 1000L);
         q.add(" AND labels['process.pid'] != ''");
-        q.add(" GROUP BY metric, pid ORDER BY v DESC");
+        q.add(" GROUP BY metric, pid, t) GROUP BY metric, pid ORDER BY v DESC");
         return q.build(scope);
     }
 
     /** How far back {@link #processLatest} looks for the nearest point before the timestamp. */
     static final long PROCESS_LOOKBACK_SEC = 3600L;
+
+    /**
+     * Stored CloudWatch datapoints for one instance (fetched earlier by a Refresh). FINAL collapses overlapping
+     * refreshes of the same window to one point per (metric, dimension, ts).
+     */
+    public ScopedSql cloudWatchPoints(QueryScope scope, String instanceId) {
+        Q q = start("SELECT metric, dimension, toUnixTimestamp64Milli(ts) AS t_ms, value, "
+                + "toUnixTimestamp64Milli(fetched_at) AS fetched_ms FROM xp_cloudwatch_points FINAL", scope);
+        q.add(" AND instance_id = ?", instanceId);
+        q.add(" AND ts >= fromUnixTimestamp64Milli(?) AND ts < fromUnixTimestamp64Milli(?)",
+                scope.from().toEpochMilli(), scope.to().toEpochMilli());
+        q.add(" ORDER BY metric, dimension, ts LIMIT 200000");
+        return q.build(scope);
+    }
 
     // ------------------------------------------------- events, usage, health
 
@@ -324,6 +406,17 @@ public final class TenantScopedQueryBuilder {
     }
 
     /** Error rows and total bytes per instance in the window, from the minute rollup. */
+    /** ERROR and FATAL lines per container in the window (container logs carry the full 64-character container id). */
+    public ScopedSql containerErrors(QueryScope scope) {
+        Q q = start("SELECT instance_id, container_id, count() AS errors FROM xp_logs", scope);
+        q.add(" AND ts >= fromUnixTimestamp64Milli(?) AND ts < fromUnixTimestamp64Milli(?)",
+                scope.from().toEpochMilli(), scope.to().toEpochMilli());
+        q.add(" AND container_id != '' AND severity IN ('ERROR', 'FATAL')");
+        inList(q, "instance_id", scope.instanceIds());
+        q.add(" GROUP BY instance_id, container_id");
+        return q.build(scope);
+    }
+
     public ScopedSql errorVolume(QueryScope scope) {
         Q q = start("SELECT instance_id, sumIf(rows, severity IN ('ERROR', 'FATAL')) AS errors, sum(rows) AS total, "
                 + "sum(bytes) AS b FROM xp_log_volume_1m", scope);
@@ -344,22 +437,128 @@ public final class TenantScopedQueryBuilder {
 
     /** Aggregate of one metric over the scope window, grouped by instance; used by METRIC_THRESHOLD rules. */
     public ScopedSql alertMetric(QueryScope scope, MetricSpec spec) {
-        MetricSpec grouped = new MetricSpec(spec.metric(), spec.agg(), List.of("instance_id"), spec.filters());
-        Q q = start("SELECT instance_id AS g0, " + aggExpr(grouped.agg(), (int) Math.max(1, scope.rangeSeconds()))
-                + " AS v FROM xp_metrics_1m", scope);
-        q.add(" AND metric = ?", grouped.metric());
+        if ("rate".equals(spec.agg())) {
+            return alertCounterRate(scope, spec);
+        }
+        Q q = start("SELECT instance_id AS g0, " + aggExpr(spec.agg()) + " AS v FROM xp_metrics_1m", scope);
+        q.add(" AND metric = ?", spec.metric());
         q.add(" AND ts >= toDateTime(?, 'UTC') AND ts < toDateTime(?, 'UTC')", scope.from().getEpochSecond(), scope.to().getEpochSecond());
         inList(q, "instance_id", scope.instanceIds());
-        for (MetricSpec.LabelFilter f : grouped.filters()) {
-            switch (f.op()) {
-                case "=" -> q.add(" AND has(splitByChar(',', labels_key), ?)", f.key() + "=" + f.value());
-                case "!=" -> q.add(" AND NOT has(splitByChar(',', labels_key), ?)", f.key() + "=" + f.value());
-                default -> q.add(" AND arrayExists(x -> match(x, ?), splitByChar(',', labels_key))",
-                        "^" + escapeRegex(f.key()) + "=(?:" + f.value() + ")$");
-            }
-        }
+        labelFilters(q, spec.filters());
         q.add(" GROUP BY g0");
         return q.build(scope);
+    }
+
+    /**
+     * Average per-second rate of a counter over the rule window, per instance: for each series the summed increase
+     * divided by the summed time it covers, then added up across the instance's series. An interval in which the
+     * counter restarted is left out of both sums (its increase is unknown, see {@link #counterRateSeries}). Dividing
+     * by the covered time, not the nominal window, keeps a window that only partly has data from reading low.
+     */
+    private ScopedSql alertCounterRate(QueryScope scope, MetricSpec spec) {
+        long firstBucket = Math.floorDiv(scope.from().getEpochSecond(), 60L) * 60L;
+        Q q = start("SELECT instance_id AS g0, sum(series_rate) AS v FROM ("
+                + "SELECT instance_id, labels_key, sum(lv - prev_lv) / sum(toInt64(t) - toInt64(prev_t)) AS series_rate FROM ("
+                + PREVIOUS_BUCKET
+                + "SELECT toUnixTimestamp(toStartOfMinute(ts)) AS t, instance_id, labels_key, argMaxMerge(last_state) AS lv "
+                + "FROM xp_metrics_1m", scope);
+        q.add(" AND metric = ?", spec.metric());
+        q.add(" AND ts >= toDateTime(?, 'UTC') AND ts < toDateTime(?, 'UTC')", firstBucket - 60L, scope.to().getEpochSecond());
+        inList(q, "instance_id", scope.instanceIds());
+        labelFilters(q, spec.filters());
+        q.add(" GROUP BY t, instance_id, labels_key)" + SERIES_WINDOW + ") WHERE prev_t > 0 AND lv >= prev_lv AND t >= ?"
+                + " GROUP BY instance_id, labels_key) GROUP BY g0", firstBucket);
+        return q.build(scope);
+    }
+
+    // ------------------------------------------------------------ alert backtest
+    //
+    // Replays the live evaluator once a minute over a past range. The evaluator at `now` reads the minute buckets in
+    // [now - W, now); replayed at each complete minute m (now = m + 60) that is the buckets m - W + 60 .. m. So each
+    // bucket b is fanned out to the evaluation minutes b .. b + W - 60 (ARRAY JOIN range(b, b + W, 60)) and merged
+    // there with the same aggregate states the evaluator merges: the value at each minute is the one the rule would
+    // have compared with its threshold. Output: g0 (instance), t (evaluation minute m), v.
+
+    private static void backtestArgs(long fromMin, long lastMin, long windowSec) {
+        if (windowSec < 60 || windowSec % 60 != 0 || windowSec > 6 * 3600 || fromMin % 60 != 0 || lastMin % 60 != 0 || lastMin < fromMin) {
+            throw new IllegalArgumentException("Bad backtest range");
+        }
+    }
+
+    private static final String FANOUT = " ARRAY JOIN range(toUInt64(b), toUInt64(b) + toUInt64(?), toUInt64(60)) AS m"
+            + " WHERE m >= toUInt64(?) AND m <= toUInt64(?)";
+
+    /** Window aggregate (avg, min, max, sum, p95) of a gauge per instance at every evaluation minute. */
+    public ScopedSql backtestMetric(QueryScope scope, MetricSpec spec, long fromMin, long lastMin, long windowSec, int limit) {
+        backtestArgs(fromMin, lastMin, windowSec);
+        String agg = spec.agg().toLowerCase(Locale.ROOT);
+        String[] fn = switch (agg) {
+            case "avg" -> new String[] {"avgMergeState(avg_state)", "avgMerge(st)"};
+            case "min" -> new String[] {"minMergeState(min_state)", "minMerge(st)"};
+            case "max" -> new String[] {"maxMergeState(max_state)", "maxMerge(st)"};
+            case "sum" -> new String[] {"sumMergeState(sum_state)", "sumMerge(st)"};
+            case "p95" -> new String[] {"quantilesTDigestMergeState(0.5, 0.95, 0.99)(q_state)", "quantilesTDigestMerge(0.5, 0.95, 0.99)(st)[2]"};
+            default -> throw new IllegalArgumentException("Unsupported aggregation");
+        };
+        Q q = start("SELECT g0, toUInt64(m) AS t, " + fn[1] + " AS v FROM (SELECT instance_id AS g0, toUnixTimestamp(ts) AS b, "
+                + fn[0] + " AS st FROM xp_metrics_1m", scope);
+        q.add(" AND metric = ?", spec.metric());
+        q.add(" AND ts >= toDateTime(?, 'UTC') AND ts < toDateTime(?, 'UTC')", fromMin - windowSec + 60, lastMin + 60);
+        inList(q, "instance_id", scope.instanceIds());
+        labelFilters(q, spec.filters());
+        q.add(" GROUP BY g0, b)" + FANOUT, windowSec, fromMin, lastMin);
+        q.add(" GROUP BY g0, t ORDER BY g0, t LIMIT ?", clampBacktest(limit));
+        return q.build(scope);
+    }
+
+    /**
+     * Counter rate per instance at every evaluation minute, exactly as {@link #alertCounterRate}: per series the summed
+     * increase over the summed seconds of the steps inside the window, a step counted only when its predecessor is
+     * inside what the evaluator reads (from one bucket before the window) and the counter did not go down.
+     */
+    public ScopedSql backtestCounterRate(QueryScope scope, MetricSpec spec, long fromMin, long lastMin, long windowSec, int limit) {
+        backtestArgs(fromMin, lastMin, windowSec);
+        Q q = start("SELECT g0, t, sum(series_rate) AS v FROM ("
+                + "SELECT instance_id AS g0, labels_key, toUInt64(m) AS t, sum(inc) / sum(secs) AS series_rate FROM ("
+                + "SELECT instance_id, labels_key, t AS b, lv - prev_lv AS inc, toInt64(t) - toInt64(prev_t) AS secs, prev_t FROM ("
+                + PREVIOUS_BUCKET
+                + "SELECT toUnixTimestamp(toStartOfMinute(ts)) AS t, instance_id, labels_key, argMaxMerge(last_state) AS lv "
+                + "FROM xp_metrics_1m", scope);
+        q.add(" AND metric = ?", spec.metric());
+        q.add(" AND ts >= toDateTime(?, 'UTC') AND ts < toDateTime(?, 'UTC')", fromMin - windowSec, lastMin + 60);
+        inList(q, "instance_id", scope.instanceIds());
+        labelFilters(q, spec.filters());
+        q.add(" GROUP BY t, instance_id, labels_key)" + SERIES_WINDOW + ") WHERE prev_t > 0 AND lv >= prev_lv)" + FANOUT,
+                windowSec, fromMin, lastMin);
+        q.add(" AND toInt64(prev_t) >= toInt64(m) - ?", windowSec);
+        q.add(" GROUP BY g0, labels_key, t) GROUP BY g0, t ORDER BY g0, t LIMIT ?", clampBacktest(limit));
+        return q.build(scope);
+    }
+
+    /** Matching log lines per instance in the window at every evaluation minute (minutes with none are absent). */
+    public ScopedSql backtestLogCount(QueryScope scope, FilterAst filter, long fromMin, long lastMin, long windowSec, int limit) {
+        backtestArgs(fromMin, lastMin, windowSec);
+        QueryScope read = new QueryScope(scope.accountIds(), Instant.ofEpochSecond(fromMin - windowSec + 60), Instant.ofEpochSecond(lastMin + 60),
+                scope.regions(), scope.instanceIds(), scope.services(), scope.containers());
+        Q q = start("SELECT g0, toUInt64(m) AS t, sum(c) AS v FROM (SELECT instance_id AS g0, "
+                + "toUnixTimestamp(toStartOfMinute(ts)) AS b, count() AS c FROM xp_logs", read);
+        logWhere(q, read, filter);
+        q.add(" GROUP BY g0, b)" + FANOUT, windowSec, fromMin, lastMin);
+        q.add(" GROUP BY g0, t ORDER BY g0, t LIMIT ?", clampBacktest(limit));
+        return q.build(read);
+    }
+
+    /** Minutes in which each instance delivered any metric, for replaying HEARTBEAT_MISSING: {@code g0, t}. */
+    public ScopedSql backtestPresence(QueryScope scope, long fromSec, long toSec, int limit) {
+        Q q = start("SELECT instance_id AS g0, toUnixTimestamp(ts) AS t FROM xp_metrics_1m", scope);
+        q.add(" AND ts >= toDateTime(?, 'UTC') AND ts < toDateTime(?, 'UTC')", fromSec, toSec);
+        inList(q, "instance_id", scope.instanceIds());
+        q.add(" GROUP BY g0, t ORDER BY g0, t LIMIT ?", clampBacktest(limit));
+        return q.build(scope);
+    }
+
+    private static int clampBacktest(int limit) {
+        return Math.max(1, Math.min(limit, 300_000));
     }
 
     /** Matching log rows per instance; used by LOG_COUNT rules. */
@@ -370,12 +569,94 @@ public final class TenantScopedQueryBuilder {
         return q.build(scope);
     }
 
-    /** Last time each instance reported a heartbeat metric; used by HEARTBEAT_MISSING rules. */
+    /**
+     * Last minute in which each instance delivered any metric; used by HEARTBEAT_MISSING rules. The agent's own
+     * heartbeat goes to the control plane over HTTP and is never a metric (no {@code xp.agent.heartbeat} series
+     * exists), so "data stopped arriving" is the signal: it also catches a collector that died while the agent
+     * process kept heartbeating.
+     */
     public ScopedSql lastHeartbeat(QueryScope scope) {
         Q q = start("SELECT instance_id AS g0, toUnixTimestamp(max(ts)) AS v FROM xp_metrics_1m", scope);
-        q.add(" AND metric = 'xp.agent.heartbeat' AND ts >= toDateTime(?, 'UTC')", scope.from().getEpochSecond());
+        q.add(" AND ts >= toDateTime(?, 'UTC')", scope.from().getEpochSecond());
         inList(q, "instance_id", scope.instanceIds());
         q.add(" GROUP BY g0");
+        return q.build(scope);
+    }
+
+    /**
+     * Measured increase of a counter over the scope window, per value of one label (or per instance), with the
+     * seconds it covers: {@code g0, inc, secs}. Built like {@link #alertCounterRate}: per series, minute by minute,
+     * restart intervals left out of both columns, so {@code inc / secs} is an exact average rate and {@code inc} an
+     * exact count (packets dropped by an ENA allowance, seconds stalled under pressure, throttled CPU periods).
+     */
+    public ScopedSql counterIncrease(QueryScope scope, String metric, List<MetricSpec.LabelFilter> filters, String groupKey) {
+        if (!MetricSpec.METRIC_NAME.matcher(metric).matches()) {
+            throw new IllegalArgumentException("Invalid metric name");
+        }
+        long firstBucket = Math.floorDiv(scope.from().getEpochSecond(), 60L) * 60L;
+        Q q = start("SELECT g0, sum(lv - prev_lv) AS inc, sum(toInt64(t) - toInt64(prev_t)) AS secs FROM ("
+                + "SELECT " + groupExpr(groupKey) + " AS g0, t, lv, prev_lv, prev_t FROM ("
+                + PREVIOUS_BUCKET
+                + "SELECT toUnixTimestamp(toStartOfMinute(ts)) AS t, instance_id, labels_key, argMaxMerge(last_state) AS lv "
+                + "FROM xp_metrics_1m", scope);
+        q.add(" AND metric = ?", metric);
+        q.add(" AND ts >= toDateTime(?, 'UTC') AND ts < toDateTime(?, 'UTC')", firstBucket - 60L, scope.to().getEpochSecond());
+        inList(q, "instance_id", scope.instanceIds());
+        labelFilters(q, filters);
+        q.add(" GROUP BY t, instance_id, labels_key)" + SERIES_WINDOW + ") WHERE prev_t > 0 AND lv >= prev_lv AND t >= ?)"
+                + " GROUP BY g0", firstBucket);
+        return q.build(scope);
+    }
+
+    /**
+     * First and last minute each (instance, label set) of a metric was seen in the scope window:
+     * {@code instance_id, labels_key, first_ts, last_ts}. Used to see a container's id or image change (a deploy).
+     */
+    public ScopedSql seriesSpans(QueryScope scope, String metric, List<MetricSpec.LabelFilter> filters) {
+        if (!MetricSpec.METRIC_NAME.matcher(metric).matches()) {
+            throw new IllegalArgumentException("Invalid metric name");
+        }
+        Q q = start("SELECT instance_id, labels_key, toUnixTimestamp(min(ts)) AS first_ts, toUnixTimestamp(max(ts)) AS last_ts "
+                + "FROM xp_metrics_1m", scope);
+        q.add(" AND metric = ?", metric);
+        q.add(" AND ts >= toDateTime(?, 'UTC') AND ts < toDateTime(?, 'UTC')", scope.from().getEpochSecond(), scope.to().getEpochSecond());
+        inList(q, "instance_id", scope.instanceIds());
+        labelFilters(q, filters);
+        q.add(" GROUP BY instance_id, labels_key ORDER BY first_ts ASC LIMIT 5000");
+        return q.build(scope);
+    }
+
+    /**
+     * The minutes in which a counter series did something: rose ({@code inc > 0}), dropped (a restart of whatever
+     * counts it: a reboot for kernel counters, a new container for Docker's), or resumed after more than
+     * {@code gapSec} without data: {@code instance_id, labels_key, t, inc, restarted, gap_secs}. Quiet minutes are
+     * not returned.
+     */
+    public ScopedSql counterSteps(QueryScope scope, String metric, List<MetricSpec.LabelFilter> filters, long gapSec) {
+        if (!MetricSpec.METRIC_NAME.matcher(metric).matches()) {
+            throw new IllegalArgumentException("Invalid metric name");
+        }
+        long firstBucket = Math.floorDiv(scope.from().getEpochSecond(), 60L) * 60L;
+        Q q = start("SELECT instance_id, labels_key, t, if(lv >= prev_lv, lv - prev_lv, 0) AS inc, lv < prev_lv AS restarted, "
+                + "toInt64(t) - toInt64(prev_t) AS gap_secs FROM ("
+                + PREVIOUS_BUCKET
+                + "SELECT toUnixTimestamp(toStartOfMinute(ts)) AS t, instance_id, labels_key, argMaxMerge(last_state) AS lv "
+                + "FROM xp_metrics_1m", scope);
+        q.add(" AND metric = ?", metric);
+        q.add(" AND ts >= toDateTime(?, 'UTC') AND ts < toDateTime(?, 'UTC')", firstBucket - 60L, scope.to().getEpochSecond());
+        inList(q, "instance_id", scope.instanceIds());
+        labelFilters(q, filters);
+        q.add(" GROUP BY t, instance_id, labels_key)" + SERIES_WINDOW + ") WHERE prev_t > 0 AND t >= ?"
+                + " AND (lv != prev_lv OR toInt64(t) - toInt64(prev_t) > ?) ORDER BY t ASC LIMIT 5000", firstBucket, gapSec);
+        return q.build(scope);
+    }
+
+    /** Error and fatal log lines per minute for one instance: {@code t, v}. Minutes without log rows are absent. */
+    public ScopedSql errorsPerMinute(QueryScope scope, String instanceId) {
+        Q q = start("SELECT toUnixTimestamp(minute) AS t, sumIf(rows, severity IN ('ERROR', 'FATAL')) AS v FROM xp_log_volume_1m", scope);
+        q.add(" AND instance_id = ?", instanceId);
+        q.add(" AND minute >= toDateTime(?, 'UTC') AND minute < toDateTime(?, 'UTC')", scope.from().getEpochSecond(), scope.to().getEpochSecond());
+        q.add(" GROUP BY t ORDER BY t ASC");
         return q.build(scope);
     }
 
@@ -536,7 +817,8 @@ public final class TenantScopedQueryBuilder {
                 + (g.length() + 2) + ")";
     }
 
-    private static String aggExpr(String agg, int stepSec) {
+    /** Aggregations that merge rollup states directly. "rate" is not one: it needs per-series ordering (see above). */
+    private static String aggExpr(String agg) {
         return switch (agg.toLowerCase(Locale.ROOT)) {
             case "avg" -> "avgMerge(avg_state)";
             case "min" -> "minMerge(min_state)";
@@ -545,7 +827,6 @@ public final class TenantScopedQueryBuilder {
             case "p50" -> "quantilesTDigestMerge(0.5, 0.95, 0.99)(q_state)[1]";
             case "p95" -> "quantilesTDigestMerge(0.5, 0.95, 0.99)(q_state)[2]";
             case "p99" -> "quantilesTDigestMerge(0.5, 0.95, 0.99)(q_state)[3]";
-            case "rate" -> "(maxMerge(max_state) - minMerge(min_state)) / " + Math.max(1, stepSec);
             case "last" -> "argMaxMerge(last_state)";
             default -> throw new IllegalArgumentException("Unsupported aggregation");
         };

@@ -60,7 +60,7 @@ class XamPulseContractSampleTest {
         m.put("XpLogSearchResponse", new XpLogSearchResponse(List.of(row), "cur", new XpScanned(10, 100), 5, false, new XpParsed("a:b")));
         m.put("XpLogHistogramResponse", new XpLogHistogramResponse(60, List.of(new XpHistogramBucket(T, Map.of("ERROR", 2L)))));
         m.put("XpLogFacetsResponse", new XpLogFacetsResponse(false, List.of(new XpFacet("service", List.of(new XpFacetValue("nginx", 5))))));
-        m.put("XpLogPatternsResponse", new XpLogPatternsResponse(List.of(new XpPattern("p1", "error <N>", 4, 10.0, false, List.of(1L, 2L), T, "row-1", XpSeverity.ERROR))));
+        m.put("XpLogPatternsResponse", new XpLogPatternsResponse(List.of(new XpPattern("p1", "error <N>", 4, 10.0, false, List.of(1L, 2L), T, "row-1", 1L, XpSeverity.ERROR))));
         m.put("XpMetricQueryResponse", new XpMetricQueryResponse(60, List.of(new XpMetricSeries("system.cpu.utilization", Map.of("instance_id", "i-0abc"),
                 List.<Object[]>of(new Object[] {1000L, 1.5}), List.of(new double[] {1000, 0, 2}), List.<Object[]>of(new Object[] {1000L, 1.0}))), 3));
         m.put("XpAlertRule", new XpAlertRule(3L, 1L, "CPU above 90%", true, "HIGH", new XpAlertScope(List.of(1L), List.of("i-0abc"), "env=prod"),

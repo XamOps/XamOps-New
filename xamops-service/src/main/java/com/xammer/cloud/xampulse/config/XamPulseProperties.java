@@ -23,6 +23,7 @@ public class XamPulseProperties {
     private final Baseline baseline = new Baseline();
     private final Usage usage = new Usage();
     private final Quota quota = new Quota();
+    private final RemoteActions remoteActions = new RemoteActions();
     private String internalSecret = "";
     private String hotRegion = "";
 
@@ -39,6 +40,17 @@ public class XamPulseProperties {
     public Baseline getBaseline() { return baseline; }
     public Usage getUsage() { return usage; }
     public Quota getQuota() { return quota; }
+    public RemoteActions getRemoteActions() { return remoteActions; }
+
+    /**
+     * Read-only runbooks over SSM Run Command (fixed scripts, no user input). Off by default: turning it on needs
+     * ssm:SendCommand (AWS-RunShellScript) and ssm:GetCommandInvocation on the customer's connection role.
+     */
+    public static class RemoteActions {
+        private boolean enabled = false;
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    }
     public String getInternalSecret() { return internalSecret; }
     public void setInternalSecret(String internalSecret) { this.internalSecret = internalSecret; }
     public String getHotRegion() { return hotRegion; }

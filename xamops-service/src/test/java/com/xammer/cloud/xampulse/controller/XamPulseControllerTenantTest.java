@@ -103,7 +103,7 @@ class XamPulseControllerTenantTest {
         AlertRuleService rules = new AlertRuleService(ruleRepo, mock(XpAlertStateRepository.class), guard, compiler, mapper);
         SilenceService silences = new SilenceService(mock(XpSilenceRepository.class), guard, mapper);
         ChannelService channels = new ChannelService(mock(XpChannelRepository.class), guard, mapper, new OutboundUrlGuard(), List.of());
-        AlertPreviewService preview = new AlertPreviewService(scopes, executor, compiler);
+        AlertPreviewService preview = new AlertPreviewService(scopes, executor, compiler, mock(com.xammer.cloud.xampulse.repository.XpAgentRepository.class));
 
         Object[] controllers = {
                 new XamPulseLogsController(logs, new LogFacetService(scopes, executor), patterns, new LogContextService(guard, executor),
@@ -111,8 +111,8 @@ class XamPulseControllerTenantTest {
                 new XamPulseMetricsController(new MetricQueryService(scopes, executor), new MetricCatalogService(scopes, executor)),
                 new XamPulseEventsController(events),
                 new XamPulseUsageController(usage),
-                new XamPulseContainersController(new ContainerQueryService(scopes, executor)),
-                new XamPulseHostsController(hosts, processes),
+                new XamPulseContainersController(new ContainerQueryService(scopes, executor), new ContainerDetailService(scopes, executor, logs, new com.xammer.cloud.xampulse.service.insight.ChangeIntelligenceService(scopes, executor))),
+                new XamPulseHostsController(hosts, processes, new com.xammer.cloud.xampulse.service.insight.ChangeIntelligenceService(scopes, executor)),
                 new XamPulseArchiveSearchController(guard, archiveConfigs, archiveSearch),
                 new XamPulseOverviewController(overview),
                 new XamPulseInsightsController(insights),

@@ -112,11 +112,13 @@ public class ProcessQueryService {
             if (v == null) {
                 return;
             }
-            // Both process utilization metrics are fractions in [0,1]; present as percentages.
+            // process.cpu.utilization is a fraction in [0,1] of the host's CPU (user + system + wait, summed per process
+            // in the query); process.memory.utilization is already a percentage (gopsutil MemoryPercent, 0..100), so it
+            // must not be multiplied again (it was: 3% showed as 300%).
             if ("process.cpu.utilization".equals(metric)) {
                 cpuPct = v * 100.0;
             } else if ("process.memory.utilization".equals(metric)) {
-                memPct = v * 100.0;
+                memPct = v;
             }
         }
     }

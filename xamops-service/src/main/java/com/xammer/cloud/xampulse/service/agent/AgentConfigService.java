@@ -60,9 +60,17 @@ public class AgentConfigService {
                 new AgentConfig.Limits(MAX_BYTES_PER_SEC, QUEUE_MAX_BYTES), gatewayUrl());
     }
 
-    /** nginx exposes the OTLP gateway under /xampulse-ingest/ on the public host. */
+    /**
+     * nginx exposes the OTLP gateway under /xampulse-ingest/ on the public host. {@code xampulse.gateway.public-url}
+     * overrides it; when blank the API host the agents already talk to ({@code xampulse.setup.api-base-url}) is used,
+     * because nginx-prod.conf serves both on one host. An empty result makes the agent refuse the config and restart,
+     * so the fallback matters.
+     */
     String gatewayUrl() {
         String base = props.getGateway().getPublicUrl();
+        if (base == null || base.isBlank()) {
+            base = props.getSetup().getApiBaseUrl();
+        }
         if (base == null || base.isBlank()) {
             return "";
         }

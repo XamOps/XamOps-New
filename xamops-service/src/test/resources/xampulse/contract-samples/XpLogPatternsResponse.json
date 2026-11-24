@@ -8,6 +8,7 @@
     "trend" : [ 1, 2 ],
     "firstSeen" : "2026-10-30T10:00:00Z",
     "sampleId" : "row-1",
+    "sampleAccountId" : 1,
     "severity" : "ERROR"
   } ]
 }

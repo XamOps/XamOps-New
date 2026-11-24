@@ -65,12 +65,21 @@ public class UsageMeteringService {
         List<XpUsageDay> byDay = executor.query(builder.usageByDay(scope.forTenant(accountId))).stream()
                 .map(r -> new XpUsageDay(Rows.s(r, "d"), "LOGS", Rows.l(r, "b"), stored.getOrDefault(Rows.s(r, "d"), 0L)))
                 .toList();
-        long total = executor.query(builder.usageBySource(scope.forTenant(accountId))).stream().mapToLong(r -> Rows.l(r, "b")).sum();
-        List<XpUsageSource> bySource = executor.query(builder.usageBySource(scope.forTenant(accountId))).stream()
-                .map(r -> new XpUsageSource(Rows.s(r, "s"), Rows.l(r, "b"), total == 0 ? 0 : Rows.l(r, "b") * 100.0 / total))
+        List<Map<String, Object>> sources = executor.query(builder.usageBySource(scope.forTenant(accountId)));
+        long total = sources.stream().mapToLong(r -> Rows.l(r, "b")).sum();
+        List<XpUsageSource> bySource = sources.stream()
+                .map(r -> new XpUsageSource(sourceName(Rows.s(r, "s")), Rows.l(r, "b"),
+                        total == 0 ? 0 : Math.round(Rows.l(r, "b") * 1000.0 / total) / 10.0))
                 .toList();
         long hot = byDay.stream().mapToLong(XpUsageDay::bytesIn).sum();
         Double quota = configs.findByCloudAccountId(accountId).map(c -> c.getIngestQuotaGbDay() == null ? null : c.getIngestQuotaGbDay().doubleValue()).orElse(null);
         return new XpUsage(days + "d", byDay, bySource, hot, 0L, null, quota);
+    }
+
+    /** Log volume with no service name (journald lines from agents before 1.1.0, files without a service). */
+    public static final String UNNAMED_SOURCE = "(no service name)";
+
+    static String sourceName(String s) {
+        return s == null || s.isBlank() ? UNNAMED_SOURCE : s;
     }
 }

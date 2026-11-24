@@ -118,6 +118,20 @@ class RedactionDefaultsTest {
     }
 
     @Test
+    void withoutAGatewayUrlTheAgentsAreSentToTheApiHostsIngestPath() {
+        XpLogSourceRepository repo = mock(XpLogSourceRepository.class);
+        when(repo.findByCloudAccountId(7L)).thenReturn(List.of());
+        XpAgent agent = new XpAgent();
+        agent.setCloudAccountId(7L);
+        XamPulseProperties props = new XamPulseProperties();
+        props.getSetup().setApiBaseUrl("https://api.example.com/");
+        assertEquals("https://api.example.com/xampulse-ingest", new AgentConfigService(repo, props).render(agent).gatewayUrl());
+        props.getGateway().setPublicUrl("https://ingest.example.com");
+        assertEquals("https://ingest.example.com/xampulse-ingest", new AgentConfigService(repo, props).render(agent).gatewayUrl(),
+                "an explicit gateway URL still wins");
+    }
+
+    @Test
     void etagChangesWithTheConfig() {
         XpLogSourceRepository repo = mock(XpLogSourceRepository.class);
         when(repo.findByCloudAccountId(7L)).thenReturn(List.of());

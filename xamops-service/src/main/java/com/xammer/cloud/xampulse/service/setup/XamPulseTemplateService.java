@@ -85,6 +85,16 @@ public class XamPulseTemplateService {
         return sb.toString();
     }
 
+    /**
+     * Console "Update stack" flow for an existing stack (quick-create refuses an existing stack name). The console
+     * keeps every parameter's previous value, so the caller shows the customer which parameters to change.
+     * {@code stackIdOrName} should be the stack ARN when known.
+     */
+    public String updateStackUrl(String region, String stackIdOrName) {
+        return "https://" + region + ".console.aws.amazon.com/cloudformation/home?region=" + enc(region)
+                + "#/stacks/update/template?stackId=" + enc(stackIdOrName);
+    }
+
     /** Console list of stacks in a region; the customer deletes the stack from there. */
     public static String stacksConsoleUrl(String region, String stackName) {
         return "https://" + region + ".console.aws.amazon.com/cloudformation/home?region=" + enc(region)

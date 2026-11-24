@@ -159,6 +159,9 @@ public class XamPulseSetupService {
             throw XamPulseException.conflict("The bucket, key and home region cannot change while XamPulse is set up."
                     + " Disconnect first, or update retention and regions on the same bucket.");
         }
+        // Captured before anything is overwritten: what the deployed stacks were planned with.
+        final XpRetention previousRetention = live ? retentionOf(cfg) : null;
+        final boolean stackOwnsBucket = "CREATE".equals(req.bucket().mode());
 
         String kmsMode = kmsParam(req.kms().mode());
         String keyArn = "CUSTOMER_KEY".equals(req.kms().mode()) ? req.kms().keyArn() : null;
@@ -193,18 +196,21 @@ public class XamPulseSetupService {
         Map<String, XpSetupPlanRequest.RegionSelection> byRegion = new LinkedHashMap<>();
         req.regions().forEach(r -> byRegion.put(r.region(), r));
         XpSetupPlanRequest.RegionSelection home = byRegion.get(req.homeRegion());
-        stacks.add(new XpStackLink(req.homeRegion(), "GLOBAL", cfg.getStackName(),
-                templates.quickCreateUrl(req.homeRegion(), templates.templateUrl(globalTpl), cfg.getStackName(),
-                        globalParams(aws, cfg, req, externalId, kmsMode, keyArn, home, v.chunks().getOrDefault(req.homeRegion(), List.of())))));
+        Optional<XpAccountRegion> homeLive = live ? liveStack(account.getId(), req.homeRegion()) : Optional.empty();
+        Map<String, String> homeBefore = homeLive.map(r -> mutableParams(selectionOf(r), previousRetention, stackOwnsBucket)).orElse(Map.of());
+        stacks.add(stackLink(req.homeRegion(), "GLOBAL", cfg.getStackName(), homeLive, templates.templateUrl(globalTpl),
+                globalParams(aws, cfg, req, externalId, kmsMode, keyArn, home, v.chunks().getOrDefault(req.homeRegion(), List.of())),
+                homeBefore, mutableParams(home, req.retention(), stackOwnsBucket)));
         upsertRegion(account.getId(), req.homeRegion(), "GLOBAL", cfg.getStackName(), globalTpl, home);
         for (XpSetupPlanRequest.RegionSelection r : req.regions()) {
             if (r.region().equals(req.homeRegion())) {
                 continue;
             }
             String name = XamPulseTemplateService.regionalStackName(aws, r.region());
-            stacks.add(new XpStackLink(r.region(), "REGIONAL", name,
-                    templates.quickCreateUrl(r.region(), templates.templateUrl(regionalTpl), name,
-                            regionalParams(r, v.chunks().getOrDefault(r.region(), List.of())))));
+            Optional<XpAccountRegion> regLive = live ? liveStack(account.getId(), r.region()) : Optional.empty();
+            Map<String, String> regBefore = regLive.map(row -> mutableParams(selectionOf(row), null, false)).orElse(Map.of());
+            stacks.add(stackLink(r.region(), "REGIONAL", name, regLive, templates.templateUrl(regionalTpl),
+                    regionalParams(r, v.chunks().getOrDefault(r.region(), List.of())), regBefore, mutableParams(r, null, false)));
             upsertRegion(account.getId(), r.region(), "REGIONAL", name, regionalTpl, r);
         }
         if (req.sources() != null) {
@@ -249,21 +255,25 @@ public class XamPulseSetupService {
         XpSetupPlanRequest.RegionSelection sel = new XpSetupPlanRequest.RegionSelection(region, req.targetMode(), req.instanceIds(),
                 req.tagKey(), req.tagValue(), req.confirmAllManaged());
         XpStackLink link;
+        Optional<XpAccountRegion> live = liveStack(account.getId(), region);
         if (region.equals(cfg.getHomeRegion())) {
             // The home region's targets live in the global stack: update that stack with the new targets.
             XamPulseTemplateService.Template tpl = templates.template(false);
+            Map<String, String> before = live.map(r -> mutableParams(selectionOf(r), null, false)).orElse(Map.of());
             upsertRegion(account.getId(), region, "GLOBAL", cfg.getStackName(), tpl, sel);
             XpSetupPlanRequest asPlan = new XpSetupPlanRequest(
                     new XpSetupPlanRequest.Bucket(cfg.getBucketMode(), cfg.getBucketName(), cfg.getBucketRegion()),
                     new XpSetupPlanRequest.Kms(kmsModeOf(cfg), cfg.getKmsKeyArn()), cfg.getHomeRegion(), List.of(sel), retentionOf(cfg), null);
-            link = new XpStackLink(region, "GLOBAL", cfg.getStackName(), templates.quickCreateUrl(region, templates.templateUrl(tpl), cfg.getStackName(),
-                    globalParams(aws, cfg, asPlan, externalIds.getOrCreate(cfg), kmsParam(kmsModeOf(cfg)), cfg.getKmsKeyArn(), sel, chunks)));
+            link = stackLink(region, "GLOBAL", cfg.getStackName(), live, templates.templateUrl(tpl),
+                    globalParams(aws, cfg, asPlan, externalIds.getOrCreate(cfg), kmsParam(kmsModeOf(cfg)), cfg.getKmsKeyArn(), sel, chunks),
+                    before, mutableParams(sel, null, false));
         } else {
             XamPulseTemplateService.Template tpl = templates.template(true);
             String name = XamPulseTemplateService.regionalStackName(aws, region);
+            Map<String, String> before = live.map(r -> mutableParams(selectionOf(r), null, false)).orElse(Map.of());
             upsertRegion(account.getId(), region, "REGIONAL", name, tpl, sel);
-            link = new XpStackLink(region, "REGIONAL", name,
-                    templates.quickCreateUrl(region, templates.templateUrl(tpl), name, regionalParams(sel, chunks)));
+            link = stackLink(region, "REGIONAL", name, live, templates.templateUrl(tpl), regionalParams(sel, chunks),
+                    before, mutableParams(sel, null, false));
         }
         audit.record(user, account.getId(), "setup.region-plan", "region=" + region + " mode=" + req.targetMode(), ip);
         return link;
@@ -438,6 +448,69 @@ public class XamPulseSetupService {
 
     private static XpRetention retentionOf(XpAccountConfig c) {
         return new XpRetention(c.getHotDays(), c.getIaAfterDays(), c.getGlacierIrAfterDays(), c.getExpireAfterDays());
+    }
+
+    // ------------------------------------------------------------------ create vs update links
+
+    /** The region's stack exists and can be updated (the watcher last saw CREATE/UPDATE_COMPLETE), or empty. */
+    private Optional<XpAccountRegion> liveStack(Long accountId, String region) {
+        return regions.findByCloudAccountIdAndRegion(accountId, region).filter(r -> "OK".equals(r.getState()));
+    }
+
+    /**
+     * The parameters that change between deployments: targeting, plus lifecycle days when the stack owns the bucket.
+     * Everything else (bucket, key, home region, external id, URLs) is fixed while the account is set up.
+     */
+    private Map<String, String> mutableParams(XpSetupPlanRequest.RegionSelection sel, XpRetention ret, boolean stackOwnsBucket) {
+        Map<String, String> p = new LinkedHashMap<>(targetParams(sel, sel == null ? List.of() : chunk(sel.instanceIds())));
+        if (stackOwnsBucket && ret != null) {
+            p.putAll(retention.createModeParameters(ret));
+        }
+        return p;
+    }
+
+    /** What the deployed stack was planned with, read from the region row before it is overwritten. */
+    private static XpSetupPlanRequest.RegionSelection selectionOf(XpAccountRegion row) {
+        List<String> ids = new ArrayList<>();
+        if (row.getTargetInstanceIdsJson() != null && !row.getTargetInstanceIdsJson().isBlank()) {
+            try {
+                ids = JSON.readValue(row.getTargetInstanceIdsJson(), new TypeReference<List<String>>() {});
+            } catch (Exception e) {
+                ids = new ArrayList<>(InstanceCandidateService.targetIds(row));
+            }
+        }
+        return new XpSetupPlanRequest.RegionSelection(row.getRegion(), row.getTargetMode() == null ? "INSTANCES" : row.getTargetMode(),
+                ids, row.getObserveTagKey(), row.getObserveTagValue(), Boolean.TRUE);
+    }
+
+    /** Same grouping as the validator (de-duplicated, insertion order, 50 per chunk). */
+    private static List<List<String>> chunk(List<String> ids) {
+        return ids == null ? List.of() : SetupPlanValidator.chunk(new ArrayList<>(new LinkedHashSet<>(ids)));
+    }
+
+    /** Parameters whose value differs; an instance-id chunk that is no longer needed is cleared with "". */
+    static Map<String, String> changedParams(Map<String, String> before, Map<String, String> after) {
+        Map<String, String> out = new LinkedHashMap<>();
+        after.forEach((k, v) -> {
+            if (!Objects.equals(before.get(k), v)) {
+                out.put(k, v);
+            }
+        });
+        before.keySet().stream().filter(k -> k.startsWith("InstanceIds") && !after.containsKey(k)).forEach(k -> out.put(k, ""));
+        return out;
+    }
+
+    /**
+     * Quick-create link when the stack does not exist; otherwise the console's Update stack link plus the parameters
+     * the customer must change ({@code before} is what the stack was deployed with, {@code after} the new plan).
+     */
+    private XpStackLink stackLink(String region, String kind, String stackName, Optional<XpAccountRegion> live, String templateUrl,
+                                  Map<String, String> createParams, Map<String, String> before, Map<String, String> after) {
+        if (live.isPresent()) {
+            String id = live.get().getStackId() != null && !live.get().getStackId().isBlank() ? live.get().getStackId() : stackName;
+            return XpStackLink.update(region, kind, stackName, templates.updateStackUrl(region, id), changedParams(before, after));
+        }
+        return XpStackLink.create(region, kind, stackName, templates.quickCreateUrl(region, templateUrl, stackName, createParams));
     }
 
     private static List<XpLogSourceView> sourceViews(XpSetupPlanRequest.Sources s) {

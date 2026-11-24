@@ -32,7 +32,7 @@ class TenantScopedQueryBuilderTest {
                 List.of(new MetricSpec.LabelFilter("state", "=", "idle" + SENTINEL), new MetricSpec.LabelFilter("mountpoint", "=~", "/v.*" + SENTINEL)));
         TenantScopedQueryBuilder.MetricPlan plan = TenantScopedQueryBuilder.planMetric(s, null);
         List<ScopedSql> out = new ArrayList<>();
-        out.add(b.search(s, f, true, 50, new TenantScopedQueryBuilder.LogCursor(1000, "12345")));
+        out.add(b.search(s, f, true, 50, new TenantScopedQueryBuilder.LogCursor(1000, 11, "i-1", "12345")));
         out.add(b.search(s, f, false, 50, null));
         out.add(b.histogram(s, f, 60));
         out.add(b.facet(s, f, LogField.SERVICE, null, 10));
@@ -55,6 +55,12 @@ class TenantScopedQueryBuilderTest {
         out.add(b.errorVolume(s));
         out.add(b.lastDataAt(s));
         out.add(b.alertMetric(s, m));
+        MetricSpec rate = new MetricSpec("system.network.io", "rate", List.of("instance_id", "direction"),
+                List.of(new MetricSpec.LabelFilter("direction", "=", "receive" + SENTINEL), new MetricSpec.LabelFilter("device", "=~", "ens[0-9]+" + SENTINEL)));
+        out.add(b.metricSeries(s, rate, plan));
+        out.add(b.alertMetric(s, rate));
+        out.add(b.counterIncrease(s, "xp.ena.allowance_exceeded", List.of(new MetricSpec.LabelFilter("device", "=", "ens5" + SENTINEL)), "allowance"));
+        out.add(b.counterIncrease(s, "xp.pressure.stall_time", List.of(), "instance_id"));
         out.add(b.alertLogCount(s, f));
         out.add(b.lastHeartbeat(s));
         return out;
@@ -160,8 +166,43 @@ class TenantScopedQueryBuilderTest {
     }
 
     @Test
+    void counterRateIsPerSeriesHandlesRestartsAndReadsOneBucketBeforeTheRange() {
+        QueryScope s = QueryScope.of(List.of(5L), from.plusSeconds(30), to);
+        MetricSpec rate = new MetricSpec("system.disk.io", "rate", List.of("direction"), List.of());
+        TenantScopedQueryBuilder.MetricPlan plan = TenantScopedQueryBuilder.planMetric(s, null);
+        ScopedSql q = b.metricSeries(s, rate, plan);
+        String sql = q.sql();
+        assertFalse(sql.contains("maxMerge(max_state) - minMerge(min_state)"), "the cross-series max-min formula must be gone: " + sql);
+        assertTrue(sql.contains("argMaxMerge(last_state) AS lv"), sql);
+        assertTrue(sql.contains("PARTITION BY instance_id, labels_key ORDER BY t ASC"), "rate is per series: " + sql);
+        assertTrue(sql.contains("lv < prev_lv AS restarted"), "a drop is a restart, not a negative rate: " + sql);
+        assertTrue(sql.contains("HAVING max(restarted) = 0"), "a bucket with a restart (unknown increase) is left out: " + sql);
+        assertTrue(sql.contains("WHERE prev_t > 0"), "a series' first bucket has no predecessor and is left out: " + sql);
+        long step = plan.stepSec();
+        long firstBucket = Math.floorDiv(s.from().getEpochSecond(), step) * step;
+        assertEquals(5L, q.params().get(0));
+        assertEquals("system.disk.io", q.params().get(1));
+        assertEquals(firstBucket - step, q.params().get(2), "one bucket before the range is read");
+        assertEquals(firstBucket, q.params().get(q.params().size() - 1), "output starts at the range's first bucket");
+        ClickHouseExecutor.validate(q);
+
+        ScopedSql alert = b.alertMetric(s, rate);
+        assertTrue(alert.sql().contains("sum(toInt64(t) - toInt64(prev_t))"), "divide by the covered time: " + alert.sql());
+        assertTrue(alert.sql().contains("AND lv >= prev_lv"), "restart intervals are left out of both sums: " + alert.sql());
+        ClickHouseExecutor.validate(alert);
+    }
+
+    @Test
+    void heartbeatRulesReadAnyMetricBecauseNoHeartbeatMetricExists() {
+        ScopedSql q = b.lastHeartbeat(QueryScope.of(List.of(5L), from, to));
+        assertFalse(q.sql().contains("xp.agent.heartbeat"), q.sql());
+        assertTrue(q.sql().contains("GROUP BY g0"), q.sql());
+        ClickHouseExecutor.validate(q);
+    }
+
+    @Test
     void invalidCursorIsRejected() {
-        assertThrows(RuntimeException.class, () -> new TenantScopedQueryBuilder.LogCursor(1, "1; DROP"));
+        assertThrows(RuntimeException.class, () -> new TenantScopedQueryBuilder.LogCursor(1, 1, "i-1", "1; DROP"));
         assertThrows(RuntimeException.class, () -> b.anchor(1, 1, "i-1", "abc"));
     }
 

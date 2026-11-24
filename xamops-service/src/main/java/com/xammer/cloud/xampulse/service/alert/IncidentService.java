@@ -36,6 +36,8 @@ public class IncidentService {
     private final XpIncidentEventRepository events;
     private final XamPulseAccessGuard guard;
     private final ObjectMapper mapper;
+    /** Optional: groups firings on hosts of one tier; without it incidents group by instance and rule only. */
+    private com.xammer.cloud.xampulse.service.insight.TopologyService topology;
 
     public IncidentService(XpIncidentRepository incidents, XpIncidentEventRepository events,
                            XamPulseAccessGuard guard, ObjectMapper objectMapper) {
@@ -43,6 +45,11 @@ public class IncidentService {
         this.events = events;
         this.guard = guard;
         this.mapper = objectMapper;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setTopology(com.xammer.cloud.xampulse.service.insight.TopologyService topology) {
+        this.topology = topology;
     }
 
     @Transactional(readOnly = true)
@@ -138,11 +145,14 @@ public class IncidentService {
         for (XpIncident i : open) {
             Instant last = events.findByIncidentIdOrderByTsAsc(i.getId()).stream().map(XpIncidentEvent::getTs)
                     .max(Instant::compareTo).orElse(i.getOpenedAt());
-            views.add(new IncidentCorrelator.OpenIncident(i.getId(), new ArrayList<>(summary(i).instanceIds), last));
+            Summary s = summary(i);
+            views.add(new IncidentCorrelator.OpenIncident(i.getId(), new ArrayList<>(s.instanceIds), new ArrayList<>(s.ruleIds), last));
         }
-        var picked = correlator.pick(views, instanceId, now);
-        if (picked.isPresent()) {
-            XpIncident i = open.stream().filter(x -> x.getId() == picked.get().id()).findFirst().orElseThrow();
+        var joined = correlator.join(views, instanceId, ruleId, now,
+                ids -> topology == null ? java.util.Map.of() : topology.tiers(accountId, ids));
+        if (joined.isPresent()) {
+            var picked = joined.get().incident();
+            XpIncident i = open.stream().filter(x -> x.getId() == picked.id()).findFirst().orElseThrow();
             Summary s = summary(i);
             s.ruleIds.add(ruleId);
             if (instanceId != null) {
@@ -152,7 +162,7 @@ public class IncidentService {
             if (rank(severity) > rank(i.getSeverity())) {
                 i.setSeverity(severity);
             }
-            addEvent(i.getId(), "FIRING", text);
+            addEvent(i.getId(), "FIRING", joined.get().reason() == null ? text : text + " (grouped: " + joined.get().reason() + ")");
             return incidents.save(i);
         }
         XpIncident i = new XpIncident();

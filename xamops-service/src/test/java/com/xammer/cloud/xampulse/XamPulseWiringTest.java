@@ -94,6 +94,8 @@ class XamPulseWiringTest {
     @ComponentScan("com.xammer.cloud.xampulse")
     static class ScanConfig {
         @Bean ObjectMapper objectMapper() { return new ObjectMapper().findAndRegisterModules(); }
+        /** The app also defines this one (CacheConfig): a constructor that cannot choose between the two fails here, as at start-up. */
+        @Bean ObjectMapper redisObjectMapper() { return new ObjectMapper(); }
         @Bean CloudAccountAccessService access() { return mock(CloudAccountAccessService.class); }
         @Bean CloudAccountRepository accounts() { return mock(CloudAccountRepository.class); }
         @Bean EmailService email() { return mock(EmailService.class); }

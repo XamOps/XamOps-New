@@ -1,10 +1,12 @@
 package com.xammer.cloud.xampulse.controller;
 
 import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.xampulse.dto.XpChange;
 import com.xammer.cloud.xampulse.dto.XpHostRow;
 import com.xammer.cloud.xampulse.dto.XpHostSummary;
 import com.xammer.cloud.xampulse.dto.XpPage;
 import com.xammer.cloud.xampulse.dto.XpProcessRow;
+import com.xammer.cloud.xampulse.service.insight.ChangeIntelligenceService;
 import com.xammer.cloud.xampulse.service.query.HostQueryService;
 import com.xammer.cloud.xampulse.service.query.ProcessQueryService;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -29,10 +31,12 @@ public class XamPulseHostsController {
 
     private final HostQueryService hosts;
     private final ProcessQueryService processes;
+    private final ChangeIntelligenceService changes;
 
-    public XamPulseHostsController(HostQueryService hosts, ProcessQueryService processes) {
+    public XamPulseHostsController(HostQueryService hosts, ProcessQueryService processes, ChangeIntelligenceService changes) {
         this.hosts = hosts;
         this.processes = processes;
+        this.changes = changes;
     }
 
     @GetMapping("/hosts")
@@ -70,5 +74,29 @@ public class XamPulseHostsController {
             throw com.xammer.cloud.xampulse.exception.XamPulseException.notFound();
         }
         return processes.topProcesses(user, accountId, instanceId, at);
+    }
+
+    /** Change Intelligence for one host: what changed, newest first, each with what the measurements did after it. */
+    @GetMapping("/hosts/{instanceId}/changes")
+    @PreAuthorize(XamPulseRoles.VIEWER)
+    public List<XpChange> hostChanges(@AuthenticationPrincipal ClientUserDetails user,
+                                      @PathVariable String instanceId,
+                                      @RequestParam Long accountId,
+                                      @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+                                      @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
+        if (!instanceId.matches(INSTANCE_ID)) {
+            throw com.xammer.cloud.xampulse.exception.XamPulseException.notFound();
+        }
+        return changes.changes(user, accountId, instanceId, from, to);
+    }
+
+    /** Change Intelligence across an account's hosts (no effects: they are worked out on each host's page). */
+    @GetMapping("/changes")
+    @PreAuthorize(XamPulseRoles.VIEWER)
+    public List<XpChange> fleetChanges(@AuthenticationPrincipal ClientUserDetails user,
+                                       @RequestParam Long accountId,
+                                       @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+                                       @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
+        return changes.changes(user, accountId, null, from, to);
     }
 }

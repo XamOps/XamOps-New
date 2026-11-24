@@ -113,6 +113,46 @@ class XamPulseClickHouseScriptsTest {
         List<String> versions = ClickHouseMigrationRunner.loadClasspathScripts().stream().map(s -> s.version()).sorted().toList();
         assertTrue(versions.indexOf("V009") > versions.indexOf("V008"));
     }
+
+    @Test
+    void v010StoresOnDemandCloudWatchPointsTenantScopedAndDeduplicated() throws Exception {
+        String v010 = script("V010");
+        assertTrue(v010.contains("CREATE TABLE IF NOT EXISTS xp_cloudwatch_points"));
+        assertTrue(v010.contains("ReplacingMergeTree(fetched_at)"), "overlapping refreshes must replace, not duplicate");
+        assertTrue(v010.contains("ORDER BY (tenant_id, instance_id, metric, dimension, ts)"));
+        assertTrue(v010.contains("CREATE ROW POLICY IF NOT EXISTS xp_tenant_cloudwatch_points ON xp_cloudwatch_points"));
+        assertTrue(v010.contains("GRANT SELECT ON xp_cloudwatch_points TO xp_reader_role"));
+        assertTrue(v010.contains("GRANT INSERT, SELECT ON xp_cloudwatch_points TO xp_writer_role"));
+    }
+    @Test
+    void v011KeepsTenantGuardsAddsIdentityLabelsAndKeepsProcessMetricsOutOfTheRollups() throws Exception {
+        String v011 = script("V011");
+        List<String> statements = ClickHouseMigrationRunner.splitStatements(v011);
+        assertEquals(5, statements.size(), "two landing views and three rollup views");
+        for (String s : statements) {
+            assertTrue(s.startsWith("ALTER TABLE xp_mv_") && s.contains(" MODIFY QUERY"), "in-place swap, never DROP and CREATE: " + s);
+        }
+        Matcher land = Pattern.compile("ALTER TABLE (xp_mv_land_metrics_[a-z]+) MODIFY QUERY.*", Pattern.DOTALL).matcher("");
+        int landing = 0;
+        for (String s : statements) {
+            if (land.reset(s).matches()) {
+                landing++;
+                assertTrue(s.contains("WHERE toUInt64OrZero(ResourceAttributes['xp.tenant_id']) != 0"), land.group(1) + " must keep the tenant guard");
+                for (String key : List.of("container.id", "container.name", "container.image.name", "process.pid", "process.executable.name", "process.owner")) {
+                    assertTrue(s.contains("'" + key + "'"), land.group(1) + " must copy " + key);
+                }
+                assertFalse(s.contains("process.command_line"), "command lines must never become labels");
+                assertTrue(s.contains("ResourceAttributes), Attributes) AS labels"), "datapoint attributes must win on a clash");
+            }
+        }
+        assertEquals(2, landing);
+        assertTrue(v011.contains("multiIf(NOT IsMonotonic, 'GAUGE', AggregationTemporality = 1, 'DELTA', 'COUNTER') AS kind"));
+        for (String mv : List.of("xp_mv_metrics_1m", "xp_mv_metrics_5m", "xp_mv_metrics_1h")) {
+            String s = statements.stream().filter(x -> x.startsWith("ALTER TABLE " + mv + " ")).findFirst().orElseThrow();
+            assertTrue(s.contains("WHERE NOT startsWith(metric, 'process.')"), mv);
+        }
+    }
+
     @Test
     void noSecretsOrPasswordsAreInTheScripts() throws Exception {
         String all = ClickHouseMigrationRunner.loadClasspathScripts().stream().map(s -> s.content().toLowerCase()).collect(Collectors.joining("\n"));

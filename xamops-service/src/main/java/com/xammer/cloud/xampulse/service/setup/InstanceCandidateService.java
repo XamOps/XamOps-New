@@ -133,7 +133,11 @@ public class InstanceCandidateService {
                 }
                 SsmClient s = aws.getSsmClient(account, region);
                 for (InstanceInformation info : s.describeInstanceInformationPaginator().instanceInformationList()) {
-                    ssm.add(info.instanceId());
+                    // Registered is not enough: a node in ConnectionLost/Inactive never runs the association, so it
+                    // must not be offered as installable (State Manager then reports "Success" with zero targets).
+                    if (info.pingStatus() == software.amazon.awssdk.services.ssm.model.PingStatus.ONLINE) {
+                        ssm.add(info.instanceId());
+                    }
                 }
             } catch (RuntimeException e) {
                 // A region that is disabled or denied must not hide the others.

@@ -13,7 +13,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Canonical metrics (always listed) plus any other metric the account has actually reported in the last 7 days. */
+/**
+ * Canonical metrics (always listed) plus any other metric the account has actually reported in the last 7 days.
+ *
+ * <p>Every canonical name is one the agent's collector really emits (hostmetrics and docker_stats, contrib v0.164.1),
+ * with the receiver's unit and kind: COUNTER means a monotonic cumulative sum, so "rate" is the meaningful
+ * aggregation. process.* metrics are not listed: they live only in the raw points (V011) and are shown by Top
+ * processes, not the metric explorer.
+ */
 @Service("xpMetricCatalogService")
 @ConditionalOnProperty(name = "xampulse.enabled", havingValue = "true")
 public class MetricCatalogService {
@@ -32,12 +39,22 @@ public class MetricCatalogService {
             e("system.network.io", "By", "COUNTER", "direction", "device"),
             e("system.network.errors", "{errors}", "COUNTER", "direction", "device"),
             e("system.network.dropped", "{packets}", "COUNTER", "direction", "device"),
-            e("process.cpu.utilization", "1", "GAUGE"),
-            e("process.memory.utilization", "1", "GAUGE"),
-            e("container.cpu.utilization", "1", "GAUGE"),
-            e("container.memory.usage", "By", "GAUGE"),
-            e("container.network.io", "By", "COUNTER", "direction"),
-            e("xp.agent.heartbeat", "1", "GAUGE"));
+            e("system.network.packets", "{packets}", "COUNTER", "direction", "device"),
+            e("container.cpu.utilization", "%", "GAUGE", "container.name"),
+            e("container.memory.usage.total", "By", "GAUGE", "container.name"),
+            e("container.memory.usage.limit", "By", "GAUGE", "container.name"),
+            e("container.network.io.usage.rx_bytes", "By", "COUNTER", "container.name", "interface"),
+            e("container.network.io.usage.tx_bytes", "By", "COUNTER", "container.name", "interface"),
+            e("container.cpu.throttling_data.throttled_periods", "{periods}", "COUNTER", "container.name"),
+            e("container.restarts", "{restarts}", "COUNTER", "container.name"),
+            e("system.network.conntrack.count", "{entries}", "GAUGE"),
+            e("system.network.conntrack.max", "{entries}", "GAUGE"),
+            // xampulse_ec2 receiver (agent): rate of stall_time = share of time stalled; any allowance increase = AWS limited it.
+            e("xp.pressure.stall_time", "s", "COUNTER", "resource", "level"),
+            e("xp.ena.allowance_exceeded", "{packets}", "COUNTER", "allowance", "device"),
+            e("xp.ena.conntrack_allowance_available", "{connections}", "GAUGE", "device"),
+            e("xp.ec2.spot.interruption", "1", "GAUGE"),
+            e("xp.ec2.rebalance_recommendation", "1", "GAUGE"));
 
     private static XpMetricCatalogEntry e(String name, String unit, String kind, String... labelKeys) {
         return new XpMetricCatalogEntry(name, unit, kind, List.of(labelKeys));
