@@ -426,7 +426,8 @@ public class TicketController {
     /**
      * Closes a ticket. Admins can close any ticket. A customer can close only a ticket they can
      * see, using the same scoping as {@link #getTicketById}; any other ticket gets the same 404 as
-     * a missing one. Reopening stays admin-only.
+     * a missing one. Reopening stays admin-only. Called from the Close Ticket action on the
+     * ticket detail page.
      */
     @PostMapping("/tickets/{id}/close")
     @PreAuthorize("isAuthenticated()")
