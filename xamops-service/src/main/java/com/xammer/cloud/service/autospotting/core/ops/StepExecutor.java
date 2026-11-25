@@ -74,10 +74,8 @@ public class StepExecutor {
                 complete(handle, operationId, seq, done);
                 return done;
             }
-            // Probe inconclusive: re-issue execute with the same token (idempotent, §9.3). An earlier attempt may have
-            // changed the cloud, so a rejection now does not prove "no effect" (design-core 9.4).
-            StepOutcome again = executeAndComplete(handle, ctx, step, seq);
-            return again instanceof StepOutcome.Failed f ? f.withoutNoEffect() : again;
+            // Probe inconclusive: re-issue execute with the same token (idempotent, §9.3).
+            return executeAndComplete(handle, ctx, step, seq);
         }
 
         if (existing.isEmpty()) {

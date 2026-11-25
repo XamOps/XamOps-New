@@ -44,7 +44,6 @@ class GroupTransitionsTest {
             edge(GroupState.APPLYING, GroupState.REVERTING),
             edge(GroupState.APPLYING, GroupState.UNMANAGED),
             edge(GroupState.APPLYING, GroupState.REVERTED),
-            edge(GroupState.APPLYING, GroupState.PLANNED),
             edge(GroupState.APPLYING, GroupState.LEGACY_UNCONFIRMED),
             edge(GroupState.APPLYING, GroupState.PAUSED),
             edge(GroupState.APPLYING, GroupState.FALLBACK),

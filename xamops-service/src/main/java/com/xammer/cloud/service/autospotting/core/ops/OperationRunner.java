@@ -224,7 +224,7 @@ public class OperationRunner {
                     log.warn("op {} {} already mutated and the group is {}: compensating", op.getId(), op.getKind(), current);
                     compensateOrFail(handle, fresh, group, new StepOutcome.Failed(
                             com.xammer.cloud.service.autospotting.spi.ErrorKind.CONFLICT, "LIFECYCLE_START_EDGE_FORBIDDEN",
-                            "The group is " + current + ", which this operation can't continue from."), NO_STEP);
+                            "The group is " + current + ", which this operation can't continue from."));
                 }
                 return;
             }
@@ -482,7 +482,7 @@ public class OperationRunner {
                 store.reopenStepForRetry(op.getId(), seq, handle.generation());
                 store.park(op.getId(), WaitReason.FOREIGN_CHANGE, Instant.now().plus(decision.backoff()), seq, null);
             }
-            case COMPENSATE -> compensateOrFail(handle, op, group, failed, seq);
+            case COMPENSATE -> compensateOrFail(handle, op, group, failed);
             case GONE -> {
                 // DR-7: the group is gone. Transition to GONE and end the op FAILED(GONE).
                 transitionTo(handle, group, GroupState.GONE, "GROUP_GONE", op.getId());
@@ -498,20 +498,12 @@ public class OperationRunner {
      * keeps waiting — it does not compensate toward Spot — and goes FAILED only on a terminal error
      * after mutation (§2.2.1).
      */
-    /** {@code failedSeq} when the failure is not a step's own (a lifecycle refusal): never "rejected, no change". */
-    private static final int NO_STEP = -1;
-
     private void compensateOrFail(LeaseHandle handle, SpotOperation op, SpotGroup group,
-                                  StepOutcome.Failed failed, int failedSeq) {
+                                  StepOutcome.Failed failed) {
         // D-23b-02: the caller may hold the op as loaded before this pass's steps ran; a mutation earlier in the same
         // pass (or this step's own intent) is only in the stored row, so read it before deciding "before mutation".
         op = operations.findById(op.getId()).orElse(op);
-        // Review round 2 #3 (design-core 9.4): first_mutation_seq is stamped from the intent, before the call. When
-        // that first mutating step's only attempt was definitively rejected by the cloud (nothing changed), the op
-        // is still before mutation. Any other outcome (applied, timeout, 5xx, unknown, a retried step) is after.
-        boolean rejectedFirstMutation = failed.noEffect() && op.getFirstMutationSeq() != null
-                && op.getFirstMutationSeq() == failedSeq && store.stepAttempts(op.getId(), failedSeq) <= 1;
-        boolean mutatedYet = op.getFirstMutationSeq() != null && !rejectedFirstMutation;
+        boolean mutatedYet = op.getFirstMutationSeq() != null;
         boolean safety = CompensationTargets.actionClass(op.getKind()) == ActionClass.SAFETY;
 
         if (op.getPhase() == OperationPhase.COMPENSATING) {
