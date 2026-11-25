@@ -7,6 +7,7 @@ import org.hibernate.usertype.DynamicParameterizedType;
 import org.hibernate.usertype.UserType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -17,6 +18,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -75,6 +77,21 @@ public final class LegacyLobTextType implements UserType<String>, DynamicParamet
 
     /** Legacy write: a new large object holding the value's UTF-8 bytes. */
     static final String CREATE_SQL = "SELECT lo_from_bytea(0, ?)";
+    /**
+     * Stored size of one row's column ({@code %1$s} column, {@code %2$s} table, {@code %3$s} key
+     * column): object bytes from the {@code loid} index for a candidate (same rule as
+     * {@link #isCandidate}, 0 when the object is missing), text length otherwise. Nested CASE keeps
+     * the casts off text that is not a number.
+     */
+    static final String STORED_LENGTH_SQL = """
+            SELECT CASE WHEN x.lo IS NOT NULL
+                        THEN COALESCE((SELECT SUM(length(l.data)) FROM pg_largeobject l WHERE l.loid = x.lo), 0)
+                        ELSE CAST(length(x.v) AS bigint) END
+            FROM (SELECT r.v, CASE WHEN r.v ~ '^[1-9][0-9]{4,9}$' THEN
+                              CASE WHEN CAST(r.v AS bigint) BETWEEN 16384 AND 4294967295
+                                   THEN CAST(CAST(r.v AS bigint) AS oid) END END AS lo
+                  FROM (SELECT %1$s AS v FROM %2$s WHERE %3$s = ?) r) x
+            """;
 
     private static final Logger log = LoggerFactory.getLogger(LegacyLobTextType.class);
 
@@ -115,6 +132,17 @@ public final class LegacyLobTextType implements UserType<String>, DynamicParamet
         return v >= MIN_OID && v <= MAX_OID;
     }
 
+    /**
+     * Real stored size of {@code column} in the row whose {@code keyColumn} equals {@code key}, or
+     * null when there is no row, without loading the value: characters for inline text, bytes in
+     * {@code pg_largeobject} for a legacy reference (0 when the object is missing). PostgreSQL only.
+     * Reading {@code pg_largeobject} needs privileges; the caller handles the exception.
+     */
+    public static Long storedLength(JdbcTemplate jdbc, String table, String column, String keyColumn, String key) {
+        String sql = String.format(STORED_LENGTH_SQL, ident(column), ident(table), ident(keyColumn));
+        List<Long> rows = jdbc.queryForList(sql, Long.class, key);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
     @Override
     public void setParameterValues(Properties parameters) {               // table/column from Hibernate's mapping
         ParameterType pt = (ParameterType) parameters.get(PARAMETER_TYPE);

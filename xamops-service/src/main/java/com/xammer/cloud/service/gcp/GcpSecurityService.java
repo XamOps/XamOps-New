@@ -18,11 +18,13 @@ import com.xammer.cloud.dto.ProwlerFinding;
 import com.xammer.cloud.dto.gcp.GcpContainerVulnerabilityDto;
 import com.xammer.cloud.dto.gcp.GcpIamPolicyDriftDto;
 import com.xammer.cloud.dto.gcp.GcpSecurityFinding;
+import com.xammer.cloud.domain.type.LegacyLobTextType;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.service.ProwlerService;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -49,6 +51,7 @@ public class GcpSecurityService {
     private final CachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper;
     private final ProwlerService prowlerService;
+    private final JdbcTemplate jdbcTemplate;
 
     private final Executor executor = Executors.newCachedThreadPool();
 
@@ -121,12 +124,14 @@ public class GcpSecurityService {
                               RedisCacheService redisCacheService,
                               CachedDataRepository cachedDataRepository,
                               ObjectMapper objectMapper,
-                              ProwlerService prowlerService) {
+                              ProwlerService prowlerService,
+                              JdbcTemplate jdbcTemplate) {
         this.gcpClientProvider = gcpClientProvider;
         this.redisCacheService = redisCacheService;
         this.cachedDataRepository = cachedDataRepository;
         this.objectMapper = objectMapper;
         this.prowlerService = prowlerService;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     // -------------------------------------------------------------------------
@@ -891,7 +896,7 @@ public class GcpSecurityService {
      */
     private Long storedJsonLength(String key) {
         try {
-            Long length = cachedDataRepository.findJsonLengthByCacheKey(key);
+            Long length = LegacyLobTextType.storedLength(jdbcTemplate, "cached_data", "json_data", "cache_key", key);
             sizeQueryWarned.remove(key);
             return length;
         } catch (Exception e) {

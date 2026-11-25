@@ -56,43 +56,16 @@ public interface CachedDataRepository extends JpaRepository<CachedData, String> 
     int inlineLegacyRow(@Param("key") String key, @Param("oidText") String oidText, @Param("json") String json);
 
     /**
-     * SQL fragment: the large-object OID held by {@code <col>} when it is a legacy reference
-     * (ASCII {@code [1-9][0-9]{4,9}}, value 16384..4294967295, the same rule as
-     * {@code LegacyLobTextType.isCandidate}), otherwise NULL. Nested CASE keeps the casts from
-     * running on text that is not a number.
-     */
-    String OID_OF_JSON_DATA = "CASE WHEN json_data ~ '^[1-9][0-9]{4,9}$' THEN "
-            + "CASE WHEN CAST(json_data AS bigint) BETWEEN 16384 AND 4294967295 "
-            + "THEN CAST(CAST(json_data AS bigint) AS oid) END END";
-
-    /**
-     * Real stored size of {@code json_data}, or null when there is no row. Lets a caller refuse to
-     * load a snapshot that is too large to read safely, without reading it.
+     * Deletes the row with exactly this key without loading it (a derived delete would load the
+     * payload first). The row's large object, if {@code json_data} held a legacy reference, is left in
+     * place: backup tables may still reference it, and large objects are only removed by the managed
+     * cleanup in docs/runbooks/lob-text-cutover.md. Measure the size first with
+     * {@code LegacyLobTextType.storedLength}.
      *
-     * <p>{@code json_data} holds either inline text (size = its length in characters) or the OID text of
-     * a legacy large object (size = bytes in {@code pg_largeobject}, read by the {@code loid}
-     * index only). A reference whose object is missing counts as 0. Reading {@code pg_largeobject}
-     * needs privileges; the caller must handle the exception.
+     * @return the number of rows deleted (0 or 1)
      */
-    @Query(value = "SELECT CASE WHEN x.lo IS NOT NULL "
-            + "THEN COALESCE((SELECT SUM(length(l.data)) FROM pg_largeobject l WHERE l.loid = x.lo), 0) "
-            + "ELSE CAST(length(x.json_data) AS bigint) END "
-            + "FROM (SELECT json_data, " + OID_OF_JSON_DATA + " AS lo FROM cached_data WHERE cache_key = :key) x",
-            nativeQuery = true)
-    Long findJsonLengthByCacheKey(@Param("key") String key);
-
-    /**
-     * Deletes the row with exactly this key and, when its {@code json_data} is a legacy large-object
-     * reference to an existing object, unlinks that object too (one statement, one transaction), so no
-     * orphan is left. Nothing is loaded into the JVM. A value that is not an OID only loses its row.
-     *
-     * @return the number of large objects unlinked (the row is deleted whenever it existed)
-     */
+    @Modifying
     @Transactional
-    @Query(value = "WITH d AS (DELETE FROM cached_data WHERE cache_key = :key RETURNING json_data) "
-            + "SELECT CAST(count(*) AS bigint) FROM ("
-            + "SELECT lo_unlink(m.oid) FROM (SELECT " + OID_OF_JSON_DATA + " AS lo FROM d) r "
-            + "JOIN pg_largeobject_metadata m ON m.oid = r.lo) u",
-            nativeQuery = true)
-    long deleteOversizedByCacheKey(@Param("key") String key);
+    @Query(value = "DELETE FROM cached_data WHERE cache_key = :key", nativeQuery = true)
+    int deleteOversizedByCacheKey(@Param("key") String key);
 }
