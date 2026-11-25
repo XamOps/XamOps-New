@@ -69,6 +69,14 @@ public interface SpotProvider {
         return null;
     }
 
+    /**
+     * The group's {@code desired_config} once a REVERT has restored it (D-23b-01): the same config with the markers
+     * of what XamOps owned removed, so nothing after the revert reads a field as XamOps' that the customer may now
+     * own. Returns the input when there is nothing to remove. The revert itself reads ownership from its own inputs.
+     */
+    default String desiredConfigAfterRevert(String desiredConfigJson) {
+        return desiredConfigJson;
+    }
     /** A pure decision: the actions the core should execute for this group's status (no I/O). */
     List<ReconcileAction> reconcile(SpotGroup group, GroupStatus status);
 }

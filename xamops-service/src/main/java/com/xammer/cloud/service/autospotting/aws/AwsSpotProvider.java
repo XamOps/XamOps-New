@@ -141,7 +141,7 @@ public class AwsSpotProvider implements SpotProvider {
         boolean allowBurstable = options != null && options.effectiveAllowBurstable();
         EligibilityResult result = evaluator.evaluate(account.get(), ref.groupKey(), profile, mode, allowBurstable,
                 allowBurstable || options == null ? List.of() : options.storedBurstableAdded()).result();
-        return AwsMaintenancePolicy.withoutOwnedBlocker(result, options != null && AwsMaintenancePolicy.owns(options.desiredConfigJson()));
+        return AwsMaintenancePolicy.withoutOwnedBlocker(result, options != null && AwsMaintenancePolicy.owns(options.ownershipConfigJson()));
     }
 
     // ---- plan ----
@@ -167,7 +167,7 @@ public class AwsSpotProvider implements SpotProvider {
                     "This group does not use a burstable instance type, so burstable alternatives do not apply.");
         }
         boolean allowBurstable = options.effectiveAllowBurstable() && originalBurstable;
-        boolean ownsPolicy = AwsMaintenancePolicy.owns(options.desiredConfigJson());
+        boolean ownsPolicy = AwsMaintenancePolicy.owns(options.ownershipConfigJson());
         if (g == null || ev.rawGroup() == null) {
             // Not found or unreadable: the eligibility already says why; the body carries no cloud facts.
             return new PlanBody(null, null, null, null, ev.result(), null, List.of(), null, null, null);
@@ -453,6 +453,32 @@ public class AwsSpotProvider implements SpotProvider {
                 g.hasLegacyTag() && !g.hasMarker());
     }
 
+    /** D-23b-01: after a revert, the maintenance policy and the burstable types XamOps added are no longer its own. */
+    @Override
+    public String desiredConfigAfterRevert(String desiredConfigJson) {
+        if (desiredConfigJson == null || desiredConfigJson.isBlank()) {
+            return desiredConfigJson;
+        }
+        JsonNode parsed;
+        try {
+            parsed = JSON.readTree(desiredConfigJson);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            return desiredConfigJson;
+        }
+        if (!(parsed instanceof ObjectNode n)) {
+            return desiredConfigJson;
+        }
+        boolean changed = false;
+        if (AwsMaintenancePolicy.owns(n)) {
+            n.remove(AwsMaintenancePolicy.KEY);
+            changed = true;
+        }
+        if (n.path("options") instanceof ObjectNode opts
+                && (opts.remove("burstableAdded") != null | opts.remove("burstableRemoved") != null)) {
+            changed = true;
+        }
+        return changed ? write(n) : desiredConfigJson;
+    }
     // ---- status ----
 
     @Override

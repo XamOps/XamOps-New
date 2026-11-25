@@ -561,8 +561,11 @@ public class OperationRunner {
             fallbackEffects.exitSucceeded(handle, op, group, desiredConfigWrite(op, group));
             target = null;
         }
+        String[] configWrite = target == null ? null
+                : forward && op.getKind() == com.xammer.cloud.domain.autospotting.OperationKind.REVERT
+                && target == GroupState.REVERTED ? revertedConfigWrite(group) : desiredConfigWrite(op, group);
         if (target != null
-                && !transitionTo(handle, group, target, successReason(op), op.getId(), desiredConfigWrite(op, group))) {
+                && !transitionTo(handle, group, target, successReason(op), op.getId(), configWrite)) {
             // The cloud work is done but the group's record could not follow (stale guard or forbidden edge).
             // Reporting SUCCEEDED here left a converted group UNMANAGED in XamOps (phase 23 defect D-23-08).
             String from = groups.findById(group.getId()).map(g -> String.valueOf(g.getState())).orElse("missing");
@@ -621,6 +624,19 @@ public class OperationRunner {
         return new String[] {op.getTargetConfig(), fingerprint};
     }
 
+    /**
+     * D-23b-01: a REVERT that restored the group keeps {@code desired_config} (its options are the customer's last
+     * choices) but drops what XamOps owned, via the provider. The fingerprint stays. Returns null when unchanged.
+     */
+    private String[] revertedConfigWrite(SpotGroup group) {
+        SpotGroup fresh = groups.findById(group.getId()).orElse(group);
+        String desired = fresh.getDesiredConfig();
+        if (desired == null) {
+            return null;
+        }
+        String cleared = providers.find(fresh.getProvider()).map(p -> p.desiredConfigAfterRevert(desired)).orElse(desired);
+        return cleared == null || cleared.equals(desired) ? null : new String[] {cleared, fresh.getDesiredFingerprint()};
+    }
     private static String sha256(String text) {
         try {
             return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")

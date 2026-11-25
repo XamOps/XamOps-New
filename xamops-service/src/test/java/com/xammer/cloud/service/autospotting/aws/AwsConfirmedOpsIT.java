@@ -210,4 +210,120 @@ class AwsConfirmedOpsIT {
             assertThat(h.f.group().instanceMaintenancePolicy()).isEqualTo(imp(90, 150));
         }
     }
+
+    // ---- D-23b-01: ownership markers in desired_config after a revert ----
+    private static final String OWNED = ",\"instanceMaintenancePolicy\":{\"owned\":true,\"min\":100,\"max\":200}";
+    /** The plan options PlanService builds for the persisted group row. */
+    static PlanOptions optionsFor(AwsOpsHarness h, Boolean allowBurstable) {
+        com.xammer.cloud.domain.autospotting.SpotGroup row = h.ctx.getBean(
+                com.xammer.cloud.repository.autospotting.SpotGroupRepository.class).findById(h.f.groupId).orElseThrow();
+        return PlanOptions.forGroup(allowBurstable, row);
+    }
+    /** The real lifecycle move a new ENABLE plan makes (REVERTED -> PLANNED, ENABLE_PLAN_CREATED). */
+    static void toPlanned(AwsOpsHarness h) {
+        com.xammer.cloud.domain.autospotting.SpotGroup row = h.ctx.getBean(
+                com.xammer.cloud.repository.autospotting.SpotGroupRepository.class).findById(h.f.groupId).orElseThrow();
+        assertThat(h.ctx.getBean(com.xammer.cloud.service.autospotting.core.lifecycle.GroupLifecycleService.class)
+                .transitionUnderRowLock(row, com.xammer.cloud.service.autospotting.core.lifecycle.GroupLifecycleService
+                        .TransitionRequest.of(GroupState.PLANNED, "ENABLE_PLAN_CREATED",
+                                com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter.Actor.system(),
+                                null, h.f.clock.instant())).name()).isEqualTo("APPLIED");
+    }
+    /**
+     * XamOps enabled the group (policy absent before, so it owned 100/200) and the REVERT op restores it. Then the
+     * customer sets {@code customer} (null: none) and a new ENABLE is planned from the persisted row, confirmed and
+     * run. The live policy must end as {@code expected}, and a customer policy must never be in the target.
+     */
+    static void reEnableAfterRevert(InstanceMaintenancePolicy customer, InstanceMaintenancePolicy expected) {
+        AutoScalingGroup live = converted(List.of(override("m5.large", null), override("m5a.large", null),
+                override("m6i.large", null)), imp(100, 200));
+        String desired = desiredWith(List.of("m5.large", "m5a.large", "m6i.large"), OWNED);
+        try (AwsOpsHarness h = new AwsOpsHarness(live, FakeAws.asg("web-asg").build(), GroupState.ACTIVE, desired)) {
+            h.runner.runClaimed(h.lease, h.f.opId);
+            assertThat(h.runToEnd(h.f.opId)).as("revert error " + h.opError()).isEqualTo("SUCCEEDED");
+            assertThat(h.groupState()).isEqualTo("REVERTED");
+            assertThat(h.f.group().instanceMaintenancePolicy()).as("the revert cleared the policy").isNull();
+            assertThat(h.jdbc.queryForObject("SELECT jsonb_exists(desired_config, 'instanceMaintenancePolicy') FROM spot_group"
+                    + " WHERE id = ?", Boolean.class, h.f.groupId)).as("the revert dropped the ownership marker").isFalse();
+            if (customer != null) {
+                h.f.replaceGroup(h.f.group().toBuilder().instanceMaintenancePolicy(customer).build());
+            }
+            toPlanned(h);
+            PlanRequest enable = new PlanRequest(new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg", null),
+                    OperationKind.ENABLE, new Profile("aggressive", null), optionsFor(h, null));
+            var plan = h.provider.createPlan(enable, h.f.aws.view());
+            assertThat(plan.eligibility().blockers()).as("blockers").isEmpty();
+            var target = h.f.json(plan.targetJson());
+            var policyRows = new ArrayList<String>();
+            h.f.json(plan.diffJson()).forEach(d -> {
+                if (AwsMaintenancePolicy.KEY.equals(d.path("field").asText())) {
+                    policyRows.add(d.path("from").asText() + " -> " + d.path("to").asText());
+                }
+            });
+            if (customer != null) {
+                assertThat(target.has(AwsMaintenancePolicy.KEY)).as("a customer policy is never in the target").isFalse();
+                assertThat(policyRows).as("the policy diff row changes nothing")
+                        .containsExactly("min " + customer.minHealthyPercentage() + " / max "
+                                + customer.maxHealthyPercentage() + " -> unchanged");
+                assertThat(plan.eligibility().warnings().stream().map(w -> w.code()))
+                        .contains("IMP_MIN_HEALTHY_LOW").doesNotContain("IMP_OVERSHOOT");
+            } else {
+                assertThat(AwsMaintenancePolicy.owns(target)).as("an absent policy is XamOps' again").isTrue();
+                assertThat(policyRows).containsExactly("none -> min 100 / max 200");
+            }
+            for (int i = 1; i <= 3; i++) {
+                h.f.spotInstances.add("i-" + (5 - i));
+            }
+            UUID op = h.planAndConfirm(enable);
+            assertThat(h.runToEnd(op)).as("enable error " + h.jdbc.queryForList(
+                    "SELECT error_code FROM spot_operation WHERE id = ?", String.class, op)).isEqualTo("SUCCEEDED");
+            assertThat(h.groupState()).isEqualTo("ACTIVE");
+            InstanceMaintenancePolicy after = h.f.group().instanceMaintenancePolicy();
+            assertThat(after).as("live policy after the re-enable").isNotNull();
+            assertThat(after.minHealthyPercentage()).isEqualTo(expected.minHealthyPercentage());
+            assertThat(after.maxHealthyPercentage()).isEqualTo(expected.maxHealthyPercentage());
+            assertThat(h.f.updates.stream().filter(r -> r.instanceMaintenancePolicy() != null
+                            && r.instanceMaintenancePolicy().minHealthyPercentage() != null
+                            && r.instanceMaintenancePolicy().minHealthyPercentage() == 100
+                            && customer != null))
+                    .as("no update after the revert wrote 100/200 over the customer's policy").isEmpty();
+        }
+    }
+    /** D-23b-01 as found live: enable, revert, the customer sets 90/120, a confirmed re-enable keeps it. */
+    @Test
+    void aReEnableAfterARevertKeepsTheCustomersMaintenancePolicyThroughConfirm() {
+        reEnableAfterRevert(imp(90, 120), imp(90, 120));
+    }
+    /**
+     * D-23b-01, burstable: XamOps added t3a.micro, the revert removed it, the customer then added it themselves.
+     * A later plan with the option off must keep it, because it is no longer one XamOps added.
+     */
+    @Test
+    void aTypeTheCustomerAddsAfterARevertIsNotRemovedAsOneXamOpsAdded() {
+        AutoScalingGroup live = converted(List.of(T3_MICRO, T3A_MICRO), null);
+        AutoScalingGroup original = converted(List.of(T3_MICRO), null).toBuilder()
+                .tags(List.of()).capacityRebalance(false).build();
+        String desired = desiredWith(List.of("t3.micro", "t3a.micro"),
+                ",\"options\":{\"allowBurstable\":true,\"burstableAdded\":[\"t3a.micro\"]}");
+        try (AwsOpsHarness h = new AwsOpsHarness(live, original, GroupState.ACTIVE, desired, true,
+                fx -> fx.aws.burstableWorld())) {
+            h.runner.runClaimed(h.lease, h.f.opId);
+            assertThat(h.runToEnd(h.f.opId)).as("revert error " + h.opError()).isEqualTo("SUCCEEDED");
+            assertThat(h.groupState()).isEqualTo("REVERTED");
+            assertThat(h.jdbc.queryForObject("SELECT jsonb_exists(desired_config->'options', 'burstableAdded') FROM spot_group"
+                    + " WHERE id = ?", Boolean.class, h.f.groupId)).as("the revert dropped burstableAdded").isFalse();
+            // The customer adds t3a.micro by hand.
+            h.f.replaceGroup(converted(List.of(T3_MICRO, T3A_MICRO), null).toBuilder().tags(List.of())
+                    .capacityRebalance(false).build());
+            toPlanned(h);
+            var plan = h.provider.createPlan(new PlanRequest(new GroupRef(Provider.AWS, 7L,
+                    FakeAws.REGION + "/web-asg", null), OperationKind.ENABLE, new Profile("aggressive", null),
+                    optionsFor(h, false)), h.f.aws.view());
+            var target = h.f.json(plan.targetJson());
+            List<String> types = new ArrayList<>();
+            target.path("overrides").forEach(n -> types.add(n.asText()));
+            assertThat(types).as("the customer's own t3a.micro stays").contains("t3.micro", "t3a.micro");
+            assertThat(target.path("options").has("burstableRemoved")).isFalse();
+        }
+    }
 }

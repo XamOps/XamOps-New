@@ -177,7 +177,8 @@ public class PlanService {
         // A revert is never blocked by the conversion-only eligibility checks (DR-03): it takes the warnings of
         // its own plan, and the provider's restore-permission pre-check (design-core.md §7.4) is part of it.
         // AD-09: the customer's burstable choice for this plan, and the group's last confirmed one (desired_config).
-        PlanOptions options = new PlanOptions(cmd.allowBurstable(), group == null ? null : group.getDesiredConfig());
+        // D-23b-01: ownership markers in desired_config count only while XamOps' configuration is on the group.
+        PlanOptions options = PlanOptions.forGroup(cmd.allowBurstable(), group);
         EligibilityResult eligibility = cmd.kind() == OperationKind.REVERT || policyChange ? null
                 : spotProvider.checkEligibility(ref, view, profile, EvalMode.PLAN, options);
         com.xammer.cloud.service.autospotting.spi.PlanRequest planRequest =

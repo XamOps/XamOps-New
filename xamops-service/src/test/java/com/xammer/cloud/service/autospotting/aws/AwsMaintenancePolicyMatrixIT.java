@@ -221,6 +221,12 @@ class AwsMaintenancePolicyMatrixIT {
                 () -> revert(imp(100, 200), null, true, null)));
         rows.add(row("REVERT / CUSTOMER / unwrap refused, single-override fallback",
                 () -> revert(imp(90, 150), imp(90, 150), true, imp(90, 150))));
+        // D-23b-01: re-enable after a revert. A customer policy set after the revert is never overwritten; a group
+        // still without one gets XamOps' 100/200 again.
+        rows.add(row("ENABLE after REVERT / CUSTOMER 90/120 set after the revert / success, policy kept",
+                () -> AwsConfirmedOpsIT.reEnableAfterRevert(imp(90, 120), imp(90, 120))));
+        rows.add(row("ENABLE after REVERT / ABSENT / success, XamOps owns 100/200 again",
+                () -> AwsConfirmedOpsIT.reEnableAfterRevert(null, imp(100, 200))));
         // FALLBACK enter and exit.
         for (Start s : Start.values()) {
             // Fallback only writes a policy XamOps owns; a group XamOps never gave one stays as it is.
