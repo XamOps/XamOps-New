@@ -59,10 +59,12 @@ public final class GroupTransitions {
 
         // PLANNED --> PLANNED (superseding enable plan, inherits from_state, 7.4);
         //         --> UNMANAGED / REVERTED (plan expired/superseded/cancelled before start, to from_state);
-        //         --> APPLYING (enable op starts); --> GONE.
+        //         --> APPLYING (enable op starts);
+        //         --> REVERTING (revert op while XamOps' configuration is on the group: a drain-only revert's
+        //             configOnGroup, or a confirmed enable not finished, 7.4); --> GONE.
         put(m, GroupState.PLANNED,
                 GroupState.PLANNED, GroupState.UNMANAGED, GroupState.REVERTED, GroupState.APPLYING,
-                GroupState.GONE);
+                GroupState.REVERTING, GroupState.GONE);
 
         // LEGACY_UNCONFIRMED --> APPLYING (adopt op); --> REVERTING (revert op);
         //                    --> UNMANAGED (marker and Spot share gone); --> GONE (group not found).

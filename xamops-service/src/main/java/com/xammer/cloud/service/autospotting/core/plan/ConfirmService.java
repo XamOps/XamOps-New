@@ -165,8 +165,7 @@ public class ConfirmService {
 
         // 3. Kind and state (the §7.4 table), repeated under the group's current state. GR-02: a REVERTED
         // group is revertible only after a drain-only revert (PASSROLE_DENIED).
-        boolean regrant = revert && group != null && state == GroupState.REVERTED
-                && RevertHistory.lastRevertPassRoleDenied(operations, plans, group.getId());
+        boolean regrant = revert && RevertHistory.revertGate(operations, plans, group, state).regrant();
         if (!PlanKinds.isAllowed(plan.getKind(), state, regrant)) {
             throw AutoSpottingApiException.planKindNotAllowed(PlanKinds.notAllowedDetail(plan.getKind(), state));
         }

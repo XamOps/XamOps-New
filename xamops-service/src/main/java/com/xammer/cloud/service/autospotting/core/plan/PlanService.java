@@ -293,30 +293,22 @@ public class PlanService {
     private void checkKindState(OperationKind kind, SpotGroup group, GroupState state) {
         boolean regrant = false;
         if (kind == OperationKind.REVERT) {
-            // GR-02: a REVERTED group is revertible again only after a drain-only revert (PASSROLE_DENIED).
-            regrant = group != null && state == GroupState.REVERTED
-                    && RevertHistory.lastRevertPassRoleDenied(operations, plans, group.getId());
-            // §7.4 REVERT exceptions, resolved before the general table.
-            if (group == null || state == GroupState.UNMANAGED || state == GroupState.REVERTED && !regrant
-                    || state == GroupState.GONE || state == GroupState.PLANNED && !hasConfirmedEnable(group)) {
-                throw new AutoSpottingApiException(HttpStatus.CONFLICT, "NOT_MANAGED",
-                        "XamOps does not manage this group, so there is nothing to revert.");
-            }
-            if (state == GroupState.REVERTING) {
+            // §7.4 REVERT exceptions, resolved before the general table (GR-02 regrant, configOnGroup, an unfinished
+            // confirmed enable): one rule shared with ConfirmService (RevertHistory.revertGate).
+            RevertHistory.RevertGate gate = RevertHistory.revertGate(operations, plans, group, state);
+            regrant = gate.regrant();
+            if ("AS_GROUP_BUSY".equals(gate.refusal())) {
                 throw new AutoSpottingApiException(HttpStatus.CONFLICT, "AS_GROUP_BUSY",
                         "AutoSpotting is already reverting this group.");
+            }
+            if (gate.refusal() != null) {
+                throw new AutoSpottingApiException(HttpStatus.CONFLICT, "NOT_MANAGED",
+                        "XamOps does not manage this group, so there is nothing to revert.");
             }
         }
         if (!PlanKinds.isAllowed(kind, state, regrant)) {
             throw AutoSpottingApiException.planKindNotAllowed(PlanKinds.notAllowedDetail(kind, state));
         }
-    }
-
-    /** A PLANNED group with a confirmed-but-unstarted ENABLE can be reverted (§7.4); dark until ops run. */
-    private boolean hasConfirmedEnable(SpotGroup group) {
-        // No confirmed ENABLE op exists in this phase (no op runs). The safe reading for a PLANNED
-        // group with only an OPEN plan is NOT_MANAGED (§7.4), so default false.
-        return false;
     }
 
     private GroupRef refFor(CloudAccount account, Provider provider, SpotGroup group, CreateCommand cmd) {

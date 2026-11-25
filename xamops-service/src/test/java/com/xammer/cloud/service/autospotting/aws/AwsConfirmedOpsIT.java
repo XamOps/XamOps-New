@@ -729,4 +729,92 @@ class AwsConfirmedOpsIT {
             assertThat(AwsMaintenancePolicy.owns(h.f.json(plan.targetJson()))).as("planning agrees").isFalse();
         }
     }
+
+    /** The plan service's revert gate for the persisted row (design-core 7.4, round 4 #1). */
+    private static com.xammer.cloud.service.autospotting.core.plan.RevertHistory.RevertGate revertGate(AwsOpsHarness h) {
+        var row = row(h);
+        return com.xammer.cloud.service.autospotting.core.plan.RevertHistory.revertGate(
+                h.ctx.getBean(com.xammer.cloud.repository.autospotting.SpotOperationRepository.class),
+                h.ctx.getBean(com.xammer.cloud.repository.autospotting.SpotPlanRepository.class), row, row.getState());
+    }
+
+    /** A REVERT through the production gate and kind table, planned with the row's own options, run to the end. */
+    private static void revertOfferedAndRestoresTheOriginal(AwsOpsHarness h) {
+        var gate = revertGate(h);
+        assertThat(gate.refusal()).as("a revert is offered").isNull();
+        assertThat(com.xammer.cloud.service.autospotting.core.plan.PlanKinds.isAllowed(OperationKind.REVERT,
+                row(h).getState(), gate.regrant())).isTrue();
+        h.f.spotInstances.clear();
+        UUID revert = h.planAndConfirm(new PlanRequest(new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg",
+                null), OperationKind.REVERT, null, optionsFor(h, null)));
+        assertThat(h.runToEnd(revert)).as("revert error " + h.jdbc.queryForList(
+                "SELECT error_code FROM spot_operation WHERE id = ?", String.class, revert)).isEqualTo("SUCCEEDED");
+        assertThat(h.groupState()).isEqualTo("REVERTED");
+        assertThat(h.f.group().mixedInstancesPolicy()).as("the saved original is restored").isNull();
+        assertThat(h.f.group().instanceMaintenancePolicy()).as("100/200 cleared").isNull();
+        assertThat(revertGate(h).refusal()).as("nothing left to revert").isEqualTo("NOT_MANAGED");
+    }
+
+    /**
+     * Round 4 #1, #3: after a drain-only revert a re-enable fails before its first mutation (step 0 PLAN_STALE). The
+     * op ends FAILED_BEFORE_MUTATION and the group lands in PLANNED, and a REVERT is still offered and restores the
+     * original.
+     */
+    @Test
+    void aReEnableThatFailsAtVerifyPreconditionsAfterADrainOnlyRevertStillOffersARevertThatRestoresTheOriginal() {
+        try (AwsOpsHarness h = drainOnlyReverted()) {
+            toPlanned(h);
+            UUID op = h.planAndConfirm(new PlanRequest(new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg",
+                    null), OperationKind.ENABLE, new Profile("aggressive", null), optionsFor(h, null)));
+            // The group changes after the plan: step 0 refuses the stale plan before any write.
+            h.f.replaceGroup(h.f.group().toBuilder().capacityRebalance(false).build());
+            int before = h.f.updates.size();
+            assertThat(h.runToEnd(op)).isEqualTo("FAILED");
+            assertThat(h.jdbc.queryForObject("SELECT error_code FROM spot_operation WHERE id = ?", String.class, op))
+                    .isEqualTo("PLAN_STALE");
+            assertThat(h.jdbc.queryForObject("SELECT first_mutation_seq FROM spot_operation WHERE id = ?",
+                    Integer.class, op)).as("nothing was mutated").isNull();
+            assertThat(h.f.updates.size()).isEqualTo(before);
+            assertThat(h.groupState()).as("back to prior_state").isEqualTo("PLANNED");
+            // The group never left PLANNED (the enable entered APPLYING only with a first mutation), so the runner's
+            // return to prior_state is a no-op transition; the op's audit record carries the reason.
+            assertThat(h.jdbc.queryForList("SELECT details->>'reason' FROM autospotting_audit WHERE operation_id = ?"
+                    + " AND event_type = 'OP_FAILED'", String.class, op)).containsExactly("FAILED_BEFORE_MUTATION");
+            revertOfferedAndRestoresTheOriginal(h);
+        }
+    }
+
+    /** Round 4 #1: the same when the re-enable fails closed at PERSIST_SNAPSHOT (SNAPSHOT_MISSING). */
+    @Test
+    void aReEnableThatFailsWithSnapshotMissingAfterADrainOnlyRevertStillOffersARevert() {
+        try (AwsOpsHarness h = drainOnlyReverted()) {
+            toPlanned(h);
+            for (int i = 1; i <= 3; i++) {
+                h.f.spotInstances.add("i-" + (5 - i));
+            }
+            UUID op = h.planAndConfirm(new PlanRequest(new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg",
+                    null), OperationKind.ENABLE, new Profile("aggressive", null), optionsFor(h, null)));
+            UUID original = row(h).getSnapshotId();
+            h.jdbc.update("UPDATE spot_group SET snapshot_id = NULL WHERE id = ?", h.f.groupId);
+            assertThat(h.runToEnd(op)).isEqualTo("FAILED");
+            assertThat(h.jdbc.queryForObject("SELECT error_code FROM spot_operation WHERE id = ?", String.class, op))
+                    .isEqualTo("SNAPSHOT_MISSING");
+            assertThat(h.groupState()).isEqualTo("PLANNED");
+            assertThat(revertGate(h).refusal()).as("the revert stays available").isNull();
+            // The link is restored (e.g. by support from the retained snapshot row); the revert restores the original.
+            h.jdbc.update("UPDATE spot_group SET snapshot_id = ? WHERE id = ?", original, h.f.groupId);
+            revertOfferedAndRestoresTheOriginal(h);
+        }
+    }
+
+    /** Round 4 #1: a PLANNED group that XamOps never configured still has nothing to revert. */
+    @Test
+    void aPlannedGroupWithoutXamOpsConfigurationOrAnUnfinishedEnableHasNothingToRevert() {
+        try (AwsOpsHarness h = new AwsOpsHarness(FakeAws.asg("web-asg").build(), OperationKind.ENABLE,
+                GroupState.PLANNED, GroupState.PLANNED, "conservative")) {
+            assertThat(revertGate(h).refusal()).as("the confirmed enable has not finished").isNull();
+            h.jdbc.update("UPDATE spot_operation SET status = 'FAILED', finished_at = now() WHERE id = ?", h.f.opId);
+            assertThat(revertGate(h).refusal()).isEqualTo("NOT_MANAGED");
+        }
+    }
 }
