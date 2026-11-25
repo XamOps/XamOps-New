@@ -180,6 +180,58 @@ public class AsyncConfig implements AsyncConfigurer {
     }
 
     /**
+     * Pool for the waste scan's AWS checks ({@code OptimizationService.getWastedResources}).
+     *
+     * <p>A scan starts one task per detector per active region, about 550 for an account with 17
+     * regions, and each task blocks on AWS calls. Those tasks ran on {@code ForkJoinPool.commonPool()},
+     * which has CPU-1 workers and is shared with every other bare {@code supplyAsync} in the process,
+     * so one scan held up unrelated work while it drained. A fixed pool keeps a scan from
+     * crowding out anything else. The queue holds a few accounts' scans at once;
+     * {@code CallerRunsPolicy} is the last-resort backstop, so a burst slows a scan down rather
+     * than failing it. Sizes are {@code xamops.waste-scan.executor.*} configurable.
+     */
+    @Bean(name = "wasteScanExecutor")
+    public Executor wasteScanExecutor(
+            TaskDecorator tenantTaskDecorator,
+            @Value("${xamops.waste-scan.executor.pool-size:16}") int poolSize,
+            @Value("${xamops.waste-scan.executor.queue-capacity:2000}") int queueCapacity) {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(poolSize);
+        executor.setMaxPoolSize(poolSize);
+        executor.setQueueCapacity(queueCapacity);
+        executor.setThreadNamePrefix("waste-scan-");
+        executor.setTaskDecorator(tenantTaskDecorator);
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        log.info("wasteScanExecutor created: pool={} queue={}", poolSize, queueCapacity);
+        return executor;
+    }
+
+    /**
+     * Runs the waste endpoint's database lookups (saved snapshot, account row) off the HTTP request
+     * thread. Open Session in View keeps a request thread's connection from its first query until
+     * the response is written, so a waste request that queried on that thread held a pooled
+     * connection for its whole scan; repeated clicks during a slow scan held one each. Here each
+     * query hands its connection back when it ends. The lookups take milliseconds, so a small pool
+     * is enough, and it is separate from {@code wasteScanExecutor} so a snapshot load never queues
+     * behind a scan's AWS checks. {@code CallerRunsPolicy} falls back to querying on the request
+     * thread, the old behaviour, rather than failing when the pool is full.
+     */
+    @Bean(name = "wasteLookupExecutor")
+    public Executor wasteLookupExecutor(TaskDecorator tenantTaskDecorator) {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(4);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(200);
+        executor.setThreadNamePrefix("waste-lookup-");
+        executor.setTaskDecorator(tenantTaskDecorator);
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        log.info("wasteLookupExecutor created: pool={} queue={}", 4, 200);
+        return executor;
+    }
+
+    /**
      * Default executor for any bare @Async (no named executor) calls.
      * Provides the same TaskDecorator-based tenant context propagation as the named executors,
      * ensuring future @Async methods that don't specify an executor still propagate tenant context.

@@ -595,10 +595,24 @@ public class TicketService {
         return attachEmailDetails(convertToDto(updatedTicket, true), updatedTicket);
     }
 
+    /**
+     * Closes a ticket on behalf of the current user.
+     *
+     * @param isAdmin whether the caller holds a BillOps admin role. Admins can close any ticket.
+     *                Anyone else can close only a ticket they can see, and gets back the customer
+     *                view of it, without internal notes.
+     */
     @Transactional
-    public TicketDto closeTicket(Long ticketId) {
+    public TicketDto closeTicket(Long ticketId, boolean isAdmin) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
+
+        // Same scoping as getTicketById. A ticket the customer can't see gets the same answer as
+        // a missing one, so this can't be used to close, or probe for, another client's tickets.
+        if (!isAdmin && applyAccountFilter(
+                java.util.Collections.singletonList(convertToDto(ticket, false))).isEmpty()) {
+            throw new RuntimeException("Ticket not found");
+        }
 
         ticket.setStatus("CLOSED");
         ticket.setClosedAt(java.time.LocalDateTime.now());
@@ -616,14 +630,14 @@ public class TicketService {
             if (creator != null && creator.getEmail() != null && !creator.getEmail().isBlank()) {
                 String subject = String.format("Your ticket has been closed — #%d: %s",
                         ticket.getId(), ticket.getSubject());
-                String html = buildTicketClosedEmailHtml(ticket, creator);
+                String html = buildTicketClosedEmailHtml(ticket, creator, isAdmin);
                 emailService.sendHtmlEmail(creator.getEmail(), subject, html);
             }
         } catch (Exception e) {
             logger.error("Failed to send ticket-closed email for ticket {}", ticket.getId(), e);
         }
 
-        return attachEmailDetails(convertToDto(updatedTicket, true), updatedTicket);
+        return attachEmailDetails(convertToDto(updatedTicket, isAdmin), updatedTicket);
     }
 
     @Transactional
@@ -833,7 +847,7 @@ public class TicketService {
      * The reply body (from Quill) is rendered as-is so HTML cards
      * (e.g. meeting invites) display correctly.
      */
-    private String buildTicketClosedEmailHtml(Ticket ticket, User creator) {
+    private String buildTicketClosedEmailHtml(Ticket ticket, User creator, boolean closedBySupport) {
         String severityVal = ticket.getSeverity() != null ? escapeHtml(ticket.getSeverity()) : "—";
         String categoryVal = ticket.getCategory() != null ? escapeHtml(ticket.getCategory()) : "—";
         return "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head>"
@@ -850,7 +864,10 @@ public class TicketService {
                 + "<p style=\"margin:0 0 16px;color:#374151;font-size:15px;\">Hi <strong>"
                 + escapeHtml(creator.getUsername()) + "</strong>,</p>"
                 + "<p style=\"margin:0 0 16px;color:#374151;font-size:15px;\">"
-                + "Your support ticket has been resolved and closed by our team.</p>"
+                + (closedBySupport
+                        ? "Your support ticket has been resolved and closed by our team."
+                        : "Your support ticket has been closed.")
+                + "</p>"
                 + "<table style=\"width:100%;border-collapse:collapse;margin-bottom:20px;\">"
                 + "<tr><td style=\"padding:8px 0;border-bottom:1px solid #f3f4f6;color:#6b7280;"
                 + "font-size:13px;width:35%;\">Category</td>"

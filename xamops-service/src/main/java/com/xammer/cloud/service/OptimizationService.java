@@ -13,6 +13,7 @@ import com.xammer.cloud.util.Ec2InstanceTypes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
@@ -71,7 +72,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -103,6 +108,43 @@ public class OptimizationService {
     /** Ceiling on GetMetricData pages followed per batch, to bound memory. */
     private static final int MAX_METRIC_PAGES = 20;
 
+    /**
+     * Longest a waste scan may run before it returns what it has. The waste endpoint also
+     * waits for region discovery (capped at 120s), so this keeps the whole request inside
+     * nginx's 300s proxy_read_timeout with room to spare.
+     */
+    @Value("${xamops.waste-scan.timeout-seconds:100}")
+    private long wasteScanTimeoutSeconds = 100;
+
+    /** How long a partial (time-limited) waste result stays in Redis, so a full scan is retried soon. */
+    private static final int PARTIAL_WASTE_CACHE_MINUTES = 10;
+
+    /**
+     * Deadline ({@link System#nanoTime()}) of the waste scan whose checks are being started on
+     * this thread. Set only while {@link #runWasteScan} builds its detector futures, which all
+     * submit synchronously, so the checks capture it at submission. Waste checks then run on
+     * {@link #wasteScanExecutor} and skip regions not started before the deadline. The
+     * rightsizing callers of {@link #fetchAllRegionalResources} never see it and keep their
+     * current behaviour.
+     */
+    private static final ThreadLocal<Long> WASTE_SCAN_DEADLINE = new ThreadLocal<>();
+
+    /**
+     * Distinct instance a detector completes with when the scan's time limit passes first, so
+     * the scan can count the checks that did not finish. Compared by identity.
+     */
+    private static final List<DashboardData.WastedResource> TIMED_OUT = Collections.unmodifiableList(new ArrayList<>(0));
+
+    /**
+     * One waste scan per AWS account at a time. A second request for the same account,
+     * whichever page it comes from, waits for the scan already running instead of starting
+     * another. Each scan sends hundreds of AWS calls, and repeated clicks during a slow scan
+     * used to stack up whole extra scans.
+     */
+    private final ConcurrentHashMap<String, CompletableFuture<List<DashboardData.WastedResource>>> wasteScansInFlight = new ConcurrentHashMap<>();
+
+    private final Executor wasteScanExecutor;
+
     @Autowired
     public OptimizationService(
             CloudAccountRepository cloudAccountRepository,
@@ -112,7 +154,8 @@ public class OptimizationService {
             RedisCacheService redisCache,
             CachedDataRepository cachedDataRepository,
             ObjectMapper objectMapper,
-            SnapshotFreshnessService snapshotFreshnessService) {
+            SnapshotFreshnessService snapshotFreshnessService,
+            @Qualifier("wasteScanExecutor") Executor wasteScanExecutor) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.pricingService = pricingService;
@@ -121,6 +164,7 @@ public class OptimizationService {
         this.cachedDataRepository = cachedDataRepository;
         this.objectMapper = objectMapper;
         this.snapshotFreshnessService = snapshotFreshnessService;
+        this.wasteScanExecutor = wasteScanExecutor;
     }
 
     /** Delegates to {@link Ec2InstanceTypes#architectureOf(String)}. */
@@ -532,8 +576,48 @@ public class OptimizationService {
             return CompletableFuture.completedFuture(Collections.emptyList());
         }
 
+        String accountId = account.getAwsAccountId();
+        CompletableFuture<List<DashboardData.WastedResource>> scan = new CompletableFuture<>();
+        CompletableFuture<List<DashboardData.WastedResource>> running = wasteScansInFlight.putIfAbsent(accountId, scan);
+        if (running != null) {
+            logger.info("Waste scan already running for account {}; waiting for it instead of starting another",
+                    accountId);
+            return running;
+        }
+        try {
+            runWasteScan(account, activeRegions, cacheKey).whenComplete((result, error) -> {
+                // Leave the map before completing, so a request arriving after this scan
+                // finishes starts a fresh scan rather than receiving this result.
+                wasteScansInFlight.remove(accountId, scan);
+                if (error != null) {
+                    scan.completeExceptionally(error);
+                } else {
+                    scan.complete(result);
+                }
+            });
+        } catch (RuntimeException e) {
+            wasteScansInFlight.remove(accountId, scan);
+            scan.completeExceptionally(e);
+        }
+        return scan;
+    }
+
+    /**
+     * Runs every waste detector for the account and returns what has finished by the scan's
+     * time limit ({@code xamops.waste-scan.timeout-seconds}). Detectors still running at the
+     * limit contribute nothing, region checks not yet started are skipped, and the result is
+     * cached briefly so the next scan fills in what is missing.
+     */
+    private CompletableFuture<List<DashboardData.WastedResource>> runWasteScan(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions, String cacheKey) {
+        long timeoutNanos = TimeUnit.SECONDS.toNanos(wasteScanTimeoutSeconds);
+        long deadline = System.nanoTime() + timeoutNanos;
+
         logger.info("Fetching wasted resources for account {}...", account.getAwsAccountId());
-        List<CompletableFuture<List<DashboardData.WastedResource>>> futures = List.of(
+        List<CompletableFuture<List<DashboardData.WastedResource>>> futures;
+        WASTE_SCAN_DEADLINE.set(deadline);
+        try {
+            futures = List.of(
                 findUnattachedEbsVolumes(account, activeRegions), findUnusedElasticIps(account, activeRegions),
                 findOldSnapshots(account, activeRegions), findDeregisteredAmis(account, activeRegions),
                 findIdleRdsInstances(account, activeRegions), findIdleLoadBalancers(account, activeRegions),
@@ -561,29 +645,58 @@ public class OptimizationService {
                 findApiGatewayApisWithNoTraffic(account, activeRegions),
                 findCodeBuildProjectsWithNoBuilds(account, activeRegions),
                 findIdleKinesisStreams(account, activeRegions));
+        } finally {
+            WASTE_SCAN_DEADLINE.remove();
+        }
 
+        long remainingNanos = Math.max(0, deadline - System.nanoTime());
         List<CompletableFuture<List<DashboardData.WastedResource>>> safeFutures = futures.stream()
                 .map(f -> f.exceptionally(e -> {
                     logger.warn("Waste detection method failed, skipping: {}", e.getMessage());
-                    return Collections.emptyList();
-                }))
+                    return Collections.<DashboardData.WastedResource>emptyList();
+                }).completeOnTimeout(TIMED_OUT, remainingNanos, TimeUnit.NANOSECONDS))
                 .collect(Collectors.toList());
 
+        // Async on the scan pool: when the time limit fires, the JDK completes these futures on its
+        // shared timer thread, and the Redis and database writes below must not run there.
         return CompletableFuture.allOf(safeFutures.toArray(new CompletableFuture[0]))
-                .thenApply(v -> {
-                    List<DashboardData.WastedResource> allWasted = safeFutures.stream()
+                .thenApplyAsync(v -> {
+                    List<List<DashboardData.WastedResource>> results = safeFutures.stream()
                             .map(CompletableFuture::join)
+                            .collect(Collectors.toList());
+                    long unfinished = results.stream().filter(r -> r == TIMED_OUT).count();
+                    List<DashboardData.WastedResource> allWasted = results.stream()
                             .flatMap(List::stream)
                             .collect(Collectors.toList());
+                    if (unfinished > 0) {
+                        logger.warn("Waste scan for account {} reached its {}s limit: {} of {} checks had not "
+                                + "finished. Returning {} findings from the rest.", account.getAwsAccountId(),
+                                wasteScanTimeoutSeconds, unfinished, results.size(), allWasted.size());
+                    }
                     logger.debug("... found {} total wasted resources for account {}.", allWasted.size(),
                             account.getAwsAccountId());
-                    redisCache.put(cacheKey, allWasted, 60);
+                    redisCache.put(cacheKey, allWasted, unfinished > 0 ? PARTIAL_WASTE_CACHE_MINUTES : 60);
 
                     // ✅ Archive Data for Superset
                     archiveData("WASTE", account.getAwsAccountId(), allWasted);
 
                     return allWasted;
-                });
+                }, wasteScanExecutor);
+    }
+
+    /**
+     * Runs one waste check on {@link #wasteScanExecutor}. A check still queued when the scan's
+     * time limit passes is skipped: the scan has already answered, so starting its AWS calls
+     * would only take a thread from the next scan.
+     */
+    private <T> CompletableFuture<List<T>> wasteCheckAsync(Supplier<List<T>> check) {
+        Long deadline = WASTE_SCAN_DEADLINE.get();
+        return CompletableFuture.supplyAsync(() -> {
+            if (deadline != null && System.nanoTime() - deadline > 0) {
+                return Collections.<T>emptyList();
+            }
+            return check.get();
+        }, wasteScanExecutor);
     }
 
     // ... [ The rest of the waste-finding methods (findUnattachedEbsVolumes, etc.)
@@ -1338,21 +1451,27 @@ public class OptimizationService {
         if (activeRegions == null) {
             return CompletableFuture.completedFuture(Collections.emptyList());
         }
+        // Waste checks (started inside runWasteScan) go to the waste-scan pool; everything
+        // else keeps running where it always has.
+        boolean wasteScan = WASTE_SCAN_DEADLINE.get() != null;
         List<CompletableFuture<List<T>>> futures = activeRegions.stream()
-                .map(regionStatus -> CompletableFuture.supplyAsync(() -> {
-                    try {
-                        return fetchFunction.apply(regionStatus.getRegionId());
-                    } catch (AwsServiceException e) {
-                        logger.warn("Optimization check failed for account {}: {} in region {}. AWS Error: {}",
-                                account.getAwsAccountId(), serviceName, regionStatus.getRegionId(),
-                                e.awsErrorDetails().errorMessage());
-                        return Collections.<T>emptyList();
-                    } catch (Exception e) {
-                        logger.error("Optimization check failed for account {}: {} in region {}.",
-                                account.getAwsAccountId(), serviceName, regionStatus.getRegionId(), e);
-                        return Collections.<T>emptyList();
-                    }
-                }))
+                .map(regionStatus -> {
+                    Supplier<List<T>> check = () -> {
+                        try {
+                            return fetchFunction.apply(regionStatus.getRegionId());
+                        } catch (AwsServiceException e) {
+                            logger.warn("Optimization check failed for account {}: {} in region {}. AWS Error: {}",
+                                    account.getAwsAccountId(), serviceName, regionStatus.getRegionId(),
+                                    e.awsErrorDetails().errorMessage());
+                            return Collections.<T>emptyList();
+                        } catch (Exception e) {
+                            logger.error("Optimization check failed for account {}: {} in region {}.",
+                                    account.getAwsAccountId(), serviceName, regionStatus.getRegionId(), e);
+                            return Collections.<T>emptyList();
+                        }
+                    };
+                    return wasteScan ? wasteCheckAsync(check) : CompletableFuture.supplyAsync(check);
+                })
                 .collect(Collectors.toList());
 
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
@@ -1473,7 +1592,7 @@ public class OptimizationService {
     }
 
     private CompletableFuture<List<DashboardData.WastedResource>> findS3StorageClassWaste(CloudAccount account) {
-        return CompletableFuture.supplyAsync(() -> {
+        return wasteCheckAsync(() -> {
             List<DashboardData.WastedResource> output = new ArrayList<>();
             try {
                 S3Client s3 = awsClientProvider.getS3Client(account, "us-east-1");
@@ -2079,7 +2198,7 @@ public class OptimizationService {
     // S3 buckets with no GET requests in 90 days — data sitting cold without
     // Glacier pricing.
     private CompletableFuture<List<DashboardData.WastedResource>> findS3BucketsWithNoReads(CloudAccount account) {
-        return CompletableFuture.supplyAsync(() -> {
+        return wasteCheckAsync(() -> {
             try {
                 S3Client s3 = awsClientProvider.getS3Client(account, "us-east-1");
                 List<software.amazon.awssdk.services.s3.model.Bucket> buckets = s3.listBuckets().buckets();
@@ -2282,7 +2401,7 @@ public class OptimizationService {
     // transfer costs.
     private CompletableFuture<List<DashboardData.WastedResource>> findCloudFrontDistributionsWithNoTraffic(
             CloudAccount account) {
-        return CompletableFuture.supplyAsync(() -> {
+        return wasteCheckAsync(() -> {
             try {
                 CloudFrontClient cf = awsClientProvider.getCloudFrontClient(account);
                 CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, "us-east-1");
@@ -2333,7 +2452,7 @@ public class OptimizationService {
     // across abandoned projects.
     private CompletableFuture<List<DashboardData.WastedResource>> findUnusedRoute53HostedZones(
             CloudAccount account) {
-        return CompletableFuture.supplyAsync(() -> {
+        return wasteCheckAsync(() -> {
             try {
                 Route53Client r53 = awsClientProvider.getRoute53Client(account);
                 CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, "us-east-1");

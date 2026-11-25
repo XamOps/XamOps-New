@@ -967,6 +967,8 @@ public class AzureDashboardService {
             List<DashboardData.IamUserDetail> users = new ArrayList<>();
             List<DashboardData.IamRoleDetail> roles = new ArrayList<>();
             List<com.azure.resourcemanager.authorization.models.RoleAssignment> assignments = new ArrayList<>();
+            // Kept so the privilege analysis reuses them instead of fetching each again by id.
+            List<com.azure.resourcemanager.authorization.models.RoleDefinition> listedDefinitions = new ArrayList<>();
 
             // ARM identifies a subscription by the path "/subscriptions/<guid>", not by the bare
             // guid. listByScope interpolates this argument straight into the request URL, so the
@@ -985,6 +987,7 @@ public class AzureDashboardService {
                         truncated = true;
                         break;
                     }
+                    listedDefinitions.add(role);
                     DashboardData.IamRoleDetail r = new DashboardData.IamRoleDetail();
                     r.setRoleName(role.roleName());
                     r.setRoleId(role.id());
@@ -1031,7 +1034,7 @@ public class AzureDashboardService {
             // Wrapped because an audit failure must not cost the customer the inventory.
             try {
                 var outcome = azurePrivilegeAnalyzer.analyze(
-                        azure, users, roles, assignments, truncated, namesResolved);
+                        azure, users, roles, assignments, truncated, namesResolved, listedDefinitions);
                 details.setPermissionAnalysisDegraded(outcome.degraded());
                 details.setPermissionAnalysisNote(outcome.note());
             } catch (Exception e) {
@@ -1085,6 +1088,10 @@ public class AzureDashboardService {
         // is a Graph round trip.
         Map<String, String> nameCache = new HashMap<>();
         boolean allResolved = true;
+        // Principal kinds Graph has refused (401/403). The refusal comes from the app registration's
+        // Graph permissions, so it repeats for every principal of that kind; asking once per
+        // principal only added a failing round trip each to a section with a 120-second deadline.
+        java.util.Set<String> deniedKinds = new java.util.HashSet<>();
 
         for (DashboardData.IamUserDetail user : users) {
             String principalId = user.getUserId();
@@ -1100,12 +1107,20 @@ public class AzureDashboardService {
             }
 
             var type = typeById.get(principalId);
+            String kind = com.azure.resourcemanager.authorization.models.PrincipalType.SERVICE_PRINCIPAL.equals(type)
+                    ? "servicePrincipal"
+                    : com.azure.resourcemanager.authorization.models.PrincipalType.GROUP.equals(type) ? "group" : "user";
+            if (deniedKinds.contains(kind)) {
+                allResolved = false;
+                nameCache.put(principalId, null);
+                continue;
+            }
             String resolved = null;
             try {
-                if (com.azure.resourcemanager.authorization.models.PrincipalType.SERVICE_PRINCIPAL.equals(type)) {
+                if ("servicePrincipal".equals(kind)) {
                     var sp = azure.accessManagement().servicePrincipals().getById(principalId);
                     resolved = sp == null ? null : sp.name();
-                } else if (com.azure.resourcemanager.authorization.models.PrincipalType.GROUP.equals(type)) {
+                } else if ("group".equals(kind)) {
                     var group = azure.accessManagement().activeDirectoryGroups().getById(principalId);
                     resolved = group == null ? null : group.name();
                 } else {
@@ -1114,7 +1129,15 @@ public class AzureDashboardService {
                 }
             } catch (Exception e) {
                 allResolved = false;
-                log.debug("Could not resolve Entra principal {}: {}", principalId, e.getMessage());
+                if (e instanceof com.azure.core.exception.HttpResponseException http
+                        && http.getResponse() != null
+                        && (http.getResponse().getStatusCode() == 401 || http.getResponse().getStatusCode() == 403)) {
+                    deniedKinds.add(kind);
+                    log.info("Microsoft Graph refused {} lookups ({}); remaining {} principals keep their object ids",
+                            kind, http.getResponse().getStatusCode(), kind);
+                } else {
+                    log.debug("Could not resolve Entra principal {}: {}", principalId, e.getMessage());
+                }
             }
 
             nameCache.put(principalId, resolved);

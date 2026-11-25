@@ -13,6 +13,7 @@ import com.xammer.cloud.service.OptimizationService;
 import com.xammer.cloud.service.WasteDeleteService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication; // Added missing import
@@ -25,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
 
 /**
  * REST controller for handling all dashboard-related API requests for the
@@ -44,6 +46,7 @@ public class DashboardController {
     private final CloudAccountRepository cloudAccountRepository;
     private final DashboardLayoutRepository dashboardLayoutRepository;
     private final WasteDeleteService wasteDeleteService;
+    private final Executor wasteLookupExecutor;
 
     public DashboardController(DashboardDataService dashboardDataService,
             OptimizationService optimizationService,
@@ -51,7 +54,8 @@ public class DashboardController {
             AwsAccountService awsAccountService,
             CloudAccountRepository cloudAccountRepository,
             DashboardLayoutRepository dashboardLayoutRepository,
-            WasteDeleteService wasteDeleteService) {
+            WasteDeleteService wasteDeleteService,
+            @Qualifier("wasteLookupExecutor") Executor wasteLookupExecutor) {
         this.dashboardDataService = dashboardDataService;
         this.optimizationService = optimizationService;
         this.cloudListService = cloudListService;
@@ -59,6 +63,7 @@ public class DashboardController {
         this.cloudAccountRepository = cloudAccountRepository;
         this.dashboardLayoutRepository = dashboardLayoutRepository;
         this.wasteDeleteService = wasteDeleteService;
+        this.wasteLookupExecutor = wasteLookupExecutor;
     }
 
     // ============================================================================================
@@ -254,6 +259,10 @@ public class DashboardController {
         }
     }
 
+    /** What the waste endpoint's lookups found: a saved snapshot to serve, or the account to scan. */
+    private record WasteLookup(List<DashboardData.WastedResource> snapshot, CloudAccount account) {
+    }
+
     @GetMapping("/waste")
     public CompletableFuture<List<DashboardData.WastedResource>> getWastedResources(
             @RequestParam String accountIds,
@@ -262,29 +271,37 @@ public class DashboardController {
         String accountIdToUse = accountIds.split(",")[0];
         String cacheKey = "waste-" + accountIdToUse;
 
-        if (!forceRefresh) {
-            // ⭐ NEW: Check database cache first
-            List<DashboardData.WastedResource> cachedWaste = dashboardDataService.getWasteSnapshot(cacheKey);
-            if (cachedWaste != null) {
-                logger.info("Serving Waste data from database cache for account {}", accountIdToUse);
-                return CompletableFuture.completedFuture(cachedWaste);
-            }
-        } else {
-            // Invalidate stale DB snapshot before the scan starts.
-            // If the scan fails (exception path), the old stale entry won't be re-served
-            // on the next non-forced load — instead the page triggers a fresh scan.
-            dashboardDataService.deleteSnapshot(cacheKey);
-            logger.info("Deleted stale waste DB snapshot for account {} before force-refresh scan", accountIdToUse);
-        }
+        // No database access on this request thread: Open Session in View would hold its
+        // connection until the response is written, i.e. for the whole scan. The lookups run
+        // on wasteLookupExecutor, where each query returns its connection when it ends.
+        return CompletableFuture.supplyAsync(() -> {
+                    if (!forceRefresh) {
+                        // ⭐ NEW: Check database cache first
+                        List<DashboardData.WastedResource> cachedWaste = dashboardDataService.getWasteSnapshot(cacheKey);
+                        if (cachedWaste != null) {
+                            logger.info("Serving Waste data from database cache for account {}", accountIdToUse);
+                            return new WasteLookup(cachedWaste, null);
+                        }
+                    }
+                    // A forced scan keeps the previous snapshot until it saves its own result. It
+                    // used to delete the snapshot first, so a slow or failed scan left nothing to
+                    // serve and every later page load started yet another full scan.
 
-        // Fallback: Fetch fresh data
-        logger.info("Fetching fresh Waste data for account {}", accountIdToUse);
-        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountIdToUse);
-        if (accounts.isEmpty()) {
-            throw new RuntimeException("Account not found: " + accountIdToUse);
-        }
-        CloudAccount account = accounts.get(0);
+                    // Fallback: Fetch fresh data
+                    logger.info("Fetching fresh Waste data for account {}", accountIdToUse);
+                    List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountIdToUse);
+                    if (accounts.isEmpty()) {
+                        throw new RuntimeException("Account not found: " + accountIdToUse);
+                    }
+                    return new WasteLookup(null, accounts.get(0));
+                }, wasteLookupExecutor)
+                .thenCompose(lookup -> lookup.snapshot() != null
+                        ? CompletableFuture.completedFuture(lookup.snapshot())
+                        : scanAndSave(lookup.account(), cacheKey, accountIdToUse, forceRefresh));
+    }
 
+    private CompletableFuture<List<DashboardData.WastedResource>> scanAndSave(CloudAccount account,
+            String cacheKey, String accountIdToUse, boolean forceRefresh) {
         return cloudListService.getRegionStatusForAccount(account, forceRefresh)
                 .thenCompose(
                         activeRegions -> optimizationService.getWastedResources(account, activeRegions, forceRefresh))

@@ -61,6 +61,22 @@ interface UseAzureDiskRightsizingDataReturn {
   refreshAll: () => Promise<void>;
 }
 
+/**
+ * The API sends null for usage it does not have (no disk agent on the VM), while AzureDisk and the
+ * page treat a missing value as undefined. A null passed the page's `!== undefined` checks and
+ * crashed the row render on usedPercent.toFixed, and hid the "install the disk agent" hints,
+ * which test `=== undefined`.
+ */
+function normalizeDisk(disk: AzureDisk): AzureDisk {
+  return {
+    ...disk,
+    instanceName: disk.instanceName ?? undefined,
+    usedPercent: disk.usedPercent ?? undefined,
+    usedGb: disk.usedGb ?? undefined,
+    freeGb: disk.freeGb ?? undefined,
+  };
+}
+
 export function useAzureDiskRightsizingData(selectedAccountId: string | null): UseAzureDiskRightsizingDataReturn {
   const [disks, setDisks] = useState<AzureDisk[]>([]);
   const [recommendations, setRecommendations] = useState<AzureDisk[]>([]);
@@ -76,7 +92,8 @@ export function useAzureDiskRightsizingData(selectedAccountId: string | null): U
       const cached = sessionStorage.getItem(cacheKey);
       if (cached) {
         try {
-          const diskList: AzureDisk[] = JSON.parse(cached);
+          // Normalised here too: a list cached before this fix still holds the raw nulls.
+          const diskList: AzureDisk[] = (JSON.parse(cached) as AzureDisk[]).map(normalizeDisk);
           setDisks(diskList);
           setRecommendations(diskList.filter(d => d.recommendation !== 'NONE'));
           return;
@@ -86,7 +103,7 @@ export function useAzureDiskRightsizingData(selectedAccountId: string | null): U
     try {
       const url = `/api/azure/disks/volumes/${selectedAccountId}?forceRefresh=${forceRefresh}`;
       const data = await apiClient.get(url);
-      const diskList: AzureDisk[] = Array.isArray(data) ? data : [];
+      const diskList: AzureDisk[] = (Array.isArray(data) ? data : []).map(normalizeDisk);
       setDisks(diskList);
       setRecommendations(diskList.filter(d => d.recommendation !== 'NONE'));
       sessionStorage.setItem(cacheKey, JSON.stringify(diskList));

@@ -1,0 +1,110 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AssumeXamOpsCustomerRoles",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::*:role/*XamOps*"
+    },
+    {
+      "Sid": "WhoAmI",
+      "Effect": "Allow",
+      "Action": ["sts:GetCallerIdentity", "sts:GetSessionToken"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "RegisterCustomerAccountsReadOnlyView",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeStacks",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ValidateTemplate",
+        "cloudformation:ListStacks"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "XamOpsDocumentBucket",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket", "s3:GetBucketLocation"],
+      "Resource": [
+        "arn:aws:s3:::xamops-document-bucket",
+        "arn:aws:s3:::xamops-document-bucket/*"
+      ]
+    },
+    {
+      "Sid": "XamOpsCloudFormationTemplatesRead",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:ListBucket"],
+      "Resource": [
+        "arn:aws:s3:::xamopscftemplate",
+        "arn:aws:s3:::xamopscftemplate/*"
+      ]
+    },
+    {
+      "Sid": "XamOpsSecrets",
+      "Effect": "Allow",
+      "Action": ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+      "Resource": [
+        "arn:aws:secretsmanager:ap-south-1:*:secret:uat/*",
+        "arn:aws:secretsmanager:ap-south-1:*:secret:dev/*",
+        "arn:aws:secretsmanager:ap-south-1:*:secret:local/*"
+      ]
+    },
+    {
+      "Sid": "AutoSpottingQueueAndTable",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:SendMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl",
+        "sqs:SetQueueAttributes",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:DescribeTable"
+      ],
+      "Resource": [
+        "arn:aws:sqs:ap-south-1:*:autospotting-*",
+        "arn:aws:dynamodb:ap-south-1:*:table/autospotting-*"
+      ]
+    },
+    {
+      "Sid": "OwnAccountReadForLocalDev",
+      "Effect": "Allow",
+      "Action": [
+        "ce:Get*",
+        "ce:List*",
+        "ce:Describe*",
+        "pricing:GetProducts",
+        "pricing:DescribeServices",
+        "pricing:GetAttributeValues",
+        "compute-optimizer:Get*",
+        "cost-optimization-hub:Get*",
+        "cost-optimization-hub:List*",
+        "budgets:ViewBudget",
+        "servicequotas:Get*",
+        "servicequotas:List*",
+        "resource-explorer-2:Search",
+        "resource-explorer-2:List*",
+        "resource-explorer-2:Get*",
+        "logs:StartQuery",
+        "logs:GetQueryResults",
+        "athena:StartQueryExecution",
+        "athena:GetQueryExecution",
+        "athena:GetQueryResults",
+        "glue:GetDatabase*",
+        "glue:GetTable*",
+        "glue:GetPartitions"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

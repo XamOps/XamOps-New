@@ -423,11 +423,19 @@ public class TicketController {
 
     // ───────────────────────────────────────────────────────────────────────
 
+    /**
+     * Closes a ticket. Admins can close any ticket. A customer can close only a ticket they can
+     * see, using the same scoping as {@link #getTicketById}; any other ticket gets the same 404 as
+     * a missing one. Reopening stays admin-only.
+     */
     @PostMapping("/tickets/{id}/close")
-    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
-    public ResponseEntity<TicketDto> closeTicket(@PathVariable Long id) {
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<TicketDto> closeTicket(@PathVariable Long id, Authentication authentication) {
         try {
-            return ResponseEntity.ok(ticketService.closeTicket(id));
+            boolean isAdmin = authentication != null &&
+                    authentication.getAuthorities().stream()
+                            .anyMatch(a -> a.getAuthority().equals("ROLE_BILLOPS_ADMIN") || a.getAuthority().equals("ROLE_BILLOPS_ADMIN_SUB"));
+            return ResponseEntity.ok(ticketService.closeTicket(id, isAdmin));
         } catch (RuntimeException e) {
             logger.error("Error closing ticket {}: {}", id, e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();

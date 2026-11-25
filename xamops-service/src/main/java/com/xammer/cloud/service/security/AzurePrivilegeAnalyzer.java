@@ -114,12 +114,34 @@ public class AzurePrivilegeAnalyzer {
             List<RoleAssignment> assignments,
             boolean truncated,
             boolean namesResolved) {
+        return analyze(azure, users, roles, assignments, truncated, namesResolved, List.of());
+    }
+
+    /**
+     * As {@link #analyze(AzureResourceManager, List, List, List, boolean, boolean)}, reusing role
+     * definitions the caller already listed.
+     *
+     * <p>Every role was otherwise fetched again by id, one ARM call at a time, although the list
+     * call had just returned each one with its permissions. With several hundred built-in roles
+     * that alone outran the dashboard's 120-second section deadline, so the identity inventory
+     * was never included. Only definitions missing from this list are fetched.
+     *
+     * @param prefetched role definitions returned by the caller's list call
+     */
+    public PrivilegeAuditOutcome analyze(AzureResourceManager azure,
+            List<DashboardData.IamUserDetail> users,
+            List<DashboardData.IamRoleDetail> roles,
+            List<RoleAssignment> assignments,
+            boolean truncated,
+            boolean namesResolved,
+            List<RoleDefinition> prefetched) {
 
         if (users == null || roles == null || assignments == null) {
             return PrivilegeAuditOutcome.degraded("Identity analysis did not run for this subscription.");
         }
 
         Definitions definitions = new Definitions(azure);
+        definitions.seed(prefetched);
 
         // Assignments are positionally aligned with users by the caller, but relying on index
         // parallelism across two lists is exactly the kind of coupling that breaks on the next
@@ -433,8 +455,22 @@ public class AzurePrivilegeAnalyzer {
         private final Set<String> failed = new LinkedHashSet<>();
         private int denials;
 
+        /** Listed definitions by lower-cased id, since ARM ids are case-insensitive. */
+        private final Map<String, RoleDefinition> seeded = new HashMap<>();
+
         Definitions(AzureResourceManager azure) {
             this.azure = azure;
+        }
+
+        void seed(List<RoleDefinition> definitions) {
+            if (definitions == null) {
+                return;
+            }
+            for (RoleDefinition definition : definitions) {
+                if (definition != null && definition.id() != null) {
+                    seeded.put(definition.id().toLowerCase(Locale.ROOT), definition);
+                }
+            }
         }
 
         RoleDefinition resolve(String roleDefinitionId) {
@@ -443,6 +479,11 @@ public class AzurePrivilegeAnalyzer {
             }
             if (cache.containsKey(roleDefinitionId)) {
                 return cache.get(roleDefinitionId);
+            }
+            RoleDefinition listed = seeded.get(roleDefinitionId.toLowerCase(Locale.ROOT));
+            if (listed != null) {
+                cache.put(roleDefinitionId, listed);
+                return listed;
             }
             try {
                 RoleDefinition definition = azure.accessManagement().roleDefinitions()

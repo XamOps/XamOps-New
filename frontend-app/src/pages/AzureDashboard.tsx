@@ -91,14 +91,22 @@ const AzureDashboard: React.FC = () => {
     return resources.reduce((acc, curr) => acc + (curr.count || 0), 0);
   }, [resources]);
 
-  const azureCostHistory: CostHistory = useMemo(() => ({
-    labels:    dashboardData?.costHistory?.labels   || [],
-    costs:     dashboardData?.costHistory?.costs    || [],
-    // The shared CostHistory chart type still calls this `anomalies`; the Azure payload now calls it
-    // `forecast`, which is what it has always meant. Mapping here keeps the misnomer out of the
-    // Azure types without touching the shared AWS/GCP chart contract.
-    anomalies: dashboardData?.costHistory?.forecast || [],
-  }), [dashboardData]);
+  // Actual months only, ending at the current month-to-date — the shape the AWS page passes. The
+  // Azure history also carries the forecast as an extra point flagged in `forecast`. Passed
+  // through as a month, it was counted in the trend's total and average, "MoM" compared the
+  // forecast with month-to-date, and the Last Month card compared last month with itself. The
+  // forecast goes to CostTrendSection separately, as on AWS.
+  const azureCostHistory: CostHistory = useMemo(() => {
+    const labels = dashboardData?.costHistory?.labels || [];
+    const costs = dashboardData?.costHistory?.costs || [];
+    const forecastFlags = dashboardData?.costHistory?.forecast || [];
+    const isActual = (i: number) => forecastFlags[i] !== true;
+    return {
+      labels: labels.filter((_, i) => isActual(i)),
+      costs: costs.filter((_, i) => isActual(i)),
+      anomalies: [],
+    };
+  }, [dashboardData]);
 
   const accountId = selectedAccountIds.length === 1 ? selectedAccountIds[0] : null;
 
@@ -297,7 +305,12 @@ const AzureDashboard: React.FC = () => {
         <RevealSection>
           <div className="grid gap-5 lg:grid-cols-5" style={{ minHeight: 380 }}>
             {show('costTrend') && (
-              <CostTrendSection costHistory={azureCostHistory} isLoading={loading.cost} provider="Azure" />
+              <CostTrendSection
+                costHistory={azureCostHistory}
+                isLoading={loading.cost}
+                provider="Azure"
+                forecastedSpend={dashboardData?.kpi?.forecastedSpend}
+              />
             )}
             {show('inventory') && (
               <AzureInventorySection

@@ -18,7 +18,10 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -372,10 +375,43 @@ public class AzureSecurityService {
         String body = doGet(uri, bearerToken, subscriptionId, "assessments", unavailable);
         if (body == null) return new ArrayList<>();
 
-        return parseAssessments(body);
+        return parseAssessments(body, fetchAssessmentMetadata(subscriptionId, bearerToken, unavailable));
     }
 
-    private List<AzureSecurityAssessment> parseAssessments(String json) throws Exception {
+    /**
+     * Severity, categories and remediation for every assessment type, keyed by assessment key.
+     *
+     * <p>The assessments list does not carry this: Defender returns {@code properties.metadata}
+     * only on a single-assessment GET with {@code $expand=metadata}, and the list has no such
+     * option. Every finding therefore fell back to severity "Medium", category "Other" and no
+     * remediation. The metadata list is the documented source, joined on the assessment key
+     * (the {@code name} of both resources).
+     *
+     * <p>A failure here leaves those fallbacks in place and marks the response incomplete, so it
+     * is not cached and the next read tries again.
+     */
+    private Map<String, JsonNode> fetchAssessmentMetadata(String subscriptionId, String bearerToken,
+                                                          List<String> unavailable) {
+        String uri = BASE_URL + subscriptionId
+                + "/providers/Microsoft.Security/assessmentMetadata"
+                + "?api-version=2021-06-01";
+        Map<String, JsonNode> byKey = new HashMap<>();
+        try {
+            for (JsonNode entry : armClient.list(uri, bearerToken)) {
+                String key = entry.path("name").asText("");
+                if (!key.isBlank()) {
+                    byKey.put(key.toLowerCase(Locale.ROOT), entry.path("properties"));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Azure Security assessment metadata unavailable for {}: {}", subscriptionId, e.getMessage());
+            unavailable.add("assessmentMetadata");
+        }
+        return byKey;
+    }
+
+    private List<AzureSecurityAssessment> parseAssessments(String json,
+                                                           Map<String, JsonNode> metadataByKey) throws Exception {
         List<AzureSecurityAssessment> result = new ArrayList<>();
         JsonNode root = objectMapper.readTree(json);
         JsonNode value = root.path("value");
@@ -389,12 +425,21 @@ public class AzureSecurityService {
                 // Only include Unhealthy assessments (actionable findings)
                 if (!"Unhealthy".equalsIgnoreCase(statusCode)) continue;
 
+                // Metadata on the item itself if Defender ever returns it, otherwise the joined
+                // metadata for this assessment key.
+                JsonNode metadata = props.path("metadata");
+                if (metadata.path("severity").isMissingNode()) {
+                    JsonNode joined = metadataByKey.get(node.path("name").asText("").toLowerCase(Locale.ROOT));
+                    if (joined != null) {
+                        metadata = joined;
+                    }
+                }
+
                 AzureSecurityAssessment assessment = new AzureSecurityAssessment();
                 assessment.setAssessmentId(node.path("name").asText(""));
                 assessment.setDisplayName(props.path("displayName").asText(""));
                 assessment.setStatusCode(statusCode);
 
-                JsonNode metadata = props.path("metadata");
                 assessment.setSeverity(metadata.path("severity").asText("Medium"));
                 assessment.setRemediation(metadata.path("remediationDescription").asText(""));
 
