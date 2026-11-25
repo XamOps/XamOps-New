@@ -71,15 +71,16 @@ public final class GroupTransitions {
 
         // APPLYING --> ACTIVE (rollout verified, or compensated to prior config);
         //          --> REVERTING (enable compensation, or revert preempts, 4.7);
-        //          --> UNMANAGED / REVERTED (no mutation yet, prior_state);
+        //          --> UNMANAGED / REVERTED / PLANNED (no mutation yet, prior_state; PLANNED for an ENABLE whose first
+        //              mutating call the cloud definitively rejected, design-core 9.4);
         //          --> LEGACY_UNCONFIRMED (adopt failed or compensated);
         //          --> PAUSED (drift re-apply failed or compensated);
         //          --> FALLBACK (exit failed/compensated, FALLBACK re-apply verified, preempting fallback enter verified, 4.7);
         //          --> FAILED (compensation to prior config failed); --> GONE (group not found).
         put(m, GroupState.APPLYING,
                 GroupState.ACTIVE, GroupState.REVERTING, GroupState.UNMANAGED, GroupState.REVERTED,
-                GroupState.LEGACY_UNCONFIRMED, GroupState.PAUSED, GroupState.FALLBACK, GroupState.FAILED,
-                GroupState.GONE);
+                GroupState.PLANNED, GroupState.LEGACY_UNCONFIRMED, GroupState.PAUSED, GroupState.FALLBACK,
+                GroupState.FAILED, GroupState.GONE);
 
         // ACTIVE --> APPLYING (config/profile op); --> FALLBACK (fallback mutation verified);
         //        --> DEGRADED (unhealthy, no fallback path); --> PAUSED (switch d/e, operator, drift);

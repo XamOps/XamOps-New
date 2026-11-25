@@ -80,7 +80,20 @@ abstract class AwsStep implements Step {
         ErrorKind kind = code != null && IN_FLIGHT.contains(code) ? ErrorKind.CONFLICT : AwsErrors.classify(e);
         String stable = code == null ? "AWS_CALL_FAILED" : "AWS_" + code.toUpperCase(java.util.Locale.ROOT);
         return new StepOutcome.Failed(kind, stable, "AWS rejected or could not complete the request"
-                + (code == null ? "." : " (" + code + ")."));
+                + (code == null ? "." : " (" + code + ")."), definitiveRejection(e));
+    }
+
+    /**
+     * True when AWS answered with a 4xx client error (not throttling): the service refused the request, and the
+     * AutoSpotting write calls (UpdateAutoScalingGroup, tag calls) are atomic, so nothing changed. A timeout, a 5xx,
+     * a client-side failure or throttling is not definitive (review round 2 #3, design-core 9.4).
+     */
+    static boolean definitiveRejection(SdkException e) {
+        if (!(e instanceof AwsServiceException a) || a.isThrottlingException()) {
+            return false;
+        }
+        int status = a.statusCode();
+        return status >= 400 && status < 500 && status != 429;
     }
 
     /** The AWS error code of {@code e}, redacted, or null (the message is never read). */
