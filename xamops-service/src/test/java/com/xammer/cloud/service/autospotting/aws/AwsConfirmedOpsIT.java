@@ -650,7 +650,7 @@ class AwsConfirmedOpsIT {
     }
     /** Review #1, plan side: with no linked snapshot the plan makes no promise (no instruction, no warning). */
     @Test
-    void withoutALinkedSnapshotTheEnableAfterADrainOnlyRevertMakesNoKeptOriginalPromise() {
+    void withoutALinkedSnapshotTheEnableAfterADrainOnlyRevertIsBlockedWithSnapshotMissing() {
         try (AwsOpsHarness h = drainOnlyReverted()) {
             h.jdbc.update("UPDATE spot_group SET snapshot_id = NULL WHERE id = ?", h.f.groupId);
             toPlanned(h);
@@ -659,8 +659,14 @@ class AwsConfirmedOpsIT {
                     optionsFor(h, null)), h.f.aws.view());
             assertThat(plan.eligibility().warnings().stream().map(w -> w.code())).doesNotContain("ORIGINAL_SNAPSHOT_KEPT");
             assertThat(h.f.json(plan.targetJson()).has(AwsSpotProvider.KEEP_LINKED_SNAPSHOT)).isFalse();
-            assertThat(AwsMaintenancePolicy.owns(h.f.json(plan.targetJson())))
-                    .as("the markers still apply: XamOps' configuration is on the group").isTrue();
+            // Round 4 #2: no silent fresh capture of XamOps' own configuration as "the original".
+            var blocker = plan.eligibility().blockers().stream().filter(b -> b.code().equals("SNAPSHOT_MISSING"))
+                    .findFirst().orElseThrow();
+            assertThat(blocker.text()).contains("original configuration").contains("Revert the group first");
+            assertThat(h.provider.checkEligibility(new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg", null),
+                    h.f.aws.view(), new Profile("aggressive", null),
+                    com.xammer.cloud.service.autospotting.spi.EvalMode.PLAN, optionsFor(h, null)).blockers())
+                    .extracting(b -> b.code()).as("the group list shows the same blocker").contains("SNAPSHOT_MISSING");
         }
     }
     /** Review #1, step side: the plan promised the linked original; if it is gone at run time, fail closed. */
