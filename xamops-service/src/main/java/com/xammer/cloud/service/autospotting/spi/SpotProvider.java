@@ -70,14 +70,6 @@ public interface SpotProvider {
     }
 
     /**
-     * The group's {@code desired_config} after a restore program ended (D-23b-01): a REVERT that reached REVERTED or
-     * FAILED, or an ENABLE compensated to its snapshot. {@code doneSteps} are the names of the op's steps that ended
-     * DONE, so the provider answers from what the program actually did, not from the lifecycle edge. When the
-     * restore removed XamOps' configuration, the markers of what XamOps owned go; when it did not (a drain-only
-     * revert, a revert that failed before restoring), the markers stay and the config says XamOps' configuration is
-     * still on the group ({@link PlanOptions#CONFIG_ON_GROUP}). Returns the input when nothing changes.
-     */
-    /**
      * The {@code desired_config} a successful conversion writes from its target: the target without any plan-time
      * instruction that only the op's own steps read (AWS: {@code keepLinkedSnapshot}, D-23b-03 review #6).
      */
@@ -85,6 +77,14 @@ public interface SpotProvider {
         return targetConfigJson;
     }
 
+    /**
+     * The group's {@code desired_config} after a restore program ended (D-23b-01): a REVERT that reached REVERTED or
+     * FAILED, or an ENABLE compensated to its snapshot. {@code doneSteps} are the names of the op's steps that ended
+     * DONE, so the provider answers from what the program actually did, not from the lifecycle edge. When the
+     * restore removed XamOps' configuration, the markers of what XamOps owned go; when it did not (a drain-only
+     * revert, a revert that failed before restoring), the markers stay and the config says XamOps' configuration is
+     * still on the group ({@link PlanOptions#CONFIG_ON_GROUP}). Returns the input when nothing changes.
+     */
     default String desiredConfigAfterRestore(String desiredConfigJson, java.util.Set<String> doneSteps) {
         return desiredConfigJson;
     }

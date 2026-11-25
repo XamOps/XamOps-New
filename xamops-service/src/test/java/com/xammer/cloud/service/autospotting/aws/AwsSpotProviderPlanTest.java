@@ -313,6 +313,20 @@ class AwsSpotProviderPlanTest {
         assertThat(JSON.readTree(theirs.targetJson()).has("instanceMaintenancePolicy")).isFalse();
     }
 
+    /** Review round 3 #8: status of a group that no longer exists is "not found" (no fingerprint, no throw). */
+    @Test
+    void theStatusOfAGroupThatNoLongerExistsIsNotFound() {
+        setUp(FakeAws.asg("web-asg").build());
+        aws.groups(); // the group is gone
+        SpotGroup row = new SpotGroup();
+        row.setCloudAccountId(7L);
+        row.setGroupKey(FakeAws.REGION + "/web-asg");
+        row.setState(com.xammer.cloud.domain.autospotting.GroupState.ACTIVE);
+        var status = provider.getStatus(row, aws.view());
+        assertThat(status.found()).isFalse();
+        assertThat(status.liveFingerprint()).isNull();
+    }
+
     /** AD-08: the live fingerprint carries the policy exactly when desired_config says XamOps owns it. */
     @Test
     void theLiveFingerprintIncludesTheMaintenancePolicyOnlyForAnOwnedOne() {

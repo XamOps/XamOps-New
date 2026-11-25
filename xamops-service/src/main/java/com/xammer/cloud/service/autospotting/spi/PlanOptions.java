@@ -89,10 +89,6 @@ public record PlanOptions(Boolean allowBurstable, String desiredConfigJson, bool
     }
 
     /**
-     * True when the stored config says a restore program left XamOps' configuration on the group (a drain-only
-     * revert, D-23b-03): the group's linked snapshot is still the customer's original.
-     */
-    /**
      * True when an enable keeps the group's linked snapshot as the original (D-23b-03): XamOps' configuration is
      * still on the group and a linked snapshot exists. Without the link no promise is made and the enable captures
      * the group as it is (the original was already lost).
@@ -101,6 +97,10 @@ public record PlanOptions(Boolean allowBurstable, String desiredConfigJson, bool
         return originalLinked && configOnGroup();
     }
 
+    /**
+     * True when the stored config says a restore program left XamOps' configuration on the group (a drain-only
+     * revert, D-23b-03): the group's linked snapshot is still the customer's original.
+     */
     public boolean configOnGroup() {
         if (!underManagement || desiredConfigJson == null || desiredConfigJson.isBlank()) {
             return false;

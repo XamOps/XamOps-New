@@ -521,13 +521,6 @@ public class AwsSpotProvider implements SpotProvider {
                 g.hasLegacyTag() && !g.hasMarker());
     }
 
-    /**
-     * D-23b-01. A restore program that ran {@link com.xammer.cloud.service.autospotting.aws.steps.RestoreShapeStep}
-     * to DONE removed XamOps' configuration (the shape, the types it added, and the maintenance policy it owned, which
-     * the restore clears or keeps as the customer's), so those markers go; the remembered {@code allowBurstable}
-     * choice stays. Without that step (a drain-only revert, or a failure before the restore) the configuration is still
-     * on the group: the markers stay and {@link PlanOptions#CONFIG_ON_GROUP} records it.
-     */
     /** D-23b-03 review #6: {@code keepLinkedSnapshot} is for the ENABLE's own snapshot step, never stored. */
     @Override
     public String desiredConfigFromTarget(String targetConfigJson) {
@@ -545,6 +538,13 @@ public class AwsSpotProvider implements SpotProvider {
         return targetConfigJson;
     }
 
+    /**
+     * D-23b-01. A restore program that ran {@link com.xammer.cloud.service.autospotting.aws.steps.RestoreShapeStep}
+     * to DONE removed XamOps' configuration (the shape, the types it added, and the maintenance policy it owned, which
+     * the restore clears or keeps as the customer's), so those markers go; the remembered {@code allowBurstable}
+     * choice stays. Without that step (a drain-only revert, or a failure before the restore) the configuration is still
+     * on the group: the markers stay and {@link PlanOptions#CONFIG_ON_GROUP} records it.
+     */
     @Override
     public String desiredConfigAfterRestore(String desiredConfigJson, java.util.Set<String> doneSteps) {
         if (desiredConfigJson == null || desiredConfigJson.isBlank()) {
