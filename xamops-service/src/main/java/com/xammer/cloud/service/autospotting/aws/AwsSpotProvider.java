@@ -139,9 +139,10 @@ public class AwsSpotProvider implements SpotProvider {
                     "The connected account could not be found.", ErrorKind.NOT_FOUND)), List.of(), List.of());
         }
         boolean allowBurstable = options != null && options.effectiveAllowBurstable();
-        EligibilityResult result = evaluator.evaluate(account.get(), ref.groupKey(), profile, mode, allowBurstable,
-                allowBurstable || options == null ? List.of() : options.storedBurstableAdded()).result();
-        return AwsMaintenancePolicy.withoutOwnedBlocker(result, options != null && AwsMaintenancePolicy.owns(options.ownershipConfigJson()));
+        AwsEligibilityEvaluator.Evaluation ev = evaluator.evaluate(account.get(), ref.groupKey(), profile, mode,
+                allowBurstable, allowBurstable || options == null ? List.of() : options.storedBurstableAdded());
+        EligibilityResult result = withOriginalKept(ev.result(), options, ev.group());
+        return AwsMaintenancePolicy.withoutOwnedBlocker(result, ownsPolicy(options, ev.group()));
     }
 
     // ---- plan ----
@@ -167,7 +168,7 @@ public class AwsSpotProvider implements SpotProvider {
                     "This group does not use a burstable instance type, so burstable alternatives do not apply.");
         }
         boolean allowBurstable = options.effectiveAllowBurstable() && originalBurstable;
-        boolean ownsPolicy = AwsMaintenancePolicy.owns(options.ownershipConfigJson());
+        boolean ownsPolicy = ownsPolicy(options, g);
         if (g == null || ev.rawGroup() == null) {
             // Not found or unreadable: the eligibility already says why; the body carries no cloud facts.
             return new PlanBody(null, null, null, null, ev.result(), null, List.of(), null, null, null);
@@ -196,8 +197,71 @@ public class AwsSpotProvider implements SpotProvider {
                 .put("program", "REVERT")
                 .put("method", "RESTORE_SNAPSHOT")
                 .put("exact", snapshot.exact()));
-        return new PlanBody(current, write(target), diff, snapshot, AwsMaintenancePolicy.withoutOwnedBlocker(ev.result(), ownsPolicy), rollout, estimates, floor, null, revert,
+        if (options.configOnGroup()) {
+            // D-23b-03: XamOps' configuration never left the group (drain-only revert), so the linked snapshot is
+            // still the customer's original; the enable keeps it instead of saving the drained group as "original".
+            target.put(KEEP_LINKED_SNAPSHOT, true);
+        }
+        EligibilityResult eligibility = withOriginalKept(ev.result(), options, g);
+        return new PlanBody(current, write(target), diff, snapshot, AwsMaintenancePolicy.withoutOwnedBlocker(eligibility, ownsPolicy), rollout, estimates, floor, null, revert,
                 g.arn()).withOptions(optionsJson(allowBurstable, ev));
+    }
+
+    /** Target key: the ENABLE keeps the group's linked snapshot as the original (D-23b-03). */
+    public static final String KEEP_LINKED_SNAPSHOT = "keepLinkedSnapshot";
+
+    /**
+     * Whether XamOps owns the live maintenance policy for this plan. The stored claim counts only under management
+     * (D-23b-01). After a drain-only revert (D-23b-03) it also needs the live policy to still be XamOps' 100/200: a
+     * policy the customer set since is theirs and is never overwritten.
+     */
+    private static boolean ownsPolicy(PlanOptions options, AwsGroupFacts g) {
+        if (options == null || !AwsMaintenancePolicy.owns(options.ownershipConfigJson())) {
+            return false;
+        }
+        if (!options.configOnGroup() || g == null) {
+            return true;
+        }
+        return java.util.Objects.equals(g.minHealthyPercentage(), AwsMaintenancePolicy.OWNED_MIN)
+                && java.util.Objects.equals(g.maxHealthyPercentage(), AwsMaintenancePolicy.OWNED_MAX);
+    }
+
+    /**
+     * D-23b-03: an enable after a drain-only revert keeps the original saved before the first enable, so a later
+     * revert restores that original. The plan says so (acknowledged warning) and lists the XamOps-owned fields the
+     * customer changed on the group since the drain-only revert: the enable applies on top of them and the later
+     * revert restores the original for them. A changed maintenance policy is the customer's and is kept.
+     */
+    static EligibilityResult withOriginalKept(EligibilityResult r, PlanOptions options, AwsGroupFacts g) {
+        if (r == null || options == null || !options.configOnGroup()) {
+            return r;
+        }
+        List<String> changed = new ArrayList<>();
+        if (g != null) {
+            try {
+                for (String f : AwsOwnedFields.mismatches(g, JSON.readTree(options.desiredConfigJson()))) {
+                    if (!"onDemandPercentageAboveBaseCapacity".equals(f)) { // the drain set it to 100
+                        changed.add(f);
+                    }
+                }
+            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                // unreadable stored config: no field list, the warning still shows
+            }
+        }
+        StringBuilder text = new StringBuilder("The last revert only drained Spot, so XamOps still has the original "
+                + "configuration it saved before the first enable. Enabling keeps it: a later revert restores that "
+                + "original.");
+        List<String> others = changed.stream().filter(f -> !AwsMaintenancePolicy.KEY.equals(f)).toList();
+        if (!others.isEmpty()) {
+            text.append(" Changed on the group since that revert: ").append(String.join(", ", others))
+                    .append(". XamOps applies this plan on top of them, and a later revert restores the original for them.");
+        }
+        if (changed.contains(AwsMaintenancePolicy.KEY)) {
+            text.append(" Your maintenance policy changed since that revert; it is yours now and XamOps keeps it.");
+        }
+        List<EligibilityResult.Check> warnings = new ArrayList<>(r.warnings());
+        warnings.add(EligibilityResult.Check.of("w-original-snapshot-kept", "ORIGINAL_SNAPSHOT_KEPT", text.toString()));
+        return new EligibilityResult(r.blockers(), warnings, r.deferred());
     }
 
     /** The customer choices and what they can still choose (AD-09): the dialog's burstable control reads it. */

@@ -79,6 +79,21 @@ public record PlanOptions(Boolean allowBurstable, String desiredConfigJson, bool
         return underManagement ? desiredConfigJson : null;
     }
 
+    /**
+     * True when the stored config says a restore program left XamOps' configuration on the group (a drain-only
+     * revert, D-23b-03): the group's linked snapshot is still the customer's original.
+     */
+    public boolean configOnGroup() {
+        if (!underManagement || desiredConfigJson == null || desiredConfigJson.isBlank()) {
+            return false;
+        }
+        try {
+            return JSON.readTree(desiredConfigJson).path(CONFIG_ON_GROUP).asBoolean(false);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            return false;
+        }
+    }
+
     /** The choice stored in {@code desired_config.options}, or false. */
     public boolean storedAllowBurstable() {
         if (desiredConfigJson == null || desiredConfigJson.isBlank()) {
