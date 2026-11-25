@@ -293,11 +293,8 @@ class AwsConfirmedOpsIT {
             }
         }
     }
-    /** D-23b-01 as found live: enable, revert, the customer sets 90/120, a confirmed re-enable keeps it. */
-    @Test
-    void aReEnableAfterARevertKeepsTheCustomersMaintenancePolicyThroughConfirm() {
-        reEnableAfterRevert(imp(90, 120), imp(90, 120));
-    }
+    // D-23b-01 as found live (enable, revert, the customer sets 90/120, a confirmed re-enable keeps it) runs as the
+    // AwsMaintenancePolicyMatrixIT row "ENABLE after REVERT / CUSTOMER 90/120"; the ABSENT row is beside it (review #9).
     /**
      * D-23b-01, burstable: XamOps added t3a.micro, the revert removed it, the customer then added it themselves.
      * A later plan with the option off must keep it, because it is no longer one XamOps added.
@@ -711,6 +708,25 @@ class AwsConfirmedOpsIT {
             assertThat(h.runToEnd(op)).isEqualTo("SUCCEEDED");
             assertThat(h.jdbc.queryForObject("SELECT count(*) FROM spot_group_snapshot WHERE group_id = ?",
                     Integer.class, h.f.groupId)).as("a fresh snapshot of the reverted group").isEqualTo(2);
+        }
+    }
+
+    /** Review round 2 #4: after a drain-only revert, status resolves policy ownership exactly as planning does. */
+    @Test
+    void afterADrainOnlyRevertStatusTreatsACustomerPolicyAsTheirsLikePlanning() {
+        try (AwsOpsHarness h = drainOnlyReverted()) {
+            var owned = h.provider.getStatus(row(h), h.f.aws.view()).liveFingerprint();
+            assertThat(owned).as("100/200 is still XamOps'")
+                    .isEqualTo(AwsFingerprint.of(AwsGroupFacts.from(FakeAws.REGION, h.f.group()), true));
+            h.f.replaceGroup(h.f.group().toBuilder().instanceMaintenancePolicy(imp(90, 120)).build());
+            AwsGroupFacts facts = AwsGroupFacts.from(FakeAws.REGION, h.f.group());
+            assertThat(h.provider.getStatus(row(h), h.f.aws.view()).liveFingerprint())
+                    .as("the customer's 90/120 is theirs in status too").isEqualTo(AwsFingerprint.of(facts, false));
+            toPlanned(h);
+            var plan = h.provider.createPlan(new PlanRequest(new GroupRef(Provider.AWS, 7L,
+                    FakeAws.REGION + "/web-asg", null), OperationKind.ENABLE, new Profile("aggressive", null),
+                    optionsFor(h, null)), h.f.aws.view());
+            assertThat(AwsMaintenancePolicy.owns(h.f.json(plan.targetJson()))).as("planning agrees").isFalse();
         }
     }
 }

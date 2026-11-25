@@ -595,9 +595,14 @@ public class AwsSpotProvider implements SpotProvider {
                 new AwsReadException("account", ErrorKind.NOT_FOUND));
         String[] parts = AwsEligibilityEvaluator.split(group.getGroupKey());
         AwsReadOnlyView v = viewFor(account, parts[0], view);
-        // Ownership through the same state-aware gate as planning (D-23b-01), so status and plans agree.
-        return withFallbackSignals(group, statusReader.read(v, parts[1],
-                AwsMaintenancePolicy.owns(PlanOptions.ownershipConfigJson(group))), v, parts[1]);
+        // Ownership resolved exactly as planning does (D-23b-01, review round 2 #4): the state-aware gate and, after a
+        // drain-only revert, the live policy must still be XamOps' 100/200.
+        Optional<AutoScalingGroup> raw = statusReader.describeGroup(v, parts[1]);
+        if (raw.isEmpty()) {
+            return withFallbackSignals(group, GroupStatus.notFound(), v, parts[1]);
+        }
+        boolean owns = ownsPolicy(PlanOptions.forGroup(null, group), AwsGroupFacts.from(v.region(), raw.get()));
+        return withFallbackSignals(group, statusReader.read(v, raw.get(), owns), v, parts[1]);
     }
 
     @Override

@@ -462,4 +462,32 @@ class AwsMaintenancePolicyMatrixIT {
             assertThat(live.minHealthyPercentage()).isNull();
         }
     }
+
+    /**
+     * Review round 2 #8: an ENABLE compensated to its snapshot runs RESTORE_SHAPE, so the restore rewrite drops the
+     * ownership markers (and configOnGroup) from desired_config and keeps the remembered allowBurstable choice.
+     */
+    @org.junit.jupiter.api.Test
+    void anEnableCompensatedToItsSnapshotDropsTheOwnershipMarkersAndKeepsTheChoice() {
+        String before = desired(50, true);
+        before = before.substring(0, before.length() - 1)
+                + ",\"options\":{\"allowBurstable\":true,\"burstableAdded\":[\"m6i.large\"]},\"configOnGroup\":true}";
+        try (AwsOpsHarness h = new AwsOpsHarness(converted(imp(100, 200), 50, 5, 4), GroupState.APPLYING, "MANAGED",
+                before, null, null, null)) {
+            h.linkSnapshot(FakeAws.asg("web-asg").build());
+            h.startEnableInFlight(desired(50, true));
+            spotShortage(h);
+            assertThat(runThroughCompensation(h, h.enableOpId)).as("compensation error " + h.jdbc.queryForList(
+                    "SELECT error_code FROM spot_operation WHERE id = ?", String.class, h.enableOpId)).isEqualTo("SUCCEEDED");
+            assertThat(h.groupState()).isEqualTo("REVERTED");
+            assertPolicy(h, null);
+            String after = h.jdbc.queryForObject("SELECT desired_config::text FROM spot_group WHERE id = ?",
+                    String.class, h.f.groupId);
+            var n = h.f.json(after);
+            assertThat(n.has(AwsMaintenancePolicy.KEY)).as("policy claim dropped").isFalse();
+            assertThat(n.has(com.xammer.cloud.service.autospotting.spi.PlanOptions.CONFIG_ON_GROUP)).isFalse();
+            assertThat(n.path("options").has("burstableAdded")).isFalse();
+            assertThat(n.path("options").path("allowBurstable").asBoolean()).as("the choice stays").isTrue();
+        }
+    }
 }

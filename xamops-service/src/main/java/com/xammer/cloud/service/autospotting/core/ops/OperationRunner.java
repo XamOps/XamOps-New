@@ -649,6 +649,10 @@ public class OperationRunner {
         java.util.Set<String> done = store.doneStepNames(op.getId());
         String after = providers.find(fresh.getProvider())
                 .map(p -> p.desiredConfigAfterRestore(desired, done)).orElse(desired);
+        // The fingerprint is kept, not recomputed: once a restore releases the policy claim it differs from a fresh
+        // one by the ownership bit only. That is harmless because drift is classified only for ACTIVE, DEGRADED,
+        // FALLBACK and PAUSED rows (DriftClassifier.classifiable), and a restore ends REVERTED or FAILED; the next
+        // conversion's success writes both again. Widening drift classification must recompute it here.
         return after == null || after.equals(desired) ? null : new String[] {after, fresh.getDesiredFingerprint()};
     }
 
