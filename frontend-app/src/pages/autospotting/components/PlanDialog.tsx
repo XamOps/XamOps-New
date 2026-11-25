@@ -169,7 +169,8 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
       footer={
         <>
           {!canConfirm && (
-            <span id={reasonId} className={`mr-auto text-[12px] ${MUTED}`}>
+            <span id={reasonId} className="mr-auto inline-flex items-center gap-1.5 text-[12px] font-medium text-[rgba(0,0,0,0.7)]">
+              <Icon icon="mdi:information-outline" width={14} aria-hidden="true" className="shrink-0 text-amber-700" />
               {reasons[0]}
             </span>
           )}
