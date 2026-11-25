@@ -148,7 +148,7 @@ describe('AutoSpottingBillingAdminPage: Go-live', () => {
       { method: 'POST', match: /\/golive\/gcp$/, responses: [{ status: 201, body: { provider: 'GCP', goLiveAt: '2026-11-21T00:00:00Z', setBy: '5', setAt: '2026-11-21T00:00:00Z' } }] },
     ]);
     renderWithProviders(<AutoSpottingBillingAdminPage />);
-    await userEvent.click(screen.getByRole('button', { name: 'Go-live' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Go-live' }));
     const aws = (await screen.findByText('AWS')).closest('tr') as HTMLElement;
     expect(within(aws).getByText('2026-11-20 00:00:00 UTC')).toBeInTheDocument();
     expect(within(aws).queryByRole('button')).not.toBeInTheDocument(); // set once
@@ -171,7 +171,7 @@ describe('AutoSpottingBillingAdminPage: Go-live', () => {
       { method: 'POST', match: /\/golive\/aws$/, responses: [{ status: 409, body: { code: 'GOLIVE_ALREADY_SET' } }] },
     ]);
     renderWithProviders(<AutoSpottingBillingAdminPage />);
-    await userEvent.click(screen.getByRole('button', { name: 'Go-live' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Go-live' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Set AWS go-live' }));
     await userEvent.type(screen.getByLabelText('Reason'), 'x');
     await userEvent.click(screen.getByRole('button', { name: 'Confirm AWS go-live' }));
@@ -179,10 +179,10 @@ describe('AutoSpottingBillingAdminPage: Go-live', () => {
   });
 });
 describe('AutoSpottingBillingAdminPage: design rules', () => {
-  it('uses no colour and no emoji', async () => {
+  it('uses only the app palette (indigo accent, emerald/amber/red status) and no emoji', async () => {
     installFetch([{ match: /golive$/, responses: [{ body: [] }] }]);
     const { container } = renderWithProviders(<AutoSpottingBillingAdminPage />);
-    expect(container.innerHTML).not.toMatch(/(red|green|blue|amber|orange|indigo|purple|yellow|emerald|rose)-\d{2,3}/);
+    expect(container.innerHTML).not.toMatch(/(?:^|[^a-z])(?:green|blue|orange|purple|yellow|teal|cyan|sky|violet|pink|lime)-\d{2,3}/);
     expect(container.textContent ?? '').not.toMatch(/\p{Extended_Pictographic}/u);
   });
 });

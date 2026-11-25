@@ -17,6 +17,7 @@ import {
   type AllowlistRow,
   type BillingBasis,
 } from '../../api/autospottingApi';
+import { BTN_DANGER, BTN_PRIMARY, BTN_SECONDARY, INPUT, TABLE, TD_SM, TH_SM, TR } from '../../pages/autospotting/components/theme';
 const MAX_REASON = 500;
 const when = (iso: string | null): string => (iso ? iso.replace('T', ' ').replace(/\.\d+Z$|Z$/, ' UTC') : '');
 const BASIS_LABEL: Record<BillingBasis, string> = { CONTRACT: 'Client contract', NO_FEE: 'Never bills' };
@@ -113,49 +114,49 @@ const AllowlistPanel: React.FC = () => {
   return (
     <section aria-label="Allowlist" className="space-y-5">
       {notice && (
-        <p role="status" className="rounded border border-gray-400 bg-gray-100 px-3 py-2 text-sm text-black">
+        <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-900">
           {notice}
         </p>
       )}
       {loadError && (
-        <p role="alert" className="rounded border border-gray-400 px-3 py-2 text-sm text-black">
+        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-900">
           {loadError}
         </p>
       )}
-      <div className="rounded-xl border border-[rgba(0,0,0,0.12)] bg-white p-5">
-        <h3 className="mb-3 text-[14px] font-bold text-black">Allowlist</h3>
+      <div className="rounded-xl border border-[rgba(0,0,0,0.12)] bg-white p-5 shadow-sm">
+        <h3 className="mb-3 text-[14px] font-bold text-[rgba(0,0,0,0.88)]">Allowlist</h3>
         {rows === null ? (
-          <p className="text-sm text-gray-600">Loading allowlist.</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.55)]">Loading allowlist.</p>
         ) : rows.length === 0 ? (
-          <p className="text-sm text-gray-600">No accounts on the allowlist.</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.55)]">No accounts on the allowlist.</p>
         ) : (
-          <table className="w-full text-left text-sm text-black">
-            <thead className="text-xs text-gray-600">
+          <table className={TABLE}>
+            <thead className="border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)]">
               <tr>
-                <th className="py-1 pr-3">Account</th>
-                <th className="py-1 pr-3">Cloud</th>
-                <th className="py-1 pr-3">Basis</th>
-                <th className="py-1 pr-3">Contract</th>
-                <th className="py-1 pr-3">Reason</th>
-                <th className="py-1 pr-3">Added</th>
-                <th className="py-1" />
+                <th className={TH_SM}>Account</th>
+                <th className={TH_SM}>Cloud</th>
+                <th className={TH_SM}>Basis</th>
+                <th className={TH_SM}>Contract</th>
+                <th className={TH_SM}>Reason</th>
+                <th className={TH_SM}>Added</th>
+                <th className={TH_SM} />
               </tr>
             </thead>
             <tbody>
               {rows.map(r => (
-                <tr key={r.cloudAccountId} className="border-t border-gray-200">
-                  <td className="py-2 pr-3">
+                <tr key={r.cloudAccountId} className={TR}>
+                  <td className={TD_SM}>
                     <span className="font-medium">{r.accountName ?? 'Unknown'}</span>
-                    <span className="ml-2 font-mono text-xs text-gray-600">{r.cloudAccountId}</span>
+                    <span className="ml-2 font-mono text-[11px] text-[rgba(0,0,0,0.55)]">{r.cloudAccountId}</span>
                   </td>
-                  <td className="py-2 pr-3">{r.provider}</td>
-                  <td className="py-2 pr-3">{BASIS_LABEL[r.billingBasis] ?? r.billingBasis}</td>
-                  <td className="py-2 pr-3">
+                  <td className={TD_SM}>{r.provider}</td>
+                  <td className={TD_SM}>{BASIS_LABEL[r.billingBasis] ?? r.billingBasis}</td>
+                  <td className={TD_SM}>
                     {r.billingBasis === 'CONTRACT' ? (r.contractInForce ? 'In force' : 'Ended') : 'None'}
                   </td>
-                  <td className="py-2 pr-3 text-gray-600">{r.reason}</td>
-                  <td className="py-2 pr-3 text-gray-600">{`${when(r.addedAt)} by ${r.addedBy}`}</td>
-                  <td className="py-2">
+                  <td className={`${TD_SM} text-[rgba(0,0,0,0.55)]`}>{r.reason}</td>
+                  <td className={`${TD_SM} text-[rgba(0,0,0,0.55)]`}>{`${when(r.addedAt)} by ${r.addedBy}`}</td>
+                  <td className={TD_SM}>
                     <button
                       type="button"
                       onClick={() => {
@@ -164,7 +165,7 @@ const AllowlistPanel: React.FC = () => {
                         setRemoveReason('');
                         setFormError(null);
                       }}
-                      className="rounded border border-black px-3 py-1"
+                      className={BTN_SECONDARY}
                     >
                       Remove
                     </button>
@@ -175,33 +176,33 @@ const AllowlistPanel: React.FC = () => {
           </table>
         )}
         {removing !== null && (
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px]">
             <input
               aria-label="Removal reason"
               value={removeReason}
               maxLength={MAX_REASON}
               onChange={e => setRemoveReason(e.target.value)}
               placeholder="Reason"
-              className="w-72 rounded border border-gray-400 px-2 py-1 text-black"
+              className={`w-72 ${INPUT}`}
             />
             <button
               type="button"
               disabled={removeReason.trim().length === 0 || busy}
               onClick={() => void remove(removing)}
-              className="rounded border border-black bg-black px-3 py-1 text-white disabled:border-gray-300 disabled:bg-gray-300"
+              className={BTN_DANGER}
             >
               {`Remove ${removing}`}
             </button>
-            <button type="button" onClick={() => setRemoving(null)} className="rounded border border-gray-400 px-3 py-1 text-black">
+            <button type="button" onClick={() => setRemoving(null)} className={BTN_SECONDARY}>
               Cancel
             </button>
-            {formError && <span role="alert">{formError}</span>}
+            {formError && <span role="alert" className="text-red-700">{formError}</span>}
           </div>
         )}
       </div>
-      <div className="rounded-xl border border-[rgba(0,0,0,0.12)] bg-white p-5">
-        <h3 className="mb-3 text-[14px] font-bold text-black">Add account</h3>
-        <div className="flex flex-wrap items-center gap-2 text-sm">
+      <div className="rounded-xl border border-[rgba(0,0,0,0.12)] bg-white p-5 shadow-sm">
+        <h3 className="mb-3 text-[14px] font-bold text-[rgba(0,0,0,0.88)]">Add account</h3>
+        <div className="flex flex-wrap items-center gap-2 text-[13px]">
           <input
             aria-label="Account id"
             value={accountText}
@@ -212,22 +213,23 @@ const AllowlistPanel: React.FC = () => {
               setBasis(null);
             }}
             placeholder="Account id"
-            className="w-48 rounded border border-gray-400 px-2 py-1 text-black"
+            className={`w-48 ${INPUT}`}
           />
-          <button type="button" onClick={() => void lookup()} className="rounded border border-black px-3 py-1">
+          <button type="button" onClick={() => void lookup()} className={BTN_SECONDARY}>
             Find
           </button>
-          {lookupError && <span role="alert">{lookupError}</span>}
+          {lookupError && <span role="alert" className="text-red-700">{lookupError}</span>}
         </div>
         {options && (
-          <fieldset className="mt-3 space-y-2 text-sm text-black">
-            <legend className="mb-1 text-gray-600">
+          <fieldset className="mt-3 space-y-2 text-[13px] text-[rgba(0,0,0,0.88)]">
+            <legend className="mb-1 text-[rgba(0,0,0,0.55)]">
               {`${options.accountName ?? 'Account'} (${options.provider}, id ${options.cloudAccountId})`}
             </legend>
             {options.contractInForce && (
               <label className="flex items-center gap-2">
                 <input
                   type="radio"
+                  className="h-4 w-4 accent-indigo-600"
                   name="billing-basis"
                   checked={basis === 'CONTRACT'}
                   onChange={() => setBasis('CONTRACT')}
@@ -238,13 +240,14 @@ const AllowlistPanel: React.FC = () => {
             <label className="flex items-center gap-2">
               <input
                 type="radio"
+                className="h-4 w-4 accent-indigo-600"
                 name="billing-basis"
                 checked={basis === 'NO_FEE'}
                 onChange={() => setBasis('NO_FEE')}
               />
               Never bills
             </label>
-            {!options.contractInForce && <p className="text-gray-600">No contract in force for this client.</p>}
+            {!options.contractInForce && <p className="text-[rgba(0,0,0,0.55)]">No contract in force for this client.</p>}
             <div className="flex flex-wrap items-center gap-2">
               <input
                 aria-label="Reason"
@@ -252,17 +255,17 @@ const AllowlistPanel: React.FC = () => {
                 maxLength={MAX_REASON}
                 onChange={e => setReason(e.target.value)}
                 placeholder="Reason"
-                className="w-72 rounded border border-gray-400 px-2 py-1 text-black"
+                className={`w-72 ${INPUT}`}
               />
               <button
                 type="button"
                 disabled={!canAdd}
                 onClick={() => void add()}
-                className="rounded border border-black bg-black px-3 py-1 text-white disabled:border-gray-300 disabled:bg-gray-300"
+                className={BTN_PRIMARY}
               >
                 Add to allowlist
               </button>
-              {formError && removing === null && <span role="alert">{formError}</span>}
+              {formError && removing === null && <span role="alert" className="text-red-700">{formError}</span>}
             </div>
           </fieldset>
         )}

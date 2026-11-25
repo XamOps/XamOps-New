@@ -1,4 +1,6 @@
 import React from 'react';
+import { Icon } from '@iconify/react';
+import { Tab, TabList, Tabs } from 'react-aria-components';
 import type { AutoSpottingConfig, GroupDetail, GroupRow } from '../../../api/autospottingApi';
 import type { ProviderAdapter } from '../adapters/types';
 import StateBadge from './StateBadge';
@@ -9,6 +11,7 @@ import SavingsTab from './SavingsTab';
 import AuditTab from './AuditTab';
 import ErrorPanel from './ErrorPanel';
 import { PAUSED_REASON } from './reasons';
+import { BTN_PRIMARY, BTN_SECONDARY, CARD, MUTED, Notice } from './theme';
 
 export type TabId = 'config' | 'progress' | 'history' | 'savings' | 'audit';
 const TABS: Array<{ id: TabId; label: string }> = [
@@ -132,22 +135,28 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
   const showError = row.state === 'FAILED' || drift;
 
   return (
-    <aside aria-label={`${row.name} details`} className="rounded border border-gray-300 bg-white p-4 text-black">
+    <aside aria-label={`${row.name} details`} className={`${CARD} p-5 text-[13px] text-[rgba(0,0,0,0.88)]`}>
       <div className="flex items-start justify-between gap-2">
-        <div>
-          <h2 className="text-base font-semibold">{row.name}</h2>
-          <div className="mt-1">
+        <div className="min-w-0">
+          <h2 className="truncate text-[15px] font-semibold">{row.name}</h2>
+          <div className="mt-1.5">
             <StateBadge row={row} />
           </div>
         </div>
-        <button type="button" onClick={onClose} className="rounded border border-gray-400 px-2 py-1 text-xs text-gray-600">
-          Close
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          title="Close"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[rgba(0,0,0,0.55)] transition-colors hover:bg-[rgba(0,0,0,0.04)] hover:text-[rgba(0,0,0,0.88)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+        >
+          <Icon icon="mdi:close" width={18} aria-hidden="true" />
         </button>
       </div>
 
       {actions.length > 0 ? (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {actions.map(a => {
+        <div className="mt-4 flex flex-wrap gap-2">
+          {actions.map((a, i) => {
             const reason = disabledReason(a, config, adapter.provider);
             const reasonId = `as-action-${a.label.replace(/\s+/g, '-').toLowerCase()}-reason`;
             return (
@@ -158,12 +167,12 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
                   aria-describedby={reason ? reasonId : undefined}
                   title={reason ?? undefined}
                   onClick={() => onAction(a)}
-                  className="rounded border border-black px-3 py-1 text-sm text-black enabled:hover:bg-black enabled:hover:text-white disabled:border-gray-300 disabled:text-gray-400"
+                  className={i === 0 && a.kind === 'plan' ? BTN_PRIMARY : BTN_SECONDARY}
                 >
                   {a.label}
                 </button>
                 {reason && (
-                  <span id={reasonId} className="mt-1 max-w-xs text-xs text-gray-600">
+                  <span id={reasonId} className={`mt-1.5 max-w-xs text-[11px] ${MUTED}`}>
                     {reason}
                   </span>
                 )}
@@ -174,29 +183,40 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
       ) : (
         row.state === 'UNMANAGED' &&
         !row.enableAllowed &&
-        row.blockers.length > 0 && <p className="mt-3 text-sm text-gray-600">{row.blockers[0].text}</p>
+        row.blockers.length > 0 && <p className={`mt-3 ${MUTED}`}>{row.blockers[0].text}</p>
       )}
       {row.state === 'LEGACY_UNCONFIRMED' && !(providerCfg?.v2MutationsEnabled ?? false) && (
-        <p className="mt-2 text-xs text-gray-600">Adopt and Revert are not available yet for converted groups.</p>
+        <p className={`mt-2 text-[11px] ${MUTED}`}>Adopt and Revert are not available yet for converted groups.</p>
       )}
 
-      <div role="tablist" aria-label="Group details" className="mt-4 flex gap-1 border-b border-gray-300">
-        {TABS.map(t => (
-          <button
-            key={t.id}
-            role="tab"
-            type="button"
-            aria-selected={tab === t.id}
-            onClick={() => onTab(t.id)}
-            className={`px-3 py-1.5 text-sm ${tab === t.id ? 'border-b-2 border-black font-semibold text-black' : 'text-gray-600'}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      <div role="tabpanel" className="mt-3">
-        {detailError && <p className="mb-2 text-sm text-gray-600">Couldn't load the group details.</p>}
+      {/* The AriaTabGroup underline style, compacted to fit the panel width. */}
+      <Tabs selectedKey={tab} onSelectionChange={k => onTab(String(k) as TabId)}>
+        <TabList aria-label="Group details" className="-mx-5 mt-4 flex gap-0.5 overflow-x-auto overflow-y-hidden border-b border-gray-200 px-3">
+          {TABS.map(t => (
+            <Tab
+              key={t.id}
+              id={t.id}
+              className={({ isSelected, isFocusVisible }) =>
+                [
+                  '-mb-px flex cursor-pointer items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-[12.5px] font-semibold outline-none transition-all',
+                  isSelected
+                    ? 'border-indigo-600 text-indigo-700'
+                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
+                  isFocusVisible ? 'ring-2 ring-inset ring-indigo-500' : '',
+                ].join(' ')
+              }
+            >
+              {t.label}
+            </Tab>
+          ))}
+        </TabList>
+      </Tabs>
+      <div role="tabpanel" className="mt-4">
+        {detailError && (
+          <Notice tone="danger" className="mb-3">
+            Couldn't load the group details.
+          </Notice>
+        )}
         {showError && tab !== 'progress' && (
           <div className="mb-3">
             <ErrorPanel

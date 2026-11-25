@@ -9,6 +9,7 @@ import {
   HistoricalSavings,
   AccountSavings,
 } from '../types/autospotting';
+import { AriaTabGroup } from '../components/ui';
 import OperatorPanel from '../components/AutoSpottingAdmin/OperatorPanel';
 import AllowlistPanel from '../components/AutoSpottingAdmin/AllowlistPanel';
 import DlqPanel from '../components/AutoSpottingAdmin/DlqPanel';
@@ -345,21 +346,20 @@ const AutoSpottingAdminOverview: React.FC = () => {
 /** Overview (the dashboard and operator views), Allowlist (billing basis per account) and DLQ (AWS event replay). */
 const AutoSpottingAdminDashboardPage: React.FC = () => {
   const [tab, setTab] = useState<'overview' | 'allowlist' | 'dlq'>('overview');
-  const tabClass = (active: boolean) =>
-    `rounded border px-3 py-1 text-sm ${active ? 'border-black bg-black text-white' : 'border-gray-400 bg-white text-black'}`;
   return (
     <>
-      <nav aria-label="AutoSpotting admin sections" className="flex gap-2 px-6 pt-4">
-        <button type="button" aria-pressed={tab === 'overview'} onClick={() => setTab('overview')} className={tabClass(tab === 'overview')}>
-          Overview
-        </button>
-        <button type="button" aria-pressed={tab === 'allowlist'} onClick={() => setTab('allowlist')} className={tabClass(tab === 'allowlist')}>
-          Allowlist
-        </button>
-        <button type="button" aria-pressed={tab === 'dlq'} onClick={() => setTab('dlq')} className={tabClass(tab === 'dlq')}>
-          DLQ
-        </button>
-      </nav>
+      <div className="px-6 pt-4">
+        <AriaTabGroup
+          tabs={[
+            { id: 'overview', label: 'Overview', icon: 'mdi:view-dashboard-outline' },
+            { id: 'allowlist', label: 'Allowlist', icon: 'mdi:playlist-check' },
+            { id: 'dlq', label: 'DLQ', icon: 'mdi:tray-alert' },
+          ]}
+          selectedKey={tab}
+          onSelectionChange={k => setTab(k as 'overview' | 'allowlist' | 'dlq')}
+          label="AutoSpotting admin sections"
+        />
+      </div>
       {tab === 'overview' ? (
         <AutoSpottingAdminOverview />
       ) : (

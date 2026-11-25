@@ -5,10 +5,11 @@
  */
 import React from 'react';
 import RispCoverage from '../../../components/RispCoverage/RispCoverage';
+import { EmptyState } from '../components/theme';
 
 const CommitmentsView: React.FC<{ accountId: number | null }> = ({ accountId }) => {
   if (accountId === null) {
-    return <p className="text-sm text-gray-600">Select an AWS account to see its commitments.</p>;
+    return <EmptyState icon="mdi:account-search-outline" title="Select an AWS account to see its commitments." />;
   }
   return <RispCoverage accountId={null} v2AccountId={accountId} />;
 };

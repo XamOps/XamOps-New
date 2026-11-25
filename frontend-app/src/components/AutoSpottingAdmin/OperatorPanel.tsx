@@ -17,6 +17,7 @@ import {
   type Operation,
   type OperatorSwitch,
 } from '../../api/autospottingApi';
+import { BTN_PRIMARY, BTN_SECONDARY, INPUT, TABLE, TD_SM, TH_SM, TR } from '../../pages/autospotting/components/theme';
 
 const MAX_REASON = 500;
 
@@ -45,28 +46,28 @@ const ReasonForm: React.FC<{
   const [reason, setReason] = useState('');
   const valid = reason.trim().length > 0 && reason.length <= MAX_REASON;
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+    <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px]">
       <input
         aria-label="Reason"
         value={reason}
         maxLength={MAX_REASON}
         onChange={e => setReason(e.target.value)}
         placeholder="Reason"
-        className="w-72 rounded border border-gray-400 px-2 py-1 text-black"
+        className={`w-72 ${INPUT}`}
       />
       <button
         type="button"
         disabled={!valid || busy}
         onClick={() => onSubmit(reason.trim())}
-        className="rounded border border-black bg-black px-3 py-1 text-white disabled:border-gray-300 disabled:bg-gray-300"
+        className={BTN_PRIMARY}
       >
         {label}
       </button>
-      <button type="button" onClick={onCancel} className="rounded border border-gray-400 px-3 py-1 text-black">
+      <button type="button" onClick={onCancel} className={BTN_SECONDARY}>
         Cancel
       </button>
       {error && (
-        <span role="alert" className="text-black">
+        <span role="alert" className="text-red-700">
           {error}
         </span>
       )}
@@ -138,47 +139,56 @@ const OperatorPanel: React.FC = () => {
   return (
     <section aria-label="Operator views" className="space-y-5">
       {notice && (
-        <p role="status" className="rounded border border-gray-400 bg-gray-100 px-3 py-2 text-sm text-black">
+        <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-900">
           {notice}
         </p>
       )}
       {loadError && (
-        <p role="alert" className="rounded border border-gray-400 px-3 py-2 text-sm text-black">
+        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-900">
           {loadError}
         </p>
       )}
 
-      <div className="rounded-xl border border-[rgba(0,0,0,0.12)] bg-white p-5">
-        <h3 className="mb-3 text-[14px] font-bold text-black">Switches</h3>
+      <div className="rounded-xl border border-[rgba(0,0,0,0.12)] bg-white p-5 shadow-sm">
+        <h3 className="mb-3 text-[14px] font-bold text-[rgba(0,0,0,0.88)]">Switches</h3>
         {switches === null ? (
-          <p className="text-sm text-gray-600">Loading switches.</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.55)]">Loading switches.</p>
         ) : switches.length === 0 ? (
-          <p className="text-sm text-gray-600">No switches.</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.55)]">No switches.</p>
         ) : (
-          <table className="w-full text-left text-sm text-black">
-            <thead className="text-xs text-gray-600">
+          <table className={TABLE}>
+            <thead className="border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)]">
               <tr>
-                <th className="py-1 pr-3">Scope</th>
-                <th className="py-1 pr-3">Property</th>
-                <th className="py-1 pr-3">State</th>
-                <th className="py-1 pr-3">Reason</th>
-                <th className="py-1 pr-3">Changed</th>
-                <th className="py-1" />
+                <th className={TH_SM}>Scope</th>
+                <th className={TH_SM}>Property</th>
+                <th className={TH_SM}>State</th>
+                <th className={TH_SM}>Reason</th>
+                <th className={TH_SM}>Changed</th>
+                <th className={TH_SM} />
               </tr>
             </thead>
             <tbody>
               {switches.map(s => (
-                <tr key={s.scopeKey} className="border-t border-gray-200">
-                  <td className="py-2 pr-3 font-medium">{s.scopeKey}</td>
-                  <td className="py-2 pr-3">{s.propertyValue === null ? 'Not set' : s.propertyValue ? 'On' : 'Off'}</td>
-                  <td className="py-2 pr-3">{s.engaged ? 'Engaged' : 'Released'}</td>
-                  <td className="py-2 pr-3 text-gray-600">{s.reason ?? ''}</td>
-                  <td className="py-2 pr-3 text-gray-600">{s.changedAt ? `${when(s.changedAt)}${s.changedBy ? ` by ${s.changedBy}` : ''}` : ''}</td>
-                  <td className="py-2">
+                <tr key={s.scopeKey} className={TR}>
+                  <td className={`${TD_SM} font-medium`}>{s.scopeKey}</td>
+                  <td className={TD_SM}>{s.propertyValue === null ? 'Not set' : s.propertyValue ? 'On' : 'Off'}</td>
+                  <td className={TD_SM}>
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                        s.engaged ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                      }`}
+                    >
+                      <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${s.engaged ? 'bg-red-600' : 'bg-emerald-600'}`} />
+                      {s.engaged ? 'Engaged' : 'Released'}
+                    </span>
+                  </td>
+                  <td className={`${TD_SM} text-[rgba(0,0,0,0.55)]`}>{s.reason ?? ''}</td>
+                  <td className={`${TD_SM} text-[rgba(0,0,0,0.55)]`}>{s.changedAt ? `${when(s.changedAt)}${s.changedBy ? ` by ${s.changedBy}` : ''}` : ''}</td>
+                  <td className={TD_SM}>
                     <button
                       type="button"
                       onClick={() => start({ type: 'switch', scopeKey: s.scopeKey, engaged: !s.engaged, version: s.version })}
-                      className="rounded border border-black px-3 py-1"
+                      className={BTN_SECONDARY}
                     >
                       {s.engaged ? 'Release' : 'Engage'}
                     </button>
@@ -199,52 +209,52 @@ const OperatorPanel: React.FC = () => {
         )}
       </div>
 
-      <div className="rounded-xl border border-[rgba(0,0,0,0.12)] bg-white p-5">
-        <h3 className="mb-3 text-[14px] font-bold text-black">Stuck operations</h3>
+      <div className="rounded-xl border border-[rgba(0,0,0,0.12)] bg-white p-5 shadow-sm">
+        <h3 className="mb-3 text-[14px] font-bold text-[rgba(0,0,0,0.88)]">Stuck operations</h3>
         {ops === null ? (
-          <p className="text-sm text-gray-600">Loading operations.</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.55)]">Loading operations.</p>
         ) : ops.length === 0 ? (
-          <p className="text-sm text-gray-600">No stuck operations.</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.55)]">No stuck operations.</p>
         ) : (
-          <table className="w-full text-left text-sm text-black">
-            <thead className="text-xs text-gray-600">
+          <table className={TABLE}>
+            <thead className="border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)]">
               <tr>
-                <th className="py-1 pr-3">Operation</th>
-                <th className="py-1 pr-3">Status</th>
-                <th className="py-1 pr-3">Waiting on</th>
-                <th className="py-1 pr-3">Deadline</th>
-                <th className="py-1 pr-3">Last error</th>
-                <th className="py-1" />
+                <th className={TH_SM}>Operation</th>
+                <th className={TH_SM}>Status</th>
+                <th className={TH_SM}>Waiting on</th>
+                <th className={TH_SM}>Deadline</th>
+                <th className={TH_SM}>Last error</th>
+                <th className={TH_SM} />
               </tr>
             </thead>
             <tbody>
               {ops.map(o => (
-                <tr key={o.operationId} className="border-t border-gray-200">
-                  <td className="py-2 pr-3">
+                <tr key={o.operationId} className={TR}>
+                  <td className={TD_SM}>
                     <span className="font-medium">{o.kind}</span>
-                    <span className="ml-2 font-mono text-xs text-gray-600">{o.operationId}</span>
+                    <span className="ml-2 font-mono text-[11px] text-[rgba(0,0,0,0.55)]">{o.operationId}</span>
                   </td>
-                  <td className="py-2 pr-3">{o.status}</td>
-                  <td className="py-2 pr-3">{o.waitReason ?? ''}</td>
-                  <td className="whitespace-nowrap py-2 pr-3">{when(o.deadlineAt)}</td>
-                  <td className="py-2 pr-3">
+                  <td className={TD_SM}>{o.status}</td>
+                  <td className={TD_SM}>{o.waitReason ?? ''}</td>
+                  <td className={`${TD_SM} whitespace-nowrap`}>{when(o.deadlineAt)}</td>
+                  <td className={TD_SM}>
                     {o.errorCode && <span className="font-medium">{o.errorCode}</span>}
-                    {o.errorMessage && <span className="ml-2 text-gray-600">{o.errorMessage}</span>}
+                    {o.errorMessage && <span className="ml-2 text-[rgba(0,0,0,0.55)]">{o.errorMessage}</span>}
                   </td>
-                  <td className="whitespace-nowrap py-2">
+                  <td className={`${TD_SM} whitespace-nowrap`}>
                     {o.groupId && (
                       <>
                         <button
                           type="button"
                           onClick={() => start({ type: 'group', groupId: o.groupId as string, action: 'pause' })}
-                          className="mr-2 rounded border border-black px-3 py-1"
+                          className={`mr-2 ${BTN_SECONDARY}`}
                         >
                           Pause
                         </button>
                         <button
                           type="button"
                           onClick={() => start({ type: 'group', groupId: o.groupId as string, action: 'resume' })}
-                          className="rounded border border-gray-400 px-3 py-1"
+                          className={BTN_SECONDARY}
                         >
                           Resume
                         </button>

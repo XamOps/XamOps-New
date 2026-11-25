@@ -82,8 +82,8 @@ const SpotAutomationHeader: React.FC = () => {
                     <strong className="text-amber-200 text-[10px]">What types of apps work best?</strong>
                   </div>
                   <div className="text-[10px] space-y-1.5 text-[rgba(255,255,255,0.5)]">
-                    <p><strong className="text-green-300">✓ Stateless apps (Recommended):</strong> Web servers, APIs, microservices</p>
-                    <p><strong className="text-yellow-300">⚠ Stateful apps:</strong> Use with EBS volumes or external storage</p>
+                    <p><strong className="inline-flex items-center gap-1 text-green-300"><Icon icon="mdi:check-circle" width={11} aria-hidden="true" />Stateless apps (Recommended):</strong> Web servers, APIs, microservices</p>
+                    <p><strong className="inline-flex items-center gap-1 text-yellow-300"><Icon icon="mdi:alert-outline" width={11} aria-hidden="true" />Stateful apps:</strong> Use with EBS volumes or external storage</p>
                   </div>
                 </div>
 

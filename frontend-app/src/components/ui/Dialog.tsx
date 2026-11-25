@@ -27,6 +27,8 @@ interface DialogRootProps {
   children: React.ReactNode;
   /** Max width class e.g. "max-w-lg" (default) */
   maxWidth?: string;
+  /** Esc does not close the dialog (e.g. while a request is in flight). */
+  isKeyboardDismissDisabled?: boolean;
 }
 
 interface DialogPanelProps {
@@ -41,11 +43,12 @@ interface DialogPanelProps {
 
 /* ── DialogRoot ─────────────────────────────────────────────── */
 
-export function DialogRoot({ isOpen, onClose, children, maxWidth = 'max-w-lg' }: DialogRootProps) {
+export function DialogRoot({ isOpen, onClose, children, maxWidth = 'max-w-lg', isKeyboardDismissDisabled }: DialogRootProps) {
   return (
     <ModalOverlay
       isOpen={isOpen}
       onOpenChange={(open) => { if (!open) onClose(); }}
+      isKeyboardDismissDisabled={isKeyboardDismissDisabled}
       /* Inset past the sidebar (fixed 220px, lg+) so the centring box is the content
          column, not the whole window. Centring on the viewport made wide panels
          (max-w-4xl and up) overhang the nav once the window got near the sidebar

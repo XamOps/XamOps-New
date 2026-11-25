@@ -2,6 +2,7 @@ import React from 'react';
 import type { GroupDetail } from '../../../api/autospottingApi';
 import type { ProviderAdapter } from '../adapters/types';
 import GcpConfigTab from './GcpConfigTab';
+import { MUTED } from './theme';
 
 export const ConfigTab: React.FC<{
   detail: GroupDetail;
@@ -12,20 +13,20 @@ export const ConfigTab: React.FC<{
 }> = ({ detail, adapter, current, onEditPolicy }) => {
   const g = detail.group;
   return (
-    <div className="space-y-4 text-sm text-black">
+    <div className="space-y-4 text-[13px]">
       <dl>
-        <div className="flex justify-between border-b border-gray-100 py-1.5">
-          <dt className="text-gray-500">Capacity (min / desired / max)</dt>
-          <dd>{`${g.min ?? '--'} / ${g.desired ?? '--'} / ${g.max ?? '--'}`}</dd>
+        <div className="flex justify-between gap-4 border-b border-[rgba(0,0,0,0.06)] py-2">
+          <dt className={MUTED}>Capacity (min / desired / max)</dt>
+          <dd className="text-right font-medium">{`${g.min ?? '--'} / ${g.desired ?? '--'} / ${g.max ?? '--'}`}</dd>
         </div>
-        <div className="flex justify-between border-b border-gray-100 py-1.5">
-          <dt className="text-gray-500">Configuration mode</dt>
-          <dd>{detail.configMode ?? 'Not set'}</dd>
+        <div className="flex justify-between gap-4 border-b border-[rgba(0,0,0,0.06)] py-2">
+          <dt className={MUTED}>Configuration mode</dt>
+          <dd className="text-right font-medium">{detail.configMode ?? 'Not set'}</dd>
         </div>
         {detail.driftStatus && (
-          <div className="flex justify-between border-b border-gray-100 py-1.5">
-            <dt className="text-gray-500">Drift</dt>
-            <dd>{detail.driftStatus}</dd>
+          <div className="flex justify-between gap-4 border-b border-[rgba(0,0,0,0.06)] py-2">
+            <dt className={MUTED}>Drift</dt>
+            <dd className="text-right font-medium">{detail.driftStatus}</dd>
           </div>
         )}
       </dl>

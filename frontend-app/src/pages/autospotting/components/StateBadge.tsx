@@ -1,61 +1,69 @@
 import React from 'react';
+import { Icon } from '@iconify/react';
 import type { GroupRow } from '../../../api/autospottingApi';
-
 interface BadgeSpec {
   label: string;
   className: string;
+  icon: string;
 }
-
+const EMERALD = 'border border-emerald-200 bg-emerald-50 text-emerald-700';
+const INDIGO = 'border border-indigo-200 bg-indigo-50 text-indigo-700';
+const AMBER = 'border border-amber-200 bg-amber-50 text-amber-800';
+const RED = 'border border-red-200 bg-red-50 text-red-700';
+const GREY = 'border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.03)] text-[rgba(0,0,0,0.6)]';
 /**
- * State badges (design-ux-ops.md §4.2): black, white and grey only. The label always states the
- * state, so meaning never depends on shape or shade.
+ * State badges (design-ux-ops.md §4.2): tinted pills in the app palette (emerald good, amber warning,
+ * red failure, indigo in progress). The label always states the state and a leading icon repeats it, so
+ * meaning never depends on colour. Text is 700 on a 50 tint for AA contrast.
  */
 export function badgeFor(row: Pick<GroupRow, 'state' | 'enableAllowed' | 'externalSpot'>): BadgeSpec {
-  if (row.externalSpot) return { label: 'Spot, not managed by XamOps', className: 'border border-dotted border-gray-600 text-gray-600' };
+  if (row.externalSpot)
+    return { label: 'Spot, not managed by XamOps', className: `${GREY} border-dotted`, icon: 'mdi:link-variant-off' };
   switch (row.state) {
     case 'UNMANAGED':
       return row.enableAllowed
-        ? { label: 'Eligible', className: 'border border-gray-400 text-gray-600' }
-        : { label: 'Ineligible', className: 'border border-dashed border-gray-400 text-gray-400' };
+        ? { label: 'Eligible', className: INDIGO, icon: 'mdi:circle-outline' }
+        : { label: 'Ineligible', className: `${GREY} border-dashed`, icon: 'mdi:minus-circle-outline' };
     case 'PLANNED':
-      return { label: 'Plan open', className: 'border border-gray-400 text-black' };
+      return { label: 'Plan open', className: 'border border-indigo-300 bg-white text-indigo-700', icon: 'mdi:clipboard-text-outline' };
     case 'APPLYING':
-      return { label: 'Applying', className: 'border border-black bg-black text-white' };
+      return { label: 'Applying', className: INDIGO, icon: 'mdi:progress-clock' };
     case 'ACTIVE':
-      return { label: 'Active', className: 'border border-black bg-black text-white' };
+      return { label: 'Active', className: EMERALD, icon: 'mdi:check-circle' };
     case 'DEGRADED':
-      return { label: 'Degraded', className: 'border-2 border-black bg-white font-bold text-black' };
+      return { label: 'Degraded', className: `${AMBER} font-bold`, icon: 'mdi:alert-outline' };
     case 'FALLBACK':
-      return { label: 'On-Demand fallback', className: 'border-2 border-black bg-white font-bold text-black' };
+      return { label: 'On-Demand fallback', className: `${AMBER} font-bold`, icon: 'mdi:swap-horizontal' };
     case 'PAUSED':
-      return { label: 'Paused', className: 'border border-gray-200 bg-gray-200 text-black' };
+      return { label: 'Paused', className: AMBER, icon: 'mdi:pause-circle-outline' };
     case 'REVERTING':
-      return { label: 'Reverting', className: 'border border-black bg-black text-white' };
+      return { label: 'Reverting', className: INDIGO, icon: 'mdi:undo-variant' };
     case 'REVERTED':
-      return { label: 'Reverted', className: 'border border-gray-100 bg-gray-100 text-gray-600' };
+      return { label: 'Reverted', className: GREY, icon: 'mdi:undo-variant' };
     case 'FAILED':
-      return { label: 'Needs attention', className: 'border border-black bg-black font-bold text-white' };
+      return { label: 'Needs attention', className: `${RED} font-bold`, icon: 'mdi:alert-circle' };
     case 'LEGACY_UNCONFIRMED':
-      return { label: 'Converted before tracking', className: 'border border-dashed border-black text-black' };
+      return { label: 'Converted before tracking', className: `${AMBER} border-dashed`, icon: 'mdi:help-circle-outline' };
     case 'GONE':
-      return { label: 'Deleted', className: 'text-gray-400 line-through' };
+      return { label: 'Deleted', className: `${GREY} line-through`, icon: 'mdi:delete-outline' };
     default:
-      return { label: row.state, className: 'border border-gray-400 text-gray-600' };
+      return { label: row.state, className: GREY, icon: 'mdi:circle-outline' };
   }
 }
-
 export const StateBadge: React.FC<{ row: Pick<GroupRow, 'state' | 'enableAllowed' | 'externalSpot'> }> = ({ row }) => {
   const spec = badgeFor(row);
   const transient = row.state === 'APPLYING' || row.state === 'REVERTING';
   return (
-    <span className="inline-flex flex-col">
-      <span className={`inline-block rounded px-2 py-0.5 text-xs ${spec.className}`}>
-        {row.state === 'FAILED' ? <span aria-hidden="true" className="mr-1 inline-block h-2 w-2 bg-white" /> : null}
-        {spec.label}
-      </span>
-      {transient && <span aria-hidden="true" className="mt-0.5 h-0.5 w-full animate-pulse bg-black" />}
+    <span
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${spec.className}`}
+    >
+      {transient ? (
+        <span aria-hidden="true" className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-600" />
+      ) : (
+        <Icon icon={spec.icon} width={12} aria-hidden="true" />
+      )}
+      {spec.label}
     </span>
   );
 };
-
 export default StateBadge;

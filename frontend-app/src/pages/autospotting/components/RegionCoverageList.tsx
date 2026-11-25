@@ -1,5 +1,7 @@
 import React from 'react';
 import type { RegionCoverage } from '../../../api/autospottingApi';
+import { Icon } from '@iconify/react';
+import { CARD, CARD_TITLE, MUTED } from './theme';
 
 const LABEL: Record<string, string> = { COVERED: 'Covered', MISSING: 'Missing', SKIPPED: 'Skipped', UNKNOWN: 'Unknown' };
 
@@ -12,17 +14,25 @@ const RegionCoverageList: React.FC<{ coverage: RegionCoverage | undefined }> = (
   if (!coverage || !coverage.applicable || coverage.regions.length === 0) return null;
   const gaps = coverage.regions.filter(r => r.status !== 'COVERED').length;
   return (
-    <section aria-label="Event coverage" className="rounded border border-gray-300 bg-white px-4 py-3 text-sm text-black">
-      <p className="font-semibold">Event coverage</p>
-      <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+    <section aria-label="Event coverage" className={`${CARD} px-5 py-4 text-[13px]`}>
+      <p className={CARD_TITLE}>Event coverage</p>
+      <ul className="mt-2 flex flex-wrap gap-2">
         {coverage.regions.map(r => (
-          <li key={r.region} className={r.status === 'COVERED' ? 'text-gray-600' : 'font-semibold text-black'}>
+          <li
+            key={r.region}
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+              r.status === 'COVERED'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-amber-200 bg-amber-50 text-amber-800'
+            }`}
+          >
+            <Icon icon={r.status === 'COVERED' ? 'mdi:check-circle' : 'mdi:alert-outline'} width={12} aria-hidden="true" />
             {`${r.region}: ${LABEL[r.status] ?? r.status}`}
           </li>
         ))}
       </ul>
       {gaps > 0 && (
-        <p className="mt-1 text-gray-600">Groups in an uncovered region can't convert. Update stack to cover them.</p>
+        <p className={`mt-2 ${MUTED}`}>Groups in an uncovered region can't convert. Update stack to cover them.</p>
       )}
     </section>
   );

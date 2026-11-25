@@ -9,6 +9,7 @@ import {
 } from '../../../api/autospottingApi';
 import AsDialog from './AsDialog';
 import { warningText } from './reasons';
+import { BTN_DANGER, BTN_SECONDARY, CHECKBOX, MUTED, Notice } from './theme';
 
 interface RevertAllBatchProps {
   accountId: number;
@@ -107,7 +108,7 @@ export const RevertAllBatch: React.FC<RevertAllBatchProps> = ({
 
   const footer = (
     <>
-      <button type="button" onClick={onClose} disabled={confirming} className="rounded border border-gray-400 px-3 py-1.5 text-sm">
+      <button type="button" onClick={onClose} disabled={confirming} className={BTN_SECONDARY}>
         {confirmed ? 'Close' : 'Cancel'}
       </button>
       {!confirmed && (
@@ -115,7 +116,7 @@ export const RevertAllBatch: React.FC<RevertAllBatchProps> = ({
           type="button"
           onClick={onConfirm}
           disabled={!batch || ready.length === 0 || !allAcked || confirming}
-          className="rounded border border-black bg-black px-3 py-1.5 text-sm text-white disabled:border-gray-300 disabled:bg-gray-300"
+          className={BTN_DANGER}
         >
           {confirming ? 'Reverting…' : `Revert ${ready.length} group${ready.length === 1 ? '' : 's'}`}
         </button>
@@ -131,23 +132,26 @@ export const RevertAllBatch: React.FC<RevertAllBatchProps> = ({
       busy={confirming}
       footer={footer}
     >
-      {!batch && !error && <p className="text-sm text-gray-600">Preparing revert plans…</p>}
+      {!batch && !error && <p className={`flex items-center gap-2 text-[13px] ${MUTED}`}><span aria-hidden="true" className="h-2 w-2 animate-pulse rounded-full bg-indigo-500" />Preparing revert plans…</p>}
       {error && (
-        <p role="alert" className="mb-3 text-sm text-black">
+        <Notice tone="danger" role="alert" className="mb-4">
           {error}
-        </p>
+        </Notice>
       )}
-      {batch && batch.total === 0 && <p className="text-sm text-gray-600">No groups in this account need a revert.</p>}
+      {batch && batch.total === 0 && <p className={`text-[13px] ${MUTED}`}>No groups in this account need a revert.</p>}
       {batch && batch.total > 0 && (
         <>
-          <p role="status" className="mb-3 text-sm font-semibold">
+          <p role="status" className="mb-2 text-[13px] font-semibold">
             {batch.reverted} of {batch.total} reverted
           </p>
-          <ul className="divide-y divide-gray-200 border border-gray-200">
+          <div aria-hidden="true" className="mb-4 h-2 w-full overflow-hidden rounded-full bg-[rgba(0,0,0,0.06)]">
+            <div className="h-2 rounded-full bg-indigo-600 transition-all" style={{ width: `${Math.round((batch.reverted / batch.total) * 100)}%` }} />
+          </div>
+          <ul className="divide-y divide-[rgba(0,0,0,0.06)] overflow-hidden rounded-xl border border-[rgba(0,0,0,0.12)]">
             {batch.items.map(item => (
-              <li key={item.groupId} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                <span className="truncate font-mono">{item.groupKey ?? item.groupId}</span>
-                <span className="shrink-0 text-gray-600">
+              <li key={item.groupId} className="flex items-center justify-between gap-3 px-4 py-2.5 text-[13px]">
+                <span className="truncate font-mono text-[12px]">{item.groupKey ?? item.groupId}</span>
+                <span className={`shrink-0 text-[12px] ${item.errorCode ? 'font-medium text-red-700' : item.groupState === 'REVERTED' ? 'font-medium text-emerald-700' : MUTED}`}>
                   {item.errorCode
                     ? `Not started: ${item.errorDetail ?? item.errorCode}`
                     : item.groupState === 'REVERTED'
@@ -160,18 +164,19 @@ export const RevertAllBatch: React.FC<RevertAllBatchProps> = ({
             ))}
           </ul>
           {batch.alreadyReverting.length > 0 && (
-            <p className="mt-3 text-sm text-gray-600">
+            <p className={`mt-3 text-[13px] ${MUTED}`}>
               {batch.alreadyReverting.length} more group{batch.alreadyReverting.length === 1 ? ' is' : 's are'} already
               reverting and not part of this batch.
             </p>
           )}
           {!confirmed && warnings.length > 0 && (
-            <fieldset className="mt-4 space-y-2">
-              <legend className="text-sm font-semibold">Acknowledge before reverting</legend>
+            <fieldset className="mt-4 space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
+              <legend className="px-1 text-[13px] font-semibold">Acknowledge before reverting</legend>
               {warnings.map(id => (
-                <label key={id} className="flex items-start gap-2 text-sm">
+                <label key={id} className="flex cursor-pointer items-start gap-2 text-[13px]">
                   <input
                     type="checkbox"
+                    className={CHECKBOX}
                     checked={acked.includes(id)}
                     onChange={e => setAcked(prev => (e.target.checked ? [...prev, id] : prev.filter(x => x !== id)))}
                   />

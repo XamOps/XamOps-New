@@ -1,32 +1,35 @@
 import React from 'react';
 import type { GroupDetail } from '../../../api/autospottingApi';
+import { MUTED, TABLE, TD_SM, TH_SM, THEAD_ROW, TR } from './theme';
 
 export const HistoryTab: React.FC<{ detail: GroupDetail }> = ({ detail }) => {
   if (detail.transitions.length === 0) {
-    return <p className="text-sm text-gray-600">No state changes recorded for this group yet.</p>;
+    return <p className={`text-[13px] ${MUTED}`}>No state changes recorded for this group yet.</p>;
   }
   return (
-    <table className="w-full text-left text-sm text-black">
+    <div className="overflow-x-auto rounded-lg border border-[rgba(0,0,0,0.08)]">
+    <table className={TABLE}>
       <caption className="sr-only">State history</caption>
       <thead>
-        <tr className="border-b border-gray-300 text-gray-600">
-          <th scope="col" className="py-1 pr-2 font-medium">When</th>
-          <th scope="col" className="py-1 pr-2 font-medium">From</th>
-          <th scope="col" className="py-1 pr-2 font-medium">To</th>
-          <th scope="col" className="py-1 font-medium">Reason</th>
+        <tr className={THEAD_ROW}>
+          <th scope="col" className={TH_SM}>When</th>
+          <th scope="col" className={TH_SM}>From</th>
+          <th scope="col" className={TH_SM}>To</th>
+          <th scope="col" className={TH_SM}>Reason</th>
         </tr>
       </thead>
       <tbody>
         {detail.transitions.map((t, i) => (
-          <tr key={i} className="border-b border-gray-100">
-            <td className="py-1 pr-2">{t.occurredAt}</td>
-            <td className="py-1 pr-2">{t.fromState ?? '--'}</td>
-            <td className="py-1 pr-2">{t.toState}</td>
-            <td className="py-1">{t.reasonCode ?? '--'}</td>
+          <tr key={i} className={TR}>
+            <td className={`${TD_SM} whitespace-nowrap ${MUTED}`}>{t.occurredAt}</td>
+            <td className={TD_SM}>{t.fromState ?? '--'}</td>
+            <td className={TD_SM}>{t.toState}</td>
+            <td className={TD_SM}>{t.reasonCode ?? '--'}</td>
           </tr>
         ))}
       </tbody>
     </table>
+    </div>
   );
 };
 

@@ -128,11 +128,11 @@ describe('AutoSpottingAdminDashboardPage', () => {
     overrides['/api/xamops/autospotting-admin/allowlist'] = [];
     render(<AutoSpottingAdminDashboardPage />);
     await screen.findByTestId('legacy-total-card');
-    expect(screen.getByRole('button', { name: 'Overview' })).toHaveAttribute('aria-pressed', 'true');
-    await userEvent.click(screen.getByRole('button', { name: 'Allowlist' }));
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
+    await userEvent.click(screen.getByRole('tab', { name: 'Allowlist' }));
     expect(await screen.findByText('No accounts on the allowlist.')).toBeInTheDocument();
     expect(screen.queryByTestId('legacy-total-card')).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Overview' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Overview' }));
     expect(await screen.findByTestId('legacy-total-card')).toBeInTheDocument();
   });
 });

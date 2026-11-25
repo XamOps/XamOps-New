@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { GroupDetail } from '../../../api/autospottingApi';
+import { BTN_PRIMARY, CARD_TITLE, FIELD_LABEL, INPUT, MUTED } from './theme';
 
 /** The GCP plan kind that saves rolling-update settings for a state, or null with the reason (design-gcp.md §3.5). */
 export function policyPlanKind(state: string): { kind: string } | { reason: string } {
@@ -49,37 +50,37 @@ export const GcpConfigTab: React.FC<{
   const invalid = [surge, unavailable].some(v => v !== '' && (!Number.isInteger(Number(v)) || Number(v) < 0));
 
   return (
-    <section aria-label="Rolling-update settings" className="mt-4 border-t border-gray-200 pt-3 text-sm text-black">
-      <h3 className="mb-2 font-semibold">Rolling-update settings</h3>
+    <section aria-label="Rolling-update settings" className="mt-4 border-t border-[rgba(0,0,0,0.06)] pt-4 text-[13px]">
+      <h3 className={`mb-3 ${CARD_TITLE}`}>Rolling-update settings</h3>
       <div className="grid grid-cols-3 gap-2">
         <label className="flex flex-col gap-1">
-          <span className="text-gray-500">Max surge</span>
+          <span className={FIELD_LABEL}>Max surge</span>
           <input
             type="number"
             min={0}
             value={surge}
             placeholder={String(fixedOf(live.maxSurge) ?? '')}
             onChange={e => setSurge(e.target.value)}
-            className="rounded border border-gray-300 px-2 py-1"
+            className={`${INPUT} w-full`}
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-gray-500">Max unavailable</span>
+          <span className={FIELD_LABEL}>Max unavailable</span>
           <input
             type="number"
             min={0}
             value={unavailable}
             placeholder={String(fixedOf(live.maxUnavailable) ?? '')}
             onChange={e => setUnavailable(e.target.value)}
-            className="rounded border border-gray-300 px-2 py-1"
+            className={`${INPUT} w-full`}
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-gray-500">Update type</span>
+          <span className={FIELD_LABEL}>Update type</span>
           <select
             value={type}
             onChange={e => setType(e.target.value)}
-            className="rounded border border-gray-300 px-2 py-1"
+            className={`${INPUT} w-full`}
           >
             <option value="">Unchanged</option>
             <option value="PROACTIVE">Proactive</option>
@@ -88,13 +89,13 @@ export const GcpConfigTab: React.FC<{
         </label>
       </div>
       {'reason' in decision ? (
-        <p className="mt-2 text-gray-600">{decision.reason}</p>
+        <p className={`mt-3 ${MUTED}`}>{decision.reason}</p>
       ) : (
         <button
           type="button"
           disabled={invalid || Object.keys(edit).length === 0}
           onClick={() => onReview(decision.kind, edit)}
-          className="mt-3 rounded border border-black px-3 py-1 text-black enabled:hover:bg-black enabled:hover:text-white disabled:border-gray-300 disabled:text-gray-400"
+          className={`mt-3 ${BTN_PRIMARY}`}
         >
           Review plan
         </button>

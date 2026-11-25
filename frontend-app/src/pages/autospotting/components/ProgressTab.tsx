@@ -3,6 +3,7 @@ import { useOperation } from '../../../hooks/autospotting/useOperation';
 import type { Operation } from '../../../api/autospottingApi';
 import type { ProviderAdapter } from '../adapters/types';
 import ErrorPanel from './ErrorPanel';
+import { BTN_SECONDARY, MUTED, Notice } from './theme';
 
 const WAIT_TEXT: Record<string, string> = {
   CLOUD_PROGRESS: 'Waiting for AWS',
@@ -97,15 +98,16 @@ export const ProgressTab: React.FC<ProgressTabProps> = ({ accountId, operationId
   }, [op]);
 
   if (!operationId) {
-    return <p className="text-sm text-gray-600">No operation is running for this group.</p>;
+    return <p className={MUTED}>No operation is running for this group.</p>;
   }
   if (!op) {
     return isError ? (
-      <p role="alert" className="text-sm text-black">
+      <Notice tone="warning" icon="mdi:lan-disconnect" role="alert">
         Reconnecting
-      </p>
+      </Notice>
     ) : (
-      <p role="status" className="text-sm text-gray-600">
+      <p role="status" className={`flex items-center gap-2 ${MUTED}`}>
+        <span aria-hidden="true" className="h-2 w-2 animate-pulse rounded-full bg-indigo-500" />
         Loading progress
       </p>
     );
@@ -117,14 +119,16 @@ export const ProgressTab: React.FC<ProgressTabProps> = ({ accountId, operationId
   const failures = p.failures ?? [];
 
   return (
-    <div className="space-y-3 text-sm text-black">
+    <div className="space-y-3 text-[13px]">
       <div aria-live="polite" className="sr-only">
         {announcement}
       </div>
       <div className="flex items-center gap-2">
         <span className="font-semibold">{operationHeadline(op)}</span>
         {op.dryRun && (
-          <span className="rounded border border-gray-400 px-1.5 py-0.5 text-xs text-gray-600">Dry run</span>
+          <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+            Dry run
+          </span>
         )}
       </div>
 
@@ -135,14 +139,17 @@ export const ProgressTab: React.FC<ProgressTabProps> = ({ accountId, operationId
           aria-valuemin={0}
           aria-valuemax={100}
           aria-label="Operation progress"
-          className="h-2 w-full rounded bg-gray-200"
+          className="h-2 w-full overflow-hidden rounded-full bg-[rgba(0,0,0,0.06)]"
         >
-          <div className="h-2 rounded bg-black" style={{ width: `${percent}%` }} />
+          <div
+            className={`h-2 rounded-full transition-all ${op.status === 'FAILED' ? 'bg-red-600' : op.status === 'SUCCEEDED' ? 'bg-emerald-600' : 'bg-indigo-600'}`}
+            style={{ width: `${percent}%` }}
+          />
         </div>
         {p.total !== undefined && (
-          <p className="mt-1 text-gray-600">{`${p.replaced ?? 0} of ${p.total} instances replaced`}</p>
+          <p className={`mt-1.5 text-[12px] ${MUTED}`}>{`${p.replaced ?? 0} of ${p.total} instances replaced`}</p>
         )}
-        {isError && !terminal && <p className="mt-1 text-gray-600">Reconnecting</p>}
+        {isError && !terminal && <p className={`mt-1 text-[12px] ${MUTED}`}>Reconnecting</p>}
       </div>
 
       {(p.step !== undefined || p.stepName) && (
@@ -167,18 +174,18 @@ export const ProgressTab: React.FC<ProgressTabProps> = ({ accountId, operationId
       )}
 
       {op.status === 'WAITING' && op.waitReason && (
-        <p className={op.waitReason === 'STUCK' ? 'font-bold' : ''}>{WAIT_TEXT[op.waitReason] ?? 'Waiting'}</p>
+        <p className={op.waitReason === 'STUCK' ? 'font-bold text-amber-800' : ''}>{WAIT_TEXT[op.waitReason] ?? 'Waiting'}</p>
       )}
       {stale && (
-        <p className="text-gray-600">No change in 15 minutes. This can be normal for large groups.</p>
+        <p className={MUTED}>No change in 15 minutes. This can be normal for large groups.</p>
       )}
 
       {failures.length > 0 && (
-        <div className="border-t border-gray-200 pt-2">
+        <div className="border-t border-[rgba(0,0,0,0.06)] pt-3">
           <p className="font-medium">{`Failures (${p.failed ?? failures.length})`}</p>
           <ul>
             {failures.map((f, i) => (
-              <li key={i} className="text-gray-600">
+              <li key={i} className={MUTED}>
                 {[f.zone, f.code, f.retrying ? `retried by ${adapter.provider}` : null].filter(Boolean).join('  ')}
               </li>
             ))}
@@ -198,7 +205,7 @@ export const ProgressTab: React.FC<ProgressTabProps> = ({ accountId, operationId
         />
       )}
       {op.status !== 'FAILED' && onViewAudit && (
-        <button type="button" onClick={onViewAudit} className="rounded border border-gray-400 px-3 py-1 text-gray-600">
+        <button type="button" onClick={onViewAudit} className={BTN_SECONDARY}>
           View audit trail
         </button>
       )}

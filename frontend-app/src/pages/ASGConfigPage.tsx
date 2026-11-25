@@ -11,6 +11,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
+import { Icon } from '@iconify/react';
 import { useTopbar } from '../contexts/TopbarContext';
 import apiClient from '../utils/apiClient';
 import { useAutoSpottingFeatureStatus } from '../hooks/useAutoSpottingFeatureStatus';
@@ -155,12 +156,12 @@ const ASGConfigPage: React.FC = () => {
           className="w-10 h-10 bg-white border border-gray-200 rounded-xl flex items-center justify-center text-gray-500 hover:text-indigo-600 hover:border-indigo-300 transition-all shadow-sm"
           title="Back to Spot Automation"
         >
-          <i className="fas fa-arrow-left"></i>
+          <Icon icon="mdi:arrow-left" aria-hidden="true" className="inline-block" />
         </Link>
 
         <div className="hidden md:flex flex-col items-end mr-2">
           <div className="flex items-center gap-1.5 text-[10px] text-gray-400 font-medium whitespace-nowrap">
-            <i className="fas fa-map-marker-alt"></i> {region}
+            <Icon icon="mdi:map-marker" aria-hidden="true" className="inline-block" /> {region}
           </div>
         </div>
 
@@ -169,7 +170,7 @@ const ASGConfigPage: React.FC = () => {
           disabled={saveDisabled}
           className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
         >
-          <i className={clsx('fas', saving ? 'fa-spinner fa-spin' : 'fa-save')}></i>
+          <Icon icon={saving ? 'mdi:loading' : 'mdi:content-save'} aria-hidden="true" className={clsx('inline-block', saving && 'animate-spin')} />
           <span>{saving ? 'Saving...' : 'Save Configuration'}</span>
         </button>
       </div>
@@ -187,7 +188,7 @@ const ASGConfigPage: React.FC = () => {
       <main className="flex-1 flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center p-8">
           <div className="w-20 h-20 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-red-300">
-            <i className="fas fa-exclamation-triangle text-red-500 text-3xl"></i>
+            <Icon icon="mdi:alert" aria-hidden="true" className="inline-block text-red-500 text-3xl" />
           </div>
           <h3 className="text-xl font-bold text-gray-900 mb-2">Missing Parameters</h3>
           <p className="text-gray-600">
@@ -205,7 +206,7 @@ const ASGConfigPage: React.FC = () => {
         {successMessage && (
           <div className="bg-green-50 border-l-4 border-green-500 p-4 rounded-lg shadow-sm">
             <div className="flex items-center">
-              <i className="fas fa-check-circle text-green-500 text-xl mr-3"></i>
+              <Icon icon="mdi:check-circle" aria-hidden="true" className="inline-block text-green-500 text-xl mr-3" />
               <p className="text-sm text-green-700 font-semibold">{successMessage}</p>
             </div>
           </div>
@@ -215,7 +216,7 @@ const ASGConfigPage: React.FC = () => {
         {error && (
           <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg shadow-sm">
             <div className="flex items-center">
-              <i className="fas fa-exclamation-circle text-red-500 text-xl mr-3"></i>
+              <Icon icon="mdi:alert-circle" aria-hidden="true" className="inline-block text-red-500 text-xl mr-3" />
               <p className="text-sm text-red-700 font-semibold">{error}</p>
             </div>
           </div>
@@ -240,7 +241,7 @@ const ASGConfigPage: React.FC = () => {
               <ConversionsPausedNotice />
             ) : (
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
-              <i className="fas fa-info-circle text-blue-500 mt-0.5 shrink-0"></i>
+              <Icon icon="mdi:information" aria-hidden="true" className="inline-block text-blue-500 mt-0.5 shrink-0" />
               <div className="text-sm text-blue-800">
                 <span className="font-semibold">How to apply:</span> Saving updates the stored config. To push changes to AWS, go back and toggle AutoSpotting{' '}
                 <span className="font-semibold">OFF → ON</span> on the ASG row — it will pick up your saved settings automatically.
@@ -251,7 +252,7 @@ const ASGConfigPage: React.FC = () => {
             {/* Spot/On-Demand Configuration Section */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center">
-                <i className="fas fa-sliders-h text-green-600 mr-3 text-2xl"></i>
+                <Icon icon="mdi:tune" aria-hidden="true" className="inline-block text-green-600 mr-3 text-2xl" />
                 Spot/On-Demand Configuration
               </h2>
 
@@ -343,7 +344,7 @@ const ASGConfigPage: React.FC = () => {
             {/* Instance Types Configuration Section */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-2 flex items-center">
-                <i className="fas fa-server text-indigo-600 mr-3 text-2xl"></i>
+                <Icon icon="mdi:server" aria-hidden="true" className="inline-block text-indigo-600 mr-3 text-2xl" />
                 Instance Types
               </h2>
               <p className="text-sm text-gray-600 mb-6">
@@ -354,7 +355,7 @@ const ASGConfigPage: React.FC = () => {
                 {Object.entries(INSTANCE_TYPE_FAMILIES).map(([family, types]) => (
                   <div key={family} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
                     <h4 className="font-semibold text-gray-700 mb-3 flex items-center">
-                      <i className="fas fa-layer-group text-indigo-500 mr-2"></i>
+                      <Icon icon="mdi:layers" aria-hidden="true" className="inline-block text-indigo-500 mr-2" />
                       {family}
                     </h4>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
@@ -387,7 +388,7 @@ const ASGConfigPage: React.FC = () => {
                 {/* Custom Instance Type */}
                 <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
                   <h4 className="font-semibold text-gray-700 mb-3 flex items-center">
-                    <i className="fas fa-plus-circle text-green-500 mr-2"></i>
+                    <Icon icon="mdi:plus-circle" aria-hidden="true" className="inline-block text-green-500 mr-2" />
                     Custom Instance Type
                   </h4>
                   <div className="flex items-center space-x-2">
@@ -415,7 +416,7 @@ const ASGConfigPage: React.FC = () => {
                       }}
                       className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition-all"
                     >
-                      <i className="fas fa-plus mr-2"></i>
+                      <Icon icon="mdi:plus" aria-hidden="true" className="inline-block mr-2" />
                       Add
                     </button>
                   </div>
@@ -423,7 +424,7 @@ const ASGConfigPage: React.FC = () => {
 
                 {/* Selected Count */}
                 <div className="text-sm text-gray-600 bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <i className="fas fa-info-circle text-blue-600 mr-2"></i>
+                  <Icon icon="mdi:information" aria-hidden="true" className="inline-block text-blue-600 mr-2" />
                   <span className="font-semibold">{selectedTypes.size}</span> instance type{selectedTypes.size !== 1 ? 's' : ''} selected
                 </div>
               </div>

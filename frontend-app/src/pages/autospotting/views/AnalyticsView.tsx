@@ -8,6 +8,7 @@ import { useAnalytics } from '../../../hooks/autospotting/useAnalytics';
 import type { AnalyticsFigures } from '../../../api/autospottingApi';
 import { AutoSpottingApiError } from '../../../api/autospottingApi';
 import { RANGE_OPTIONS, lastDays } from './dateRange';
+import { BTN_PRIMARY, CARD, CARD_TITLE, EmptyState, MUTED, Notice, TABLE, TD, TH, THEAD_ROW, TR, rangeButtonClass } from '../components/theme';
 
 const NOT_TRACKED = 'Not tracked';
 
@@ -40,19 +41,19 @@ const Row: React.FC<{ name: string; sub?: string; f: AnalyticsFigures; indent?: 
   indent,
   rateTracked,
 }) => (
-  <tr className="border-t border-gray-200">
-    <td className={`px-3 py-2 ${indent ? 'pl-8 text-gray-600' : 'font-medium text-black'}`}>
+  <tr className={TR}>
+    <td className={`${TD} ${indent ? `pl-10 ${MUTED}` : 'font-semibold'}`}>
       {name}
-      {sub && <span className="ml-2 text-xs font-normal text-gray-600">{sub}</span>}
+      {sub && <span className={`ml-2 text-[11px] font-normal ${MUTED}`}>{sub}</span>}
     </td>
-    <td className="px-3 py-2 tabular-nums">{count(f.spotLaunches)}</td>
-    <td className="px-3 py-2 tabular-nums">
+    <td className={`${TD} tabular-nums`}>{count(f.spotLaunches)}</td>
+    <td className={`${TD} tabular-nums`}>
       {count(f.launchFailures)}
-      {causes(f) && <span className="ml-2 text-xs text-gray-600">{causes(f)}</span>}
+      {causes(f) && <span className={`ml-2 text-[11px] ${MUTED}`}>{causes(f)}</span>}
     </td>
-    <td className="px-3 py-2 tabular-nums">{count(f.interruptions)}</td>
-    <td className="px-3 py-2 tabular-nums">{count(f.rebalanceRecommendations)}</td>
-    <td className="px-3 py-2 tabular-nums">{rateTracked ? (f.successRate === null ? 'No launches' : rate(f)) : NOT_TRACKED}</td>
+    <td className={`${TD} tabular-nums`}>{count(f.interruptions)}</td>
+    <td className={`${TD} tabular-nums`}>{count(f.rebalanceRecommendations)}</td>
+    <td className={`${TD} tabular-nums`}>{rateTracked ? (f.successRate === null ? 'No launches' : rate(f)) : NOT_TRACKED}</td>
   </tr>
 );
 
@@ -62,22 +63,28 @@ const AnalyticsView: React.FC<{ accountId: number | null }> = ({ accountId }) =>
   const q = useAnalytics(accountId, from, to);
 
   if (accountId === null) {
-    return <p className="text-sm text-gray-600">Select an AWS account to see its analytics.</p>;
+    return <EmptyState icon="mdi:account-search-outline" title="Select an AWS account to see its analytics." />;
   }
 
   let body: React.ReactNode;
   if (q.isLoading) {
-    body = <div role="status" aria-label="Loading analytics" className="h-24 animate-pulse rounded bg-gray-200" />;
+    body = (
+      <div role="status" aria-label="Loading analytics" className={`${CARD} space-y-3 p-5`}>
+        {[0, 1, 2].map(i => (
+          <div key={i} className="h-4 animate-pulse rounded bg-[rgba(0,0,0,0.06)]" />
+        ))}
+      </div>
+    );
   } else if (q.isError || !q.data) {
     const requestId = q.error instanceof AutoSpottingApiError ? q.error.requestId : null;
     body = (
-      <div role="alert" className="rounded border border-gray-300 p-6 text-center text-sm text-gray-600">
-        <p className="font-medium text-black">Couldn't load analytics.</p>
+      <Notice tone="danger" role="alert" className="py-4">
+        <p className="font-semibold">Couldn't load analytics.</p>
         {requestId && <p className="mt-1">{`Request id ${requestId}`}</p>}
-        <button type="button" onClick={() => void q.refetch()} className="mt-2 rounded border border-black px-3 py-1 text-black">
+        <button type="button" onClick={() => void q.refetch()} className={`mt-3 ${BTN_PRIMARY}`}>
           Retry
         </button>
-      </div>
+      </Notice>
     );
   } else {
     const data = q.data;
@@ -87,22 +94,22 @@ const AnalyticsView: React.FC<{ accountId: number | null }> = ({ accountId }) =>
     body = (
       <>
         {missing.length > 0 && (
-          <p role="status" className="rounded border border-gray-400 bg-gray-100 px-3 py-2 text-sm text-black">
+          <Notice tone="warning" role="status">
             {allMissing
               ? 'No Spot events are recorded for this account yet, so none of these figures is tracked.'
               : `Not tracked for this account: ${missing.map(m => METRIC_LABELS[m] ?? m).join(', ')}.`}
-          </p>
+          </Notice>
         )}
-        <div className="overflow-x-auto rounded border border-gray-300">
-          <table className="w-full text-left text-sm text-black">
-            <thead className="bg-gray-100 text-xs text-gray-600">
-              <tr>
-                <th className="px-3 py-2">Group</th>
-                <th className="px-3 py-2">Spot launches</th>
-                <th className="px-3 py-2">Launch failures</th>
-                <th className="px-3 py-2">Interruptions</th>
-                <th className="px-3 py-2">Rebalance</th>
-                <th className="px-3 py-2">Success rate</th>
+        <div className={`${CARD} overflow-x-auto`}>
+          <table className={TABLE}>
+            <thead>
+              <tr className={THEAD_ROW}>
+                <th scope="col" className={TH}>Group</th>
+                <th scope="col" className={TH}>Spot launches</th>
+                <th scope="col" className={TH}>Launch failures</th>
+                <th scope="col" className={TH}>Interruptions</th>
+                <th scope="col" className={TH}>Rebalance</th>
+                <th scope="col" className={TH}>Success rate</th>
               </tr>
             </thead>
             <tbody>
@@ -119,23 +126,23 @@ const AnalyticsView: React.FC<{ accountId: number | null }> = ({ accountId }) =>
           </table>
         </div>
         {!allMissing && data.groups.length === 0 && (
-          <p className="text-sm text-gray-600">No Spot events in this range.</p>
+          <EmptyState icon="mdi:chart-line" title="No Spot events in this range." />
         )}
       </>
     );
   }
 
   return (
-    <section aria-label="Analytics" className="space-y-3">
-      <div className="flex items-center gap-2 text-sm">
-        <span className="text-gray-600">Range</span>
+    <section aria-label="Analytics" className="space-y-4">
+      <div className={`${CARD} flex items-center gap-2 px-4 py-3`}>
+        <span className={`mr-1 ${CARD_TITLE}`}>Range</span>
         {RANGE_OPTIONS.map(o => (
           <button
             key={o.days}
             type="button"
             aria-pressed={days === o.days}
             onClick={() => setDays(o.days)}
-            className={`rounded border px-3 py-1 ${days === o.days ? 'border-black bg-black text-white' : 'border-gray-400 text-black'}`}
+            className={rangeButtonClass(days === o.days)}
           >
             {o.label}
           </button>

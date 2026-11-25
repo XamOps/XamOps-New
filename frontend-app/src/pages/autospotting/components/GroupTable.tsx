@@ -2,7 +2,12 @@ import React, { useMemo, useState } from 'react';
 import type { GroupRow } from '../../../api/autospottingApi';
 import type { ProviderAdapter } from '../adapters/types';
 import { formatMoney, NOT_PRICED } from '../../../utils/formatMoney';
+import { Icon } from '@iconify/react';
 import StateBadge from './StateBadge';
+import { CARD, MUTED, TABLE, TD as TD_BASE, TH as TH_BASE, THEAD_ROW } from './theme';
+/** Tighter horizontal padding than the page tables, so all columns fit beside the detail panel. */
+const TH = TH_BASE.replace('px-5', 'px-3 first:pl-5 last:pr-5');
+const TD = TD_BASE.replace('px-5', 'px-3 first:pl-5 last:pr-5');
 
 export const rowKey = (r: GroupRow): string => r.id ?? `${r.location}/${r.groupKey}`;
 
@@ -34,30 +39,36 @@ export const GroupTable: React.FC<GroupTableProps> = ({ rows, adapter, selectedK
   const [dir, setDir] = useState<'desc' | 'asc'>('desc');
   const sorted = useMemo(() => sortRows(rows, dir), [rows, dir]);
   return (
-    <table className="w-full text-left text-sm text-black">
+    <div className={`${CARD} overflow-x-auto`}>
+    <table className={TABLE}>
       <caption className="sr-only">{`${adapter.groupNoun}s`}</caption>
       <thead>
-        <tr className="border-b border-gray-300 text-gray-600">
-          <th scope="col" className="py-2 pr-3 font-medium">
+        <tr className={THEAD_ROW}>
+          <th scope="col" className={TH}>
             Group
           </th>
-          <th scope="col" className="py-2 pr-3 font-medium">
+          <th scope="col" className={TH}>
             {adapter.locationLabel}
           </th>
-          <th scope="col" className="py-2 pr-3 font-medium">
+          <th scope="col" className={TH}>
             State
           </th>
-          <th scope="col" className="py-2 pr-3 font-medium">
+          <th scope="col" className={TH}>
             Desired
           </th>
           {adapter.columns.map(c => (
-            <th key={c.id} scope="col" className="py-2 pr-3 font-medium">
+            <th key={c.id} scope="col" className={TH}>
               {c.header}
             </th>
           ))}
-          <th scope="col" aria-sort={dir === 'desc' ? 'descending' : 'ascending'} className="py-2 font-medium">
-            <button type="button" onClick={() => setDir(d => (d === 'desc' ? 'asc' : 'desc'))} className="font-medium">
+          <th scope="col" aria-sort={dir === 'desc' ? 'descending' : 'ascending'} className={`${TH} text-right`}>
+            <button
+              type="button"
+              onClick={() => setDir(d => (d === 'desc' ? 'asc' : 'desc'))}
+              className="inline-flex items-center gap-0.5 rounded font-semibold uppercase tracking-wide hover:text-[rgba(0,0,0,0.88)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+            >
               Est./mo
+              <Icon icon={dir === 'desc' ? 'mdi:arrow-down' : 'mdi:arrow-up'} width={12} aria-hidden="true" />
             </button>
           </th>
         </tr>
@@ -71,12 +82,16 @@ export const GroupTable: React.FC<GroupTableProps> = ({ rows, adapter, selectedK
               key={key}
               aria-selected={selected}
               onClick={() => onSelect(r)}
-              className={`cursor-pointer border-b border-gray-100 ${selected ? 'bg-gray-100' : 'hover:bg-gray-50'}`}
+              className={`cursor-pointer border-t border-[rgba(0,0,0,0.04)] transition-colors ${
+                selected ? 'bg-indigo-50/60' : 'hover:bg-[rgba(0,0,0,0.015)]'
+              }`}
             >
-              <td className="py-2 pr-3">
+              <td className={TD}>
                 <button
                   type="button"
-                  className="font-medium underline"
+                  className={`rounded text-left font-semibold hover:text-indigo-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 ${
+                    selected ? 'text-indigo-700' : 'text-[rgba(0,0,0,0.88)]'
+                  }`}
                   onClick={e => {
                     e.stopPropagation();
                     onSelect(r);
@@ -85,17 +100,17 @@ export const GroupTable: React.FC<GroupTableProps> = ({ rows, adapter, selectedK
                   {r.name}
                 </button>
               </td>
-              <td className="py-2 pr-3">{r.location}</td>
-              <td className="py-2 pr-3">
+              <td className={`${TD} ${MUTED}`}>{r.location}</td>
+              <td className={TD}>
                 <StateBadge row={r} />
               </td>
-              <td className="py-2 pr-3">{r.desired ?? '--'}</td>
+              <td className={`${TD} tabular-nums`}>{r.desired ?? '--'}</td>
               {adapter.columns.map(c => (
-                <td key={c.id} className="py-2 pr-3">
+                <td key={c.id} className={TD}>
                   {c.render(r)}
                 </td>
               ))}
-              <td className="py-2">
+              <td className={`${TD} text-right font-semibold tabular-nums ${!r.savingsUnknown && r.monthlySavings ? 'text-emerald-700' : MUTED}`}>
                 {r.savingsUnknown
                   ? NOT_PRICED
                   : r.monthlySavings === null || r.monthlySavings === undefined
@@ -107,6 +122,7 @@ export const GroupTable: React.FC<GroupTableProps> = ({ rows, adapter, selectedK
         })}
       </tbody>
     </table>
+    </div>
   );
 };
 

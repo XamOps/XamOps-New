@@ -122,11 +122,11 @@ describe('AllowlistPanel', () => {
     expect(del.body).toEqual({ reason: 'Pilot over' });
     expect(del.headers['Idempotency-Key']).toBeTruthy();
   });
-  it('uses no colour and no emoji', async () => {
+  it('uses only the app palette (indigo accent, emerald/amber/red status) and no emoji', async () => {
     mount();
     const { container } = renderWithProviders(<AllowlistPanel />);
     await screen.findByText('Trata prod');
-    expect(container.innerHTML).not.toMatch(/(red|green|blue|amber|orange|indigo|purple|yellow|emerald|rose)-\d{2,3}/);
+    expect(container.innerHTML).not.toMatch(/(?:^|[^a-z])(?:green|blue|orange|purple|yellow|teal|cyan|sky|violet|pink|lime)-\d{2,3}/);
     expect(container.textContent ?? '').not.toMatch(/\p{Extended_Pictographic}/u);
   });
 });

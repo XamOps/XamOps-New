@@ -7,7 +7,10 @@ import { MoneyFigure } from './MoneyLabel';
 import { NOT_PRICED } from '../../../utils/formatMoney';
 import { usePlanFlow } from './usePlanFlow';
 import { warningText } from './reasons';
-import { MAINTENANCE_POLICY_FIELD, MAINTENANCE_POLICY_HELP, POLICY_UNCHANGED, diffFieldLabel, diffValue } from './diffText';
+import { MAINTENANCE_POLICY_FIELD, MAINTENANCE_POLICY_HELP, POLICY_UNCHANGED } from './diffText';
+import { Icon } from '@iconify/react';
+import { BTN_PRIMARY, BTN_SECONDARY, CHECKBOX, FIELD_LABEL, INPUT, MUTED, Notice } from './theme';
+import { BuildingPlan, DiffTable, Outcome } from './dialogParts';
 
 export const BURSTABLE_LABEL = 'Allow burstable alternatives (for example t3a for t3)';
 export const BURSTABLE_HELP =
@@ -55,11 +58,16 @@ function riskLabel(profile: string | null, warnings: number, fullSpot: boolean):
 }
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <section className="mb-4">
-    <h3 className="mb-1 text-sm font-semibold text-black">{title}</h3>
-    <div className="text-sm text-black">{children}</div>
+  <section className="mb-5">
+    <h3 className={`mb-2 ${FIELD_LABEL}`}>{title}</h3>
+    <div className="text-[13px] text-[rgba(0,0,0,0.88)]">{children}</div>
   </section>
 );
+const RISK_CLASS: Record<string, string> = {
+  Low: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  Medium: 'border-amber-200 bg-amber-50 text-amber-800',
+  High: 'border-red-200 bg-red-50 text-red-700',
+};
 
 interface PlanDialogProps {
   accountId: number | null;
@@ -150,6 +158,7 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
   const fee = feeBasisText(body?.feeBasis ?? null);
   const stale = flow.outcome?.kind === 'stale';
   const title = KIND_TITLE[kind] ?? 'Review plan';
+  const risk = riskLabel(selectedProfile, warnings.length, fullSpotNeeded && flow.fullSpot);
 
   return (
     <AsDialog
@@ -160,7 +169,7 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
       footer={
         <>
           {!canConfirm && (
-            <span id={reasonId} className="mr-auto text-xs text-gray-600">
+            <span id={reasonId} className={`mr-auto text-[12px] ${MUTED}`}>
               {reasons[0]}
             </span>
           )}
@@ -168,7 +177,7 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
             type="button"
             onClick={onClose}
             disabled={flow.confirming}
-            className="rounded border border-gray-400 px-3 py-1 text-sm text-black disabled:opacity-50"
+            className={BTN_SECONDARY}
           >
             Cancel
           </button>
@@ -177,7 +186,7 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
               type="button"
               onClick={() => void flow.refreshPlan()}
               disabled={flow.creating}
-              className="rounded border border-black bg-black px-3 py-1 text-sm text-white disabled:opacity-50"
+              className={BTN_PRIMARY}
             >
               Refresh plan
             </button>
@@ -187,7 +196,7 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
               onClick={() => void onConfirm()}
               disabled={!canConfirm}
               aria-describedby={!canConfirm ? reasonId : undefined}
-              className="rounded border border-black bg-black px-3 py-1 text-sm text-white disabled:border-gray-300 disabled:bg-gray-200 disabled:text-gray-500"
+              className={BTN_PRIMARY}
             >
               {isDry ? 'Run dry run' : 'Confirm'}
             </button>
@@ -196,137 +205,113 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
       }
     >
       {isDry && (
-        <p className="mb-3 rounded border border-gray-400 bg-gray-100 px-3 py-1 text-sm text-gray-600">Dry run</p>
+        <Notice tone="warning" icon="mdi:test-tube" className="mb-4">
+          <p className="font-semibold">Dry run</p>
+        </Notice>
       )}
-
-      {flow.creating && !plan && (
-        <p role="status" className="text-sm text-gray-600">
-          Building the plan
-        </p>
-      )}
-
+      {flow.creating && !plan && <BuildingPlan />}
       {flow.createError ? (
-        <p role="alert" className="mb-3 text-sm font-medium text-black">
+        <Notice tone="danger" role="alert" className="mb-4">
           {flow.createErrorText}
-        </p>
+        </Notice>
       ) : null}
-
-      {flow.outcome && (
-        <div role="alert" className="mb-3 rounded border-2 border-black p-3 text-sm text-black">
-          {flow.outcome.kind === 'stale' && <p className="font-bold">{flow.outcome.title}</p>}
-          <p>{flow.outcome.message}</p>
-          {flow.outcome.kind === 'busy' && onViewProgress && (
-            <button type="button" onClick={onViewProgress} className="mt-2 rounded border border-black px-3 py-1">
-              Open Progress
-            </button>
-          )}
-        </div>
-      )}
+      {flow.outcome && <Outcome outcome={flow.outcome} onViewProgress={onViewProgress} />}
 
       {plan && body && (
         <>
           {remaining !== null && !expired && (
-            <p className="mb-3 text-xs text-gray-600">{`Plan valid for ${Math.floor(remaining / 60)}:${String(
+            <p className={`mb-4 text-[12px] ${MUTED}`}>{`Plan valid for ${Math.floor(remaining / 60)}:${String(
               remaining % 60,
             ).padStart(2, '0')}`}</p>
           )}
 
           <Section title="What changes">
             {body.diff.length === 0 ? (
-              <p className="text-gray-600">No field changes.</p>
+              <p className={MUTED}>No field changes.</p>
             ) : (
-              <table className="w-full text-left">
-                <caption className="sr-only">Current and target configuration</caption>
-                <thead>
-                  <tr className="border-b border-gray-300 text-gray-600">
-                    <th scope="col" className="py-1 pr-2 font-medium">
-                      Field
-                    </th>
-                    <th scope="col" className="py-1 pr-2 font-medium">
-                      Current
-                    </th>
-                    <th scope="col" className="py-1 font-medium">
-                      Target
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {body.diff.map(d => (
-                    <tr key={d.field} className="border-b border-gray-100">
-                      <td className="py-1 pr-2">{diffFieldLabel(d.field)}</td>
-                      <td className="py-1 pr-2">{diffValue(d.field, d.from, 'from')}</td>
-                      <td className="py-1">{diffValue(d.field, d.to, 'to')}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <DiffTable caption="Current and target configuration" targetHeader="Target" diff={body.diff} />
             )}
-            {policyRow && <p className="mt-1 text-gray-600">{MAINTENANCE_POLICY_HELP}</p>}
+            {policyRow && <p className={`mt-2 ${MUTED}`}>{MAINTENANCE_POLICY_HELP}</p>}
             <adapter.PlanTargetFields plan={plan} body={body} />
           </Section>
 
           <Section title="Snapshot">
             {body.revertPath?.exact === false ? (
-              <p className="font-bold">Exact restore is not possible</p>
+              <Notice tone="warning">
+                <p className="font-bold">Exact restore is not possible</p>
+              </Notice>
             ) : (
-              <p>Original configuration will be saved.</p>
+              <p className="flex items-center gap-1.5">
+                <Icon icon="mdi:content-save-check-outline" width={15} aria-hidden="true" className="text-emerald-700" />
+                <span>Original configuration will be saved.</span>
+              </p>
             )}
           </Section>
 
           {(blockers.length > 0 || warnings.length > 0) && (
             <Section title="Eligibility">
               {blockers.length > 0 && (
-                <ul className="mb-2">
-                  {blockers.map(b => (
-                    <li key={b.id} className="font-medium">{`Blocked: ${b.text}`}</li>
-                  ))}
-                </ul>
+                <Notice tone="danger" icon="mdi:block-helper" className="mb-3">
+                  <ul className="space-y-1">
+                    {blockers.map(b => (
+                      <li key={b.id} className="font-medium">{`Blocked: ${b.text}`}</li>
+                    ))}
+                  </ul>
+                </Notice>
               )}
               {burstableOffer && (
-                <div className="mb-2">
+                <Notice tone="info" icon="mdi:lightning-bolt-outline" className="mb-3">
                   <p>This group can convert if you allow burstable alternatives.</p>
                   <button
                     type="button"
                     onClick={() => void flow.selectAllowBurstable(true)}
                     disabled={flow.creating || flow.confirming}
-                    className="mt-1 rounded border border-black px-3 py-1 text-sm text-black disabled:opacity-50"
+                    className={`mt-2 ${BTN_PRIMARY}`}
                   >
                     {BURSTABLE_ALLOW_AND_REPLAN}
                   </button>
+                </Notice>
+              )}
+              {warnings.length > 0 && (
+                <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                  {warnings.map(w => (
+                    <label key={w.id} className="flex cursor-pointer items-start gap-2 text-amber-900">
+                      <input
+                        type="checkbox"
+                        checked={flow.acked.includes(w.id)}
+                        onChange={() => flow.toggleAck(w.id)}
+                        className={CHECKBOX}
+                      />
+                      <span>{w.text}</span>
+                    </label>
+                  ))}
                 </div>
               )}
-              {warnings.map(w => (
-                <label key={w.id} className="mb-1 flex items-start gap-2">
-                  <input
-                    type="checkbox"
-                    checked={flow.acked.includes(w.id)}
-                    onChange={() => flow.toggleAck(w.id)}
-                    className="mt-1"
-                  />
-                  <span>{w.text}</span>
-                </label>
-              ))}
             </Section>
           )}
 
           {burstable?.burstableApplicable && (
             <Section title="Instance types">
-              {!burstableOffer && (
-                <label className="flex items-start gap-2">
-                  <input
-                    type="checkbox"
-                    checked={burstableOn}
-                    onChange={e => void flow.selectAllowBurstable(e.target.checked)}
-                    disabled={flow.creating || flow.confirming}
-                    className="mt-1"
-                  />
-                  <span>{BURSTABLE_LABEL}</span>
-                </label>
-              )}
-              <p className="mt-1 text-gray-600">{BURSTABLE_HELP}</p>
-              {(burstable.burstableAdded?.length ?? 0) > 0 && (
-                <p className="mt-1">{`Burstable types added: ${(burstable.burstableAdded ?? []).join(', ')}`}</p>
-              )}
+              <div className="rounded-xl border border-[rgba(0,0,0,0.1)] p-3">
+                {!burstableOffer && (
+                  <label className="flex cursor-pointer items-start gap-2 font-medium">
+                    <input
+                      type="checkbox"
+                      checked={burstableOn}
+                      onChange={e => void flow.selectAllowBurstable(e.target.checked)}
+                      disabled={flow.creating || flow.confirming}
+                      className={CHECKBOX}
+                    />
+                    <span>{BURSTABLE_LABEL}</span>
+                  </label>
+                )}
+                <p className={`mt-1.5 text-[12px] leading-relaxed ${MUTED} ${!burstableOffer ? 'pl-6' : ''}`}>{BURSTABLE_HELP}</p>
+                {(burstable.burstableAdded?.length ?? 0) > 0 && (
+                  <p className={`mt-2 font-medium text-indigo-700 ${!burstableOffer ? 'pl-6' : ''}`}>
+                    {`Burstable types added: ${(burstable.burstableAdded ?? []).join(', ')}`}
+                  </p>
+                )}
+              </div>
             </Section>
           )}
           {body.rollout && (
@@ -343,7 +328,7 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
                   .filter(Boolean)
                   .join(', ')}
               </p>
-              {body.rollout.headroom && <p className="text-gray-600">{body.rollout.headroom}</p>}
+              {body.rollout.headroom && <p className={`mt-1 ${MUTED}`}>{body.rollout.headroom}</p>}
             </Section>
           )}
 
@@ -357,15 +342,15 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
                 onSelect={id => void flow.selectProfile(id)}
               />
               {conservativeBlocked && !selectedProfile && (
-                <p className="mt-1 text-gray-600">{blockedReason(desired)}</p>
+                <p className={`mt-2 ${MUTED}`}>{blockedReason(desired)}</p>
               )}
               {body.onDemandFloor && body.onDemandFloor.floorN !== undefined && (
-                <p className="mt-2 text-gray-600">
+                <p className={`mt-2 ${MUTED}`}>
                   {`Standard floor: ${String(body.onDemandFloor.floorN)} standard VMs at this size`}
                 </p>
               )}
               {body.onDemandFloor && body.onDemandFloor.floorN === undefined && (
-                <p className="mt-2 text-gray-600">
+                <p className={`mt-2 ${MUTED}`}>
                   {`On-Demand floor: ${String(body.onDemandFloor.baseCapacity ?? '--')} base, ${String(
                     body.onDemandFloor.onDemandCount ?? '--',
                   )} On-Demand instances at this size`}
@@ -376,20 +361,20 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
 
           {estimates.length > 0 && (
             <Section title="Estimate">
-              <ul>
+              <ul className="space-y-1.5">
                 {estimates.map(e => (
-                  <li key={e.profile} className="mb-1">
+                  <li key={e.profile}>
                     <span className="capitalize">{e.profile.toLowerCase()}</span>
                     {': '}
                     {isProfileBlocked(e) ? (
-                      <span className="text-gray-600">Blocked at this size</span>
+                      <span className={MUTED}>Blocked at this size</span>
                     ) : e.monthlySavings === null ? (
                       NOT_PRICED
                     ) : (
                       <MoneyFigure amount={e.monthlySavings} label="Estimate" perMonth />
                     )}
                     {(e.priceSources ?? []).map((s, i) => (
-                      <span key={i} className="block text-xs text-gray-600">
+                      <span key={i} className={`block text-[11px] ${MUTED}`}>
                         {[s.source, s.version, s.asOf ? `as of ${s.asOf}` : null].filter(Boolean).join(', ')}
                       </span>
                     ))}
@@ -415,30 +400,30 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
 
           <Section title="Risk">
             <p>
-              <strong>{riskLabel(selectedProfile, warnings.length, fullSpotNeeded && flow.fullSpot)}</strong>
+              <strong className={`inline-block rounded-full border px-2.5 py-0.5 text-[12px] ${RISK_CLASS[risk]}`}>{risk}</strong>
             </p>
           </Section>
 
           {fullSpotNeeded && (
-            <label className="mb-3 flex items-start gap-2 text-sm text-black">
+            <label className="mb-4 flex cursor-pointer items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-[13px] font-medium text-red-900">
               <input
                 type="checkbox"
                 checked={flow.fullSpot}
                 onChange={e => flow.setFullSpot(e.target.checked)}
-                className="mt-1"
+                className={CHECKBOX}
               />
               <span>I want this group to run 100% Spot, with no On-Demand floor.</span>
             </label>
           )}
 
-          <label className="block text-sm text-black">
-            <span className="block text-gray-600">Reason (required for platform admins)</span>
+          <label className="block">
+            <span className={`block ${FIELD_LABEL}`}>Reason (required for platform admins)</span>
             <input
               type="text"
               value={flow.reason}
               maxLength={500}
               onChange={e => flow.setReason(e.target.value)}
-              className="mt-1 w-full rounded border border-gray-400 px-2 py-1"
+              className={`mt-1.5 w-full ${INPUT}`}
             />
           </label>
         </>

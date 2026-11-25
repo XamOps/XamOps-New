@@ -11,9 +11,9 @@ export const MONEY_LABELS = [
 ] as const;
 export type MoneyLabelText = (typeof MONEY_LABELS)[number];
 
-/** A small grey outlined tag. */
+/** A small neutral outlined tag. */
 export const MoneyLabel: React.FC<{ label: MoneyLabelText }> = ({ label }) => (
-  <span className="ml-2 inline-block rounded border border-gray-400 px-1.5 py-0.5 text-xs font-normal text-gray-600 align-middle">
+  <span className="ml-2 inline-block rounded border border-[rgba(0,0,0,0.12)] bg-white px-1.5 py-0.5 align-middle font-sans text-[10px] font-semibold leading-none tracking-wide text-[rgba(0,0,0,0.6)]">
     {label}
   </span>
 );

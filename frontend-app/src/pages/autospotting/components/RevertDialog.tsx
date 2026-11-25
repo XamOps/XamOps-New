@@ -3,8 +3,10 @@ import type { GroupRow } from '../../../api/autospottingApi';
 import type { ProviderAdapter } from '../adapters/types';
 import AsDialog from './AsDialog';
 import { usePlanFlow } from './usePlanFlow';
-import { diffFieldLabel, diffValue } from './diffText';
 import { SWITCH_UNREADABLE_TEXT, warningText } from './reasons';
+import { Icon } from '@iconify/react';
+import { BTN_DANGER, BTN_PRIMARY, BTN_SECONDARY, CHECKBOX, FIELD_LABEL, INPUT, MUTED, Notice } from './theme';
+import { BuildingPlan, DiffTable, Outcome } from './dialogParts';
 
 interface RevertDialogProps {
   accountId: number | null;
@@ -52,7 +54,7 @@ export const RevertDialog: React.FC<RevertDialogProps> = ({
       footer={
         <>
           {!canConfirm && (
-            <span id={reasonId} className="mr-auto text-xs text-gray-600">
+            <span id={reasonId} className={`mr-auto text-[12px] ${MUTED}`}>
               {!plan ? 'The plan is loading.' : !allAcked ? 'Tick every acknowledgment.' : 'Confirming.'}
             </span>
           )}
@@ -60,7 +62,7 @@ export const RevertDialog: React.FC<RevertDialogProps> = ({
             type="button"
             onClick={onClose}
             disabled={flow.confirming}
-            className="rounded border border-gray-400 px-3 py-1 text-sm text-black disabled:opacity-50"
+            className={BTN_SECONDARY}
           >
             Cancel
           </button>
@@ -68,7 +70,7 @@ export const RevertDialog: React.FC<RevertDialogProps> = ({
             <button
               type="button"
               onClick={() => void flow.refreshPlan()}
-              className="rounded border border-black bg-black px-3 py-1 text-sm text-white"
+              className={BTN_PRIMARY}
             >
               Refresh plan
             </button>
@@ -78,7 +80,7 @@ export const RevertDialog: React.FC<RevertDialogProps> = ({
               disabled={!canConfirm}
               aria-describedby={!canConfirm ? reasonId : undefined}
               onClick={() => void onConfirm()}
-              className="rounded border border-black bg-black px-3 py-1 text-sm text-white disabled:border-gray-300 disabled:bg-gray-200 disabled:text-gray-500"
+              className={plan?.dryRun ? BTN_PRIMARY : BTN_DANGER}
             >
               {plan?.dryRun ? 'Run dry run' : 'Revert'}
             </button>
@@ -86,98 +88,69 @@ export const RevertDialog: React.FC<RevertDialogProps> = ({
         </>
       }
     >
-      {flow.creating && !plan && (
-        <p role="status" className="text-sm text-gray-600">
-          Building the plan
-        </p>
-      )}
+      {flow.creating && !plan && <BuildingPlan />}
 
       {switchUnreadable && (
-        <p role="alert" className="mb-3 text-sm font-medium text-black">
+        <Notice tone="danger" role="alert" className="mb-4">
           {SWITCH_UNREADABLE_TEXT}
-        </p>
+        </Notice>
       )}
       {needsPermission && (
-        <div role="alert" className="mb-3 rounded border-2 border-black p-3 text-sm text-black">
+        <Notice tone="warning" icon="mdi:shield-lock-outline" role="alert" className="mb-4">
           <p>{guidance.text}</p>
           {guidance.href && (
-            <a href={guidance.href} className="mt-2 inline-block rounded border border-black px-3 py-1">
+            <a href={guidance.href} className={`mt-2 ${BTN_PRIMARY}`}>
               {guidance.label}
             </a>
           )}
-        </div>
+        </Notice>
       )}
       {flow.createError && !needsPermission && !switchUnreadable ? (
-        <p role="alert" className="mb-3 text-sm font-medium text-black">
+        <Notice tone="danger" role="alert" className="mb-4">
           {flow.createErrorText}
-        </p>
+        </Notice>
       ) : null}
 
-      {flow.outcome && (
-        <div role="alert" className="mb-3 rounded border-2 border-black p-3 text-sm text-black">
-          {flow.outcome.kind === 'stale' && <p className="font-bold">{flow.outcome.title}</p>}
-          <p>{flow.outcome.message}</p>
-          {flow.outcome.kind === 'busy' && onViewProgress && (
-            <button type="button" onClick={onViewProgress} className="mt-2 rounded border border-black px-3 py-1">
-              Open Progress
-            </button>
-          )}
-        </div>
-      )}
+      {flow.outcome && <Outcome outcome={flow.outcome} onViewProgress={onViewProgress} />}
 
       {plan && body && (
-        <div className="text-sm text-black">
+        <div className="text-[13px] text-[rgba(0,0,0,0.88)]">
           {inexact ? (
-            <p className="mb-3 font-bold">Exact restore is not possible</p>
+            <Notice tone="warning" className="mb-4">
+              <p className="font-bold">Exact restore is not possible</p>
+            </Notice>
           ) : (
-            <p className="mb-3">Revert restores the saved original configuration exactly.</p>
+            <p className="mb-4 flex items-center gap-1.5">
+              <Icon icon="mdi:check-circle-outline" width={15} aria-hidden="true" className="text-emerald-700" />
+              <span>Revert restores the saved original configuration exactly.</span>
+            </p>
           )}
           {body.diff.length > 0 && (
-            <table className="mb-3 w-full text-left">
-              <caption className="sr-only">Current and restored configuration</caption>
-              <thead>
-                <tr className="border-b border-gray-300 text-gray-600">
-                  <th scope="col" className="py-1 pr-2 font-medium">
-                    Field
-                  </th>
-                  <th scope="col" className="py-1 pr-2 font-medium">
-                    Current
-                  </th>
-                  <th scope="col" className="py-1 font-medium">
-                    After revert
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {body.diff.map(d => (
-                  <tr key={d.field} className="border-b border-gray-100">
-                    <td className="py-1 pr-2">{diffFieldLabel(d.field)}</td>
-                    <td className="py-1 pr-2">{diffValue(d.field, d.from, 'from')}</td>
-                    <td className="py-1">{diffValue(d.field, d.to, 'to')}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DiffTable caption="Current and restored configuration" targetHeader="After revert" diff={body.diff} className="mb-4" />
           )}
-          {warnings.map(w => (
-            <label key={w.id} className="mb-1 flex items-start gap-2">
-              <input
-                type="checkbox"
-                checked={flow.acked.includes(w.id)}
-                onChange={() => flow.toggleAck(w.id)}
-                className="mt-1"
-              />
-              <span>{w.text}</span>
-            </label>
-          ))}
-          <label className="mt-3 block">
-            <span className="block text-gray-600">Reason (required for platform admins)</span>
+          {warnings.length > 0 && (
+            <div className="mb-4 space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+              {warnings.map(w => (
+                <label key={w.id} className="flex cursor-pointer items-start gap-2 text-amber-900">
+                  <input
+                    type="checkbox"
+                    checked={flow.acked.includes(w.id)}
+                    onChange={() => flow.toggleAck(w.id)}
+                    className={CHECKBOX}
+                  />
+                  <span>{w.text}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <label className="block">
+            <span className={`block ${FIELD_LABEL}`}>Reason (required for platform admins)</span>
             <input
               type="text"
               value={flow.reason}
               maxLength={500}
               onChange={e => flow.setReason(e.target.value)}
-              className="mt-1 w-full rounded border border-gray-400 px-2 py-1"
+              className={`mt-1.5 w-full ${INPUT}`}
             />
           </label>
         </div>

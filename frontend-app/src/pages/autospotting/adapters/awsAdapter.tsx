@@ -35,9 +35,9 @@ const distributionText = (d: unknown): string | null => {
 };
 
 const Field: React.FC<{ label: string; value: string | null }> = ({ label, value }) => (
-  <div className="flex justify-between gap-4 py-1.5 border-b border-gray-100 text-sm">
-    <dt className="text-gray-500">{label}</dt>
-    <dd className="text-black text-right">{value ?? NOT_READ}</dd>
+  <div className="flex justify-between gap-4 border-b border-[rgba(0,0,0,0.06)] py-2 text-[13px]">
+    <dt className="text-[rgba(0,0,0,0.55)]">{label}</dt>
+    <dd className="text-right font-medium text-[rgba(0,0,0,0.88)]">{value ?? NOT_READ}</dd>
   </div>
 );
 

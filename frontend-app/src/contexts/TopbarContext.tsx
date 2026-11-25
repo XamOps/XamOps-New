@@ -115,3 +115,6 @@ export const useTopbarActions = () => {
     }
     return dispatch;
 };
+
+// Same as useTopbarActions, but returns null outside a TopbarProvider (pages rendered standalone in tests).
+export const useOptionalTopbarActions = () => useContext(TopbarDispatchContext) ?? null;

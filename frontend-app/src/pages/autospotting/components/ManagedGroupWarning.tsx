@@ -23,7 +23,7 @@ export const ManagedGroupWarning: React.FC<ManagedGroupWarningProps> = ({
 }) => {
   const id = useId();
   return (
-    <span role="group" aria-label="AutoSpotting warning" className="mt-3 block border border-gray-400 bg-gray-50 p-3 text-black">
+    <span role="group" aria-label="AutoSpotting warning" className="mt-3 block rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
       <span className="block font-semibold">AutoSpotting manages this group</span>
       <span className="mt-1 flex items-center gap-2">
         <span>State</span>
@@ -37,13 +37,14 @@ export const ManagedGroupWarning: React.FC<ManagedGroupWarningProps> = ({
             Deleting it ends AutoSpotting management and its revert path. The original configuration can&apos;t be
             restored afterwards.
           </span>
-          <a href="/autospotting" className="mt-2 inline-block underline">
+          <a href="/autospotting" className="mt-2 inline-block font-semibold text-indigo-700 underline">
             Revert first
           </a>
           <span className="mt-2 flex items-start gap-2">
             <input
               id={id}
               type="checkbox"
+              className="mt-0.5 h-4 w-4 shrink-0 accent-indigo-600"
               checked={acknowledged}
               onChange={e => onAcknowledgedChange(e.target.checked)}
             />

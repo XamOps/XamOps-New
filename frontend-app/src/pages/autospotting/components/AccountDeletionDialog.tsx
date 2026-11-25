@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { getDeletionCheck, type DeletionCheck, type ManagedGroupRef } from '../../../api/autospottingApi';
 import AsDialog from './AsDialog';
 import RevertAllBatch from './RevertAllBatch';
+import { Icon } from '@iconify/react';
+import { BTN_DANGER, BTN_SECONDARY, MUTED, Notice } from './theme';
 
 interface AccountDeletionDialogProps {
   accountId: number;
@@ -14,11 +16,11 @@ interface AccountDeletionDialogProps {
 }
 
 const List: React.FC<{ groups: ManagedGroupRef[] }> = ({ groups }) => (
-  <ul className="divide-y divide-gray-200 border border-gray-200">
+  <ul className="divide-y divide-[rgba(0,0,0,0.06)] overflow-hidden rounded-xl border border-[rgba(0,0,0,0.12)]">
     {groups.map(g => (
-      <li key={g.groupId} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-        <span className="truncate font-mono">{g.groupKey}</span>
-        <span className="shrink-0 text-gray-600">{g.state.toLowerCase()}</span>
+      <li key={g.groupId} className="flex items-center justify-between gap-3 px-4 py-2.5 text-[13px]">
+        <span className="truncate font-mono text-[12px]">{g.groupKey}</span>
+        <span className={`shrink-0 text-[12px] ${MUTED}`}>{g.state.toLowerCase()}</span>
       </li>
     ))}
   </ul>
@@ -78,14 +80,14 @@ export const AccountDeletionDialog: React.FC<AccountDeletionDialogProps> = ({
       onClose={onClose}
       footer={
         <>
-          <button type="button" onClick={onClose} className="rounded border border-gray-400 px-3 py-1.5 text-sm">
+          <button type="button" onClick={onClose} className={BTN_SECONDARY}>
             Cancel
           </button>
           {convertedCount > 0 && (
             <button
               type="button"
               onClick={() => setReverting(true)}
-              className="rounded border border-black px-3 py-1.5 text-sm"
+              className={BTN_SECONDARY}
             >
               Revert all
             </button>
@@ -94,29 +96,35 @@ export const AccountDeletionDialog: React.FC<AccountDeletionDialogProps> = ({
             type="button"
             onClick={onDelete}
             disabled={blocked}
-            className="rounded border border-black bg-black px-3 py-1.5 text-sm text-white disabled:border-gray-300 disabled:bg-gray-300"
+            className={BTN_DANGER}
           >
             Delete account
           </button>
         </>
       }
     >
-      {!check && !error && <p className="text-sm text-gray-600">Checking this account…</p>}
+      {!check && !error && <p className={`text-[13px] ${MUTED}`}>Checking this account…</p>}
       {error && (
-        <p role="alert" className="text-sm text-black">
+        <Notice tone="danger" role="alert">
           {error}
-        </p>
+        </Notice>
       )}
       {check && check.blocking.length > 0 && (
-        <section className="mb-4">
-          <h3 className="mb-1 text-sm font-semibold">Revert these groups before deleting</h3>
+        <section className="mb-5">
+          <h3 className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-red-700">
+            <Icon icon="mdi:block-helper" width={14} aria-hidden="true" />
+            Revert these groups before deleting
+          </h3>
           <List groups={check.blocking} />
         </section>
       )}
       {check && check.stillConverted.length > 0 && (
         <section>
-          <h3 className="mb-1 text-sm font-semibold">Still converted</h3>
-          <p className="mb-2 text-sm text-gray-600">
+          <h3 className="mb-1 flex items-center gap-1.5 text-[13px] font-semibold text-amber-800">
+            <Icon icon="mdi:alert-outline" width={14} aria-hidden="true" />
+            Still converted
+          </h3>
+          <p className={`mb-2 text-[13px] ${MUTED}`}>
             These groups do not block deletion. If you delete the account they stay as they are and can no longer be
             reverted from XamOps. Revert all includes them.
           </p>

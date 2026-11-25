@@ -12,6 +12,7 @@ import {
   redriveEventsDlq,
   type DlqSummary,
 } from '../../api/autospottingApi';
+import { BTN_PRIMARY, BTN_SECONDARY, INPUT, TABLE, TD_SM, TH_SM, TR } from '../../pages/autospotting/components/theme';
 
 const MAX_REASON = 500;
 const when = (iso: string | null): string => (iso ? iso.replace('T', ' ').replace(/\.\d+Z$|Z$/, ' UTC') : '');
@@ -68,67 +69,67 @@ const DlqPanel: React.FC = () => {
   };
 
   return (
-    <section aria-label="Event DLQ" className="rounded border border-gray-300 bg-white p-4">
+    <section aria-label="Event DLQ" className="rounded-xl border border-[rgba(0,0,0,0.12)] bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold text-black">Event DLQ</h2>
-        <button type="button" onClick={() => void load()} className="rounded border border-gray-400 bg-white px-3 py-1 text-sm text-black">
+        <h2 className="text-[14px] font-bold text-[rgba(0,0,0,0.88)]">Event DLQ</h2>
+        <button type="button" onClick={() => void load()} className={BTN_SECONDARY}>
           Refresh
         </button>
       </div>
-      {loadError && <p role="alert" className="mt-2 text-sm text-red-700">{loadError}</p>}
+      {loadError && <p role="alert" className="mt-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-900">{loadError}</p>}
       {summary && !summary.configured && (
-        <p className="mt-2 text-sm text-gray-600">No events queue in this environment.</p>
+        <p className="mt-2 text-[13px] text-[rgba(0,0,0,0.55)]">No events queue in this environment.</p>
       )}
       {summary && summary.configured && (
         <>
-          <p className="mt-2 text-sm text-gray-700">
+          <p className="mt-2 text-[13px] text-[rgba(0,0,0,0.7)]">
             Queue {summary.queue}: <span data-testid="dlq-depth">{summary.depth}</span> messages
             {summary.redriveRunning ? ' (replay running)' : ''}
           </p>
           {summary.messages.length > 0 && (
-            <table className="mt-3 w-full border-collapse text-sm">
+            <table className={`mt-3 border-collapse ${TABLE}`}>
               <thead>
-                <tr className="border-b border-gray-300 text-left text-gray-600">
-                  <th className="py-1 pr-3 font-medium">Type</th>
-                  <th className="py-1 pr-3 font-medium">Account</th>
-                  <th className="py-1 pr-3 font-medium">Sent</th>
-                  <th className="py-1 font-medium">Receives</th>
+                <tr className="border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)]">
+                  <th className={TH_SM}>Type</th>
+                  <th className={TH_SM}>Account</th>
+                  <th className={TH_SM}>Sent</th>
+                  <th className={TH_SM}>Receives</th>
                 </tr>
               </thead>
               <tbody>
                 {summary.messages.map(m => (
-                  <tr key={m.messageId} className="border-b border-gray-200">
-                    <td className="py-1 pr-3">{m.detailType ?? 'Unreadable'}</td>
-                    <td className="py-1 pr-3">{m.account ?? '-'}</td>
-                    <td className="py-1 pr-3">{when(m.sentAt)}</td>
-                    <td className="py-1">{m.receiveCount}</td>
+                  <tr key={m.messageId} className={TR}>
+                    <td className={TD_SM}>{m.detailType ?? 'Unreadable'}</td>
+                    <td className={TD_SM}>{m.account ?? '-'}</td>
+                    <td className={TD_SM}>{when(m.sentAt)}</td>
+                    <td className={TD_SM}>{m.receiveCount}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
           <div className="mt-4 flex items-end gap-2">
-            <label className="flex flex-1 flex-col text-sm text-gray-700">
+            <label className="flex flex-1 flex-col text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.55)]">
               Reason
               <input
                 type="text"
                 value={reason}
                 maxLength={MAX_REASON}
                 onChange={e => setReason(e.target.value)}
-                className="mt-1 rounded border border-gray-400 px-2 py-1 text-black"
+                className={`mt-1 ${INPUT}`}
               />
             </label>
             <button
               type="button"
               disabled={!canReplay}
               onClick={() => void replay()}
-              className="rounded border border-black bg-black px-3 py-1 text-sm text-white disabled:border-gray-300 disabled:bg-gray-200 disabled:text-gray-500"
+              className={BTN_PRIMARY}
             >
               Replay
             </button>
           </div>
-          {notice && <p role="status" className="mt-2 text-sm text-gray-700">{notice}</p>}
-          {formError && <p role="alert" className="mt-2 text-sm text-red-700">{formError}</p>}
+          {notice && <p role="status" className="mt-2 text-[13px] text-[rgba(0,0,0,0.7)]">{notice}</p>}
+          {formError && <p role="alert" className="mt-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-900">{formError}</p>}
         </>
       )}
     </section>

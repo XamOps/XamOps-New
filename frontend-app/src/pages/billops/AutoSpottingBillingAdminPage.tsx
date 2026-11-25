@@ -19,6 +19,9 @@ import {
   type ContractRow,
   type GoLiveRow,
 } from '../../api/autospottingApi';
+import { AriaTabGroup } from '../../components/ui';
+import { useOptionalTopbarActions } from '../../contexts/TopbarContext';
+import { BTN_DANGER, BTN_PRIMARY, BTN_SECONDARY, INPUT, TABLE, TD_SM, TH_SM, TR } from '../autospotting/components/theme';
 const MAX_REASON = 500;
 const PROVIDERS = ['AWS', 'GCP'] as const;
 const when = (iso: string | null): string => (iso ? iso.replace('T', ' ').replace(/\.\d+Z$|Z$/, ' UTC') : 'Open');
@@ -38,9 +41,10 @@ const state = (c: ContractRow): string => {
   if (c.inForce) return 'In force';
   return Date.parse(c.effectiveFrom) > Date.now() ? 'Scheduled' : 'Ended';
 };
-const inputClass = 'rounded border border-gray-400 px-2 py-1 text-black';
-const primaryButton =
-  'rounded border border-black bg-black px-3 py-1 text-white disabled:border-gray-300 disabled:bg-gray-300';
+const inputClass = INPUT;
+const primaryButton = BTN_PRIMARY;
+const CARD_CLASS = 'rounded-xl border border-[rgba(0,0,0,0.12)] bg-white p-5 shadow-sm';
+const H3 = 'mb-3 text-[14px] font-bold text-[rgba(0,0,0,0.88)]';
 const ContractsTab: React.FC = () => {
   const [clientText, setClientText] = useState('');
   const [clientId, setClientId] = useState<number | null>(null);
@@ -143,18 +147,18 @@ const ContractsTab: React.FC = () => {
   return (
     <section aria-label="Contracts" className="space-y-5">
       {notice && (
-        <p role="status" className="rounded border border-gray-400 bg-gray-100 px-3 py-2 text-sm text-black">
+        <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-900">
           {notice}
         </p>
       )}
       {error && (
-        <p role="alert" className="rounded border border-gray-400 px-3 py-2 text-sm text-black">
+        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-900">
           {error}
         </p>
       )}
-      <div className="rounded-xl border border-[rgba(0,0,0,0.12)] bg-white p-5">
-        <h3 className="mb-3 text-[14px] font-bold text-black">Contracts</h3>
-        <div className="flex flex-wrap items-center gap-2 text-sm">
+      <div className={CARD_CLASS}>
+        <h3 className={H3}>Contracts</h3>
+        <div className="flex flex-wrap items-center gap-2 text-[13px]">
           <input
             aria-label="Client id"
             value={clientText}
@@ -163,38 +167,50 @@ const ContractsTab: React.FC = () => {
             placeholder="Client id"
             className={`w-40 ${inputClass}`}
           />
-          <button type="button" onClick={find} className="rounded border border-black px-3 py-1">
+          <button type="button" onClick={find} className={BTN_SECONDARY}>
             Load
           </button>
         </div>
         {contracts !== null &&
           (contracts.length === 0 ? (
-            <p className="mt-3 text-sm text-gray-600">No contracts for this client.</p>
+            <p className="mt-3 text-[13px] text-[rgba(0,0,0,0.55)]">No contracts for this client.</p>
           ) : (
-            <table className="mt-3 w-full text-left text-sm text-black">
-              <thead className="text-xs text-gray-600">
+            <table className={`mt-3 ${TABLE}`}>
+              <thead className="border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)]">
                 <tr>
-                  <th className="py-1 pr-3">Share %</th>
-                  <th className="py-1 pr-3">Monthly cap (USD)</th>
-                  <th className="py-1 pr-3">Discount</th>
-                  <th className="py-1 pr-3">From</th>
-                  <th className="py-1 pr-3">To</th>
-                  <th className="py-1 pr-3">State</th>
-                  <th className="py-1" />
+                  <th className={TH_SM}>Share %</th>
+                  <th className={TH_SM}>Monthly cap (USD)</th>
+                  <th className={TH_SM}>Discount</th>
+                  <th className={TH_SM}>From</th>
+                  <th className={TH_SM}>To</th>
+                  <th className={TH_SM}>State</th>
+                  <th className={TH_SM} />
                 </tr>
               </thead>
               <tbody>
                 {contracts.map(c => (
-                  <tr key={c.id} className="border-t border-gray-200">
-                    <td className="py-2 pr-3">{c.sharePct}</td>
-                    <td className="py-2 pr-3">{c.monthlyCap ? c.monthlyCap.amount : 'None'}</td>
-                    <td className="py-2 pr-3">
+                  <tr key={c.id} className={TR}>
+                    <td className={TD_SM}>{c.sharePct}</td>
+                    <td className={TD_SM}>{c.monthlyCap ? c.monthlyCap.amount : 'None'}</td>
+                    <td className={TD_SM}>
                       {c.discountDeclaration === 'DECLARED' ? `Declared ${c.declaredDiscountPct}%` : 'Not declared'}
                     </td>
-                    <td className="whitespace-nowrap py-2 pr-3">{when(c.effectiveFrom)}</td>
-                    <td className="whitespace-nowrap py-2 pr-3">{when(c.effectiveTo)}</td>
-                    <td className="py-2 pr-3">{state(c)}</td>
-                    <td className="py-2">
+                    <td className={`${TD_SM} whitespace-nowrap`}>{when(c.effectiveFrom)}</td>
+                    <td className={`${TD_SM} whitespace-nowrap`}>{when(c.effectiveTo)}</td>
+                    <td className={TD_SM}>
+                      <span
+                        className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                          state(c) === 'In force'
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                            : state(c) === 'Scheduled'
+                              ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                              : 'border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.03)] text-[rgba(0,0,0,0.6)]'
+                        }`}
+                      >
+                        {state(c)}
+                      </span>
+                    </td>
+                    <td className={TD_SM}>
                       {state(c) !== 'Ended' && (
                         <button
                           type="button"
@@ -202,7 +218,7 @@ const ContractsTab: React.FC = () => {
                             keyRef.current = newIdempotencyKey();
                             setEnding(c.id);
                           }}
-                          className="rounded border border-black px-3 py-1"
+                          className={BTN_SECONDARY}
                         >
                           End contract
                         </button>
@@ -214,7 +230,7 @@ const ContractsTab: React.FC = () => {
             </table>
           ))}
         {ending !== null && (
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px]">
             <input
               aria-label="End at"
               type="datetime-local"
@@ -222,7 +238,7 @@ const ContractsTab: React.FC = () => {
               onChange={e => setEndAt(e.target.value)}
               className={inputClass}
             />
-            <span className="text-gray-600">Blank ends it now.</span>
+            <span className="text-[rgba(0,0,0,0.55)]">Blank ends it now.</span>
             <input
               aria-label="End reason"
               value={endReason}
@@ -235,22 +251,22 @@ const ContractsTab: React.FC = () => {
               type="button"
               disabled={endReason.trim().length === 0 || busy}
               onClick={() => void end(ending)}
-              className={primaryButton}
+              className={BTN_DANGER}
             >
               Confirm end
             </button>
-            <button type="button" onClick={() => setEnding(null)} className="rounded border border-gray-400 px-3 py-1">
+            <button type="button" onClick={() => setEnding(null)} className={BTN_SECONDARY}>
               Cancel
             </button>
           </div>
         )}
       </div>
-      <div className="rounded-xl border border-[rgba(0,0,0,0.12)] bg-white p-5">
-        <h3 className="mb-3 text-[14px] font-bold text-black">New contract</h3>
+      <div className={CARD_CLASS}>
+        <h3 className={H3}>New contract</h3>
         {clientId === null ? (
-          <p className="text-sm text-gray-600">Load a client first.</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.55)]">Load a client first.</p>
         ) : (
-          <div className="space-y-3 text-sm text-black">
+          <div className="space-y-3 text-[13px] text-[rgba(0,0,0,0.88)]">
             <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2">
                 Share %
@@ -262,9 +278,9 @@ const ContractsTab: React.FC = () => {
               </label>
             </div>
             <fieldset className="space-y-1">
-              <legend className="text-gray-600">Discount</legend>
+              <legend className="text-[rgba(0,0,0,0.55)]">Discount</legend>
               <label className="flex items-center gap-2">
-                <input type="radio" name="discount" checked={declaration === 'DECLARED'} onChange={() => setDeclaration('DECLARED')} />
+                <input type="radio" className="h-4 w-4 accent-indigo-600" name="discount" checked={declaration === 'DECLARED'} onChange={() => setDeclaration('DECLARED')} />
                 Discount declared
                 <input
                   aria-label="Declared discount %"
@@ -273,11 +289,11 @@ const ContractsTab: React.FC = () => {
                   disabled={declaration !== 'DECLARED'}
                   onChange={e => setDiscount(e.target.value)}
                   placeholder="0 means none"
-                  className={`w-32 ${inputClass} disabled:bg-gray-100`}
+                  className={`w-32 ${inputClass} disabled:bg-[rgba(0,0,0,0.04)]`}
                 />
               </label>
               <label className="flex items-center gap-2">
-                <input type="radio" name="discount" checked={declaration === 'NOT_DECLARED'} onChange={() => setDeclaration('NOT_DECLARED')} />
+                <input type="radio" className="h-4 w-4 accent-indigo-600" name="discount" checked={declaration === 'NOT_DECLARED'} onChange={() => setDeclaration('NOT_DECLARED')} />
                 Not declared
               </label>
             </fieldset>
@@ -290,7 +306,7 @@ const ContractsTab: React.FC = () => {
                 To
                 <input aria-label="Effective to" type="datetime-local" value={to} onChange={e => setTo(e.target.value)} className={inputClass} />
               </label>
-              <span className="text-gray-600">Blank from means now. Never in the past.</span>
+              <span className="text-[rgba(0,0,0,0.55)]">Blank from means now. Never in the past.</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <input aria-label="Reason" value={reason} maxLength={MAX_REASON} onChange={e => setReason(e.target.value)} placeholder="Reason" className={`w-72 ${inputClass}`} />
@@ -343,38 +359,38 @@ const GoLiveTab: React.FC = () => {
   return (
     <section aria-label="Go-live" className="space-y-5">
       {notice && (
-        <p role="status" className="rounded border border-gray-400 bg-gray-100 px-3 py-2 text-sm text-black">
+        <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-900">
           {notice}
         </p>
       )}
       {error && (
-        <p role="alert" className="rounded border border-gray-400 px-3 py-2 text-sm text-black">
+        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-900">
           {error}
         </p>
       )}
-      <div className="rounded-xl border border-[rgba(0,0,0,0.12)] bg-white p-5">
-        <h3 className="mb-3 text-[14px] font-bold text-black">Go-live</h3>
+      <div className={CARD_CLASS}>
+        <h3 className={H3}>Go-live</h3>
         {rows === null ? (
-          <p className="text-sm text-gray-600">Loading go-live.</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.55)]">Loading go-live.</p>
         ) : (
-          <table className="w-full text-left text-sm text-black">
-            <thead className="text-xs text-gray-600">
+          <table className={TABLE}>
+            <thead className="border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)]">
               <tr>
-                <th className="py-1 pr-3">Cloud</th>
-                <th className="py-1 pr-3">Go-live</th>
-                <th className="py-1 pr-3">Set by</th>
-                <th className="py-1" />
+                <th className={TH_SM}>Cloud</th>
+                <th className={TH_SM}>Go-live</th>
+                <th className={TH_SM}>Set by</th>
+                <th className={TH_SM} />
               </tr>
             </thead>
             <tbody>
               {PROVIDERS.map(p => {
                 const row = rows.find(r => r.provider === p);
                 return (
-                  <tr key={p} className="border-t border-gray-200">
-                    <td className="py-2 pr-3 font-medium">{p}</td>
-                    <td className="py-2 pr-3">{row ? when(row.goLiveAt) : 'Not set'}</td>
-                    <td className="py-2 pr-3 text-gray-600">{row ? row.setBy : ''}</td>
-                    <td className="py-2">
+                  <tr key={p} className={TR}>
+                    <td className={`${TD_SM} font-medium`}>{p}</td>
+                    <td className={TD_SM}>{row ? when(row.goLiveAt) : 'Not set'}</td>
+                    <td className={`${TD_SM} text-[rgba(0,0,0,0.55)]`}>{row ? row.setBy : ''}</td>
+                    <td className={TD_SM}>
                       {!row && (
                         <button
                           type="button"
@@ -382,7 +398,7 @@ const GoLiveTab: React.FC = () => {
                             keyRef.current = newIdempotencyKey();
                             setSetting(p);
                           }}
-                          className="rounded border border-black px-3 py-1"
+                          className={BTN_SECONDARY}
                         >
                           {`Set ${p} go-live`}
                         </button>
@@ -395,14 +411,14 @@ const GoLiveTab: React.FC = () => {
           </table>
         )}
         {setting !== null && (
-          <div className="mt-3 space-y-2 text-sm text-black">
-            <p>
+          <div className="mt-3 space-y-2 text-[13px] text-[rgba(0,0,0,0.88)]">
+            <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900">
               No billable entry will cover usage before this instant, and nothing is back-filled. It is set once
               and cannot be changed.
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <input aria-label="Go-live at" type="datetime-local" value={at} onChange={e => setAt(e.target.value)} className={inputClass} />
-              <span className="text-gray-600">Blank sets it now.</span>
+              <span className="text-[rgba(0,0,0,0.55)]">Blank sets it now.</span>
               <input aria-label="Reason" value={reason} maxLength={MAX_REASON} onChange={e => setReason(e.target.value)} placeholder="Reason" className={`w-72 ${inputClass}`} />
               <button
                 type="button"
@@ -412,7 +428,7 @@ const GoLiveTab: React.FC = () => {
               >
                 {`Confirm ${setting} go-live`}
               </button>
-              <button type="button" onClick={() => setSetting(null)} className="rounded border border-gray-400 px-3 py-1">
+              <button type="button" onClick={() => setSetting(null)} className={BTN_SECONDARY}>
                 Cancel
               </button>
             </div>
@@ -422,21 +438,35 @@ const GoLiveTab: React.FC = () => {
     </section>
   );
 };
+const BillingHeader: React.FC = () => {
+  const topbar = useOptionalTopbarActions();
+  useEffect(() => {
+    if (!topbar) return undefined;
+    topbar.setActions(
+      <div className="flex items-center gap-2">
+        <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.55)]">AutoSpotting billing</span>
+      </div>,
+    );
+    return () => topbar.clearActions();
+  }, [topbar]);
+  return null;
+};
 const AutoSpottingBillingAdminPage: React.FC = () => {
   const [tab, setTab] = useState<'contracts' | 'golive'>('contracts');
-  const tabClass = (active: boolean) =>
-    `rounded border px-3 py-1 text-sm ${active ? 'border-black bg-black text-white' : 'border-gray-400 bg-white text-black'}`;
   return (
-    <main className="flex-1 space-y-4 px-6 pt-4 pb-6">
-      <h2 className="text-[16px] font-bold text-black">AutoSpotting billing</h2>
-      <nav aria-label="AutoSpotting billing sections" className="flex gap-2">
-        <button type="button" aria-pressed={tab === 'contracts'} onClick={() => setTab('contracts')} className={tabClass(tab === 'contracts')}>
-          Contracts
-        </button>
-        <button type="button" aria-pressed={tab === 'golive'} onClick={() => setTab('golive')} className={tabClass(tab === 'golive')}>
-          Go-live
-        </button>
-      </nav>
+    <main className="flex-1 px-6 pt-4 pb-6">
+      <BillingHeader />
+      <AriaTabGroup
+        tabs={[
+          { id: 'contracts', label: 'Contracts', icon: 'mdi:file-sign' },
+          { id: 'golive', label: 'Go-live', icon: 'mdi:rocket-launch-outline' },
+        ]}
+        selectedKey={tab}
+        onSelectionChange={k => setTab(k as 'contracts' | 'golive')}
+        label="AutoSpotting billing sections"
+        className="mb-5"
+      />
       {tab === 'contracts' ? <ContractsTab /> : <GoLiveTab />}
     </main>
   );

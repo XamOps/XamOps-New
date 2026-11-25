@@ -163,7 +163,12 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ mig, accountId, onClose, onSa
                                         <span className={`px-3 py-1 rounded-full text-[11px] font-bold border ${config.isSpotEnabled
                                             ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                             : 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.45)] border-[rgba(0,0,0,0.08)]'}`}>
-                                            {config.isSpotEnabled ? '⚡ SPOT' : 'ON-DEMAND'}
+                                            {config.isSpotEnabled ? (
+                                                <span className="inline-flex items-center gap-1">
+                                                    <Icon icon="mdi:lightning-bolt" width={12} aria-hidden="true" />
+                                                    SPOT
+                                                </span>
+                                            ) : 'ON-DEMAND'}
                                         </span>
                                     </div>
 

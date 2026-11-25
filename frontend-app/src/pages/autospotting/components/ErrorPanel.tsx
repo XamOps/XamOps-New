@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import type { Operation } from '../../../api/autospottingApi';
 import type { GuidanceLink } from '../adapters/types';
+import { Icon } from '@iconify/react';
+import { BTN_PRIMARY, BTN_SECONDARY, BTN_SMALL } from './theme';
 
 const CopyButton: React.FC<{ value: string; label: string }> = ({ value, label }) => {
   const [done, setDone] = useState(false);
@@ -8,12 +10,13 @@ const CopyButton: React.FC<{ value: string; label: string }> = ({ value, label }
     <button
       type="button"
       aria-label={`Copy ${label}`}
-      className="ml-2 rounded border border-gray-400 px-2 py-0.5 text-xs text-gray-600"
+      className={`ml-2 ${BTN_SMALL}`}
       onClick={() => {
         void navigator.clipboard?.writeText(value);
         setDone(true);
       }}
     >
+      <Icon icon={done ? 'mdi:check' : 'mdi:content-copy'} width={11} aria-hidden="true" />
       {done ? 'Copied' : 'Copy'}
     </button>
   );
@@ -49,12 +52,15 @@ export const ErrorPanel: React.FC<ErrorPanelProps> = ({
 }) => {
   const local = when ? new Date(when) : null;
   return (
-    <section aria-label="Error details" className="rounded border-2 border-black bg-white p-4 text-sm text-black">
-      <h3 className="font-bold">{title}</h3>
+    <section aria-label="Error details" className="rounded-xl border border-red-200 bg-red-50 p-4 text-[13px] text-red-900">
+      <h3 className="flex items-center gap-1.5 font-bold">
+        <Icon icon="mdi:alert-circle-outline" width={16} aria-hidden="true" className="text-red-700" />
+        {title}
+      </h3>
       {step && <p className="mt-1">{`Step: ${step}`}</p>}
       {code && <p className="mt-1">{`Code: ${code}`}</p>}
       {local && !Number.isNaN(local.getTime()) && (
-        <p className="mt-1 text-gray-600">{`${local.toISOString().replace('T', ' ').slice(0, 19)} UTC (${local.toLocaleString()} local)`}</p>
+        <p className="mt-1 text-red-800">{`${local.toISOString().replace('T', ' ').slice(0, 19)} UTC (${local.toLocaleString()} local)`}</p>
       )}
       {requestId && (
         <p className="mt-1">
@@ -71,12 +77,12 @@ export const ErrorPanel: React.FC<ErrorPanelProps> = ({
       {children}
       <div className="mt-3 flex flex-wrap gap-2">
         {onViewAudit && (
-          <button type="button" onClick={onViewAudit} className="rounded border border-black px-3 py-1">
+          <button type="button" onClick={onViewAudit} className={BTN_SECONDARY}>
             View audit trail
           </button>
         )}
         {guidance?.href && (
-          <a href={guidance.href} className="rounded border border-black px-3 py-1">
+          <a href={guidance.href} className={BTN_PRIMARY}>
             {guidance.label}
           </a>
         )}

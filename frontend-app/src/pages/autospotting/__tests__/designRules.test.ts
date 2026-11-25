@@ -1,7 +1,8 @@
 /**
- * Design-system scan for the AutoSpotting shell (design-ux-ops.md §2.4, AC-UI-05): black, white and
- * grey only, no emoji, no Font Awesome for provider identity, no currency symbols on USD figures.
- * Scans every non-test source file under pages/autospotting.
+ * Design-system scan for the AutoSpotting shell (design-ux-ops.md §2.4, AC-UI-05, revised 2026-11-22): the
+ * app's indigo house style. Status colour only from the palette (emerald, amber, red/rose, indigo, grey),
+ * no gradients, no raw hex/rgb colours except translucent black, no emoji, no Font Awesome, no currency
+ * symbols on USD figures. Scans every non-test source file under pages/autospotting.
  */
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -23,37 +24,28 @@ function sourceFiles(dir: string): string[] {
   return out;
 }
 
-const COLOR_CLASS =
-  /(?:^|[^a-z])(?:red|orange|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|amber|slate|zinc|stone|neutral)-\d/;
-const FORBIDDEN_WORDS = /(?:red|green|amber|blue|emerald|indigo)-/;
-const HEX = /#[0-9a-fA-F]{3,8}\b/g;
+/** Status palette of the app's indigo house style: emerald good, amber warning, red/rose failure, indigo accent. */
+const OFF_PALETTE_CLASS =
+  /(?:^|[^a-z])(?:orange|yellow|lime|green|teal|cyan|sky|blue|violet|purple|fuchsia|pink|slate|zinc|stone|neutral)-\d/;
+const GRADIENT = /\bbg-gradient-|\b(?:from|via|to)-(?:[a-z]+-\d|\[)/;
+const HEX = /#[0-9a-fA-F]{3,8}\b/;
+/** Only translucent black (`rgba(0,0,0,x)`) is allowed as a raw colour; anything else comes from the palette. */
+const RAW_RGB = /\brgba?\((?!\s*0\s*,\s*0\s*,\s*0\s*,)/;
 const EMOJI = /[\p{Extended_Pictographic}\u2190-\u21FF\u2300-\u23FF\u25A0-\u25FF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u20E3]/u;
 const FONT_AWESOME = /\bfa[srlb]?\s+fa-|\bfa-[a-z]/;
 const CURRENCY_SYMBOL = /[\u20B9\u20AC\u00A3\u00A5]/;
-
-function isGreyHex(hex: string): boolean {
-  let h = hex.slice(1);
-  if (h.length === 3 || h.length === 4) h = h.split('').map(c => c + c).join('');
-  const r = h.slice(0, 2);
-  const g = h.slice(2, 4);
-  const b = h.slice(4, 6);
-  return r.toLowerCase() === g.toLowerCase() && g.toLowerCase() === b.toLowerCase();
-}
-
 export function violations(text: string): string[] {
   const found: string[] = [];
-  if (COLOR_CLASS.test(text)) found.push('non-grey color class');
-  if (FORBIDDEN_WORDS.test(text)) found.push('red-|green-|amber-|blue-|emerald-|indigo-');
-  for (const m of text.match(HEX) ?? []) {
-    if (!isGreyHex(m)) found.push(`non-grey hex ${m}`);
-  }
+  if (OFF_PALETTE_CLASS.test(text)) found.push('colour class outside the palette');
+  if (GRADIENT.test(text)) found.push('gradient');
+  if (HEX.test(text)) found.push('hex colour');
+  if (RAW_RGB.test(text)) found.push('raw rgb colour');
   if (EMOJI.test(text)) found.push('emoji code point');
   if (FONT_AWESOME.test(text)) found.push('Font Awesome icon');
   if (CURRENCY_SYMBOL.test(text)) found.push('currency symbol');
   return found;
 }
-
-describe('design rules (AC-UI-05)', () => {
+describe('design rules (AC-UI-05, style A)', () => {
   const files = sourceFiles(ROOT);
 
   it('scans the shell sources', () => {
@@ -65,23 +57,26 @@ describe('design rules (AC-UI-05)', () => {
   });
 
   describe('the scanner itself', () => {
-    it('rejects the old violations', () => {
-      expect(violations('class="text-red-600"')).not.toEqual([]);
-      expect(violations('class="bg-emerald-100"')).not.toEqual([]);
-      expect(violations('class="text-indigo-500"')).not.toEqual([]);
-      expect(violations('class="border-blue-400"')).not.toEqual([]);
-      expect(violations('class="text-amber-500"')).not.toEqual([]);
-      expect(violations('class="bg-green-50"')).not.toEqual([]);
+    it('rejects off-palette colours, gradients, raw colours, emoji, Font Awesome and currency symbols', () => {
+      expect(violations('class="text-blue-600"')).not.toEqual([]);
+      expect(violations('class="bg-green-100"')).not.toEqual([]);
+      expect(violations('class="border-purple-400"')).not.toEqual([]);
+      expect(violations('class="text-slate-500"')).not.toEqual([]);
+      expect(violations('class="bg-gradient-to-r from-indigo-500 to-emerald-500"')).not.toEqual([]);
       expect(violations("color: '#4f46e5'")).not.toEqual([]);
+      expect(violations('class="bg-[#111111]"')).not.toEqual([]);
+      expect(violations("color: 'rgb(79, 70, 229)'")).not.toEqual([]);
+      expect(violations('class="text-[rgba(255,255,255,0.7)]"')).not.toEqual([]);
       expect(violations('<i className="fa fa-magic" />')).not.toEqual([]);
       expect(violations('Save \u{1F680}')).not.toEqual([]);
       expect(violations('Done \u2705')).not.toEqual([]);
       expect(violations('\u20B9 820')).not.toEqual([]);
     });
-
-    it('accepts black, white and grey', () => {
-      expect(violations('class="bg-black text-white border-gray-400 text-gray-600"')).toEqual([]);
-      expect(violations("color: '#111111'; background: #fff; border: #000")).toEqual([]);
+    it('accepts the house palette and translucent black', () => {
+      expect(violations('class="bg-indigo-600 text-white hover:bg-indigo-700"')).toEqual([]);
+      expect(violations('class="border-emerald-200 bg-emerald-50 text-emerald-700"')).toEqual([]);
+      expect(violations('class="bg-amber-50 text-amber-900 bg-red-50 text-red-700 text-rose-600"')).toEqual([]);
+      expect(violations('class="text-[rgba(0,0,0,0.88)] border-[rgba(0,0,0,0.12)] text-gray-600 top-2"')).toEqual([]);
     });
   });
 });

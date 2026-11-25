@@ -12,6 +12,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
+import { Icon } from '@iconify/react';
 import { useTopbar } from '../contexts/TopbarContext';
 import apiClient from '../utils/apiClient';
 import type { InstanceDetail } from '../hooks/useSpotAutomationData';
@@ -70,12 +71,12 @@ const ASGDetailPage: React.FC = () => {
           className="w-10 h-10 bg-white border border-gray-200 rounded-xl flex items-center justify-center text-gray-500 hover:text-indigo-600 hover:border-indigo-300 transition-all shadow-sm"
           title="Back to Spot Automation"
         >
-          <i className="fas fa-arrow-left"></i>
+          <Icon icon="mdi:arrow-left" aria-hidden="true" className="inline-block" />
         </Link>
 
         <div className="hidden md:flex flex-col items-end mr-2">
           <div className="flex items-center gap-1.5 text-[10px] text-gray-400 font-medium whitespace-nowrap">
-            <i className="fas fa-map-marker-alt"></i> {region} | <i className="fas fa-server"></i> {instances.length} instances
+            <Icon icon="mdi:map-marker" aria-hidden="true" className="inline-block" /> {region} | <Icon icon="mdi:server" aria-hidden="true" className="inline-block" /> {instances.length} instances
           </div>
         </div>
 
@@ -84,7 +85,7 @@ const ASGDetailPage: React.FC = () => {
           disabled={isRefreshing}
           className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
         >
-          <i className={clsx('fas fa-sync-alt', isRefreshing && 'animate-spin')}></i>
+          <Icon icon="mdi:sync" aria-hidden="true" className={clsx('inline-block', isRefreshing && 'animate-spin')} />
           <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
         </button>
       </div>
@@ -102,7 +103,7 @@ const ASGDetailPage: React.FC = () => {
       <main className="flex-1 flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center p-8">
           <div className="w-20 h-20 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-red-300">
-            <i className="fas fa-exclamation-triangle text-red-500 text-3xl"></i>
+            <Icon icon="mdi:alert" aria-hidden="true" className="inline-block text-red-500 text-3xl" />
           </div>
           <h3 className="text-xl font-bold text-gray-900 mb-2">Missing Parameters</h3>
           <p className="text-gray-600">
@@ -142,7 +143,7 @@ const ASGDetailPage: React.FC = () => {
         {error && !loading && (
           <div className="bg-red-50 border-l-4 border-red-500 p-6 rounded-lg shadow-sm">
             <div className="flex items-center">
-              <i className="fas fa-exclamation-circle text-red-500 text-2xl mr-4"></i>
+              <Icon icon="mdi:alert-circle" aria-hidden="true" className="inline-block text-red-500 text-2xl mr-4" />
               <div>
                 <h3 className="text-lg font-bold text-red-800">Error Loading Instances</h3>
                 <p className="text-sm text-red-600 mt-1">{error}</p>
@@ -159,7 +160,7 @@ const ASGDetailPage: React.FC = () => {
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Instances</span>
-                  <i className="fas fa-server text-gray-400 text-lg"></i>
+                  <Icon icon="mdi:server" aria-hidden="true" className="inline-block text-gray-400 text-lg" />
                 </div>
                 <div className="text-3xl font-bold text-gray-900">{instances.length}</div>
               </div>
@@ -167,7 +168,7 @@ const ASGDetailPage: React.FC = () => {
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Spot Instances</span>
-                  <i className="fas fa-bolt text-green-400 text-lg"></i>
+                  <Icon icon="mdi:lightning-bolt" aria-hidden="true" className="inline-block text-green-400 text-lg" />
                 </div>
                 <div className="text-3xl font-bold text-green-600">{spotCount}</div>
               </div>
@@ -175,7 +176,7 @@ const ASGDetailPage: React.FC = () => {
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">On-Demand</span>
-                  <i className="fas fa-server text-orange-400 text-lg"></i>
+                  <Icon icon="mdi:server" aria-hidden="true" className="inline-block text-orange-400 text-lg" />
                 </div>
                 <div className="text-3xl font-bold text-orange-600">{onDemandCount}</div>
               </div>
@@ -183,7 +184,7 @@ const ASGDetailPage: React.FC = () => {
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Est. Hourly Savings</span>
-                  <i className="fas fa-piggy-bank text-indigo-400 text-lg"></i>
+                  <Icon icon="mdi:piggy-bank" aria-hidden="true" className="inline-block text-indigo-400 text-lg" />
                 </div>
                 <div className="text-3xl font-bold text-indigo-600">${totalSavings.toFixed(4)}</div>
               </div>
@@ -198,7 +199,7 @@ const ASGDetailPage: React.FC = () => {
               {instances.length === 0 ? (
                 <div className="px-6 py-16 text-center">
                   <div className="text-gray-400 mb-4">
-                    <i className="fas fa-inbox text-5xl"></i>
+                    <Icon icon="mdi:inbox" aria-hidden="true" className="inline-block text-5xl" />
                   </div>
                   <p className="text-gray-600 font-semibold text-lg">No Instances Found</p>
                   <p className="text-gray-500 text-sm mt-2">This ASG currently has no running instances.</p>
@@ -224,7 +225,7 @@ const ASGDetailPage: React.FC = () => {
                         <tr key={instance.instanceId} className="hover:bg-blue-50 transition-colors">
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="flex items-center">
-                              <i className="fas fa-server text-gray-400 mr-3"></i>
+                              <Icon icon="mdi:server" aria-hidden="true" className="inline-block text-gray-400 mr-3" />
                               <span className="text-sm font-mono text-gray-900">{instance.instanceId}</span>
                             </div>
                           </td>
@@ -247,11 +248,11 @@ const ASGDetailPage: React.FC = () => {
                               instance.lifecycle === 'spot' && 'bg-green-100 text-green-800',
                               instance.lifecycle === 'on-demand' && 'bg-orange-100 text-orange-800'
                             )}>
-                              <i className={clsx(
-                                'fas mr-1',
-                                instance.lifecycle === 'spot' && 'fa-bolt',
-                                instance.lifecycle === 'on-demand' && 'fa-server'
-                              )}></i>
+                              <Icon
+                                icon={instance.lifecycle === 'spot' ? 'mdi:lightning-bolt' : 'mdi:server'}
+                                aria-hidden="true"
+                                className="mr-1 inline-block"
+                              />
                               {instance.lifecycle === 'spot' ? 'Spot' : 'On-Demand'}
                             </span>
                           </td>

@@ -8,6 +8,7 @@
  */
 import React, { useCallback, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { useAccounts } from '../../contexts/AccountContext';
 import { useAutoSpottingConfig } from '../../hooks/autospotting/useAutoSpottingConfig';
 import { useSpotGroups } from '../../hooks/autospotting/useSpotGroups';
@@ -41,6 +42,8 @@ import {
   isPermissionFailure,
 } from './components/StatePanels';
 import { reasonForError } from './components/reasons';
+import AutoSpottingHeader from './components/AutoSpottingHeader';
+import { EmptyState, Notice } from './components/theme';
 
 const ADAPTERS: Record<string, ProviderAdapter> = { AWS: awsAdapter, GCP: gcpAdapter };
 
@@ -131,6 +134,8 @@ const AutoSpottingPage: React.FC<{ preselect?: 'AWS' | 'GCP' }> = ({ preselect }
     },
     [params, setParams],
   );
+  const refreshGroupsFn = groups.refresh;
+  const refreshGroups = useCallback(() => void refreshGroupsFn(), [refreshGroupsFn]);
   const closePanel = () => {
     const p = new URLSearchParams(params);
     p.delete('group');
@@ -166,9 +171,9 @@ const AutoSpottingPage: React.FC<{ preselect?: 'AWS' | 'GCP' }> = ({ preselect }
 
   if (!adapter) {
     return (
-      <div className="p-6 text-sm text-gray-600">
-        {`AutoSpotting for ${account?.provider ?? 'this cloud'} is not available in this view yet.`}
-      </div>
+      <main className="flex-1 px-6 pb-6 pt-4">
+        <EmptyState icon="mdi:cloud-off-outline" title={`AutoSpotting for ${account?.provider ?? 'this cloud'} is not available in this view yet.`} />
+      </main>
     );
   }
 
@@ -181,11 +186,14 @@ const AutoSpottingPage: React.FC<{ preselect?: 'AWS' | 'GCP' }> = ({ preselect }
   let body: React.ReactNode;
   if (accountId === null) {
     body = (
-      <p className="text-sm text-gray-600">
-        {adapter.provider === 'GCP'
-          ? 'Select a GCP project to see its Managed Instance Groups.'
-          : 'Select an AWS account to see its Auto Scaling Groups.'}
-      </p>
+      <EmptyState
+        icon="mdi:account-search-outline"
+        title={
+          adapter.provider === 'GCP'
+            ? 'Select a GCP project to see its Managed Instance Groups.'
+            : 'Select an AWS account to see its Auto Scaling Groups.'
+        }
+      />
     );
   } else if (groups.isLoading) {
     body = <LoadingPanel />;
@@ -197,10 +205,10 @@ const AutoSpottingPage: React.FC<{ preselect?: 'AWS' | 'GCP' }> = ({ preselect }
     body = <EmptyPanel groupNoun={adapter.groupNoun} />;
   } else {
     body = (
-      <div className="flex flex-col gap-4 lg:flex-row">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
         <div className="min-w-0 flex-1">
           {rows.length === 0 ? (
-            <p className="text-sm text-gray-600">No groups match these filters.</p>
+            <EmptyState icon="mdi:filter-off-outline" title="No groups match these filters." />
           ) : (
             <GroupTable
               rows={rows}
@@ -211,7 +219,7 @@ const AutoSpottingPage: React.FC<{ preselect?: 'AWS' | 'GCP' }> = ({ preselect }
           )}
         </div>
         {selectedRow && (
-          <div className="lg:w-[28rem]">
+          <div className="lg:w-[24rem] lg:shrink-0">
             <DetailPanel
               row={selectedRow}
               detail={detailQuery.data}
@@ -233,42 +241,33 @@ const AutoSpottingPage: React.FC<{ preselect?: 'AWS' | 'GCP' }> = ({ preselect }
   }
 
   return (
-    <div className="space-y-4 p-4 text-black">
-      <header className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <img src={adapter.icon} alt="" className="h-6 w-6" />
-          <h1 className="text-xl font-semibold">AutoSpotting</h1>
-          {(providerCfg?.beta ?? true) && (
-            <span className="rounded border border-gray-400 px-1.5 py-0.5 text-xs text-gray-600">Beta</span>
-          )}
-        </div>
-        <div className="flex items-center gap-3 text-sm text-gray-600">
-          {account && <span>{account.name}</span>}
-          <button
-            type="button"
-            onClick={() => void groups.refresh()}
-            disabled={accountId === null}
-            className="rounded border border-black px-3 py-1 text-black disabled:border-gray-300 disabled:text-gray-400"
-          >
-            Refresh
-          </button>
-        </div>
-      </header>
-
+    <main className="flex-1 px-6 pb-6 pt-4 text-[rgba(0,0,0,0.88)]">
+      <AutoSpottingHeader
+        icon={adapter.icon}
+        beta={providerCfg?.beta ?? true}
+        accountName={account?.name}
+        refreshDisabled={accountId === null}
+        onRefresh={refreshGroups}
+      />
       {config?.dryRun && (
-        <p className="rounded border border-gray-400 bg-gray-100 px-3 py-1 text-sm text-gray-600">Dry run</p>
+        <Notice tone="warning" icon="mdi:test-tube" className="mb-5">
+          <p className="font-semibold">Dry run</p>
+        </Notice>
       )}
+      <div className="space-y-5 [&:not(:empty)]:mb-5">
       <UpdateStackBanner
         capabilities={stackCapabilities.data}
         onUpdate={() => setUpdatingStack(true)}
         consoleHref="/account-manager"
       />
       <RegionCoverageList coverage={regionCoverage.data} />
+      </div>
       {updatingStack && account && (
         <StackUpdateModal accountId={account.id} accountName={account.name} onClose={() => setUpdatingStack(false)} />
       )}
 
       <ViewSwitch view={view} onChange={setView} />
+      <motion.div key={view} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }}>
       {view === 'analytics' && <AnalyticsView accountId={accountId} />}
       {view === 'activity' && <ActivityView accountId={accountId} />}
       {view === 'commitments' && <CommitmentsView accountId={accountId} />}
@@ -281,17 +280,17 @@ const AutoSpottingPage: React.FC<{ preselect?: 'AWS' | 'GCP' }> = ({ preselect }
           <Filters values={filters} locations={locations} locationLabel={adapter.locationLabel} onChange={setFilters} />
         )}
         {actionError && (
-          <p role="alert" className="text-sm font-medium text-black">
+          <Notice tone="danger" role="alert" className="mb-5">
             {actionError}
-          </p>
+          </Notice>
         )}
         {body}
         {partial && (
           <PartialBanner failed={failed} locationLabel={adapter.locationLabel} onRetry={() => void groups.refresh()} />
         )}
-
         </>
       )}
+      </motion.div>
       {dialog?.type === 'plan' && (
         <PlanDialog
           accountId={accountId}
@@ -321,7 +320,7 @@ const AutoSpottingPage: React.FC<{ preselect?: 'AWS' | 'GCP' }> = ({ preselect }
           }}
         />
       )}
-    </div>
+    </main>
   );
 };
 
