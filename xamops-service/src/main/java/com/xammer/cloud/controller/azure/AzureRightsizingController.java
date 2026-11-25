@@ -1,6 +1,7 @@
 package com.xammer.cloud.controller.azure;
 
 import com.xammer.cloud.dto.azure.AzureRightsizingResponse;
+import com.xammer.cloud.service.azure.AzureBillingCurrencyService;
 import com.xammer.cloud.service.azure.AzureRightsizingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,9 +22,12 @@ public class AzureRightsizingController {
     private static final Logger log = LoggerFactory.getLogger(AzureRightsizingController.class);
 
     private final AzureRightsizingService azureRightsizingService;
+    private final AzureBillingCurrencyService billingCurrencyService;
 
-    public AzureRightsizingController(AzureRightsizingService azureRightsizingService) {
+    public AzureRightsizingController(AzureRightsizingService azureRightsizingService,
+                                      AzureBillingCurrencyService billingCurrencyService) {
         this.azureRightsizingService = azureRightsizingService;
+        this.billingCurrencyService = billingCurrencyService;
     }
 
     @GetMapping("/rightsizing/recommendations")
@@ -34,7 +38,10 @@ public class AzureRightsizingController {
             log.info("Azure Rightsizing request - Subscription: {} (forceRefresh={})", accountId, forceRefresh);
             AzureRightsizingResponse response =
                     azureRightsizingService.getRecommendations(accountId, forceRefresh);
-            return ResponseEntity.ok(response);
+            // The service works in USD (cross-provider savings totals read its snapshot); the page
+            // and the dashboard card print the subscription's billing currency, so convert here.
+            return ResponseEntity.ok(billingCurrencyService.toBillingCurrency(
+                    response, billingCurrencyService.forSubscription(accountId)));
         } catch (Exception e) {
             log.error("Failed to fetch Azure rightsizing recommendations for {}: {}", accountId, e.getMessage(), e);
             return ResponseEntity.ok(new AzureRightsizingResponse(

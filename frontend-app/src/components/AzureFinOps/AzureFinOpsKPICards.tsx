@@ -1,14 +1,18 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Icon } from '@iconify/react';
 import { AzureFinOpsReportData } from '../../types/azureFinops';
+import { currencyMeta } from '../../utils/currency';
 
 interface AzureFinOpsKPICardsProps {
   reportData: AzureFinOpsReportData | null;
   isLoading: boolean;
 }
 
-const formatCurrency = (value: number): string =>
-  '₹' + (value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** Formats in the figure's own currency (₹ for an INR subscription, and when the code is unknown). */
+const formatCurrency = (value: number, currency?: string | null): string => {
+  const { symbol, locale } = currencyMeta('Azure', currency);
+  return symbol + (value || 0).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
 
 const splitValue = (str: string) => {
   const dot = str.lastIndexOf('.');
@@ -59,6 +63,8 @@ interface KPICardProps {
   changeLabel?: string;
   isSavings?: boolean;
   index: number;
+  /** ISO code of rawValue. Spend and savings arrive with separate codes on the report. */
+  currency?: string | null;
 }
 
 const UNAVAILABLE_STYLE: React.CSSProperties = {
@@ -69,7 +75,7 @@ const UNAVAILABLE_STYLE: React.CSSProperties = {
   color: 'rgba(0,0,0,0.45)',
 };
 
-const KPICard: React.FC<KPICardProps> = ({ label, rawValue, icon, iconColor, iconBg, changePercent, changeLabel, isSavings, index }) => {
+const KPICard: React.FC<KPICardProps> = ({ label, rawValue, icon, iconColor, iconBg, changePercent, changeLabel, isSavings, index, currency }) => {
   const isUnavailable = rawValue == null;
   const numericValue = rawValue ?? 0;
   const animRef = useRef<number | undefined>(undefined);
@@ -95,7 +101,7 @@ const KPICard: React.FC<KPICardProps> = ({ label, rawValue, icon, iconColor, ico
     return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
   }, [numericValue]);
 
-  const split = splitValue(formatCurrency(animCount));
+  const split = splitValue(formatCurrency(animCount, currency));
   const hasChange = !isUnavailable && changePercent != null && !isNaN(changePercent)
     && isFinite(changePercent) && changePercent !== 0;
   const isGood = isSavings ? true : (changePercent ?? 0) < 0;
@@ -207,10 +213,10 @@ const AzureFinOpsKPICards: React.FC<AzureFinOpsKPICardsProps> = ({ reportData, i
   return (
     <>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard    index={0} label="Month-to-Date Spend" rawValue={totalSpend}           icon="mdi:currency-usd" iconColor="#0078D4" iconBg="#0078D414" changeLabel="current month actual" />
-        <KPICard    index={1} label="Forecasted Spend"     rawValue={forecastedSpend}      icon="mdi:chart-line"   iconColor="#D97706" iconBg="#FFB90014" changeLabel="ML-powered estimate" />
+        <KPICard    index={0} label="Month-to-Date Spend" rawValue={totalSpend}           currency={reportData?.currency} icon="mdi:currency-usd" iconColor="#0078D4" iconBg="#0078D414" changeLabel="current month actual" />
+        <KPICard    index={1} label="Forecasted Spend"     rawValue={forecastedSpend}      currency={reportData?.currency} icon="mdi:chart-line"   iconColor="#D97706" iconBg="#FFB90014" changeLabel="ML-powered estimate" />
         <KPICardRaw index={2} label="MoM Change" displayValue={momDisplay} icon={momUnknown ? 'mdi:help-circle-outline' : momChange >= 0 ? 'mdi:trending-up' : 'mdi:trending-down'} iconColor={momUnknown || momChange === 0 ? '#6B7280' : momChange > 0 ? '#DC2626' : '#16A34A'} iconBg={momUnknown || momChange === 0 ? 'rgba(0,0,0,0.04)' : momChange > 0 ? '#FEE2E214' : '#DCFCE714'} valueColor={momColor} changeLabel={momUnknown ? 'not enough history' : 'vs last month'} />
-        <KPICard    index={3} label="Potential Savings"    rawValue={totalPotentialSavings} icon="mdi:piggy-bank"  iconColor="#16A34A" iconBg="#16A34A14" changeLabel="available to reclaim" isSavings />
+        <KPICard    index={3} label="Potential Savings"    rawValue={totalPotentialSavings} currency={reportData?.savingsCurrency} icon="mdi:piggy-bank"  iconColor="#16A34A" iconBg="#16A34A14" changeLabel="available to reclaim" isSavings />
       </div>
 
       {kpisUnavailableReason && (

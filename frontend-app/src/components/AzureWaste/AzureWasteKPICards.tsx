@@ -1,14 +1,18 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Icon } from '@iconify/react';
 import type { AzureWasteItem, HighestWasteCategory } from '../../types/azureWaste';
+import { currencyMeta } from '../../utils/currency';
 
 interface AzureWasteKPICardsProps {
   allItems: AzureWasteItem[];
   isLoading: boolean;
 }
 
-const formatCurrency = (value: number): string =>
-  '₹' + value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** Formats in the items' currency, which the server now sets to the billing currency (₹ for INR). */
+const formatCurrency = (value: number, currency?: string): string => {
+  const { symbol, locale } = currencyMeta('Azure', currency);
+  return symbol + value.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
 
 const splitValue = (str: string) => {
   const dot = str.lastIndexOf('.');
@@ -52,9 +56,10 @@ interface KPICardProps {
   iconBg: string;
   index: number;
   isCount?: boolean;
+  currency?: string;
 }
 
-const KPICard: React.FC<KPICardProps> = ({ label, rawValue, subtitle, icon, iconColor, iconBg, index, isCount }) => {
+const KPICard: React.FC<KPICardProps> = ({ label, rawValue, subtitle, icon, iconColor, iconBg, index, isCount, currency }) => {
   const animRef = useRef<number | undefined>(undefined);
   const prevRawValue = useRef(rawValue);
   const [animCount, setAnimCount] = useState(rawValue);
@@ -80,7 +85,7 @@ const KPICard: React.FC<KPICardProps> = ({ label, rawValue, subtitle, icon, icon
 
   const split = isCount
     ? { main: String(Math.round(animCount)), cents: '' }
-    : splitValue(formatCurrency(animCount));
+    : splitValue(formatCurrency(animCount, currency));
 
   return (
     <div
@@ -129,6 +134,8 @@ const AzureWasteKPICards: React.FC<AzureWasteKPICardsProps> = ({ allItems, isLoa
 
   const potentialSavings = billable.reduce((sum, r) => sum + (r.monthlySavings || 0), 0);
   const resourceCount = billable.length;
+  // Every item in one response carries the same billing currency.
+  const currency = allItems.find(r => r.currency)?.currency;
 
   const countSubtitle = [
     'billable items',
@@ -158,6 +165,7 @@ const AzureWasteKPICards: React.FC<AzureWasteKPICardsProps> = ({ allItems, isLoa
         index={0}
         label="Potential Savings"
         rawValue={potentialSavings}
+        currency={currency}
         subtitle="per month if cleaned up"
         icon="mdi:piggy-bank"
         iconColor="#16A34A"
@@ -177,6 +185,7 @@ const AzureWasteKPICards: React.FC<AzureWasteKPICardsProps> = ({ allItems, isLoa
         index={2}
         label="Top Waste Category"
         rawValue={highestWasteCategory?.totalCost || 0}
+        currency={currency}
         subtitle={topCategorySubtitle}
         icon="mdi:fire"
         iconColor="#F59228"

@@ -84,6 +84,18 @@ public class AzureRightsizingService {
      * and logs it — a wrong conversion is worse than an unconverted figure, because it looks
      * plausible.
      */
+    private double toBaseCurrency(double amount, String fromCurrency,
+                                  AzureBillingCurrencyService.BillingCurrency billing) {
+        // Advisor reports in the billing currency. Convert it with Azure's own rate for this
+        // subscription — the rate the controller uses to convert it back for display — so an
+        // Advisor saving round-trips to exactly the rupee figure Azure reported. The configured
+        // 83.0 is ~13% off Azure's ~95 and turned ₹1,000 into ₹1,145 on screen.
+        if (amount != 0.0 && billing != null && billing.is(fromCurrency)) {
+            return billing.toUsd(amount);
+        }
+        return toBaseCurrency(amount, fromCurrency);
+    }
+
     private double toBaseCurrency(double amount, String fromCurrency) {
         if (amount == 0.0) {
             return 0.0;
@@ -163,6 +175,7 @@ public class AzureRightsizingService {
     private final SnapshotFreshnessService snapshotFreshnessService;
     private final AzureRetailPricingService retailPricingService;
     private final AzureArmClient armClient;
+    private final AzureBillingCurrencyService billingCurrencyService;
 
     public AzureRightsizingService(AzureClientProvider clientProvider,
                                    RedisCacheService redisCache,
@@ -170,7 +183,8 @@ public class AzureRightsizingService {
                                    SnapshotFreshnessService snapshotFreshnessService,
                                    AzureRetailPricingService retailPricingService,
                                    AzureArmClient armClient,
-                                   com.xammer.cloud.service.CurrencyConversionService currencyConversionService) {
+                                   com.xammer.cloud.service.CurrencyConversionService currencyConversionService,
+                                   AzureBillingCurrencyService billingCurrencyService) {
         this.clientProvider = clientProvider;
         this.redisCache = redisCache;
         this.cachedDataRepository = cachedDataRepository;
@@ -178,6 +192,7 @@ public class AzureRightsizingService {
         this.retailPricingService = retailPricingService;
         this.armClient = armClient;
         this.currencyConversionService = currencyConversionService;
+        this.billingCurrencyService = billingCurrencyService;
     }
 
     /**
@@ -260,10 +275,13 @@ public class AzureRightsizingService {
                     + "?api-version=2023-01-01&$filter=Category%20eq%20'Cost'";
 
             // Uses the shared client: one pooled HttpClient with connect and request
-            // timeouts, rather than a fresh untimed client per call.
-            Optional<String> body = armClient.get(uri, bearerToken);
-            if (body.isPresent()) {
-                recommendations.addAll(parseRecommendations(body.get()));
+            // timeouts, rather than a fresh untimed client per call. list() follows nextLink;
+            // this read only the first page, so a subscription with more Advisor
+            // recommendations than one page holds silently lost the rest.
+            List<JsonNode> advisorItems = armList(uri, bearerToken);
+            if (!advisorItems.isEmpty()) {
+                recommendations.addAll(parseRecommendations(advisorItems,
+                        billingCurrencyService.forSubscription(subscriptionId)));
             } else {
                 log.info("Azure Advisor returned no recommendations for {}", subscriptionId);
             }
@@ -549,12 +567,9 @@ public class AzureRightsizingService {
         return armClient.list(url, token);
     }
 
-    private List<AzureRightsizingRecommendation> parseRecommendations(String json) throws Exception {
+    private List<AzureRightsizingRecommendation> parseRecommendations(
+            List<JsonNode> value, AzureBillingCurrencyService.BillingCurrency billing) {
         List<AzureRightsizingRecommendation> result = new ArrayList<>();
-        JsonNode root = objectMapper.readTree(json);
-        JsonNode value = root.path("value");
-
-        if (value.isMissingNode() || !value.isArray()) return result;
 
         for (JsonNode node : value) {
             try {
@@ -694,8 +709,8 @@ public class AzureRightsizingService {
                 double monthly = parseDouble(extProps.path("savingsAmount").asText(null));
                 double annual = parseDouble(extProps.path("annualSavingsAmount").asText(null));
 
-                rec.setMonthlySavings(toBaseCurrency(monthly, advisorCurrency));
-                rec.setAnnualSavings(toBaseCurrency(annual, advisorCurrency));
+                rec.setMonthlySavings(toBaseCurrency(monthly, advisorCurrency, billing));
+                rec.setAnnualSavings(toBaseCurrency(annual, advisorCurrency, billing));
                 rec.setCurrency(BASE_CURRENCY);
                 rec.setMaxCpuObserved(extProps.path("maxCpuP95").asText(
                         extProps.path("avgCpuUtilization").asText("")));

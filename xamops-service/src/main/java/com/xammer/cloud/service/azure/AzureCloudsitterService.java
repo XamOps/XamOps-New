@@ -201,13 +201,30 @@ public class AzureCloudsitterService {
 
     // --- ENFORCEMENT ENGINE ---
 
-    @Scheduled(cron = "0 5/10 * * * *") // Offset by 5 seconds from AWS scheduler to avoid contention
+    // Five seconds after the AWS scheduler ("0 0/10"), as intended. This was "0 5/10", which is
+    // five minutes, so every scheduled start and stop happened at :05 rather than on the hour.
+    @Scheduled(cron = "5 0/10 * * * *")
     public void enforcePolicies() {
         long start = System.currentTimeMillis();
         logger.info("Azure CloudSitter: Starting policy enforcement cycle at {}", ZonedDateTime.now());
         try {
             List<TenantDto> tenants = tenantService.getAllActiveTenants();
             int totalAssignments = 0, totalActions = 0;
+            if (tenants.isEmpty()) {
+                // Single-tenant mode: getAllActiveTenants() always returns an empty list, so the
+                // tenant loop below never ran and no Azure schedule was ever enforced. Run once
+                // against the "system" tenant, the one TenantFilter assigns to every request.
+                TenantContext.setCurrentTenant("system");
+                try {
+                    int[] results = self.enforcePoliciesForCurrentTenant();
+                    totalAssignments += results[0];
+                    totalActions += results[1];
+                } catch (Exception e) {
+                    logger.error("Azure CloudSitter: Enforcement failed", e);
+                } finally {
+                    TenantContext.clear();
+                }
+            }
             for (TenantDto tenant : tenants) {
                 TenantContext.setCurrentTenant(tenant.getTenantId());
                 try {

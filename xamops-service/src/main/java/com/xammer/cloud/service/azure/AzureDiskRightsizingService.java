@@ -61,8 +61,50 @@ public class AzureDiskRightsizingService {
     private final AzureClientProvider       azureClientProvider;
     private final CachedDataRepository      cachedDataRepository;
     private final AzureRetailPricingService retailPricingService;
+    private final AzureBillingCurrencyService billingCurrencyService;
+
+    /** Money fields of a disk row, all priced in USD by {@link #listAllDisks}. */
+    private static final List<String> MONEY_KEYS =
+            List.of("monthlyCost", "estimatedSavings", "estimatedMonthlyCostIncrease");
 
     // ── Public API ────────────────────────────────────────────────────────────
+
+    /**
+     * The disk list as the Disk Rightsizing page shows it: every price converted from USD into the
+     * subscription's billing currency, with a {@code currency} field naming it.
+     *
+     * <p>The page printed these USD prices with ₹, so a ₹507/month disk read "₹5.28". The cached list
+     * stays in USD, because the dashboard's cross-provider savings total reads it through
+     * {@link #getDisks}; these are copies.
+     */
+    public List<Map<String, Object>> getDisksForDisplay(String accountId, Long callerClientId, boolean forceRefresh) {
+        CloudAccount account = resolveAccount(accountId, callerClientId);
+        AzureBillingCurrencyService.BillingCurrency billing =
+                billingCurrencyService.forSubscription(account.getAzureSubscriptionId());
+        return getDisks(accountId, callerClientId, forceRefresh).stream()
+                .map(disk -> inBillingCurrency(disk, billing))
+                .collect(Collectors.toList());
+    }
+
+    /** {@link #getRecommendations} with prices in the billing currency, as {@link #getDisksForDisplay}. */
+    public List<Map<String, Object>> getRecommendationsForDisplay(String accountId, Long callerClientId,
+                                                                  boolean forceRefresh) {
+        return getDisksForDisplay(accountId, callerClientId, forceRefresh).stream()
+                .filter(d -> !"NONE".equals(d.get("recommendation")))
+                .collect(Collectors.toList());
+    }
+
+    private static Map<String, Object> inBillingCurrency(Map<String, Object> disk,
+                                                         AzureBillingCurrencyService.BillingCurrency billing) {
+        Map<String, Object> copy = new LinkedHashMap<>(disk);
+        for (String key : MONEY_KEYS) {
+            if (copy.get(key) instanceof Number amount) {
+                copy.put(key, Math.round(billing.fromUsd(amount.doubleValue()) * 100.0) / 100.0);
+            }
+        }
+        copy.put("currency", billing.code());
+        return copy;
+    }
 
     public List<Map<String, Object>> getDisks(String accountId, Long callerClientId, boolean forceRefresh) {
         CloudAccount account = resolveAccount(accountId, callerClientId);

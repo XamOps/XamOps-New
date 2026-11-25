@@ -5,6 +5,8 @@ export interface AzureWasteItem {
   region: string;
   reason: string;
   monthlySavings: number;
+  /** ISO code of monthlySavings: the subscription's billing currency (e.g. "INR"). */
+  currency?: string;
   /**
    * True when the cost is real but could not be priced, so `monthlySavings` is a
    * placeholder zero. Exclude from savings totals and cost-based ranking.

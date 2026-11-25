@@ -5,6 +5,7 @@ import {
   LineChart, Line, PieChart, Pie, Legend, ResponsiveContainer,
 } from 'recharts';
 import { AzureFinOpsReportData } from '../../types/azureFinops';
+import { currencyMeta } from '../../utils/currency';
 
 const AZURE_BLUE = '#0078D4';
 
@@ -14,10 +15,12 @@ const CHART_COLORS = [
   '#f2c811','#e74856','#0099bc','#ff6f00',
 ];
 
-const fmtCurrency = (v: number): string => {
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000)     return `$${(v / 1_000).toFixed(1)}K`;
-  return `$${v.toFixed(2)}`;
+// Every amount on these charts is Cost Management spend in the subscription's billing currency
+// (INR for an India-billed subscription). This printed "$" on all of them, so ₹36,655 read "$36.7K".
+const makeFmtCurrency = (symbol: string) => (v: number): string => {
+  if (v >= 1_000_000) return `${symbol}${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000)     return `${symbol}${(v / 1_000).toFixed(1)}K`;
+  return `${symbol}${v.toFixed(2)}`;
 };
 
 const fmtDate = (d: Date) => d.toISOString().split('T')[0];
@@ -74,7 +77,7 @@ interface Props {
   selectedAccountId: string | null;
 }
 
-const ChartTooltip = ({ active, payload, label }: any) => {
+const ChartTooltip = ({ active, payload, label, fmtCurrency }: any) => {
   if (!active || !payload?.length) return null;
   const hasCompare = payload.length > 1 && payload[1]?.value != null;
   return (
@@ -121,6 +124,10 @@ const ChartTooltip = ({ active, payload, label }: any) => {
 };
 
 const AzureFinOpsCostCharts: React.FC<Props> = ({ reportData, isLoading, selectedAccountId }) => {
+  const fmtCurrency = useMemo(
+    () => makeFmtCurrency(currencyMeta('Azure', reportData?.currency).symbol),
+    [reportData?.currency],
+  );
   const [chartType, setChartType]         = useState<ChartType>('bar');
   const [breakdown, setBreakdown]         = useState<Breakdown>('service');
   const [timePreset, setTimePreset]       = useState<TimePreset>('30d');
@@ -243,7 +250,7 @@ const AzureFinOpsCostCharts: React.FC<Props> = ({ reportData, isLoading, selecte
                 <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} stroke="#fff" strokeWidth={2} />
               ))}
             </Pie>
-            <Tooltip content={<ChartTooltip />} />
+            <Tooltip content={<ChartTooltip fmtCurrency={fmtCurrency} />} />
             <Legend layout="vertical" align="right" verticalAlign="middle"
               wrapperStyle={{ fontSize: 11, paddingLeft: 16 }}
               formatter={(v: string) => <span className="text-[11px] text-[rgba(0,0,0,0.65)]">{v}</span>} />
@@ -262,7 +269,7 @@ const AzureFinOpsCostCharts: React.FC<Props> = ({ reportData, isLoading, selecte
               angle={-30} textAnchor="end" interval={0} />
             <YAxis tick={{ fontSize: 11, fill: 'rgba(0,0,0,0.4)' }} tickFormatter={fmtCurrency}
               axisLine={false} tickLine={false} />
-            <Tooltip content={<ChartTooltip />} />
+            <Tooltip content={<ChartTooltip fmtCurrency={fmtCurrency} />} />
             <Line type="monotone" dataKey="current" name="Current" stroke={AZURE_BLUE} strokeWidth={2.5}
               dot={(props: any) => {
                 const { cx, cy, index } = props;
@@ -290,7 +297,7 @@ const AzureFinOpsCostCharts: React.FC<Props> = ({ reportData, isLoading, selecte
             tick={{ fontSize: 11, fill: 'rgba(0,0,0,0.4)' }} axisLine={false} tickLine={false} />
           <YAxis type="category" dataKey="name" width={148}
             tick={{ fontSize: 12, fill: 'rgba(0,0,0,0.65)' }} axisLine={false} tickLine={false} />
-          <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(0,0,0,0.025)' }} />
+          <Tooltip content={<ChartTooltip fmtCurrency={fmtCurrency} />} cursor={{ fill: 'rgba(0,0,0,0.025)' }} />
           <Bar dataKey="current" name="Current" radius={[0, 5, 5, 0]}>
             {mergedData.map((_, i) => (
               <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />

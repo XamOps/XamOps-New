@@ -83,6 +83,10 @@ public class AzureFinOpsService {
     @Autowired
     private AzureBillingDataIngestionService billingIngestionService;
 
+    /** Converts the USD savings figures into the subscription's billing currency for display. */
+    @Autowired
+    private AzureBillingCurrencyService billingCurrencyService;
+
     /**
      * Generates the main FinOps report for an Azure subscription
      */
@@ -99,6 +103,12 @@ public class AzureFinOpsService {
 
         AzureFinOpsReportDto report = new AzureFinOpsReportDto();
         AzureFinOpsReportDto.Kpis kpis = new AzureFinOpsReportDto.Kpis();
+
+        // Spend comes from Cost Management in the billing currency; savings are priced in USD and
+        // converted into the same currency below, so the page can label both truthfully.
+        AzureBillingCurrencyService.BillingCurrency billing = billingCurrencyService.forSubscription(subscriptionId);
+        report.setCurrency(billingIngestionService.readCurrency(subscriptionId).orElse(null));
+        report.setSavingsCurrency(billing.code());
 
         String regionCacheKey = AzureBillingDataIngestionService.AZURE_COST_BY_REGION_CACHE_PREFIX + subscriptionId;
 
@@ -271,7 +281,8 @@ public class AzureFinOpsService {
         // --- STEP 4: Get Rightsizing Recommendations ---
         List<AzureFinOpsReportDto.RightsizingItem> rightsizingItems = new ArrayList<>();
         try {
-            AzureRightsizingResponse rightsizingResponse = rightsizingService.getRecommendations(subscriptionId, forceRefresh);
+            AzureRightsizingResponse rightsizingResponse = billingCurrencyService.toBillingCurrency(
+                    rightsizingService.getRecommendations(subscriptionId, forceRefresh), billing);
             if (rightsizingResponse != null && rightsizingResponse.getRecommendations() != null) {
                 for (AzureRightsizingRecommendation r : rightsizingResponse.getRecommendations()) {
                     rightsizingItems.add(new AzureFinOpsReportDto.RightsizingItem(
@@ -296,7 +307,8 @@ public class AzureFinOpsService {
         // --- STEP 5: Get Waste Items ---
         List<AzureFinOpsReportDto.WasteItem> wasteItems = new ArrayList<>();
         try {
-            List<AzureWasteItem> wasteRaw = wasteService.getWasteItems(subscriptionId, forceRefresh);
+            List<AzureWasteItem> wasteRaw = billingCurrencyService.toBillingCurrency(
+                    wasteService.getWasteItems(subscriptionId, forceRefresh), billing);
             if (wasteRaw != null) {
                 for (AzureWasteItem w : wasteRaw) {
                     wasteItems.add(new AzureFinOpsReportDto.WasteItem(

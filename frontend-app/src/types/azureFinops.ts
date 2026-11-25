@@ -83,6 +83,8 @@ export interface AzureFinOpsRightsizingItem {
   annualSavings: number;
   impact: string;
   location: string;
+  /** The saving could not be priced; monthlySavings is a placeholder zero. */
+  savingsUnknown?: boolean;
 }
 
 export interface AzureFinOpsWasteItem {
@@ -92,6 +94,10 @@ export interface AzureFinOpsWasteItem {
   region: string;
   reason: string;
   monthlySavings: number;
+  /** Real cost that could not be priced; monthlySavings is a placeholder zero. */
+  savingsUnknown?: boolean;
+  /** Azure does not bill for the resource, so removing it frees nothing. */
+  noCostImpact?: boolean;
 }
 
 export interface AzureFinOpsReportData {
@@ -118,6 +124,10 @@ export interface AzureFinOpsReportData {
   budgets?: AzureBudget[];
   /** Why budgets is empty, or null when Azure returned the list normally. */
   budgetsUnavailableReason?: string | null;
+  /** ISO code of the spend figures (KPIs, charts, anomalies): the billing currency, e.g. "INR". */
+  currency?: string | null;
+  /** ISO code of the savings figures (KPI, callout, rightsizing and waste rows). */
+  savingsCurrency?: string | null;
 }
 
 export interface AzureNewBudget {

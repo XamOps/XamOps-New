@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon } from '@iconify/react';
 import { AzureFinOpsReportData } from '../../types/azureFinops';
+import { currencyMeta } from '../../utils/currency';
 
 interface AzureFinOpsSavingsCalloutProps {
   reportData: AzureFinOpsReportData | null;
@@ -8,12 +9,16 @@ interface AzureFinOpsSavingsCalloutProps {
 
 const AzureFinOpsSavingsCallout: React.FC<AzureFinOpsSavingsCalloutProps> = ({ reportData }) => {
   const savings = reportData?.totalPotentialSavings ?? 0;
-  const rightsizingCount = reportData?.rightsizingItems?.length ?? 0;
-  const wasteCount = reportData?.wasteItems?.length ?? 0;
+  // Count only the findings the amount is made of. Unpriced and free findings add nothing to it,
+  // so counting them said "7 waste resources" beside an amount that came from one.
+  const rightsizingCount = (reportData?.rightsizingItems ?? []).filter(r => !r.savingsUnknown).length;
+  const wasteCount = (reportData?.wasteItems ?? []).filter(w => !w.savingsUnknown && !w.noCostImpact).length;
 
   if (savings <= 0) return null;
 
-  const formatted = '₹' + savings.toLocaleString('en-IN', {
+  // The savings arrive in the billing currency (savingsCurrency); ₹ when the report does not say.
+  const { symbol, locale } = currencyMeta('Azure', reportData?.savingsCurrency);
+  const formatted = symbol + savings.toLocaleString(locale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });

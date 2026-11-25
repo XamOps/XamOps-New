@@ -111,6 +111,9 @@ public class AzureDashboardService {
      */
     private final java.util.concurrent.Executor dashboardExecutor;
 
+    /** Converts the USD waste savings into the subscription's billing currency for the KPI. */
+    private final AzureBillingCurrencyService billingCurrencyService;
+
     public AzureDashboardService(AzureClientProvider clientProvider,
             CloudAccountRepository cloudAccountRepository,
             CachedDataRepository cachedDataRepository,
@@ -121,8 +124,10 @@ public class AzureDashboardService {
             @org.springframework.context.annotation.Lazy AzureSecurityService azureSecurityService,
             com.xammer.cloud.service.war.azure.AzureWarRest armRest,
             AzureCostAnomalyService costAnomalyService,
+            AzureBillingCurrencyService billingCurrencyService,
             @org.springframework.beans.factory.annotation.Qualifier("backgroundTaskExecutor")
             java.util.concurrent.Executor dashboardExecutor) {
+        this.billingCurrencyService = billingCurrencyService;
         this.dashboardExecutor = dashboardExecutor;
         this.clientProvider = clientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
@@ -833,7 +838,10 @@ public class AzureDashboardService {
                 return;
             }
 
-            List<AzureWasteItem> waste = cachedWaste.get();
+            // The cache holds USD savings; the dashboard prints them beside INR spend with ₹, so
+            // express them in the billing currency, as the Waste page now does.
+            List<AzureWasteItem> waste = billingCurrencyService.toBillingCurrency(
+                    cachedWaste.get(), billingCurrencyService.forSubscription(accountId));
             double reclaimable = waste.stream()
                     .filter(AzureWasteItem::isBillableWaste)
                     .mapToDouble(AzureWasteItem::getMonthlySavings)

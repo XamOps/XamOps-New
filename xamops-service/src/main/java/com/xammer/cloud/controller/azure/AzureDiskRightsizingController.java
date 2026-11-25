@@ -55,7 +55,7 @@ public class AzureDiskRightsizingController {
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         try {
             return ResponseEntity.ok(
-                    azureDiskService.getDisks(accountId, clientIdOf(userDetails), forceRefresh));
+                    azureDiskService.getDisksForDisplay(accountId, clientIdOf(userDetails), forceRefresh));
         } catch (Exception e) {
             return toErrorResponse("list Azure disks", accountId, e);
         }
@@ -68,7 +68,7 @@ public class AzureDiskRightsizingController {
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         try {
             return ResponseEntity.ok(
-                    azureDiskService.getRecommendations(accountId, clientIdOf(userDetails), forceRefresh));
+                    azureDiskService.getRecommendationsForDisplay(accountId, clientIdOf(userDetails), forceRefresh));
         } catch (Exception e) {
             return toErrorResponse("get Azure disk recommendations", accountId, e);
         }

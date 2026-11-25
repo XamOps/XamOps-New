@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon } from '@iconify/react';
 import { AzureFinOpsReportData } from '../../types/azureFinops';
+import { currencyMeta } from '../../utils/currency';
 
 interface AzureFinOpsInsightsSectionProps {
   reportData: AzureFinOpsReportData | null;
@@ -16,8 +17,24 @@ const impactBadgeCls = (impact: string): string => {
   }
 };
 
-const formatCurrency = (v: number): string =>
-  '₹' + v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** Formats in the given currency; ₹ when the report does not say (Azure's default here). */
+const formatCurrency = (v: number, currency?: string | null): string => {
+  const { symbol, locale } = currencyMeta('Azure', currency);
+  return symbol + (Number.isFinite(v) ? v : 0).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+/**
+ * A saving that could not be priced, or a resource Azure does not bill for, carries a placeholder
+ * zero. Printing it as "₹0.00" read as a measured, worthless finding.
+ */
+const savingsLabel = (
+  item: { monthlySavings: number; savingsUnknown?: boolean; noCostImpact?: boolean },
+  currency?: string | null,
+): string => {
+  if (item.savingsUnknown) return 'Not priced';
+  if (item.noCostImpact) return 'No cost';
+  return formatCurrency(item.monthlySavings, currency);
+};
 
 /**
  * Formats an amount whose currency is not known.
@@ -134,7 +151,10 @@ const AzureFinOpsInsightsSection: React.FC<AzureFinOpsInsightsSectionProps> = ({
                             {anomaly.startDate || '—'}
                           </td>
                           <td className="px-4 py-3 text-right text-[14px] font-semibold text-red-600">
-                            {formatAmountNoUnit(anomaly.unexpectedSpend)}
+                            {/* The report now names the billing currency; bare only when it is unknown. */}
+                            {reportData?.currency
+                              ? formatCurrency(anomaly.unexpectedSpend, reportData.currency)
+                              : formatAmountNoUnit(anomaly.unexpectedSpend)}
                           </td>
                         </tr>
                       ))}
@@ -200,7 +220,7 @@ const AzureFinOpsInsightsSection: React.FC<AzureFinOpsInsightsSectionProps> = ({
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right text-[14px] font-semibold text-green-600">
-                          {formatCurrency(item.monthlySavings)}
+                          {savingsLabel(item, reportData?.savingsCurrency)}
                         </td>
                       </tr>
                     ))}
@@ -259,7 +279,7 @@ const AzureFinOpsInsightsSection: React.FC<AzureFinOpsInsightsSectionProps> = ({
                           {item.reason || '—'}
                         </td>
                         <td className="px-4 py-3 text-right text-[14px] font-semibold text-red-600">
-                          {formatCurrency(item.monthlySavings)}
+                          {savingsLabel(item, reportData?.savingsCurrency)}
                         </td>
                       </tr>
                     ))}

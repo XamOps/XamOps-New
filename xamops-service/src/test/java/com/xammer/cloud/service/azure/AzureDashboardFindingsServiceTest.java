@@ -56,6 +56,9 @@ class AzureDashboardFindingsServiceTest {
                 azureSecurityService,
                 Mockito.mock(AzureWarRest.class),
                 Mockito.mock(AzureCostAnomalyService.class),
+                // No billing currency ingested, so savings stay in USD as the assertions expect.
+                new AzureBillingCurrencyService(Mockito.mock(AzureBillingDataIngestionService.class),
+                        new com.xammer.cloud.service.CurrencyConversionService(83.0, "2026-01-01")),
                 Runnable::run);
     }
 

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Icon } from '@iconify/react';
 import type { AzureWasteGroup } from '../../types/azureWaste';
+import { currencyMeta } from '../../utils/currency';
 
 interface AzureWasteResourceGroupProps {
   group: AzureWasteGroup;
@@ -32,6 +33,17 @@ const AzureWasteResourceGroup: React.FC<AzureWasteResourceGroupProps> = ({ group
   const [rowKey, setRowKey] = useState(0);
 
   const meta = TYPE_ICONS[group.type] ?? { icon: 'mdi:cube-outline', color: '#3B82F6', bg: '#3B82F614' };
+
+  // As on the AWS page: only billable findings make up the group total, and a group of resources
+  // Azure does not bill for says so instead of showing nothing.
+  const billableTotal = group.resources
+    .filter(r => !r.noCostImpact && !r.savingsUnknown)
+    .reduce((sum, r) => sum + (r.monthlySavings || 0), 0);
+  const allFree = group.resources.length > 0 && group.resources.every(r => r.noCostImpact);
+  // The server sets every item's currency to the subscription's billing currency (₹ for INR).
+  const { symbol, locale } = currencyMeta('Azure', group.resources.find(r => r.currency)?.currency);
+  const money = (v: number) =>
+    symbol + v.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   // Set initial hidden state before first paint (only when starting closed)
   useLayoutEffect(() => {
@@ -107,11 +119,18 @@ const AzureWasteResourceGroup: React.FC<AzureWasteResourceGroupProps> = ({ group
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {group.totalSavings > 0 && (
-            <span className="text-[12px] font-semibold text-rose-600">
-              ₹{group.totalSavings.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo
+          {allFree ? (
+            <span
+              className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-50 text-slate-600 border border-slate-200"
+              title="These resources are not billed — cleaning them up is hygiene, not cost saving"
+            >
+              No cost impact
             </span>
-          )}
+          ) : billableTotal > 0 ? (
+            <span className="text-[12px] font-semibold text-rose-600">
+              {money(billableTotal)}/mo
+            </span>
+          ) : null}
           <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 border border-rose-100">
             {group.resources.length}
           </span>
@@ -139,12 +158,24 @@ const AzureWasteResourceGroup: React.FC<AzureWasteResourceGroupProps> = ({ group
             <div className="col-span-2 text-[rgba(0,0,0,0.55)]">{resource.region || '—'}</div>
             <div className="col-span-4 text-[rgba(0,0,0,0.55)] text-[12px] leading-relaxed">{resource.reason}</div>
             <div className="col-span-2 text-right">
-              {resource.monthlySavings > 0 ? (
-                <span className="font-semibold text-rose-600">
-                  ₹{resource.monthlySavings.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {/* Same three states as the AWS page. "hygiene" was shown for both free resources
+                  and ones that do cost money but could not be priced, so a deallocated VM still
+                  billing for its disks read as free. */}
+              {resource.noCostImpact ? (
+                <span className="text-[12px] font-medium text-[rgba(0,0,0,0.4)]" title="Not billed">
+                  No cost
+                </span>
+              ) : resource.savingsUnknown ? (
+                <span
+                  className="text-[12px] font-medium text-amber-600"
+                  title="This resource does cost money, but its price could not be resolved"
+                >
+                  Unpriced
                 </span>
               ) : (
-                <span className="text-[rgba(0,0,0,0.3)] text-[11px]">hygiene</span>
+                <span className="font-semibold text-rose-600">
+                  {money(resource.monthlySavings || 0)}
+                </span>
               )}
             </div>
           </div>

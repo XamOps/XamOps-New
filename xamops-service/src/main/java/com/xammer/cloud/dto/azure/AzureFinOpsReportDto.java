@@ -43,6 +43,19 @@ public class AzureFinOpsReportDto {
     private String budgetsUnavailableReason;
 
     /**
+     * ISO code of every spend figure in this report (KPIs, breakdown, region, anomalies): the
+     * subscription's billing currency as Cost Management reported it, or null when it has not been
+     * ingested yet. The charts printed "$" on these INR amounts because the report never said.
+     */
+    private String currency;
+
+    /**
+     * ISO code of every savings figure ({@link #totalPotentialSavings} and the rightsizing and waste
+     * rows). The billing currency whenever USD can be converted into it, otherwise USD.
+     */
+    private String savingsCurrency;
+
+    /**
      * Why the KPI block is wholly or partly unset, or null when every figure was measured.
      *
      * <p>
