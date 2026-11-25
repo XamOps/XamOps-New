@@ -37,7 +37,7 @@ import java.util.Optional;
 // choice that made the endpoints unreachable for admins who administer everything else.
 // Still admin-only: registering a report and assigning accounts changes which source a
 // customer's cost figures come from.
-@PreAuthorize("hasAnyAuthority('ROLE_SUPER_ADMIN', 'ROLE_XAMOPS', 'ROLE_BILLOPS_ADMIN')")
+@PreAuthorize("hasAnyAuthority('ROLE_SUPER_ADMIN', 'ROLE_XAMOPS_ADMIN', 'ROLE_BILLOPS_ADMIN')")
 public class CurSourceAdminController {
 
     private static final Logger logger = LoggerFactory.getLogger(CurSourceAdminController.class);

@@ -34,7 +34,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/xamops/autospotting-admin")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyAuthority('ROLE_SUPER_ADMIN', 'ROLE_XAMOPS', 'ROLE_BILLOPS_ADMIN')"
+@PreAuthorize("hasAnyAuthority('ROLE_SUPER_ADMIN', 'ROLE_XAMOPS_ADMIN', 'ROLE_BILLOPS_ADMIN')"
         + " and @autoSpottingAdminAccess.permits(authentication)")
 public class AutoSpottingAdminController {
 

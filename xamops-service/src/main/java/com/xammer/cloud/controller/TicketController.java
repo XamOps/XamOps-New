@@ -103,7 +103,7 @@ public class TicketController {
         boolean isAdmin = authentication.getAuthorities().stream()
                 .anyMatch(a -> "ROLE_BILLOPS_ADMIN".equals(a.getAuthority())
                         || "ROLE_SUPER_ADMIN".equals(a.getAuthority())
-                        || "ROLE_XAMOPS".equals(a.getAuthority()));
+                        || "ROLE_XAMOPS_ADMIN".equals(a.getAuthority()));
         if ("true".equalsIgnoreCase(isInternalStr) && isAdmin) {
             replyDto.setInternal(true);
         }

@@ -190,7 +190,7 @@ class AutoSpottingAdminControllerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = { "ROLE_SUPER_ADMIN", "ROLE_XAMOPS", "ROLE_BILLOPS_ADMIN" })
+    @ValueSource(strings = { "ROLE_SUPER_ADMIN", "ROLE_XAMOPS_ADMIN", "ROLE_BILLOPS_ADMIN" })
     void adminRoles_readEveryEndpoint(String role) throws Exception {
         for (String read : READS) {
             mvc.perform(get(BASE + read).with(as(role))).andExpect(status().isOk());
@@ -198,7 +198,7 @@ class AutoSpottingAdminControllerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = { "ROLE_SUPER_ADMIN", "ROLE_XAMOPS", "ROLE_BILLOPS_ADMIN" })
+    @ValueSource(strings = { "ROLE_SUPER_ADMIN", "ROLE_XAMOPS_ADMIN", "ROLE_BILLOPS_ADMIN" })
     void normalAdminSession_withItsOwnUserRecord_readsEveryEndpoint(String role) throws Exception {
         when(userRepository.findById(ADMIN_USER_ID)).thenReturn(Optional.of(
                 userRecord(ADMIN_USER_ID, "ops-admin", "ops-admin@example.com", role)));
@@ -238,7 +238,7 @@ class AutoSpottingAdminControllerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = { "ROLE_BILLOPS_ADMIN", "ROLE_XAMOPS" })
+    @ValueSource(strings = { "ROLE_BILLOPS_ADMIN", "ROLE_XAMOPS_ADMIN" })
     void loginAs_withABillOpsOrXamOpsAdminRole_isForbidden(String role) throws Exception {
         clearInvocations(autoSpottingService);
         for (String read : READS) {
@@ -256,7 +256,7 @@ class AutoSpottingAdminControllerTest {
     }
 
     @ParameterizedTest
-    @CsvSource({ "ROLE_BILLOPS_ADMIN, 403", "ROLE_XAMOPS, 403", "ROLE_SUPER_ADMIN, 200" })
+    @CsvSource({ "ROLE_BILLOPS_ADMIN, 403", "ROLE_XAMOPS_ADMIN, 403", "ROLE_SUPER_ADMIN, 200" })
     void headerLoginAs_needsSuperAdminToo(String targetRole, int expectedStatus) throws Exception {
         // A BillOps admin's own session, switched to another user with X-Impersonate-User.
         when(userRepository.findById(TARGET_USER_ID)).thenReturn(Optional.of(
@@ -275,7 +275,7 @@ class AutoSpottingAdminControllerTest {
     @ParameterizedTest
     @CsvSource({
             "demo.billops@xammer.in, Xammer BillOps, ROLE_BILLOPS_ADMIN",
-            "demo.xamops@xammer.in,  Xammer Admin,   ROLE_XAMOPS" })
+            "demo.xamops@xammer.in,  Xammer Admin,   ROLE_XAMOPS_ADMIN" })
     void demoAccounts_areForbidden_whateverTheirRole(String email, String username, String role) throws Exception {
         // Usernames as DataInitializer seeds them; demo.billops is seeded as ROLE_BILLOPS_ADMIN.
         when(userRepository.findById(DEMO_USER_ID)).thenReturn(Optional.of(
@@ -291,7 +291,7 @@ class AutoSpottingAdminControllerTest {
     @Test
     void demoClientUser_isForbidden_evenWithANonDemoEmailAndAdminRole() throws Exception {
         // A host-provisioned user: ordinary email, admin role, but attached to the is_demo client.
-        User demoClientUser = userRecord(DEMO_USER_ID, "someone@gmail.com", "someone@gmail.com", "ROLE_XAMOPS");
+        User demoClientUser = userRecord(DEMO_USER_ID, "someone@gmail.com", "someone@gmail.com", "ROLE_XAMOPS_ADMIN");
         com.xammer.cloud.domain.Client demoClient = new com.xammer.cloud.domain.Client("Demo Workspace");
         demoClient.setId(900L);
         demoClient.setDemo(true);
@@ -303,7 +303,7 @@ class AutoSpottingAdminControllerTest {
         clearInvocations(autoSpottingService);
         for (String read : READS) {
             mvc.perform(get(BASE + read)
-                    .with(user(sessionUser(DEMO_USER_ID, "someone@gmail.com", "ROLE_XAMOPS"))))
+                    .with(user(sessionUser(DEMO_USER_ID, "someone@gmail.com", "ROLE_XAMOPS_ADMIN"))))
                     .andExpect(status().isForbidden());
         }
         verifyNoInteractions(autoSpottingService);
