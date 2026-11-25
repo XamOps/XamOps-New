@@ -77,6 +77,14 @@ public interface SpotProvider {
      * revert, a revert that failed before restoring), the markers stay and the config says XamOps' configuration is
      * still on the group ({@link PlanOptions#CONFIG_ON_GROUP}). Returns the input when nothing changes.
      */
+    /**
+     * The {@code desired_config} a successful conversion writes from its target: the target without any plan-time
+     * instruction that only the op's own steps read (AWS: {@code keepLinkedSnapshot}, D-23b-03 review #6).
+     */
+    default String desiredConfigFromTarget(String targetConfigJson) {
+        return targetConfigJson;
+    }
+
     default String desiredConfigAfterRestore(String desiredConfigJson, java.util.Set<String> doneSteps) {
         return desiredConfigJson;
     }

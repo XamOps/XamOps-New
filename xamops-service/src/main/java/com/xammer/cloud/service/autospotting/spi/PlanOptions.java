@@ -23,7 +23,8 @@ import com.xammer.cloud.domain.autospotting.SpotGroup;
  * <p>There is deliberately no constructor that defaults {@code underManagement}: production code builds the options
  * with {@link #forGroup} or {@link #none()}, so the pre-fix reading cannot come back through a convenience call.
  */
-public record PlanOptions(Boolean allowBurstable, String desiredConfigJson, boolean underManagement) {
+public record PlanOptions(Boolean allowBurstable, String desiredConfigJson, boolean underManagement,
+                          boolean originalLinked) {
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -38,17 +39,25 @@ public record PlanOptions(Boolean allowBurstable, String desiredConfigJson, bool
             GroupState.ACTIVE, GroupState.DEGRADED, GroupState.FALLBACK, GroupState.PAUSED, GroupState.REVERTING,
             GroupState.FAILED);
 
+    /**
+     * Options with no linked original snapshot known ({@code originalLinked=false}): the safe side, an enable never
+     * promises to keep an original it was not shown to exist (D-23b-03 review #1).
+     */
+    public PlanOptions(Boolean allowBurstable, String desiredConfigJson, boolean underManagement) {
+        this(allowBurstable, desiredConfigJson, underManagement, false);
+    }
+
     public static PlanOptions none() {
-        return new PlanOptions(null, null, false);
+        return new PlanOptions(null, null, false, false);
     }
 
     /** The options for a plan on {@code group} (null when it has no row yet). */
     public static PlanOptions forGroup(Boolean allowBurstable, SpotGroup group) {
         if (group == null) {
-            return new PlanOptions(allowBurstable, null, false);
+            return new PlanOptions(allowBurstable, null, false, false);
         }
         return new PlanOptions(allowBurstable, group.getDesiredConfig(),
-                isUnderManagement(group.getState(), group.getDesiredConfig()));
+                isUnderManagement(group.getState(), group.getDesiredConfig()), group.getSnapshotId() != null);
     }
 
     /** True in a managed state, or when {@code desiredConfigJson} records {@link #CONFIG_ON_GROUP}. */
@@ -83,6 +92,15 @@ public record PlanOptions(Boolean allowBurstable, String desiredConfigJson, bool
      * True when the stored config says a restore program left XamOps' configuration on the group (a drain-only
      * revert, D-23b-03): the group's linked snapshot is still the customer's original.
      */
+    /**
+     * True when an enable keeps the group's linked snapshot as the original (D-23b-03): XamOps' configuration is
+     * still on the group and a linked snapshot exists. Without the link no promise is made and the enable captures
+     * the group as it is (the original was already lost).
+     */
+    public boolean keepsOriginal() {
+        return originalLinked && configOnGroup();
+    }
+
     public boolean configOnGroup() {
         if (!underManagement || desiredConfigJson == null || desiredConfigJson.isBlank()) {
             return false;

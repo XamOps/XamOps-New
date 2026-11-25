@@ -197,9 +197,10 @@ public class AwsSpotProvider implements SpotProvider {
                 .put("program", "REVERT")
                 .put("method", "RESTORE_SNAPSHOT")
                 .put("exact", snapshot.exact()));
-        if (options.configOnGroup()) {
+        if (options.keepsOriginal() && req.kind() == com.xammer.cloud.domain.autospotting.OperationKind.ENABLE) {
             // D-23b-03: XamOps' configuration never left the group (drain-only revert), so the linked snapshot is
             // still the customer's original; the enable keeps it instead of saving the drained group as "original".
+            // Only ENABLE takes a snapshot; the key is a step instruction and is not kept in desired_config.
             target.put(KEEP_LINKED_SNAPSHOT, true);
         }
         EligibilityResult eligibility = withOriginalKept(ev.result(), options, g);
@@ -233,14 +234,17 @@ public class AwsSpotProvider implements SpotProvider {
      * revert restores the original for them. A changed maintenance policy is the customer's and is kept.
      */
     static EligibilityResult withOriginalKept(EligibilityResult r, PlanOptions options, AwsGroupFacts g) {
-        if (r == null || options == null || !options.configOnGroup()) {
+        if (r == null || options == null || !options.keepsOriginal()) {
             return r;
         }
         List<String> changed = new ArrayList<>();
         if (g != null) {
             try {
                 for (String f : AwsOwnedFields.mismatches(g, JSON.readTree(options.desiredConfigJson()))) {
-                    if (!"onDemandPercentageAboveBaseCapacity".equals(f)) { // the drain set it to 100
+                    // The drain set the share above base to 100: only a different live value is a customer change.
+                    boolean drainedShare = "onDemandPercentageAboveBaseCapacity".equals(f)
+                            && Integer.valueOf(100).equals(g.onDemandPercentageAboveBase());
+                    if (!drainedShare) {
                         changed.add(f);
                     }
                 }
@@ -524,6 +528,23 @@ public class AwsSpotProvider implements SpotProvider {
      * choice stays. Without that step (a drain-only revert, or a failure before the restore) the configuration is still
      * on the group: the markers stay and {@link PlanOptions#CONFIG_ON_GROUP} records it.
      */
+    /** D-23b-03 review #6: {@code keepLinkedSnapshot} is for the ENABLE's own snapshot step, never stored. */
+    @Override
+    public String desiredConfigFromTarget(String targetConfigJson) {
+        if (targetConfigJson == null || !targetConfigJson.contains(KEEP_LINKED_SNAPSHOT)) {
+            return targetConfigJson;
+        }
+        try {
+            JsonNode n = JSON.readTree(targetConfigJson);
+            if (n instanceof ObjectNode o && o.remove(KEEP_LINKED_SNAPSHOT) != null) {
+                return write(o);
+            }
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            // unreadable target: written as is, like before
+        }
+        return targetConfigJson;
+    }
+
     @Override
     public String desiredConfigAfterRestore(String desiredConfigJson, java.util.Set<String> doneSteps) {
         if (desiredConfigJson == null || desiredConfigJson.isBlank()) {
@@ -548,6 +569,9 @@ public class AwsSpotProvider implements SpotProvider {
             return write(n);
         }
         boolean changed = n.remove(PlanOptions.CONFIG_ON_GROUP) != null;
+        if (n.remove(KEEP_LINKED_SNAPSHOT) != null) {
+            changed = true;
+        }
         if (AwsMaintenancePolicy.owns(n)) {
             n.remove(AwsMaintenancePolicy.KEY);
             changed = true;

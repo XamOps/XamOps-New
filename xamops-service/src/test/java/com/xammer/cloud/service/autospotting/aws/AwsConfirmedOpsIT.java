@@ -424,6 +424,8 @@ class AwsConfirmedOpsIT {
                     .as("the new desired_config is the re-enable's target").isFalse();
             assertThat(h.jdbc.queryForObject("SELECT count(*) FROM spot_group_snapshot WHERE group_id = ?",
                     Integer.class, h.f.groupId)).as("D-23b-03: the re-enable kept the original snapshot").isEqualTo(1);
+            assertThat(h.f.json(row(h).getDesiredConfig()).has(AwsSpotProvider.KEEP_LINKED_SNAPSHOT))
+                    .as("review #6: the step instruction is not stored in desired_config").isFalse();
             h.f.spotInstances.clear(); // the final revert drains Spot first
             UUID revert = h.planAndConfirm(new PlanRequest(new GroupRef(Provider.AWS, 7L,
                     FakeAws.REGION + "/web-asg", null), OperationKind.REVERT, null, PlanOptions.none()));
@@ -608,6 +610,83 @@ class AwsConfirmedOpsIT {
                     .contains("restores the original for them");
             assertThat(AwsMaintenancePolicy.owns(h.f.json(plan.targetJson()))).as("100/200 still XamOps'").isTrue();
             assertThat(h.f.json(plan.targetJson()).path(AwsSpotProvider.KEEP_LINKED_SNAPSHOT).asBoolean()).isTrue();
+            // Review #7: the promise holds through both operations.
+            UUID snapshotBefore = row(h).getSnapshotId();
+            for (int i = 1; i <= 3; i++) {
+                h.f.spotInstances.add("i-" + (5 - i));
+            }
+            UUID op = h.planAndConfirm(new PlanRequest(new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg",
+                    null), OperationKind.ENABLE, new Profile("aggressive", null), optionsFor(h, null)));
+            assertThat(h.runToEnd(op)).as("re-enable error " + h.jdbc.queryForList(
+                    "SELECT error_code FROM spot_operation WHERE id = ?", String.class, op)).isEqualTo("SUCCEEDED");
+            assertThat(liveTypes(h)).as("the target is applied on top of the customer's override").contains("t3a.small");
+            assertThat(row(h).getSnapshotId()).as("the linked original is unchanged").isEqualTo(snapshotBefore);
+            assertThat(h.jdbc.queryForObject("SELECT count(*) FROM spot_group_snapshot WHERE group_id = ?",
+                    Integer.class, h.f.groupId)).isEqualTo(1);
+            h.f.spotInstances.clear();
+            UUID revert = h.planAndConfirm(new PlanRequest(new GroupRef(Provider.AWS, 7L,
+                    FakeAws.REGION + "/web-asg", null), OperationKind.REVERT, null, PlanOptions.none()));
+            assertThat(h.runToEnd(revert)).as("final revert error " + h.opError()).isEqualTo("SUCCEEDED");
+            assertThat(h.f.group().mixedInstancesPolicy()).as("the saved original (launch template only)").isNull();
+            assertThat(h.f.group().instanceMaintenancePolicy()).as("100/200 cleared").isNull();
+        }
+    }
+    /** Review #2: a share above base the customer set after the drain (not the drained 100) is listed. */
+    @Test
+    void aCustomerChangeToTheOnDemandShareAfterADrainOnlyRevertIsListedInThePlan() {
+        try (AwsOpsHarness h = drainOnlyReverted()) {
+            var mip = h.f.group().mixedInstancesPolicy();
+            assertThat(mip.instancesDistribution().onDemandPercentageAboveBaseCapacity()).as("drained").isEqualTo(100);
+            toPlanned(h);
+            PlanRequest enable = new PlanRequest(new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg", null),
+                    OperationKind.ENABLE, new Profile("aggressive", null), optionsFor(h, null));
+            String drainedText = h.provider.createPlan(enable, h.f.aws.view()).eligibility().warnings().stream()
+                    .filter(w -> w.code().equals("ORIGINAL_SNAPSHOT_KEPT")).findFirst().orElseThrow().text();
+            assertThat(drainedText).as("the drain's own 100 is not a customer change").doesNotContain("Changed on the group");
+            h.f.replaceGroup(h.f.group().toBuilder().mixedInstancesPolicy(mip.toBuilder().instancesDistribution(
+                    mip.instancesDistribution().toBuilder().onDemandPercentageAboveBaseCapacity(70).build()).build())
+                    .build());
+            String text = h.provider.createPlan(enable, h.f.aws.view()).eligibility().warnings().stream()
+                    .filter(w -> w.code().equals("ORIGINAL_SNAPSHOT_KEPT")).findFirst().orElseThrow().text();
+            assertThat(text).contains("Changed on the group since that revert: onDemandPercentageAboveBaseCapacity");
+        }
+    }
+    /** Review #1, plan side: with no linked snapshot the plan makes no promise (no instruction, no warning). */
+    @Test
+    void withoutALinkedSnapshotTheEnableAfterADrainOnlyRevertMakesNoKeptOriginalPromise() {
+        try (AwsOpsHarness h = drainOnlyReverted()) {
+            h.jdbc.update("UPDATE spot_group SET snapshot_id = NULL WHERE id = ?", h.f.groupId);
+            toPlanned(h);
+            var plan = h.provider.createPlan(new PlanRequest(new GroupRef(Provider.AWS, 7L,
+                    FakeAws.REGION + "/web-asg", null), OperationKind.ENABLE, new Profile("aggressive", null),
+                    optionsFor(h, null)), h.f.aws.view());
+            assertThat(plan.eligibility().warnings().stream().map(w -> w.code())).doesNotContain("ORIGINAL_SNAPSHOT_KEPT");
+            assertThat(h.f.json(plan.targetJson()).has(AwsSpotProvider.KEEP_LINKED_SNAPSHOT)).isFalse();
+            assertThat(AwsMaintenancePolicy.owns(h.f.json(plan.targetJson())))
+                    .as("the markers still apply: XamOps' configuration is on the group").isTrue();
+        }
+    }
+    /** Review #1, step side: the plan promised the linked original; if it is gone at run time, fail closed. */
+    @Test
+    void aKeptOriginalEnableWhoseLinkedSnapshotIsGoneFailsClosedWithSnapshotMissing() {
+        try (AwsOpsHarness h = drainOnlyReverted()) {
+            toPlanned(h);
+            PlanRequest enable = new PlanRequest(new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg", null),
+                    OperationKind.ENABLE, new Profile("aggressive", null), optionsFor(h, null));
+            for (int i = 1; i <= 3; i++) {
+                h.f.spotInstances.add("i-" + (5 - i));
+            }
+            int before = h.f.updates.size();
+            UUID op = h.planAndConfirm(enable);
+            assertThat(h.jdbc.queryForObject("SELECT target_config->>'keepLinkedSnapshot' FROM spot_operation"
+                    + " WHERE id = ?", String.class, op)).isEqualTo("true");
+            h.jdbc.update("UPDATE spot_group SET snapshot_id = NULL WHERE id = ?", h.f.groupId);
+            assertThat(h.runToEnd(op)).isEqualTo("FAILED");
+            assertThat(h.jdbc.queryForObject("SELECT error_code FROM spot_operation WHERE id = ?", String.class, op))
+                    .isEqualTo("SNAPSHOT_MISSING");
+            assertThat(h.f.updates.size()).as("nothing was sent").isEqualTo(before);
+            assertThat(h.jdbc.queryForObject("SELECT count(*) FROM spot_group_snapshot WHERE group_id = ?",
+                    Integer.class, h.f.groupId)).as("the drained group was not captured").isEqualTo(1);
         }
     }
     /** D-23b-03 counterpart: a first enable, or one after a full revert, takes a fresh snapshot and shows no warning. */
