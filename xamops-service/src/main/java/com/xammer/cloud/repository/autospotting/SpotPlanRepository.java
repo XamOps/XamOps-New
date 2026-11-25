@@ -75,6 +75,14 @@ public interface SpotPlanRepository extends JpaRepository<SpotPlan, UUID> {
     @Query(value = "SELECT * FROM spot_plan WHERE status = 'OPEN' AND expires_at <= :now", nativeQuery = true)
     List<SpotPlan> findExpiredOpen(@Param("now") Instant now);
 
+    /**
+     * Take a transaction-scoped advisory lock keyed on the group id, so concurrent plans for one group run
+     * one after another (held to commit; {@code createPlan} is REQUIRES_NEW). Returns 1.
+     */
+    @Query(value = "SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtextextended(CAST(:id AS text), 0))) t",
+            nativeQuery = true)
+    int lockGroupForPlan(@Param("id") UUID id);
+
     /** Mark one OPEN plan EXPIRED (expiry sweep). Returns rows updated. */
     @Modifying
     @Query(value = "UPDATE spot_plan SET status = 'EXPIRED' WHERE id = :id AND status = 'OPEN'", nativeQuery = true)

@@ -51,15 +51,25 @@ public class AwsGroupStatusReader {
 
     /** Read the live status of {@code name} through {@code view}. */
     public GroupStatus read(AwsReadOnlyView view, String name) {
+        return read(view, name, false);
+    }
+
+    /** As {@link #read(AwsReadOnlyView, String)}, with the maintenance policy in the fingerprint when XamOps owns it. */
+    public GroupStatus read(AwsReadOnlyView view, String name, boolean ownsMaintenancePolicy) {
         Optional<AutoScalingGroup> found = describeGroup(view, name);
         if (found.isEmpty()) {
             return GroupStatus.notFound();
         }
-        return read(view, found.get());
+        return read(view, found.get(), ownsMaintenancePolicy);
     }
 
     /** Read the live status given a group already described (the caller made call 1). */
     public GroupStatus read(AwsReadOnlyView view, AutoScalingGroup group) {
+        return read(view, group, false);
+    }
+
+    /** As {@link #read(AwsReadOnlyView, AutoScalingGroup)}; the fingerprint includes the maintenance policy when XamOps owns it. */
+    public GroupStatus read(AwsReadOnlyView view, AutoScalingGroup group, boolean ownsMaintenancePolicy) {
         String name = group.autoScalingGroupName();
         AwsGroupFacts facts = AwsGroupFacts.from(view.region(), group);
         List<Activity> activities = AwsErrors.read("DescribeScalingActivities", () ->
@@ -151,7 +161,7 @@ public class AwsGroupStatusReader {
                 + ",\"spot\":" + split[1] + ",\"onDemand\":" + split[0]
                 + ",\"mixed\":" + facts.mixedInstancesPolicy()
                 + ",\"odPercentAboveBase\":" + facts.onDemandPercentageAboveBase() + "}";
-        return new GroupStatus(true, AwsFingerprint.of(facts), health, capacity, refreshActive);
+        return new GroupStatus(true, AwsFingerprint.of(facts, ownsMaintenancePolicy), health, capacity, refreshActive);
     }
 
     /** Call 1: the group by name; empty when AWS returns nothing, an {@link AwsReadException} on failure. */

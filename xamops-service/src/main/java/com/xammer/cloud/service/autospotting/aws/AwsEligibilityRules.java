@@ -46,7 +46,16 @@ public final class AwsEligibilityRules {
     }
 
     /** Type selection results the rules need (§4.4). */
-    public record TypeInfo(AwsTypeSelector.Selection selection, boolean xenToNitro) {
+    public record TypeInfo(AwsTypeSelector.Selection selection, boolean xenToNitro,
+                           List<String> burstableAlternatives, List<String> burstableSelected) {
+        public TypeInfo {
+            burstableAlternatives = burstableAlternatives == null ? List.of() : List.copyOf(burstableAlternatives);
+            burstableSelected = burstableSelected == null ? List.of() : List.copyOf(burstableSelected);
+        }
+
+        public TypeInfo(AwsTypeSelector.Selection selection, boolean xenToNitro) {
+            this(selection, xenToNitro, List.of(), List.of());
+        }
     }
 
     /** RI/Savings Plans utilization in scope; null utilization means no commitments (passes). */
@@ -204,11 +213,22 @@ public final class AwsEligibilityRules {
                 sig("NO_COMPATIBLE_TYPES", in.types(), blockers, deferred, t -> {
                     if (t.selection().noCompatibleTypes()) {
                         blockers.add(blocker("NO_COMPATIBLE_TYPES",
-                                "No other instance type is compatible with this group, so Spot can't be diversified."));
+                                "No other instance type is compatible with this group, so Spot can't be diversified."
+                                        + burstableHint(t)));
                     } else if (t.selection().fewTypes()) {
                         warnings.add(warning("FEW_TYPES", "Only " + t.selection().compatibleCount()
-                                + " compatible instance types were found; Spot capacity may be limited.",
+                                + " compatible instance types were found; Spot capacity may be limited."
+                                + burstableHint(t),
                                 String.valueOf(t.selection().compatibleCount())));
+                    }
+                    if (!t.burstableSelected().isEmpty()) {
+                        warnings.add(warning("BURSTABLE_CREDITS", "You allowed burstable instance types ("
+                                + String.join(", ", t.burstableSelected()) + "). They earn CPU credits while idle "
+                                + "and spend them when busy. When the credits run out, a burstable instance is "
+                                + "slowed down, or on unlimited mode billed extra for the CPU it uses. Spot "
+                                + "instances of these types can behave differently from your current On-Demand "
+                                + "ones, so watch CPU credit balance and cost after the change.",
+                                String.join(",", t.burstableSelected())));
                     }
                     if (t.xenToNitro()) {
                         warnings.add(warning("XEN_TO_NITRO",
@@ -262,9 +282,12 @@ public final class AwsEligibilityRules {
             blockers.add(blocker("CAPACITY_TYPE_UNSUPPORTED",
                     "This group counts capacity in " + g.desiredCapacityType() + ", which isn't supported."));
         }
-        if (g.maxHealthyPercentage() != null && g.maxHealthyPercentage() == 100) {
+        AwsMaintenancePolicy.Kind policyKind = AwsMaintenancePolicy.classify(g);
+        if (policyKind == AwsMaintenancePolicy.Kind.TERMINATE_FIRST) {
+            // XamOps never rewrites a customer's policy (AD-08): the customer raises the maximum or removes it.
             blockers.add(blocker("IMP_TERMINATE_FIRST", "The group's instance maintenance policy replaces "
-                    + "instances terminate-first (MaxHealthyPercentage=100)."));
+                    + "instances terminate-first (MaxHealthyPercentage=100). Raise the maximum healthy percentage "
+                    + "above 100, or remove the maintenance policy, then plan again."));
         }
         boolean lb = !g.targetGroupArns().isEmpty() || !g.loadBalancerNames().isEmpty();
         if (lb && "EC2".equalsIgnoreCase(g.healthCheckType())) {
@@ -292,10 +315,37 @@ public final class AwsEligibilityRules {
             warnings.add(warning("SINGLE_AZ", "The group runs in one Availability Zone, which limits Spot capacity.",
                     g.availabilityZones().iterator().next()));
         }
-        if (g.defaultInstanceWarmup() == null) {
-            warnings.add(warning("NO_INSTANCE_WARMUP", "No default instance warm-up is set, so replacements count as "
-                    + "ready as soon as they are healthy.", "none"));
+        if (policyKind == AwsMaintenancePolicy.Kind.ABSENT) {
+            // XamOps will set 100/200 and restore "none" at revert; the group can briefly run up to twice its size.
+            warnings.add(warning("IMP_OVERSHOOT", "While AWS replaces instances, this group can briefly run up to "
+                    + "twice its desired size (" + g.desired() + " extra instance(s)) and the extra instances are "
+                    + "billed. XamOps sets this to keep your capacity from dipping, and removes the setting when "
+                    + "you revert.", String.valueOf(g.desired())));
+        } else if (policyKind == AwsMaintenancePolicy.Kind.CUSTOMER_LOW_MIN) {
+            boolean minSet = g.minHealthyPercentage() != null;
+            warnings.add(warning("IMP_MIN_HEALTHY_LOW", minSet
+                    ? "Your maintenance policy allows capacity to drop to " + g.minHealthyPercentage()
+                    + "% during replacements, so this group can briefly run below its desired size while XamOps "
+                    + "changes it. XamOps does not change your policy."
+                    : "Your maintenance policy has no minimum healthy percentage set, so capacity may dip during "
+                    + "replacement and this group can briefly run below its desired size while XamOps changes it. "
+                    + "XamOps does not change your policy.",
+                    minSet ? String.valueOf(g.minHealthyPercentage()) : "unset"));
         }
+        if (g.defaultInstanceWarmup() == null) {
+            warnings.add(warning("NO_INSTANCE_WARMUP", "No default instance warm-up is set, so a new instance is "
+                    + "counted as ready as soon as it passes its health checks, with no extra warm-up time. XamOps "
+                    + "leaves this setting alone.", "none"));
+        }
+    }
+
+    /** Names the burstable types a plan with the option on would add (AD-09); empty when there are none. */
+    private static String burstableHint(TypeInfo t) {
+        if (t.burstableAlternatives().isEmpty()) {
+            return "";
+        }
+        return " This group uses a burstable type. You can allow burstable alternatives ("
+                + String.join(", ", t.burstableAlternatives()) + ") and plan again.";
     }
 
     // ---- launch template and image rules ----

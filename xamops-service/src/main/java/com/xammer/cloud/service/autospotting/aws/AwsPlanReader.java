@@ -81,7 +81,17 @@ public class AwsPlanReader {
 
     /** Selected types plus the figures plan creation needs. */
     public record TypePlan(AwsTypeSelector.Selection selection, boolean xenToNitro, int originalVcpu,
-                           Map<String, BigDecimal> spotMedianByType) {
+                           Map<String, BigDecimal> spotMedianByType, boolean originalBurstable,
+                           List<String> burstableAlternatives, List<String> burstableSelected) {
+        public TypePlan {
+            burstableAlternatives = burstableAlternatives == null ? List.of() : List.copyOf(burstableAlternatives);
+            burstableSelected = burstableSelected == null ? List.of() : List.copyOf(burstableSelected);
+        }
+
+        public TypePlan(AwsTypeSelector.Selection selection, boolean xenToNitro, int originalVcpu,
+                        Map<String, BigDecimal> spotMedianByType) {
+            this(selection, xenToNitro, originalVcpu, spotMedianByType, false, List.of(), List.of());
+        }
     }
 
     // ---- launch template and AMI ----
@@ -135,9 +145,10 @@ public class AwsPlanReader {
                 .filter(b -> b.virtualName() != null && b.virtualName().startsWith("ephemeral")).count();
         boolean efa = d.networkInterfaces().stream().anyMatch(n -> "efa".equalsIgnoreCase(n.interfaceType()));
         String arch = image == null ? null : image.architectureAsString();
+        // An AMI with no BootMode takes the architecture default (arm64 uefi, otherwise legacy-bios).
         String boot = image == null ? null : image.bootModeAsString();
         if (boot == null && arch != null) {
-            boot = "arm64".equals(arch) ? "uefi" : "legacy-bios";
+            boot = AwsTypeSelector.defaultBootMode(arch);
         }
         String sha = AwsFingerprint.sha256(String.valueOf(v.versionNumber()) + "|" + d.imageId() + "|"
                 + d.instanceTypeAsString() + "|" + (market != null) + "|"
@@ -434,9 +445,10 @@ public class AwsPlanReader {
             withAzs.add(withAz(c, offered.getOrDefault(c.instanceType(), Set.of()), 0));
         }
         AwsTypeSelector.TypeFacts oWithAz = withAz(o, offered.getOrDefault(o.instanceType(), Set.of(azs.toArray(new String[0]))), 0);
-        AwsTypeSelector.ImageFacts image = new AwsTypeSelector.ImageFacts(
-                launch.architecture() == null ? "x86_64" : launch.architecture(),
-                launch.bootMode() == null ? "legacy-bios" : launch.bootMode(), launch.enaSupport());
+        String launchArch = launch.architecture() == null ? "x86_64" : launch.architecture();
+        AwsTypeSelector.ImageFacts image = new AwsTypeSelector.ImageFacts(launchArch,
+                launch.bootMode() == null ? AwsTypeSelector.defaultBootMode(launchArch) : launch.bootMode(),
+                launch.enaSupport());
         AwsTypeSelector.TemplateFacts template = new AwsTypeSelector.TemplateFacts(launch.ephemeralMappings(),
                 launch.efaRequested(), launch.networkInterfaces(), launch.hibernation());
         // Price only the types that survive the hard filter (one batched call, cached 1 h).
@@ -460,7 +472,21 @@ public class AwsPlanReader {
         withAzs.forEach(c -> byName.put(c.instanceType(), c));
         boolean xenToNitro = !o.nitro() && sel.types().stream().filter(t -> !t.equals(original))
                 .map(byName::get).anyMatch(c -> c != null && c.nitro());
-        return new TypePlan(sel, xenToNitro, o.vcpu(), medians);
+        // AD-09: with the option off, name the burstable types a plan with it on would add, so the customer can decide.
+        List<String> alternatives = new ArrayList<>();
+        if (o.burstable() && !selector.allowsBurstable()) {
+            AwsTypeSelector burstable = selector.withBurstable(true);
+            for (AwsTypeSelector.TypeFacts c : withAzs) {
+                if (c.burstable() && !c.instanceType().equals(original)
+                        && burstable.isCompatible(oWithAz, c, azs, image, template)) {
+                    alternatives.add(c.instanceType());
+                }
+            }
+            alternatives.sort(String::compareTo);
+        }
+        List<String> burstableSelected = sel.types().stream().filter(t -> !t.equals(original))
+                .filter(t -> byName.get(t) != null && byName.get(t).burstable()).toList();
+        return new TypePlan(sel, xenToNitro, o.vcpu(), medians, o.burstable(), alternatives, burstableSelected);
     }
 
     private static AwsTypeSelector.TypeFacts withAz(AwsTypeSelector.TypeFacts t, Set<String> azs, double price) {

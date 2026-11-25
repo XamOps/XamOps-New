@@ -4,7 +4,8 @@ import type { DspmError } from '../types/dspm';
 import type { DatastoreFilterOptions } from '../types/dspmDatastores';
 import type { SaasFileLineage } from '../types/dspmDrawers';
 import type {
-  LineageCategories, LineageDatastorePage, LineageFilePage, LineagePolicyPage,
+  LineageCategories, LineageDatastorePage, LineageFilePage, LineagePolicyPage, PublicFileLineage,
+  PublicLineageDatastorePage, PublicLineageFilePage,
 } from '../types/dspmLineage';
 import { buildFilterParams, type DatastoreFilterState } from '../components/Dspm/datastores/datastoreFilters';
 import type { LineageCategoryId } from '../components/Dspm/lineage/lineageQuery';
@@ -52,6 +53,15 @@ export const lineageApi = {
     apiClient.get<LineageFilePage>(withQuery(`${BASE}/datastores/${encodeURIComponent(exposureId)}/files`, { skip, limit })),
   fileLineage: (fileId: string) =>
     apiClient.get<SaasFileLineage>(`${BASE}/files/${encodeURIComponent(fileId)}/lineage`),
+  // The public path (build 7 design 5.2): served while the exposure routes are switched off.
+  publicDatastores: (p: { q: string | null; skip: number; limit: number }) =>
+    apiClient.get<PublicLineageDatastorePage>(withQuery(`${BASE}/public/datastores`, { q: p.q, skip: p.skip, limit: p.limit })),
+  publicFiles: (datastoreId: string, skip: number, limit: number) =>
+    apiClient.get<PublicLineageFilePage>(
+      withQuery(`${BASE}/public/datastores/${encodeURIComponent(datastoreId)}/files`, { skip, limit })),
+  publicFileLineage: (datastoreId: string, fileId: string) =>
+    apiClient.get<PublicFileLineage>(
+      `${BASE}/public/datastores/${encodeURIComponent(datastoreId)}/files/${encodeURIComponent(fileId)}/lineage`),
 };
 
 /** One keyed resource as the page reads it. */

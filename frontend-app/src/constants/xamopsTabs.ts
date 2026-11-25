@@ -99,6 +99,24 @@ export const XAMOPS_MODULES: XamOpsModule[] = [
       { key: 'obs-grafana', label: 'Grafana', icon: 'mdi:chart-areaspline' },
     ],
   },
+  // XamPulse (Observability 1.0): its own module, separate from the Beta Observability module above.
+  // Tab ids live in constants/xampulseTabs.ts. Like every new key here, existing restricted users do not
+  // have these until a migration grants them (see the warning on secops-xamlens above).
+  {
+    key: 'xampulse',
+    label: 'XamPulse',
+    icon: 'mdi:heart-pulse',
+    tabs: [
+      { key: 'xp-overview', label: 'Mission Control', icon: 'mdi:heart-pulse' },
+      { key: 'xp-hosts', label: 'Hosts', icon: 'mdi:server' },
+      { key: 'xp-containers', label: 'Containers', icon: 'mdi:docker' },
+      { key: 'xp-logs', label: 'Logs', icon: 'mdi:format-list-bulleted' },
+      { key: 'xp-metrics', label: 'Metrics', icon: 'mdi:chart-line' },
+      { key: 'xp-alerts', label: 'Alerts', icon: 'mdi:bell-outline' },
+      { key: 'xp-insights', label: 'Insights', icon: 'mdi:lightbulb-on-outline' },
+      { key: 'xp-setup', label: 'Setup & Storage', icon: 'mdi:cog-outline' },
+    ],
+  },
   {
     key: 'sre',
     label: 'SRE',

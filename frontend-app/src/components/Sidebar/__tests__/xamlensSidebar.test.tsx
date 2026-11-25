@@ -60,11 +60,10 @@ const xamLensLink = (name: string, href: string, hidden = false) => {
   return links;
 };
 const before = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-/** Build 6's page entries below Datastores, in the console's order. */
+/** Build 6's page entries below Datastores, in the console's order. Remediation is switched off (`XAMLENS_REMEDIATION_ENABLED`). */
 const PAGE_ENTRIES = [
   ['Document Classes', '/xamlens/document-classes'],
   ['Assists', '/xamlens/assists'],
-  ['Remediation', '/xamlens/remediation'],
 ] as const;
 
 beforeEach(() => {
@@ -174,23 +173,33 @@ describe('Sidebar XamLens entries', () => {
     expect(datastores.className).not.toContain('font-semibold');
   });
 
-  it('lists Dashboard; DATA INVENTORY Datastores; DATA CATALOGUE Document Classes; MANAGEMENT Assists, Remediation', async () => {
+  it('lists Dashboard; DATA INVENTORY Datastores; DATA CATALOGUE Document Classes; MANAGEMENT Assists', async () => {
     renderAt('/xamlens/datastores/all');
     const datastores = await screen.findByRole('link', { name: 'Datastores' });
-    const [documentClasses, assists, remediation] = PAGE_ENTRIES.map(([name, href]) => {
+    const [documentClasses, assists] = PAGE_ENTRIES.map(([name, href]) => {
       const links = xamLensLink(name, href);
       expect(links, name).toHaveLength(1);
       return links[0];
     });
     const catalogue = screen.getByText('Data Catalogue');
     const management = screen.getByText('Management');
-    const order = [xamLensDashboard(), label(), datastores, catalogue, documentClasses, management, assists, remediation];
+    const order = [xamLensDashboard(), label(), datastores, catalogue, documentClasses, management, assists];
     for (let i = 1; i < order.length; i++) expect(before(order[i - 1], order[i]), `entry ${i}`).toBe(true);
     for (const text of ['Data Inventory', 'Data Catalogue', 'Management']) expect(screen.getAllByText(text), text).toHaveLength(1);
     expect(catalogue).toHaveClass('uppercase');
     expect(management).toHaveClass('uppercase');
     expect(screen.queryByRole('link', { name: 'Project Settings', hidden: true })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Scan Management', hidden: true })).toBeNull();
+  });
+
+  it('has no Remediation entry while the page is switched off, even on its own path', async () => {
+    for (const url of ['/xamlens/datastores/all', '/xamlens/remediation']) {
+      const { unmount } = renderAt(url);
+      await screen.findByRole('link', { name: 'Datastores' });
+      expect(xamLensLink('Remediation', '/xamlens/remediation', true), url).toHaveLength(0);
+      expect(screen.getAllByText('Management'), url).toHaveLength(1);
+      unmount();
+    }
   });
 
   it.each(PAGE_ENTRIES)('marks %s active on its own path, and Datastores and Dashboard not', async (name, href) => {

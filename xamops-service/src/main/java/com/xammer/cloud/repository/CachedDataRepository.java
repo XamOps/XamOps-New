@@ -54,4 +54,18 @@ public interface CachedDataRepository extends JpaRepository<CachedData, String> 
     @Query(value = "UPDATE cached_data SET json_data = :json WHERE cache_key = :key AND json_data = :oidText",
             nativeQuery = true)
     int inlineLegacyRow(@Param("key") String key, @Param("oidText") String oidText, @Param("json") String json);
+
+    /**
+     * Deletes the row with exactly this key without loading it (a derived delete would load the
+     * payload first). The row's large object, if {@code json_data} held a legacy reference, is left in
+     * place: backup tables may still reference it, and large objects are only removed by the managed
+     * cleanup in docs/runbooks/lob-text-cutover.md. Measure the size first with
+     * {@code LegacyLobTextType.storedLength}.
+     *
+     * @return the number of rows deleted (0 or 1)
+     */
+    @Modifying
+    @Transactional
+    @Query(value = "DELETE FROM cached_data WHERE cache_key = :key", nativeQuery = true)
+    int deleteOversizedByCacheKey(@Param("key") String key);
 }

@@ -26,8 +26,8 @@ interface Props {
  * `showFalsePositives` on every request. Answers that arrive after a newer request started are ignored,
  * and a page past the end (the data changed since the pager was drawn) returns to page 1.
  *
- * Samples arrive as Matters returns them (it masks endpoint samples itself), live only in this
- * component's state and are rendered by `SampleCell` alone. "Mark" is greyed.
+ * Samples arrive masked by xamops-service (build 9), live only in this component's state and are
+ * rendered by `SampleCell` alone. "Mark" is greyed.
  */
 const EndpointOccurrenceTable: React.FC<Props> = ({ api, entityName, showFalsePositives }) => {
   const [page, setPage] = useState(1);

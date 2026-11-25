@@ -3,6 +3,7 @@ import type { GroupRow } from '../../../api/autospottingApi';
 import type { ProviderAdapter } from '../adapters/types';
 import AsDialog from './AsDialog';
 import { usePlanFlow } from './usePlanFlow';
+import { diffFieldLabel, diffValue } from './diffText';
 import { SWITCH_UNREADABLE_TEXT, warningText } from './reasons';
 
 interface RevertDialogProps {
@@ -150,9 +151,9 @@ export const RevertDialog: React.FC<RevertDialogProps> = ({
               <tbody>
                 {body.diff.map(d => (
                   <tr key={d.field} className="border-b border-gray-100">
-                    <td className="py-1 pr-2">{d.field}</td>
-                    <td className="py-1 pr-2">{d.from ?? '--'}</td>
-                    <td className="py-1">{d.to ?? '--'}</td>
+                    <td className="py-1 pr-2">{diffFieldLabel(d.field)}</td>
+                    <td className="py-1 pr-2">{diffValue(d.field, d.from, 'from')}</td>
+                    <td className="py-1">{diffValue(d.field, d.to, 'to')}</td>
                   </tr>
                 ))}
               </tbody>

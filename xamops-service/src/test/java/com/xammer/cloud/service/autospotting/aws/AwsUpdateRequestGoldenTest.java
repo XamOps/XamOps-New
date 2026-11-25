@@ -124,6 +124,19 @@ class AwsUpdateRequestGoldenTest {
         assertThat(r.mixedInstancesPolicy().instancesDistribution().spotInstancePools()).isNull();
     }
 
+    /** AD-08: a customer's own policy is never in the request, whatever its values. */
+    @Test
+    void aCustomerMaintenancePolicyIsNeverSent() throws IOException {
+        for (int[] mm : new int[][] {{100, 150}, {90, 150}}) {
+            AwsConversionFixture f = new AwsConversionFixture(FakeAws.asg("web-asg").instanceMaintenancePolicy(
+                    software.amazon.awssdk.services.autoscaling.model.InstanceMaintenancePolicy.builder()
+                            .minHealthyPercentage(mm[0]).maxHealthyPercentage(mm[1]).build()).build(), true);
+            UpdateAutoScalingGroupRequest r = request(f, "conservative");
+            assertThat(r.instanceMaintenancePolicy()).isNull();
+            assertThat(SdkJson.of(r).fieldNames()).toIterable().doesNotContain("InstanceMaintenancePolicy");
+        }
+    }
+
     @Test
     void neverSendsACapacityOrHealthField() throws IOException {
         for (AutoScalingGroup g : List.of(FakeAws.asg("web-asg").build(),
@@ -131,7 +144,8 @@ class AwsUpdateRequestGoldenTest {
             AwsConversionFixture f = new AwsConversionFixture(g, true);
             JsonNode actual = SdkJson.of(request(f, "conservative"));
             assertThat(actual.fieldNames()).toIterable()
-                    .containsExactlyInAnyOrder("AutoScalingGroupName", "MixedInstancesPolicy", "CapacityRebalance");
+                    .containsExactlyInAnyOrder("AutoScalingGroupName", "MixedInstancesPolicy", "CapacityRebalance",
+                            "InstanceMaintenancePolicy");
             assertThat(AwsUpdateRequestBuilder.forbiddenFields(request(f, "conservative"))).isEmpty();
         }
     }

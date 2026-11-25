@@ -18,6 +18,7 @@ import type {
   EndpointScanPage, EndpointSensitiveMetrics, EndpointSummary,
 } from '../types/dspmDrawers';
 import { demoEndpointSource, type DemoEndpointSource, type DemoSourceFile } from './xamlensMockData';
+import { maskSampleFor } from '../utils/sampleMask';
 
 const DAY = 24 * 60 * 60;
 /** The module's now (epoch seconds), taken once at load, so every time it gives is stable for the page's life. */
@@ -77,7 +78,7 @@ function hashOf(text: string): number {
   return hash;
 }
 
-/** The vendor masks endpoint samples itself; the demo sends them masked the same way. */
+/** The vendor masks endpoint samples itself; the demo then applies xamops-service's rule (build 9), as UAT does. */
 const MASKED: Record<string, readonly string[]> = {
   'EMAIL ADDRESS': ['j*******@e******.com', 'r*****@e******.com', 'm****@e******.com'],
   'PERSON NAME': ['J*** D**', 'R****** R**', 'M*** M****'],
@@ -360,7 +361,7 @@ export function demoEndpointResource(id: string, resource: string, url: string):
           const pool = MASKED[entityName] ?? ['*****'];
           return {
             fileName: file.name, path: file.path, tags: TAGS[file.name] ?? [], falsePositive: false,
-            samples: pool.slice(0, Math.min(count, pool.length)),
+            samples: pool.slice(0, Math.min(count, pool.length)).map(v => maskSampleFor(entityName, [], v)),
           };
         });
       return { entityName, total: rows.length, skip, limit, rows: rows.slice(skip, skip + limit) } satisfies EndpointOccurrencePage;

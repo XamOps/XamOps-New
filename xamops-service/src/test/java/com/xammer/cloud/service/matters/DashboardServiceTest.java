@@ -165,7 +165,7 @@ class DashboardServiceTest {
                 .containsExactly("GOOGLE_WORKSPACE", "GMAIL");
         // Active Sensitive Regions from the cloud rows only (every synthetic row is CLASSIFIED in one region)
         assertThat(dashboard.regions()).containsExactly(
-                new DspmDashboard.Region("test-region-1", 3, 3, 60, List.of()));
+                new DspmDashboard.Region("test-region-1", 3, 3, List.of()));
         assertThat(service.dashboard(10L).regions()).isEqualTo(dashboard.regions());
 
         assertThat(dashboard.topRisky().keySet()).containsExactly("all", "cloud", "saas", "endpoint", "on_prem");

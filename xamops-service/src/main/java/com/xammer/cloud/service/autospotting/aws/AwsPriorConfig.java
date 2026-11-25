@@ -36,6 +36,27 @@ public final class AwsPriorConfig {
         return usable(parse(desiredConfigJson));
     }
 
+    /**
+     * The prior configuration with the maintenance policy to put back when the op's target made XamOps own one
+     * (AD-08). The linked snapshot is authoritative when it has one (an ADOPT's plan {@code current} leaves an
+     * originally absent policy out). Without it, a prior with no policy value means "it was absent", so the restore
+     * is a clear (-1/-1). A target that did not own a policy, or a prior that already carries one, is returned as is.
+     */
+    public static JsonNode withPolicyRestore(JsonNode prior, boolean targetOwnsPolicy, String snapshotPayloadJson) {
+        if (!targetOwnsPolicy || !prior.isObject()) {
+            return prior;
+        }
+        ObjectNode copy = ((ObjectNode) prior).deepCopy();
+        Optional<AwsSnapshotCodec.Owned> owned = snapshotPayloadJson == null ? Optional.empty()
+                : AwsSnapshotCodec.decodeOwned(snapshotPayloadJson);
+        if (owned.isPresent() && owned.get().hasMaintenancePolicy()) {
+            copy.set(AwsMaintenancePolicy.KEY, restoreNode(owned.get().instanceMaintenancePolicy()));
+        } else if (!AwsMaintenancePolicy.hasValue(copy)) {
+            copy.set(AwsMaintenancePolicy.KEY, restoreNode(JSON.createObjectNode().put("state", "ABSENT")));
+        }
+        return copy;
+    }
+
     /** The snapshot's owned block, converted to the target-node shape. */
     public static Optional<JsonNode> fromSnapshot(String payloadJson) {
         Optional<AwsSnapshotCodec.Owned> owned = AwsSnapshotCodec.decodeOwned(payloadJson);
@@ -46,6 +67,9 @@ public final class AwsPriorConfig {
         ObjectNode n = JSON.createObjectNode();
         n.put("shape", o.shape());
         n.put("capacityRebalance", o.capacityRebalance());
+        if (o.hasMaintenancePolicy()) {
+            n.set(AwsMaintenancePolicy.KEY, restoreNode(o.instanceMaintenancePolicy()));
+        }
         JsonNode mip = o.mixedInstancesPolicy();
         if (mip == null) {
             if (o.launchTemplate() == null) {
@@ -79,6 +103,16 @@ public final class AwsPriorConfig {
         }
         n.set("instancesDistribution", dist);
         return Optional.of(n);
+    }
+
+    /** The snapshot's original policy as a value to write: ABSENT is -1/-1, which clears it (AD-08). */
+    static ObjectNode restoreNode(JsonNode saved) {
+        ObjectNode p = JSON.createObjectNode();
+        p.put("owned", true);
+        boolean set = "SET".equals(saved.path("state").asText());
+        p.put("min", set && saved.hasNonNull("min") ? saved.get("min").asInt() : AwsMaintenancePolicy.CLEAR);
+        p.put("max", set && saved.hasNonNull("max") ? saved.get("max").asInt() : AwsMaintenancePolicy.CLEAR);
+        return p;
     }
 
     private static Optional<JsonNode> usable(JsonNode n) {

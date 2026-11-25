@@ -27,7 +27,7 @@ import static com.xammer.cloud.service.matters.DatastoreRowMapper.longOrNull;
 /**
  * Field mapping for the Endpoint drawer's {@code /api/v1/endpoint-agent/agent/{id}/…} routes (design
  * 5.6.2). Every DTO is a whitelist; reads are defensive. Samples are read in one place only,
- * {@link #toOccurrences}, whose page is never cached (design 5.6.3).
+ * {@link #toOccurrences}, which masks them (build 9) and whose page is never cached (design 5.6.3).
  */
 @Component
 public class EndpointDrawerMapper {
@@ -226,7 +226,8 @@ public class EndpointDrawerMapper {
      * {@code …/entity}: one page of an entity's occurrences. The samples are the {@code match_text} of
      * every {@code sampleMatches[]} item named {@code entityName}, read with {@code asText()} so they are
      * never trimmed and a numeric one is kept (D2); null, missing and container values are skipped. The
-     * only place a sample is read.
+     * only place a sample is read. Every sample is masked (build 9): by {@link SampleMask#maskSecret} when
+     * the entity is a secret type (its name or the match's {@code label}), else by {@link SampleMask#mask}.
      */
     public EndpointOccurrencePage toOccurrences(JsonNode body, String entityName, int skip, int limit) {
         List<EndpointOccurrencePage.Occurrence> rows = new ArrayList<>();
@@ -239,13 +240,16 @@ public class EndpointDrawerMapper {
                 if (!entityName.equals(DrawerJson.string(match, "name"))) {
                     continue;
                 }
+                JsonNode label = match.path("label");
+                boolean secret = SampleMask.isSecret(entityName, label.isTextual() ? List.of(label.asText())
+                        : DrawerJson.strings(label, MAX_TAGS, MAX_TAG_LENGTH));
                 for (JsonNode sample : items(match.path("samples"))) {
                     if (samples.size() >= MAX_SAMPLES) {
                         break;
                     }
                     JsonNode text = sample.path("match_text");
                     if (text.isValueNode() && !text.isNull()) {
-                        samples.add(text.asText());
+                        samples.add(secret ? SampleMask.maskSecret(text.asText()) : SampleMask.mask(text.asText()));
                     }
                 }
             }

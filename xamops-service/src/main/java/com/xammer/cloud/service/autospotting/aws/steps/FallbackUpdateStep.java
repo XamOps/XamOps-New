@@ -2,6 +2,7 @@ package com.xammer.cloud.service.autospotting.aws.steps;
 
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.service.autospotting.aws.AwsGroupFacts;
+import com.xammer.cloud.service.autospotting.aws.AwsMaintenancePolicy;
 import com.xammer.cloud.service.autospotting.aws.AwsMutatingClient;
 import com.xammer.cloud.service.autospotting.aws.AwsProgram;
 import com.xammer.cloud.service.autospotting.aws.AwsReadOnlyView;
@@ -56,10 +57,10 @@ public final class FallbackUpdateStep extends AwsStep {
         if (!live.mixedInstancesPolicy()) {
             return failed(ErrorKind.VALIDATION, "NO_FALLBACK_PATH", "The group has no instance mix to change.");
         }
-        if (applied(live)) {
+        if (applied(live, program.config())) {
             return done("{\"alreadyApplied\":true}");
         }
-        UpdateAutoScalingGroupRequest request = AwsRestoreRequests.drain(raw.get());
+        UpdateAutoScalingGroupRequest request = AwsRestoreRequests.drain(raw.get(), program.config());
         List<String> forbidden = AwsRestoreRequests.forbidden(request);
         if (!forbidden.isEmpty()) {
             return failed(ErrorKind.VALIDATION, "REQUEST_NOT_OWNED_FIELDS",
@@ -76,6 +77,19 @@ public final class FallbackUpdateStep extends AwsStep {
         return live.onDemandPercentageAboveBase() != null && live.onDemandPercentageAboveBase() == 100;
     }
 
+    /** Applied when the share is 100 and, if XamOps owns the maintenance policy, the policy is in force too (AD-08). */
+    static boolean applied(AwsGroupFacts live, com.fasterxml.jackson.databind.JsonNode config) {
+        if (!applied(live)) {
+            return false;
+        }
+        if (!AwsMaintenancePolicy.hasValue(config)) {
+            return true;
+        }
+        com.fasterxml.jackson.databind.JsonNode p = config.path(AwsMaintenancePolicy.KEY);
+        return java.util.Objects.equals(live.minHealthyPercentage(), p.get("min").asInt())
+                && java.util.Objects.equals(live.maxHealthyPercentage(), p.get("max").asInt());
+    }
+
     @Override
     StepOutcome doProbe(StepContext ctx) {
         CloudAccount account = account().orElse(null);
@@ -84,7 +98,7 @@ public final class FallbackUpdateStep extends AwsStep {
         }
         AwsReadOnlyView view = services.view(account, program.region());
         Optional<AutoScalingGroup> raw = services.statusReader().describeGroup(view, program.groupName());
-        if (raw.isPresent() && applied(AwsGroupFacts.from(program.region(), raw.get()))) {
+        if (raw.isPresent() && applied(AwsGroupFacts.from(program.region(), raw.get()), program.config())) {
             return done("{\"alreadyApplied\":true}");
         }
         return notYet();

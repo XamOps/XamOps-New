@@ -96,6 +96,12 @@ public class MattersApiClient {
     public static final String PATH_HASH_LINEAGE_COPIES = API_V2_PREFIX + "/hash-lineage/copies";
     public static final String PATH_HASH_LINEAGE_TIMELINE = API_V2_PREFIX + "/hash-lineage/timeline";
 
+    // Drive lineage (build 7): people of a OneDrive, SharePoint or Google Drive integration, one person's
+    // files and one file's timeline. Keyed by the integration's 24-hex id, then a resource id or a doc id.
+    public static final String PATH_DRIVE_LINEAGE_USERS = API_V2_PREFIX + "/drive-lineage/users";
+    public static final String PATH_DRIVE_LINEAGE_USER_FILES = API_V2_PREFIX + "/drive-lineage/user-files";
+    public static final String PATH_DRIVE_LINEAGE_ASSET = API_V2_PREFIX + "/drive-lineage/asset";
+
     // Console routes behind the Endpoint drawer. Keyed by the row's 24-hex source_id (the agent id).
     /**
      * Followed by {@code {agentId}/overview}, {@code /filter-options}, {@code /sensitive-files},
@@ -161,6 +167,8 @@ public class MattersApiClient {
             "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
     private static final Pattern DATA_HASH = Pattern.compile("^[0-9a-fA-F]{64}$");
     private static final Pattern EXPOSURE_ID = Pattern.compile("^[A-Za-z0-9-]{1,64}$");
+    private static final Pattern RESOURCE_ID = Pattern.compile("^[A-Za-z0-9_-]{1,64}$");
+    private static final Pattern DOC_ID = Pattern.compile("^[A-Za-z0-9_-]{1,128}$");
 
     /** The two views of the SaaS records route. */
     private static final List<String> SAAS_VIEWS = List.of("data_elements", "document_classes");
@@ -385,6 +393,34 @@ public class MattersApiClient {
         query.put("data_hash", List.of(dataHash));
         query.put("limit", List.of(String.valueOf(requireLimit(limit))));
         return get(credential, PATH_HASH_LINEAGE_TIMELINE, query, true);
+    }
+
+    // ── console routes (Data Lineage public path, build 7) ───────────────────────────────────────
+    //
+    // They answer {"success": ...}, so they pass consoleRoute=true, and keep the single 5xx retry, as the
+    // hash-lineage routes do. The audit records the path only, so no resource id or doc id is audited.
+
+    /** {@code GET /api/v2/drive-lineage/users?integration_id=}: people whose drives hold scanned files. */
+    public JsonNode driveLineageUsers(MattersCredential credential, String integrationId) {
+        Map<String, List<String>> query = new LinkedHashMap<>();
+        query.put("integration_id", List.of(requireSourceId(integrationId)));
+        return get(credential, PATH_DRIVE_LINEAGE_USERS, query, true);
+    }
+
+    /** {@code GET /api/v2/drive-lineage/user-files?integration_id=&resource_id=}: one person's files. */
+    public JsonNode driveLineageUserFiles(MattersCredential credential, String integrationId, String resourceId) {
+        Map<String, List<String>> query = new LinkedHashMap<>();
+        query.put("integration_id", List.of(requireSourceId(integrationId)));
+        query.put("resource_id", List.of(requireResourceId(resourceId)));
+        return get(credential, PATH_DRIVE_LINEAGE_USER_FILES, query, true);
+    }
+
+    /** {@code GET /api/v2/drive-lineage/asset?integration_id=&doc_id=}: one file's asset, events, edges, alerts. */
+    public JsonNode driveLineageAsset(MattersCredential credential, String integrationId, String docId) {
+        Map<String, List<String>> query = new LinkedHashMap<>();
+        query.put("integration_id", List.of(requireSourceId(integrationId)));
+        query.put("doc_id", List.of(requireDocId(docId)));
+        return get(credential, PATH_DRIVE_LINEAGE_ASSET, query, true);
     }
 
     // ── console routes (Endpoint drawer) ─────────────────────────────────────────────────────────
@@ -1072,6 +1108,20 @@ public class MattersApiClient {
             throw new IllegalArgumentException("fileId must be 24 hexadecimal characters or a UUID");
         }
         return fileId;
+    }
+
+    private static String requireResourceId(String resourceId) {
+        if (resourceId == null || !RESOURCE_ID.matcher(resourceId).matches()) {
+            throw new IllegalArgumentException("resourceId must be 1 to 64 letters, digits, '_' or '-'");
+        }
+        return resourceId;
+    }
+
+    private static String requireDocId(String docId) {
+        if (docId == null || !DOC_ID.matcher(docId).matches()) {
+            throw new IllegalArgumentException("docId must be 1 to 128 letters, digits, '_' or '-'");
+        }
+        return docId;
     }
 
     private static String requireExposureId(String exposureId) {

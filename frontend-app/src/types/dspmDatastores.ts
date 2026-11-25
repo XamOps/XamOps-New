@@ -258,7 +258,7 @@ export interface DatastoreOccurrence {
   tableName: string | null;
   columnName: string | null;
   falsePositive: boolean;
-  /** Raw sample values, rendered only through `drawer/SampleValue.tsx`. Never null. */
+  /** Masked by xamops-service (build 9), rendered only through `drawer/SampleValue.tsx`. Never null. */
   samples: string[];
 }
 

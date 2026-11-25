@@ -12,6 +12,8 @@ export const NO_CATEGORIES_TEXT = 'No exposure categories are available for OneD
 export const PAGE_TITLE = 'Data Lineage';
 export const PAGE_SUBTITLE = 'Trace file history, access, and sharing across your environment';
 export const NEW_INVESTIGATION = 'New Investigation';
+/** The root node's name when the project has none recorded (the console's own fallback). */
+export const ROOT_FALLBACK_NAME = 'Project';
 
 /** The panel's heading, help text and search placeholder per open level (FR-INV-2). */
 export const PANEL_COPY: Record<OpenLevel, { heading: string; help: string; placeholder: string }> = {

@@ -91,8 +91,24 @@ public class AwsEligibilityEvaluator {
 
     /** Evaluate a group by key ({@code region/name}); the group is described here. */
     public Evaluation evaluate(CloudAccount account, String groupKey, Profile profile, EvalMode mode) {
+        return evaluate(account, groupKey, profile, mode, false);
+    }
+
+    /** As above, with the customer's per-plan burstable choice (AD-09). */
+    public Evaluation evaluate(CloudAccount account, String groupKey, Profile profile, EvalMode mode,
+                               boolean allowBurstable) {
+        return evaluate(account, groupKey, profile, mode, allowBurstable, List.of());
+    }
+
+    /**
+     * As above, plus the burstable types XamOps added earlier ({@code desired_config.options.burstableAdded}). With the
+     * option off, a plan that only removes them from an already-converted group is never blocked for lack of
+     * alternatives: the customer is turning the option off, so the plan has nothing to add (AD-09).
+     */
+    public Evaluation evaluate(CloudAccount account, String groupKey, Profile profile, EvalMode mode,
+                               boolean allowBurstable, List<String> removingBurstable) {
         String[] parts = split(groupKey);
-        return evaluate(account, parts[0], parts[1], null, profile, mode, null);
+        return evaluate(account, parts[0], parts[1], null, profile, mode, null, allowBurstable, removingBurstable);
     }
 
     /**
@@ -101,6 +117,18 @@ public class AwsEligibilityEvaluator {
      */
     public Evaluation evaluate(CloudAccount account, String region, String name, AutoScalingGroup described,
                                Profile profile, EvalMode mode, AwsReadOnlyView suppliedView) {
+        return evaluate(account, region, name, described, profile, mode, suppliedView, false);
+    }
+
+    public Evaluation evaluate(CloudAccount account, String region, String name, AutoScalingGroup described,
+                               Profile profile, EvalMode mode, AwsReadOnlyView suppliedView, boolean allowBurstable) {
+        return evaluate(account, region, name, described, profile, mode, suppliedView, allowBurstable, List.of());
+    }
+
+    /** The full form: {@code allowBurstable} is the customer's per-plan option (AD-09), false everywhere else. */
+    public Evaluation evaluate(CloudAccount account, String region, String name, AutoScalingGroup described,
+                               Profile profile, EvalMode mode, AwsReadOnlyView suppliedView, boolean allowBurstable,
+                               List<String> removingBurstable) {
         AwsReadOnlyView view = suppliedView != null && region.equals(suppliedView.region())
                 ? suppliedView : views.view(account, region);
         String groupKey = region + "/" + name;
@@ -173,15 +201,24 @@ public class AwsEligibilityEvaluator {
                         v -> !v, () -> reader.openReservations(view, li.instanceType()));
                 perms = gated(account, groupKey, fingerprint, mode, "PERMISSION_MISSING", List.<String>of(),
                         List::isEmpty, () -> reader.missingPermissions(view, account.getRoleArn(), li));
+                // A pass with the option on says nothing about the option off, so the cache code differs.
+                final String typesCode = allowBurstable ? "NO_COMPATIBLE_TYPES+BURSTABLE" : "NO_COMPATIBLE_TYPES";
+                final AwsTypeSelector chosen = selector.withBurstable(allowBurstable);
                 Sig<AwsPlanReader.TypePlan> typeRead = gatedRaw(account, groupKey, fingerprint, mode,
-                        "NO_COMPATIBLE_TYPES", () -> reader.types(account, view, g, li, selector),
+                        typesCode, () -> reader.types(account, view, g, li, chosen),
                         tp -> !tp.selection().noCompatibleTypes() && !tp.selection().fewTypes() && !tp.xenToNitro());
                 if (typeRead instanceof Sig.Ok<AwsPlanReader.TypePlan> ok) {
                     typePlan = ok.value();
-                    types = Sig.ok(new TypeInfo(typePlan.selection(), typePlan.xenToNitro()));
+                    AwsTypeSelector.Selection selection = typePlan.selection();
+                    if (!allowBurstable && onlyRemoves(g, removingBurstable) && selection.noCompatibleTypes()) {
+                        // Nothing is added, so "no other type to add" is not a reason to stop the removal.
+                        selection = new AwsTypeSelector.Selection(selection.types(), AwsTypeSelector.FEW_TYPES_THRESHOLD);
+                    }
+                    types = Sig.ok(new TypeInfo(selection, typePlan.xenToNitro(),
+                            typePlan.burstableAlternatives(), typePlan.burstableSelected()));
                 } else if (typeRead instanceof Sig.Failed<AwsPlanReader.TypePlan> f) {
                     types = Sig.failed(f.kind());
-                } else if (cache.isPassCached(account.getId(), groupKey, "NO_COMPATIBLE_TYPES", fingerprint)) {
+                } else if (cache.isPassCached(account.getId(), groupKey, typesCode, fingerprint)) {
                     types = Sig.ok(new TypeInfo(new AwsTypeSelector.Selection(List.of(), 99), false));
                 }
                 // Quotas: need the Spot count the profile expects and the original type's vCPU.
@@ -216,6 +253,20 @@ public class AwsEligibilityEvaluator {
                 spot, od, hooks, dereg, commit, types, reservations);
         return finish(account, mode, AwsEligibilityRules.evaluate(inputs), raw, null, null, null, spot, od,
                 fingerprint);
+    }
+
+    /**
+     * True when the group is already converted, XamOps remembers types it added, and retiring them leaves a
+     * nonempty override list. That holds even when none of the remembered types is live any more (the customer or
+     * drift removed them all): the option-off plan then has nothing to remove, and "no other type to add" must not
+     * stop the customer turning the per-group choice off.
+     */
+    private static boolean onlyRemoves(AwsGroupFacts g, List<String> removing) {
+        if (removing == null || removing.isEmpty() || !g.mixedInstancesPolicy() || g.attributeBasedOverrides()) {
+            return false;
+        }
+        long live = removing.stream().filter(g.overrideTypes()::contains).distinct().count();
+        return g.overrideTypes().size() > live;
     }
 
     private Evaluation finish(CloudAccount account, EvalMode mode, EligibilityResult result, AutoScalingGroup raw,

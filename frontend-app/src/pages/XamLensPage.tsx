@@ -29,7 +29,8 @@ import RemediationPage from '../components/Dspm/management/RemediationPage';
  * Routes: `/xamlens/datastores/:datastoreTab` is the Datastores page; `/xamlens/dashboard` the
  * Dashboard; `/xamlens/files/:filesTab` the Files page (`/xamlens/files` and an unknown tab land on
  * SaaS); `/xamlens/misconfigurations` the Misconfigurations page; `/xamlens/data-lineage` the Data
- * Lineage page; `/xamlens/document-classes`, `/xamlens/assists` and `/xamlens/remediation` their pages;
+ * Lineage page; `/xamlens/document-classes`, `/xamlens/assists` and `/xamlens/remediation` their pages
+ * (Remediation only while `XAMLENS_REMEDIATION_ENABLED` is on; otherwise it lands on All);
  * `/xamlens/connection` the connection status. The old `/xamlens/cloud`, `/saas` and
  * `/endpoint` links land on the matching Datastores tab, and any other segment on All.
  */

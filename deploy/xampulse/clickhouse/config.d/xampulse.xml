@@ -1,0 +1,8 @@
+<clickhouse>
+    <!-- Lets the reader session carry the per-query SQL_xp_tenant setting used by the row policies (V006/V007). -->
+    <custom_settings_prefixes>SQL_</custom_settings_prefixes>
+    <!-- Single-node dev: silence the telemetry-heavy system logs. -->
+    <query_thread_log remove="1"/>
+    <text_log remove="1"/>
+    <trace_log remove="1"/>
+</clickhouse>

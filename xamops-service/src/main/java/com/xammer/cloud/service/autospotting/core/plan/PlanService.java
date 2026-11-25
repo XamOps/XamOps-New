@@ -21,6 +21,7 @@ import com.xammer.cloud.service.autospotting.spi.EligibilityResult;
 import com.xammer.cloud.service.autospotting.spi.EvalMode;
 import com.xammer.cloud.service.autospotting.spi.GroupRef;
 import com.xammer.cloud.service.autospotting.spi.PlanBody;
+import com.xammer.cloud.service.autospotting.spi.PlanOptions;
 import com.xammer.cloud.service.autospotting.spi.Profile;
 import com.xammer.cloud.service.autospotting.spi.ProviderRegistry;
 import com.xammer.cloud.service.autospotting.spi.ReadOnlyCloudView;
@@ -28,6 +29,7 @@ import com.xammer.cloud.service.autospotting.spi.SpotProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -102,11 +104,20 @@ public class PlanService {
     /** The command a plan request carries (controller-resolved; the account is already authorized). */
     public record CreateCommand(OperationKind kind, UUID groupId, String groupRef, String profileId,
                                 boolean dryRunRequested, String idempotencyKey, String requestSha256,
-                                String createdBy, String policyEditJson) {
+                                String createdBy, String policyEditJson, Boolean allowBurstable) {
+        /** A command with a policy edit and no plan options. */
+        public CreateCommand(OperationKind kind, UUID groupId, String groupRef, String profileId,
+                             boolean dryRunRequested, String idempotencyKey, String requestSha256,
+                             String createdBy, String policyEditJson) {
+            this(kind, groupId, groupRef, profileId, dryRunRequested, idempotencyKey, requestSha256, createdBy,
+                    policyEditJson, null);
+        }
+
         /** A command without a policy edit. */
         public CreateCommand(OperationKind kind, UUID groupId, String groupRef, String profileId,
                              boolean dryRunRequested, String idempotencyKey, String requestSha256, String createdBy) {
-            this(kind, groupId, groupRef, profileId, dryRunRequested, idempotencyKey, requestSha256, createdBy, null);
+            this(kind, groupId, groupRef, profileId, dryRunRequested, idempotencyKey, requestSha256, createdBy, null,
+                    null);
         }
     }
 
@@ -123,6 +134,11 @@ public class PlanService {
                 && (cmd.kind() == OperationKind.MIG_POLICY_UPDATE || cmd.policyEditJson() != null)) {
             throw new AutoSpottingApiException(HttpStatus.CONFLICT, "AS_KIND_NOT_SUPPORTED",
                     "This plan kind is not supported for this cloud.");
+        }
+        // 0b. Plan options are AWS-only (design-core.md §7.3): any option on GCP is refused before any row or cloud read.
+        if (provider == Provider.GCP && cmd.allowBurstable() != null) {
+            throw new AutoSpottingApiException(HttpStatus.UNPROCESSABLE_ENTITY, "OPTION_NOT_APPLICABLE",
+                    "This option does not apply to this cloud.");
         }
         // 1. Resolve the group and its state (null = no row yet).
         SpotGroup group = resolveGroup(account, provider, cmd);
@@ -160,15 +176,16 @@ public class PlanService {
 
         // A revert is never blocked by the conversion-only eligibility checks (DR-03): it takes the warnings of
         // its own plan, and the provider's restore-permission pre-check (design-core.md §7.4) is part of it.
+        // AD-09: the customer's burstable choice for this plan, and the group's last confirmed one (desired_config).
+        PlanOptions options = new PlanOptions(cmd.allowBurstable(), group == null ? null : group.getDesiredConfig());
         EligibilityResult eligibility = cmd.kind() == OperationKind.REVERT || policyChange ? null
-                : spotProvider.checkEligibility(ref, view, profile, EvalMode.PLAN);
+                : spotProvider.checkEligibility(ref, view, profile, EvalMode.PLAN, options);
         com.xammer.cloud.service.autospotting.spi.PlanRequest planRequest =
-                new com.xammer.cloud.service.autospotting.spi.PlanRequest(ref, cmd.kind(), profile);
+                new com.xammer.cloud.service.autospotting.spi.PlanRequest(ref, cmd.kind(), profile, options);
         PlanBody body = spotProvider.createPlan(planRequest, view);
         if (group == null && cmd.kind() == OperationKind.MIG_POLICY_UPDATE) {
             // The MIG must exist before a row does: a missing MIG or a failed read creates nothing.
-            if (body.eligibility() != null && body.eligibility().blockers().stream().anyMatch(c ->
-                    "GCP_MIG_NOT_FOUND".equals(c.code()) || c.errorKind() != null)) {
+            if (groupMissingOrUnread(body)) {
                 boolean missing = body.eligibility().blockers().stream().anyMatch(c -> "GCP_MIG_NOT_FOUND".equals(c.code()));
                 throw missing
                         ? new AutoSpottingApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Instance group not found.")
@@ -177,7 +194,15 @@ public class PlanService {
             }
             // §2.1, §7.4: a MIG with no row gets an UNMANAGED row once its existence is confirmed, so the plan,
             // the op and the group lease have a home. Its state never changes and UNMANAGED stays non-billable.
-            group = insertUnmanaged(account, provider, ref);
+            group = insertUnmanaged(account, provider, ref, body.providerStableId());
+            state = group.getState(); // the new row's UNMANAGED, so the plan's from_state is never null
+        } else if (group == null && cmd.kind() != OperationKind.REVERT && !groupMissingOrUnread(body)) {
+            // §2.1: a row appears with the first plan. Discovery creates rows only for legacy and marked
+            // groups, so the first plan for any other group (an AWS ENABLE of a plain ASG) is rowless.
+            // Without a row its plan got a synthetic group id and the confirmed op stayed QUEUED forever,
+            // because nothing can lease or run a group that has no row (phase 23 defect D-23-06).
+            group = insertUnmanaged(account, provider, ref, body.providerStableId());
+            state = group.getState();
         }
         if (eligibility == null) {
             eligibility = body.eligibility() != null ? body.eligibility() : EligibilityResult.eligible(List.of(), List.of());
@@ -188,6 +213,11 @@ public class PlanService {
 
         // 5. Supersede the prior OPEN plan and insert OPEN. An ENABLE moves the group to PLANNED.
         GroupState fromState = resolveFromState(group, state, cmd.kind());
+        if (group != null) {
+            // Serialize concurrent plans for one group: with no OPEN plan yet the supersede UPDATE locks nothing,
+            // so two first plans would both insert OPEN and trip the one-OPEN-plan index. Held to commit.
+            plans.lockGroupForPlan(group.getId());
+        }
         plans.supersedeOpenForGroup(groupIdFor(group));
 
         SpotPlan plan = new SpotPlan();
@@ -221,7 +251,11 @@ public class PlanService {
         // state and the ledger never sees it (PO-04).
         if (cmd.kind() == OperationKind.ENABLE && !dryRun && group != null
                 && group.getState() != GroupState.PLANNED) {
-            moveToPlanned(group, user);
+            try {
+                moveToPlanned(group, user);
+            } catch (DataIntegrityViolationException e) {
+                throw duplicateProviderAccount();
+            }
         }
 
         if (log.isDebugEnabled()) {
@@ -306,39 +340,55 @@ public class PlanService {
     }
 
     private UUID groupIdFor(SpotGroup group) {
-        // A group with no row yet has no id to reference. MIG_POLICY_UPDATE inserts an UNMANAGED row
-        // (§2.1); until the GCP program lands (Phase 26) a rowless plan uses a synthetic group id so
-        // the plan, op and lease have a home. For AWS ENABLE the group row is created by discovery
-        // before enable, so group is non-null in practice.
+        // Every non-REVERT plan for an existing group now has a row (inserted above, D-23-06). A synthetic
+        // id remains only for a plan whose group is missing or unreadable; such a plan carries that
+        // blocker, so it can't be confirmed, and a stray op on it fails fast in the dispatcher.
         return group != null ? group.getId() : UUID.randomUUID();
     }
 
-    private SpotGroup insertUnmanaged(CloudAccount account, Provider provider, GroupRef ref) {
-        Instant now = Instant.now();
-        SpotGroup row = new SpotGroup();
-        row.setId(UUID.randomUUID());
-        row.setProvider(provider);
-        row.setCloudAccountId(account.getId());
-        row.setClientId(account.getClient() == null ? null : account.getClient().getId());
-        row.setGroupKey(ref.groupKey());
-        row.setProviderStableId(ref.providerStableId());
-        row.setState(GroupState.UNMANAGED);
-        row.setDriftStatus(com.xammer.cloud.domain.autospotting.DriftStatus.NONE);
-        row.setConfigMode(com.xammer.cloud.domain.autospotting.ConfigMode.MANAGED);
-        row.setOwnedArtifacts("{}");
-        row.setStateChangedAt(now);
-        row.setCreatedBy("plan");
-        row.setCreatedAt(now);
-        row.setUpdatedAt(now);
-        return groups.saveAndFlush(row);
+    /** True when the provider's plan says the group is gone or could not be read: no row is created then. */
+    private static boolean groupMissingOrUnread(PlanBody body) {
+        return body.eligibility() != null && body.eligibility().blockers().stream().anyMatch(c ->
+                "GCP_MIG_NOT_FOUND".equals(c.code()) || "GROUP_NOT_FOUND".equals(c.code()) || c.errorKind() != null);
+    }
+
+    /**
+     * The group's UNMANAGED row, inserted if absent. Race-safe: two concurrent first plans for one group
+     * both insert with ON CONFLICT DO NOTHING on {@code ux_spot_group_identity}, then read back the single
+     * live row (D-23-06), so neither transaction fails on a unique violation.
+     */
+    private SpotGroup insertUnmanaged(CloudAccount account, Provider provider, GroupRef ref, String bodyStableId) {
+        String stableId = ref.providerStableId() != null ? ref.providerStableId() : bodyStableId;
+        if (stableId != null && groups.findByProviderAndProviderStableId(provider, stableId).stream()
+                .anyMatch(r -> isLive(r) && !(account.getId().equals(r.getCloudAccountId())
+                        && ref.groupKey().equals(r.getGroupKey())))) {
+            throw duplicateProviderAccount();
+        }
+        groups.insertUnmanagedIfAbsent(UUID.randomUUID(), provider.name(), account.getId(),
+                account.getClient() == null ? null : account.getClient().getId(), ref.groupKey(),
+                stableId, "plan", Instant.now());
+        return groups.findByProviderAndCloudAccountIdAndGroupKeyAndStateNot(provider, account.getId(),
+                        ref.groupKey(), GroupState.GONE)
+                .orElseThrow(() -> new IllegalStateException("UNMANAGED row for " + ref.groupKey() + " not found after insert"));
+    }
+
+    private static boolean isLive(SpotGroup row) {
+        return row.getState() != GroupState.GONE && row.getState() != GroupState.UNMANAGED
+                && row.getState() != GroupState.REVERTED;
+    }
+
+    private static AutoSpottingApiException duplicateProviderAccount() {
+        return new AutoSpottingApiException(HttpStatus.CONFLICT, "DUPLICATE_PROVIDER_ACCOUNT",
+                "This group is already managed through another account.");
     }
 
     private void moveToPlanned(SpotGroup group, ClientUserDetails user) {
         TransitionRequest request = TransitionRequest.of(GroupState.PLANNED, "ENABLE_PLAN_CREATED",
                 Actor.user(user == null ? null : user.getId(), null), null, Instant.now());
         GroupLifecycleService.Result result = lifecycle.transitionUnderRowLock(group, request);
-        if (result == GroupLifecycleService.Result.STALE && log.isDebugEnabled()) {
-            log.debug("plan: group {} move to PLANNED missed the guard (stale)", group.getId());
+        if (result == GroupLifecycleService.Result.STALE) {
+            // WARN: a missed PLANNED move makes the plan unconfirmable (confirm requires PLANNED, D-23-07/08).
+            log.warn("plan: group {} move to PLANNED missed the guard (stale)", group.getId());
         }
     }
 
@@ -381,7 +431,9 @@ public class PlanService {
 
     private String fingerprintOf(SpotProvider provider, SpotGroup group, ReadOnlyCloudView view, PlanBody body) {
         if (group != null) {
-            return provider.getStatus(group, view).liveFingerprint();
+            // Ownership comes from the plan's target, not the row's old desired_config (a first enable has none).
+            String fp = body == null ? null : provider.liveFingerprintFor(group, body.targetJson(), view);
+            return fp != null ? fp : provider.getStatus(group, view).liveFingerprint();
         }
         // No row: derive a stable fingerprint from the plan body's current config so confirm's re-read
         // can compare. The provider's getStatus needs a row; for a rowless plan the body's current is
@@ -403,6 +455,9 @@ public class PlanService {
         sb.append(",\"rollout\":").append(rolloutJson(body.rollout()));
         sb.append(",\"eligibility\":").append(eligibilityJson(body));
         sb.append(",\"estimates\":").append(estimatesJson(body));
+        if (body.optionsJson() != null) {
+            sb.append(",\"options\":").append(body.optionsJson());
+        }
         sb.append("}");
         return sb.toString();
     }
@@ -410,7 +465,7 @@ public class PlanService {
     private static PlanBody withFeeBasis(PlanBody body, String feeBasis) {
         return new PlanBody(body.currentJson(), body.targetJson(), body.diffJson(), body.snapshotToStore(),
                 body.eligibility(), body.rollout(), body.estimates(), body.onDemandFloorJson(),
-                feeBasis, body.revertPathJson());
+                feeBasis, body.revertPathJson(), body.providerStableId(), body.optionsJson());
     }
 
     /**
@@ -432,6 +487,18 @@ public class PlanService {
                 first = false;
                 sb.append("{\"code\":\"").append(escape(b.code())).append("\",\"text\":\"")
                         .append(escape(b.text())).append("\"}");
+            }
+        }
+        sb.append("],\"warnings\":[");
+        first = true;
+        if (body.eligibility() != null) {
+            for (var w : body.eligibility().warnings()) {
+                if (!first) {
+                    sb.append(',');
+                }
+                first = false;
+                sb.append("{\"id\":\"").append(escape(w.id())).append("\",\"code\":\"").append(escape(w.code()))
+                        .append("\",\"text\":\"").append(escape(w.text())).append("\"}");
             }
         }
         return sb.append("]}").toString();

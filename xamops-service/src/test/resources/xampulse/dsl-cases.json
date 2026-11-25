@@ -1,0 +1,46 @@
+{
+  "valid": [
+    { "input": "", "normalised": "" },
+    { "input": "error", "normalised": "error" },
+    { "input": "error timeout", "normalised": "error AND timeout" },
+    { "input": "error OR timeout", "normalised": "error OR timeout" },
+    { "input": "service:api severity:error", "normalised": "service:api AND severity:ERROR" },
+    { "input": "service:(api OR web)", "normalised": "service:(api OR web)" },
+    { "input": "-service:api", "normalised": "NOT service:api" },
+    { "input": "NOT \"connection reset\"", "normalised": "NOT \"connection reset\"" },
+    { "input": "severity:>=warn", "normalised": "severity:>=WARN" },
+    { "input": "level:warning", "normalised": "severity:WARN" },
+    { "input": "attr.http.status:500", "normalised": "attr.http.status:500" },
+    { "input": "(a OR b) c", "normalised": "(a OR b) AND c" },
+    { "input": "10:30:15 error", "normalised": "10:30:15 AND error" },
+    { "input": "host:i-0abc", "normalised": "instance:i-0abc" },
+    { "input": "service:\"my svc\"", "normalised": "service:\"my svc\"" },
+    { "input": "service:pay* AND NOT severity:debug", "normalised": "service:pay* AND NOT severity:DEBUG" }
+  ],
+  "invalid": [
+    "tenant_id:5",
+    "tenant_id:*",
+    "TENANT_ID:1 OR 1",
+    "foo:bar",
+    "severity:loud",
+    "severity:>=",
+    "service:>5",
+    "(a OR b",
+    "a OR b)",
+    "\"unterminated",
+    "attr.:x",
+    "service:(a b)",
+    "NOT",
+    "a AND"
+  ],
+  "injection": [
+    "service:a' OR 1=1 --",
+    "severity:error); DROP TABLE x;--",
+    "\"; DROP TABLE xp_logs; --\"",
+    "body' UNION SELECT * FROM xp_logs --",
+    "attr.k:'; SELECT sleep(10); --",
+    "service:\\' OR \\'1\\'=\\'1",
+    "a%b_c\\d",
+    "service:*%_\\*"
+  ]
+}

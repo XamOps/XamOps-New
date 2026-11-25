@@ -1,0 +1,59 @@
+diff --git a/billops/src/main/java/com/xammer/billops/controller/ImpersonationTokenController.java b/billops/src/main/java/com/xammer/billops/controller/ImpersonationTokenController.java
+index c4d351833..5c8f659bb 100644
+--- a/billops/src/main/java/com/xammer/billops/controller/ImpersonationTokenController.java
++++ b/billops/src/main/java/com/xammer/billops/controller/ImpersonationTokenController.java
+@@ -39,6 +39,17 @@ public class ImpersonationTokenController {
+     @Value("${app.impersonation.secret-key}")
+     private String secretKey;
+ 
++    /**
++     * Lifetime of a "Login As" token. This used to be a hardcoded eight hours: a token lifted
++     * from sessionStorage, a proxy log or a screen share stayed a full-access credential for a
++     * whole working day, and there is no refresh or revocation path to cut it short. The token
++     * is only ever minted on demand by a billops admin clicking "Login As", so a short lifetime
++     * costs support staff nothing but re-clicking it. Signature and expiry are enforced by
++     * jjwt in all three verifying services, so this one value governs every service.
++     */
++    @Value("${app.impersonation.token-ttl-minutes:60}")
++    private long tokenTtlMinutes;
++
+     @Value("${demo.billops.email:demo.billops@xammer.in}")
+     private String demoBillopsEmail;
+ 
+@@ -82,8 +93,8 @@ public class ImpersonationTokenController {
+     /**
+      * Records that an admin entered this user's account.
+      *
+-     * Until this existed, "Login as" left no trace of any kind: the endpoint mints an
+-     * eight-hour full-access token and the class did not even hold a logger. Who entered
++     * Until this existed, "Login as" left no trace of any kind: the endpoint mints a
++     * full-access token (lifetime: app.impersonation.token-ttl-minutes) and the class did not even hold a logger. Who entered
+      * which customer account, and when, was unanswerable from the database — an awkward gap
+      * for a product that sells cloud governance.
+      *
+@@ -204,7 +215,8 @@ public class ImpersonationTokenController {
+                 .claim("role", role)
+                 .setIssuer("billops")
+                 .setIssuedAt(new Date())
+-                .setExpiration(new Date(System.currentTimeMillis() + 8L * 60 * 60 * 1000));
++                .setExpiration(new Date(System.currentTimeMillis()
++                        + java.util.concurrent.TimeUnit.MINUTES.toMillis(Math.max(1L, tokenTtlMinutes))));
+         if (tenantId != null) builder.claim("tenantId", tenantId);
+         if (allowedAccountIds != null) builder.claim("allowedAccountIds", allowedAccountIds);
+ 
+diff --git a/billops/src/main/resources/application.properties b/billops/src/main/resources/application.properties
+index 7d840399d..ff7562afb 100644
+--- a/billops/src/main/resources/application.properties
++++ b/billops/src/main/resources/application.properties
+@@ -97,6 +97,11 @@ server.servlet.session.cookie.path=/
+ # comment in xamops-service/application.properties.
+ app.impersonation.secret-key=${APP_IMPERSONATION_SECRET_KEY}
+ 
++# Lifetime of a "Login As" token, in minutes. Was a hardcoded 8 hours. There is no refresh or
++# revocation path, so keep this short: when it lapses, the admin re-clicks "Login As".
++# Only billops needs this -- the other services just verify exp on the token they are given.
++app.impersonation.token-ttl-minutes=60
++
+ # Encryption key for credentials at rest (GCP service-account JSON, Azure client secret).
+ # billops maps the same cloud_account rows as xamops-service and both read and write those
+ # columns, so this MUST be the identical value in both services or billops silently loses

@@ -137,6 +137,138 @@ describe('PlanDialog', () => {
     expect(confirm).toBeEnabled();
   });
 
+  describe('replacement safety and burstable alternatives (D-23-09, F-23-04)', () => {
+    const policyDiff = [
+      { field: 'instanceMaintenancePolicy', from: 'none', to: 'min 100 / max 200' },
+      { field: 'onDemandBaseCapacity', from: '4', to: '1' },
+    ];
+    const t3Options = (over: Record<string, unknown> = {}) => ({
+      allowBurstable: false,
+      burstableApplicable: true,
+      burstableAlternatives: ['t3a.micro', 't3a.small'],
+      burstableAdded: [],
+      ...over,
+    });
+    const rePlanSetup = (first: unknown, second: unknown) => {
+      const fx = installFetch([
+        { method: 'POST', match: /\/plans$/, responses: [{ status: 201, body: first }, { status: 201, body: second }] },
+        { method: 'POST', match: /\/confirm/, responses: [{ status: 202, body: { operationId: 'op-9', status: 'QUEUED' } }] },
+      ]);
+      renderWithProviders(
+        <PlanDialog accountId={7} row={row()} kind="ENABLE" adapter={awsAdapter} onClose={vi.fn()}
+          onConfirmed={vi.fn()} retryDelayMs={0} />,
+      );
+      return fx;
+    };
+
+    it('shows the maintenance policy row in plain words with the XamOps-added target and the explanation', async () => {
+      setup(planDto({ body: bodyWith({ diff: policyDiff }), warningIds: [] }));
+      expect(await screen.findByText('Replacement safety (instance maintenance policy)')).toBeInTheDocument();
+      expect(screen.getByText('Not set')).toBeInTheDocument();
+      expect(screen.getByText('Min 100% / Max 200%, added by XamOps')).toBeInTheDocument();
+      expect(screen.getByText(/The group can briefly run up to twice its size\. XamOps removes this setting when you revert\./))
+        .toBeInTheDocument();
+    });
+
+    it("shows a customer's own policy as Unchanged, without the XamOps explanation", async () => {
+      setup(planDto({
+        body: bodyWith({ diff: [{ field: 'instanceMaintenancePolicy', from: 'min 90 / max 150', to: 'unchanged' }] }),
+        warningIds: [],
+      }));
+      expect(await screen.findByText('Replacement safety (instance maintenance policy)')).toBeInTheDocument();
+      expect(screen.getByText('Min 90% / Max 150%')).toBeInTheDocument();
+      expect(screen.getByText('Unchanged')).toBeInTheDocument();
+      expect(screen.queryByText(/added by XamOps/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/briefly run up to twice its size/)).not.toBeInTheDocument();
+    });
+    it('shows no policy explanation when the plan does not touch the policy', async () => {
+      setup();
+      await screen.findByText('What changes');
+      expect(screen.queryByText(/briefly run up to twice its size/)).not.toBeInTheDocument();
+    });
+
+    it('takes the warning text from the plan, so an overshoot warning is readable and needs its tick', async () => {
+      const text = 'While AWS replaces instances, this group can briefly run up to twice its desired size.';
+      setup(planDto({
+        body: bodyWith({ diff: policyDiff, eligibility: { blockers: [], warnings: [{ id: 'w-imp-overshoot-1', code: 'IMP_OVERSHOOT', text }] } }),
+        warningIds: ['w-imp-overshoot-1'],
+      }));
+      const tick = await screen.findByRole('checkbox', { name: text });
+      expect(screen.getByRole('button', { name: 'Confirm' })).toBeDisabled();
+      await userEvent.setup().click(tick);
+      expect(screen.getByRole('button', { name: 'Confirm' })).toBeEnabled();
+    });
+
+    it('explains the CPU-credit trade-off in plain words next to an unchecked burstable control', async () => {
+      setup(planDto({ body: bodyWith({ options: t3Options() }) }));
+      const box = await screen.findByRole('checkbox', { name: /Allow burstable alternatives \(for example t3a for t3\)/ });
+      expect(box).not.toBeChecked();
+      expect(screen.getByText(/earn CPU credits while they are idle and spend them when they are busy/)).toBeInTheDocument();
+      expect(screen.getByText(/it slows down, or in unlimited mode you are charged extra/)).toBeInTheDocument();
+    });
+
+    it('has no burstable control for a group that is not burstable', async () => {
+      setup(planDto({ body: bodyWith({ options: t3Options({ burstableApplicable: false, burstableAlternatives: [] }) }) }));
+      await screen.findByText('What changes');
+      expect(screen.queryByRole('checkbox', { name: /burstable/i })).not.toBeInTheDocument();
+      expect(screen.queryByText(/CPU credits/)).not.toBeInTheDocument();
+    });
+
+    it('checking the control re-plans with allowBurstable true, keeps the profile and clears acknowledgments', async () => {
+      const first = planDto({ body: bodyWith({ options: t3Options() }) });
+      const text = 'You allowed burstable instance types (t3a.micro). They earn CPU credits while idle.';
+      const second = planDto({
+        planId: 'p-2',
+        body: bodyWith({
+          options: t3Options({ allowBurstable: true, burstableAdded: ['t3a.micro'] }),
+          eligibility: { blockers: [], warnings: [{ id: 'w-burstable-credits-1', code: 'BURSTABLE_CREDITS', text }] },
+        }),
+        warningIds: ['w-burstable-credits-1'],
+      });
+      const { calls } = rePlanSetup(first, second);
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole('checkbox', { name: /Allow burstable alternatives/ }));
+      await waitFor(() => expect(calls.filter(c => /\/plans$/.test(c.url))).toHaveLength(2));
+      expect(last(calls.filter(c => /\/plans$/.test(c.url))).body).toMatchObject({
+        kind: 'ENABLE',
+        profileId: 'conservative',
+        options: { allowBurstable: true },
+      });
+      expect(await screen.findByRole('checkbox', { name: text })).not.toBeChecked();
+      expect(screen.getByRole('checkbox', { name: /Allow burstable alternatives/ })).toBeChecked();
+      expect(screen.getByText('Burstable types added: t3a.micro')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Confirm' })).toBeDisabled();
+    });
+
+    it('offers "Allow and re-plan" when the plan is blocked for lack of compatible types', async () => {
+      const blockedText = 'No other instance type is compatible with this group, so Spot can\'t be diversified.';
+      const first = planDto({
+        body: bodyWith({
+          options: t3Options(),
+          eligibility: { blockers: [{ code: 'NO_COMPATIBLE_TYPES', text: blockedText }], warnings: [] },
+        }),
+      });
+      const second = planDto({ planId: 'p-2', body: bodyWith({ options: t3Options({ allowBurstable: true }) }) });
+      const { calls } = rePlanSetup(first, second);
+      const user = userEvent.setup();
+      expect(await screen.findByText(`Blocked: ${blockedText}`)).toBeInTheDocument();
+      expect(screen.getByText('This group can convert if you allow burstable alternatives.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Confirm' })).toBeDisabled();
+      // One control for the choice while the group is blocked: the button, not the checkbox as well.
+      expect(screen.queryByRole('checkbox', { name: /Allow burstable alternatives/ })).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Allow and re-plan' }));
+      await waitFor(() => expect(calls.filter(c => /\/plans$/.test(c.url))).toHaveLength(2));
+      expect(last(calls.filter(c => /\/plans$/.test(c.url))).body).toMatchObject({ options: { allowBurstable: true } });
+      await waitFor(() => expect(screen.queryByText(`Blocked: ${blockedText}`)).not.toBeInTheDocument());
+      expect(screen.queryByRole('button', { name: 'Allow and re-plan' })).not.toBeInTheDocument();
+    });
+
+    it('sends no options until the customer chooses, so the last confirmed choice applies', async () => {
+      const { calls } = setup(planDto({ body: bodyWith({ options: t3Options() }) }));
+      await screen.findByText('What changes');
+      expect((calls.find(c => c.method === 'POST')!.body as Record<string, unknown>).options).toBeUndefined();
+    });
+  });
   it('requires the 100% Spot opt-in before Confirm', async () => {
     setup(planDto({ body: bodyWith(), requiresFullSpotOptin: true }));
     const user = userEvent.setup();

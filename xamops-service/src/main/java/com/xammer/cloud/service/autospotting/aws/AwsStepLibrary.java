@@ -108,7 +108,9 @@ public class AwsStepLibrary {
                 return new AwsProgram(op.operationId(), op.kind(), g.getId(), g.getCloudAccountId(), g.getGroupKey(),
                         parts[0], parts[1], op.planId(), JSON.createObjectNode(), true);
             }
-            config = prior.get();
+            // The op's target owned a maintenance policy that was not there before: the restore clears it (AD-08).
+            config = AwsPriorConfig.withPolicyRestore(prior.get(),
+                    AwsMaintenancePolicy.owns(parse(op.targetConfigJson())), snapshotPayload);
         } else {
             config = parse(op.targetConfigJson());
             if (config == null || !config.path("instancesDistribution").isObject()) {

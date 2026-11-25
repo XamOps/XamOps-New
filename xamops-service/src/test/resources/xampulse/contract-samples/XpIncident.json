@@ -1,0 +1,18 @@
+{
+  "id" : 7,
+  "accountId" : 1,
+  "title" : "CPU high",
+  "severity" : "HIGH",
+  "state" : "OPEN",
+  "openedAt" : "2026-10-30T10:00:00Z",
+  "resolvedAt" : "2026-10-30T10:00:00Z",
+  "ackBy" : "ops",
+  "ruleIds" : [ 3 ],
+  "instanceIds" : [ "i-0abc" ],
+  "summary" : "summary",
+  "timeline" : [ {
+    "ts" : "2026-10-30T10:00:00Z",
+    "kind" : "OPENED",
+    "text" : "opened"
+  } ]
+}

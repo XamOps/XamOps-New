@@ -54,7 +54,12 @@ public final class AwsThreeWayDiff {
 
     /** What step 3 writes: the owned fields only. */
     public record Target(String shape, AwsGroupFacts.LtSpec template, List<Override> overrides,
-                         Distribution distribution, boolean capacityRebalance) {
+                         Distribution distribution, boolean capacityRebalance, JsonNode maintenancePolicy) {
+        /** A target that leaves the maintenance policy alone. */
+        public Target(String shape, AwsGroupFacts.LtSpec template, List<Override> overrides,
+                      Distribution distribution, boolean capacityRebalance) {
+            this(shape, template, overrides, distribution, capacityRebalance, null);
+        }
         public boolean standalone() {
             return "LAUNCH_TEMPLATE".equals(shape);
         }
@@ -83,6 +88,9 @@ public final class AwsThreeWayDiff {
                 }
             }
             n.put("capacityRebalance", capacityRebalance);
+            if (maintenancePolicy != null) {
+                n.set(AwsMaintenancePolicy.KEY, maintenancePolicy);
+            }
             return n;
         }
     }
@@ -115,7 +123,9 @@ public final class AwsThreeWayDiff {
         AwsGroupFacts l = AwsGroupFacts.from("", live);
         List<Override> liveOverrides = liveOverrides(live);
         if (AwsSnapshotCodec.CAPTURED_RECONSTRUCTED.equals(snapshot.capturedFrom())) {
-            return legacy(l, liveOverrides);
+            List<Kept> legacyKept = new ArrayList<>();
+            JsonNode legacyPolicy = policyRestore(snapshot, desired, l, acceptedNames(accepted), legacyKept);
+            return legacy(l, liveOverrides, legacyPolicy, legacyKept);
         }
         Set<String> acceptedNames = acceptedNames(accepted);
         boolean standaloneSnapshot = "LAUNCH_TEMPLATE".equals(snapshot.shape());
@@ -193,10 +203,38 @@ public final class AwsThreeWayDiff {
 
         // ---- Spot fields: always S ----
         Distribution distribution = standaloneSnapshot ? null : distributionOf(snapshot.mixedInstancesPolicy());
+        JsonNode policy = policyRestore(snapshot, desired, l, acceptedNames, keptList);
         Target target = new Target(standaloneSnapshot ? "LAUNCH_TEMPLATE" : "MIXED_INSTANCES_POLICY", template,
-                overrides, distribution, snapshot.capacityRebalance());
+                overrides, distribution, snapshot.capacityRebalance(), policy);
         return new Result(target, List.copyOf(keptList), List.copyOf(new LinkedHashSet<>(reasons)),
                 List.copyOf(new LinkedHashSet<>(acks)), List.copyOf(customerOverrides), versionDrift);
+    }
+
+    /**
+     * The maintenance policy a revert writes (design-aws.md AD-08, §5.4), or null to leave it alone. It is written
+     * only when XamOps owned it (the desired configuration says so) and the snapshot recorded the original:
+     * L equal to S writes nothing; L equal to what XamOps set (100/200) writes S, and "absent" is -1/-1; any other
+     * live value was changed outside XamOps and is kept, and listed.
+     */
+    static JsonNode policyRestore(AwsSnapshotCodec.Owned snapshot, JsonNode desired, AwsGroupFacts live,
+                                  Set<String> acceptedNames, List<Kept> kept) {
+        if (!AwsMaintenancePolicy.owns(desired) || !snapshot.hasMaintenancePolicy()) {
+            return null;
+        }
+        ObjectNode saved = AwsPriorConfig.restoreNode(snapshot.instanceMaintenancePolicy());
+        Integer sMin = AwsMaintenancePolicy.normalize(saved.get("min").asInt());
+        Integer sMax = AwsMaintenancePolicy.normalize(saved.get("max").asInt());
+        if (Objects.equals(sMin, live.minHealthyPercentage()) && Objects.equals(sMax, live.maxHealthyPercentage())) {
+            return saved; // already the original: the check passes, the request repeats it harmlessly
+        }
+        boolean xamopsValue = Objects.equals(live.minHealthyPercentage(), AwsMaintenancePolicy.OWNED_MIN)
+                && Objects.equals(live.maxHealthyPercentage(), AwsMaintenancePolicy.OWNED_MAX);
+        if (xamopsValue && !acceptedNames.contains(AwsMaintenancePolicy.KEY)) {
+            return saved;
+        }
+        kept.add(new Kept(AwsMaintenancePolicy.KEY,
+                acceptedNames.contains(AwsMaintenancePolicy.KEY) ? ACCEPTED_BASELINE : CHANGED_OUTSIDE));
+        return null;
     }
 
     /** The launch template the snapshot recorded, whichever shape it had. */
@@ -221,6 +259,10 @@ public final class AwsThreeWayDiff {
      * the policy has a single override and no customer-set base, else the policy at B=0, P=100. Always inexact.
      */
     static Result legacy(AwsGroupFacts l, List<Override> liveOverrides) {
+        return legacy(l, liveOverrides, null, List.of());
+    }
+    /** The same, also carrying the maintenance policy restore (AD-08): an adopted group's 100/200 is XamOps's. */
+    static Result legacy(AwsGroupFacts l, List<Override> liveOverrides, JsonNode policy, List<Kept> kept) {
         Target target;
         if (!l.mixedInstancesPolicy()) {
             target = new Target("LAUNCH_TEMPLATE", l.launchTemplate(), List.of(), null, l.capacityRebalance());
@@ -231,7 +273,12 @@ public final class AwsThreeWayDiff {
                     new Distribution(l.onDemandAllocationStrategy(), 0, 100, l.spotAllocationStrategy(),
                             l.spotInstancePools(), l.spotMaxPrice()), l.capacityRebalance());
         }
-        return new Result(target, List.of(), List.of(LEGACY_RECONSTRUCTED), List.of(ACK_LEGACY_TARGET), List.of(), false);
+        if (policy != null) {
+            target = new Target(target.shape(), target.template(), target.overrides(), target.distribution(),
+                    target.capacityRebalance(), policy);
+        }
+        return new Result(target, List.copyOf(kept), List.of(LEGACY_RECONSTRUCTED), List.of(ACK_LEGACY_TARGET),
+                List.of(), false);
     }
 
     // ---- readers ----

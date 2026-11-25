@@ -250,7 +250,10 @@ public class AutoSpottingMetrics {
      * registration here means no AutoSpotting meter is ever created outside this bean (AC-OBS-01).
      */
     public void bindReconcilerGauge(String name, Provider provider, Supplier<Number> source) {
-        registry.gauge(name, Tags.of("provider", tag(provider)), source, s -> s.get().doubleValue());
+        // Strong reference: the registry otherwise holds the supplier weakly and the gauge reads NaN once the
+        // reconciler's method-reference lambda is collected.
+        io.micrometer.core.instrument.Gauge.builder(name, source, s -> s.get().doubleValue())
+                .tags(Tags.of("provider", tag(provider))).strongReference(true).register(registry);
     }
 
     /**
@@ -259,7 +262,8 @@ public class AutoSpottingMetrics {
      * must read 0 while the job is switched off, so an intentionally dark writer never pages.
      */
     public void bindLedgerLastSuccessAge(String job, Supplier<Number> source) {
-        registry.gauge(LEDGER_LAST_SUCCESS_AGE, Tags.of("job", job), source, s -> s.get().doubleValue());
+        io.micrometer.core.instrument.Gauge.builder(LEDGER_LAST_SUCCESS_AGE, source, s -> s.get().doubleValue())
+                .tags(Tags.of("job", job)).strongReference(true).register(registry);
     }
 
     /**
@@ -269,8 +273,9 @@ public class AutoSpottingMetrics {
      * this bean (AC-OBS-01) and the spine repository stays inside {@code ..core..} (ArchUnit §9.1).
      */
     public void bindGroupStateGauge(Provider provider, GroupState state, Supplier<Number> source) {
-        registry.gauge(GROUPS, Tags.of("provider", tag(provider), "state", state.name()),
-                source, s -> s.get().doubleValue());
+        io.micrometer.core.instrument.Gauge.builder(GROUPS, source, s -> s.get().doubleValue())
+                .tags(Tags.of("provider", tag(provider), "state", state.name())).strongReference(true)
+                .register(registry);
     }
 
     /**
@@ -279,8 +284,9 @@ public class AutoSpottingMetrics {
      * {@link #bindGroupStateGauge}.
      */
     public void bindGroupDriftGauge(Provider provider, DriftStatus severity, Supplier<Number> source) {
-        registry.gauge(GROUPS_DRIFT, Tags.of("provider", tag(provider), "severity", severity.name()),
-                source, s -> s.get().doubleValue());
+        io.micrometer.core.instrument.Gauge.builder(GROUPS_DRIFT, source, s -> s.get().doubleValue())
+                .tags(Tags.of("provider", tag(provider), "severity", severity.name())).strongReference(true)
+                .register(registry);
     }
 
     private static String tag(Provider provider) {

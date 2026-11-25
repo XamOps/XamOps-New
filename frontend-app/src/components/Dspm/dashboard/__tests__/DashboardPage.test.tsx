@@ -87,7 +87,7 @@ const DASHBOARD: DspmDashboard = {
     on_prem: [],
   },
   regions: [
-    { region: 'eu-west-1', datastores: 3, scannedDatastores: 2, sensitiveRecords: 3_900, sensitiveLabels: ['Financial', 'Personal'] },
+    { region: 'eu-west-1', datastores: 3, scannedDatastores: 2, sensitiveLabels: ['Financial', 'Personal'] },
   ],
 };
 

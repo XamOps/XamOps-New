@@ -8,5 +8,9 @@
       "SpotAllocationStrategy" : "price-capacity-optimized"
     }
   },
-  "CapacityRebalance" : true
+  "CapacityRebalance" : true,
+  "InstanceMaintenancePolicy" : {
+    "MinHealthyPercentage" : 100,
+    "MaxHealthyPercentage" : 200
+  }
 }

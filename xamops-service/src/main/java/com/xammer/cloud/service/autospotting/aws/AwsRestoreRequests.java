@@ -17,6 +17,7 @@ import java.util.List;
  * zones or tags. There is no instance-refresh field on the request type at all.
  */
 public final class AwsRestoreRequests {
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
     private AwsRestoreRequests() {
     }
 
@@ -26,6 +27,14 @@ public final class AwsRestoreRequests {
      * fields are sent as they are now, so the call changes nothing else. No launch template is sent.
      */
     public static UpdateAutoScalingGroupRequest drain(AutoScalingGroup live) {
+        return drain(live, null);
+    }
+
+    /**
+     * The same drain, carrying the maintenance policy XamOps owns when {@code config} has one (design-aws.md §6.4,
+     * AD-08), so a fallback keeps launch-before-terminate even if the customer removed the policy since.
+     */
+    public static UpdateAutoScalingGroupRequest drain(AutoScalingGroup live, com.fasterxml.jackson.databind.JsonNode config) {
         AwsGroupFacts f = AwsGroupFacts.from("", live);
         InstancesDistribution.Builder d = InstancesDistribution.builder()
                 .onDemandBaseCapacity(f.onDemandBase())
@@ -42,9 +51,11 @@ public final class AwsRestoreRequests {
         if (f.spotMaxPrice() != null) {
             d.spotMaxPrice(f.spotMaxPrice());
         }
-        return UpdateAutoScalingGroupRequest.builder().autoScalingGroupName(live.autoScalingGroupName())
-                .mixedInstancesPolicy(MixedInstancesPolicy.builder().instancesDistribution(d.build()).build())
-                .build();
+        UpdateAutoScalingGroupRequest.Builder request = UpdateAutoScalingGroupRequest.builder()
+                .autoScalingGroupName(live.autoScalingGroupName())
+                .mixedInstancesPolicy(MixedInstancesPolicy.builder().instancesDistribution(d.build()).build());
+        AwsUpdateRequestBuilder.withMaintenancePolicy(request, config);
+        return request.build();
     }
 
     /**
@@ -55,6 +66,10 @@ public final class AwsRestoreRequests {
     public static UpdateAutoScalingGroupRequest restore(String groupName, AwsThreeWayDiff.Target target) {
         UpdateAutoScalingGroupRequest.Builder b = UpdateAutoScalingGroupRequest.builder().autoScalingGroupName(groupName)
                 .capacityRebalance(target.capacityRebalance());
+        if (target.maintenancePolicy() != null) {
+            AwsUpdateRequestBuilder.withMaintenancePolicy(b, JSON.createObjectNode()
+                    .set(AwsMaintenancePolicy.KEY, target.maintenancePolicy()));
+        }
         if (target.standalone()) {
             return b.launchTemplate(spec(target.template())).build();
         }

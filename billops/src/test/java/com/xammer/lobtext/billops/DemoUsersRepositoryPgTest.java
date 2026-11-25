@@ -21,7 +21,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -38,8 +37,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       client and excludes users of a non-demo client;</li>
  *   <li>{@code aggregateLoginsByUserIds} returns correct min/max/count and the per-user
  *       {@code authProvider}, ignoring non-LOGIN actions;</li>
- *   <li>{@code findFirstByUserIdAndActionOrderByCreatedAtDesc(id, "LOGIN")} returns the latest LOGIN
- *       row's {@code ip_address};</li>
  *   <li>a demo-client user with zero LOGIN rows has no aggregate row (DTO renders null/0).</li>
  * </ul>
  */
@@ -66,7 +63,7 @@ class DemoUsersRepositoryPgTest {
     private UserActivityEventRepository eventRepository;
 
     @Test
-    void demoUserSetLoginAggregateAndLastIpAreDerivedFromLoginRows() {
+    void demoUserSetLoginAggregateAreDerivedFromLoginRows() {
         Client demoClient = new Client("demo-client");
         demoClient.setDemo(true);
         demoClient = clientRepository.save(demoClient);
@@ -105,12 +102,6 @@ class DemoUsersRepositoryPgTest {
         assertThat(aliceAgg.getAuthProvider()).isEqualTo("GOOGLE");
         assertThat(aliceAgg.getFirstSeen()).isEqualTo(LocalDateTime.of(2026, 1, 1, 9, 0));
         assertThat(aliceAgg.getLastLogin()).isEqualTo(LocalDateTime.of(2026, 1, 3, 9, 0));
-
-        // last IP = ip_address of the most-recent LOGIN row.
-        Optional<UserActivityEvent> lastLogin = eventRepository
-                .findFirstByUserIdAndActionOrderByCreatedAtDesc(demoWithLogins.getId(), "LOGIN");
-        assertThat(lastLogin).isPresent();
-        assertThat(lastLogin.get().getIpAddress()).isEqualTo("198.51.100.3");
     }
 
     private static AppUser user(String username, String email, Client client) {

@@ -76,7 +76,10 @@ jobs:
             echo "billops=false" >> $GITHUB_OUTPUT
           fi
 
-          if echo "$CHANGED" | grep -q "^xamops-service/"; then
+          # The XamPulse CloudFormation templates and SSM install snippets are copied into the
+          # xamops-service jar (their SHA-256 is shown in the setup preview), so an edit to them
+          # must rebuild and redeploy xamops-service or the displayed hash goes stale.
+          if echo "$CHANGED" | grep -qE "^xamops-service/|^cloudformation/xamops-xampulse[^/]*\.yml$|^cloudformation/xampulse/|^cloudformation/xamops-readonly-role\.yml$"; then
             echo "xamops=true" >> $GITHUB_OUTPUT
           else
             echo "xamops=false" >> $GITHUB_OUTPUT

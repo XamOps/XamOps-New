@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.autospotting.GroupState;
 import com.xammer.cloud.domain.autospotting.OperationKind;
+import com.xammer.cloud.domain.autospotting.OperationPhase;
 import com.xammer.cloud.domain.autospotting.Provider;
 import com.xammer.cloud.domain.autospotting.SpotGroup;
 import com.xammer.cloud.domain.autospotting.SpotOperation;
@@ -19,6 +20,8 @@ import com.xammer.cloud.service.autospotting.core.AutoSpottingAuthorization.Deci
 import com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter;
 import com.xammer.cloud.service.autospotting.core.audit.AutoSpottingAuditWriter.AuditRecord;
 import com.xammer.cloud.service.autospotting.core.lifecycle.CompensationTargets;
+import com.xammer.cloud.service.autospotting.core.lifecycle.GroupTransitions;
+import com.xammer.cloud.service.autospotting.core.ops.OperationOutcomes;
 import com.xammer.cloud.service.autospotting.core.ops.OperationRecord;
 import com.xammer.cloud.service.autospotting.core.ops.OperationStore;
 import com.xammer.cloud.service.autospotting.core.ops.PreemptionService;
@@ -220,6 +223,26 @@ public class ConfirmService {
             }
         }
 
+        // An ENABLE that will mutate runs only for a group its plan moved to PLANNED: the op's lifecycle
+        // transitions (PLANNED -> APPLYING -> ACTIVE) are guarded on that state, so from any other state they all
+        // miss and the cloud would change while XamOps keeps the group UNMANAGED (phase 23 defects D-23-07/08).
+        // A dry-run ENABLE plan never moves the group to PLANNED (§7.2), so it is exempt.
+        // The global dry-run switch is deliberately not part of this test: it only makes the op dry-run (below),
+        // and a non-PLANNED ENABLE plan is refused whatever the switch says.
+        boolean dryRunConfirm = plan.isDryRun() || cmd.dryRunRequested();
+        if (plan.getKind() == OperationKind.ENABLE && !dryRunConfirm && state != GroupState.PLANNED) {
+            throw new AutoSpottingApiException(HttpStatus.CONFLICT, "AS_GROUP_NOT_PLANNED",
+                    "This group isn't waiting for this enable any more. Review a fresh plan.");
+        }
+        // The op's first mutation moves the group to its start state (APPLYING / REVERTING). When the group's state
+        // has no edge there, every such transition would miss, so refuse now instead of accepting a doomed op.
+        if (!dryRunConfirm && plan.getKind() != OperationKind.ENABLE && group != null) {
+            GroupState start = OperationOutcomes.startState(plan.getKind(), OperationPhase.FORWARD);
+            if (start != null && state != start && !GroupTransitions.isAllowed(state, start)) {
+                throw AutoSpottingApiException.planKindNotAllowed(PlanKinds.notAllowedDetail(plan.getKind(), state));
+            }
+        }
+
         // 8 (before enqueue): live fingerprint re-read (1.5 s). A mismatch marks the plan STALE; a
         // timeout still returns 202 and op step 0 repeats the check. Performed before preemption so a
         // stale plan never preempts a running op.
@@ -313,8 +336,13 @@ public class ConfirmService {
             return FingerprintOutcome.TIMEOUT;
         }
         try {
-            String live = spotProvider.getStatus(group, new ReadOnlyCloudView() {
-            }).liveFingerprint();
+            ReadOnlyCloudView readOnly = new ReadOnlyCloudView() {
+            };
+            // Ownership comes from the plan's target (a first enable's row has no desired_config yet).
+            String live = spotProvider.liveFingerprintFor(group, targetConfigJson(plan), readOnly);
+            if (live == null) {
+                live = spotProvider.getStatus(group, readOnly).liveFingerprint();
+            }
             if (live == null || plan.getLiveFingerprint() == null) {
                 return FingerprintOutcome.TIMEOUT;
             }

@@ -25,6 +25,7 @@ import * as saasDrawer from './xamlensSaasDrawerMockData';
 import * as endpointDrawer from './xamlensEndpointDrawerMockData';
 import * as xamlensRisks from './xamlensRisksMockData';
 import * as lineage from './xamlensLineageMockData';
+import * as publicLineage from './xamlensLineagePublicMockData';
 import * as files from './xamlensFilesMockData';
 import * as xamlensPages from './xamlensPagesMockData';
 import * as xamlensScans from './xamlensScansMockData';
@@ -87,6 +88,12 @@ const ENDPOINT_RESOURCE =
 const LINEAGE_POLICY_DATASTORES = /^\/api\/dspm\/lineage\/policies\/([0-9a-f-]{36})\/datastores$/;
 const LINEAGE_DATASTORE_FILES = /^\/api\/dspm\/lineage\/datastores\/([A-Za-z0-9-]{1,64})\/files$/;
 const LINEAGE_FILE_LINEAGE = /^\/api\/dspm\/lineage\/files\/([0-9a-f-]{24,36})\/lineage$/;
+/** The public path's routes (build 7 design 7): the datastores, one datastore's files, one file's lineage. */
+const LINEAGE_PUBLIC_DATASTORES = /^\/api\/dspm\/lineage\/public\/datastores$/;
+const LINEAGE_PUBLIC_FILES =
+  /^\/api\/dspm\/lineage\/public\/datastores\/(ep-[0-9a-f]{24}|dr-[0-9a-f]{24}-[A-Za-z0-9_-]{1,64})\/files$/;
+const LINEAGE_PUBLIC_FILE_LINEAGE =
+  /^\/api\/dspm\/lineage\/public\/datastores\/(ep-[0-9a-f]{24}|dr-[0-9a-f]{24}-[A-Za-z0-9_-]{1,64})\/files\/([A-Za-z0-9_-]{1,128})\/lineage$/;
 /** An Endpoint file drawer's resources (the Files page). */
 const ENDPOINT_FILE_RESOURCE = /^\/api\/dspm\/endpoint-files\/([0-9a-f-]{36})\/(overview|activity|lineage|copies)$/;
 
@@ -1233,13 +1240,18 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     const datastores = path.match(LINEAGE_POLICY_DATASTORES);
     const datastoreFiles = path.match(LINEAGE_DATASTORE_FILES);
     const fileLineage = path.match(LINEAGE_FILE_LINEAGE);
+    const publicFiles = path.match(LINEAGE_PUBLIC_FILES);
+    const publicFileLineage = path.match(LINEAGE_PUBLIC_FILE_LINEAGE);
     const body = path === '/api/dspm/lineage/categories' ? lineage.demoLineageCategories()
       : path === '/api/dspm/lineage/filter-options' ? lineage.demoLineageFilterOptions(url)
         : path === '/api/dspm/lineage/policies' ? lineage.demoLineagePolicies(url)
           : datastores ? lineage.demoLineageDatastores(datastores[1], url)
             : datastoreFiles ? lineage.demoLineageFiles(datastoreFiles[1], url)
               : fileLineage ? lineage.demoLineageFileLineage(fileLineage[1])
-                : null;
+                : LINEAGE_PUBLIC_DATASTORES.test(path) ? publicLineage.demoPublicDatastores(url)
+                  : publicFiles ? publicLineage.demoPublicFiles(publicFiles[1], url)
+                    : publicFileLineage ? publicLineage.demoPublicFileLineage(publicFileLineage[1], publicFileLineage[2])
+                      : null;
     if (lineage.isDemoLineageInvalid(body)) return makeDspmError(400, 'INVALID_REQUEST', body.message);
     if (body) return makeResponse(body);
     return makeDspmError(404, 'ASSET_NOT_FOUND', 'That lineage item could not be found.');

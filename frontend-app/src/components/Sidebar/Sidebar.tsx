@@ -19,6 +19,7 @@ import { useXamTabAccess } from '../../contexts/XamTabAccessContext';
 import { DSPM_ADMIN_ROLES, makeBillopsTabGate } from '../../constants/billopsAdminTabs';
 import { XAMSECURE_SIDEBAR_TABS } from '../../constants/xamsecureTabs';
 import { XAMLENS_HOME, XAMLENS_SIDEBAR_TABS } from '../../constants/xamlensTabs';
+import { XAMPULSE_TABS } from '../../constants/xampulseTabs';
 import { ClusterSectionsNav } from '../CloudK8s/shared/ClusterSectionsNav';
 import clsx from 'clsx';
 
@@ -146,6 +147,7 @@ const Sidebar: React.FC = () => {
       '/performance', '/gcp-performance', '/azure-performance', '/alerts', '/gcp-alerts', '/azure-alerts'];
     const licensesRoutes = ['/marketplace-purchases', '/workspace-licenses', '/isv-metering'];
     const observabilityRoutes = ['/observability', '/grafana-dashboard'];
+    const xampulseRoutes = ['/xampulse'];
     const sreRoutes = ['/sre'];
     const mediaopsRoutes = ['/media-ops'];
     // const accessopsRoutes = ['/identity/users', '/identity/groups', '/identity/audit'];
@@ -156,6 +158,7 @@ const Sidebar: React.FC = () => {
     else if (secopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('security');
     else if (licensesRoutes.some(r => path.startsWith(r))) setOpenDropdown('licenses');
     else if (observabilityRoutes.some(r => path.startsWith(r))) setOpenDropdown('observability');
+    else if (xampulseRoutes.some(r => path.startsWith(r))) setOpenDropdown('xampulse');
     else if (sreRoutes.some(r => path.startsWith(r))) setOpenDropdown('sre');
     else if (mediaopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('mediaops');
     // else if (accessopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('accessops');
@@ -511,6 +514,20 @@ const Sidebar: React.FC = () => {
                 {isXamTabAllowed('obs-alerts') && <NavItem href="/observability/alerts" icon="fas fa-bell" label="Alerts" isActive={isActive('/observability/alerts')} />}
                 {isXamTabAllowed('obs-setup') && <NavItem href="/observability/setup" icon="fas fa-cog" label="Setup" isActive={isActive('/observability/setup')} />}
                 {isXamTabAllowed('obs-grafana') && <NavItem href="/grafana-dashboard" icon="fas fa-chart-line" label="Grafana" isActive={isActive('/grafana-dashboard')} />}
+              </NavSection>
+              )}
+              {/* XamPulse (Observability 1.0): its own top-level entry with its own sub-tabs, next to the Beta entry above. */}
+              {isXamModuleAllowed('xampulse') && (
+              <NavSection
+                icon="fas fa-heart-pulse"
+                label="XamPulse"
+                gradientClass="from-teal-500 to-cyan-600"
+                isOpen={openDropdown === 'xampulse'}
+                onToggle={() => toggleDropdown('xampulse')}
+              >
+                {XAMPULSE_TABS.map((t) => isXamTabAllowed(t.accessKey) && (
+                  <NavItem key={t.id} href={`/xampulse/${t.id}`} icon={t.icon} label={t.label} isActive={location.pathname.startsWith(`/xampulse/${t.id}`) || (t.id === 'hosts' && location.pathname.startsWith('/xampulse/hosts'))} />
+                ))}
               </NavSection>
               )}
 

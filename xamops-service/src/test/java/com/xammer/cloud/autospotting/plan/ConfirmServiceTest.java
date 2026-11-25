@@ -300,9 +300,74 @@ class ConfirmServiceTest {
         assertThat(captor.getValue().targetConfigJson()).isEqualTo("{\"shape\":\"MIXED_INSTANCES_POLICY\"}");
     }
 
+    /** D-23-07/08: a mutating ENABLE confirm for a group that is not PLANNED is 409 and enqueues nothing. */
+    @Test
+    void anEnableForAGroupThatIsNotPlannedIs409AndNoOp() {
+        for (GroupState notPlanned : new GroupState[] {GroupState.UNMANAGED, GroupState.REVERTED}) {
+            SpotGroup g = group(notPlanned);
+            SpotPlan enable = plan(OperationKind.ENABLE, g.getId(), "[]", false);
+            when(plans.findById(enable.getId())).thenReturn(Optional.of(enable));
+            when(operations.findByPlanId(enable.getId())).thenReturn(Optional.empty());
+            when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+            assertThatThrownBy(() -> confirm.confirm(account(), user(), enable.getId(), cmd(1, List.of(), false)))
+                    .isInstanceOfSatisfying(AutoSpottingApiException.class, ex -> {
+                        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+                        assertThat(ex.getCode()).isEqualTo("AS_GROUP_NOT_PLANNED");
+                    });
+        }
+        verify(operationStore, never()).insertQueued(any());
+        verify(plans, never()).confirmIfOpen(any(), anyInt(), anyString(), any(), anyString(), any());
+    }
+
+    /** Finding #10: the global dry-run switch only makes the op dry-run; it does not exempt a non-PLANNED ENABLE. */
+    @Test
+    void aNonPlannedEnableIs409EvenWhenOnlyTheGlobalDryRunSwitchIsOn() {
+        when(switchProperties.mutationsDryRun()).thenReturn(true);
+        SpotGroup g = group(GroupState.UNMANAGED);
+        SpotPlan enable = plan(OperationKind.ENABLE, g.getId(), "[]", false);
+        when(plans.findById(enable.getId())).thenReturn(Optional.of(enable));
+        when(operations.findByPlanId(enable.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+        assertThatThrownBy(() -> confirm.confirm(account(), user(), enable.getId(), cmd(1, List.of(), false)))
+                .isInstanceOfSatisfying(AutoSpottingApiException.class, ex -> {
+                    assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+                    assertThat(ex.getCode()).isEqualTo("AS_GROUP_NOT_PLANNED");
+                });
+        verify(operationStore, never()).insertQueued(any());
+    }
+
+    /** Finding #9: a kind whose group state has no edge to the op's start state is refused at confirm. */
+    @Test
+    void aRevertForAGroupWithNoEdgeToRevertingIs409AndNoOp() {
+        // PlanKinds lists REVERT as allowed from PLANNED, but PLANNED has no edge to REVERTING.
+        SpotGroup g = group(GroupState.PLANNED);
+        SpotPlan revert = plan(OperationKind.REVERT, g.getId(), "[]", false);
+        when(plans.findById(revert.getId())).thenReturn(Optional.of(revert));
+        when(operations.findByPlanId(revert.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+        assertThatThrownBy(() -> confirm.confirm(account(), user(), revert.getId(), cmd(1, List.of(), false)))
+                .isInstanceOfSatisfying(AutoSpottingApiException.class,
+                        ex -> assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT));
+        verify(operationStore, never()).insertQueued(any());
+    }
+
+    /** A dry-run ENABLE plan never moves the group to PLANNED (§7.2), so its confirm is not refused. */
+    @Test
+    void aDryRunEnableForAnUnmanagedGroupIsStillAccepted() {
+        SpotGroup g = group(GroupState.UNMANAGED);
+        SpotPlan enable = plan(OperationKind.ENABLE, g.getId(), "[]", false);
+        enable.setDryRun(true);
+        when(plans.findById(enable.getId())).thenReturn(Optional.of(enable));
+        when(operations.findByPlanId(enable.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+        when(plans.confirmIfOpen(eq(enable.getId()), eq(1), anyString(), any(), anyString(), any())).thenReturn(1);
+        assertThat(confirm.confirm(account(), user(), enable.getId(), cmd(1, List.of(), false)).status())
+                .isEqualTo("QUEUED");
+    }
+
     @Test
     void theFullSpotOptInIsRecordedWithTheAcknowledgements() {
-        SpotGroup g = group(GroupState.UNMANAGED);
+        SpotGroup g = group(GroupState.PLANNED);
         SpotPlan enable = plan(OperationKind.ENABLE, g.getId(), "[]", true);
         when(plans.findById(enable.getId())).thenReturn(Optional.of(enable));
         when(operations.findByPlanId(enable.getId())).thenReturn(Optional.empty());

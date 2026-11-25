@@ -163,23 +163,42 @@ afterEach(() => {
 });
 
 describe('DataLineagePage, switched off', () => {
-  it('requests only the categories and shows step 0 greyed (AC4)', async () => {
-    get.mockResolvedValue(OFF);
+  const PUBLIC_EP = `ep-${'c'.repeat(24)}`;
+  const PUBLIC_ROWS = [{ id: PUBLIC_EP, kind: 'ENDPOINT', name: 'Studio MacBook Pro', service: 'ENDPOINT', files: 0 }];
+
+  /** The categories answer off; the public routes answer one endpoint without files. */
+  function serveOff() {
+    get.mockImplementation((url: string) => {
+      const path = new URL(url, 'http://localhost').pathname;
+      if (path === '/api/dspm/lineage/categories') return Promise.resolve(OFF);
+      if (path === '/api/dspm/lineage/public/datastores') return Promise.resolve({ rows: PUBLIC_ROWS, total: 1, skip: 0, limit: 7 });
+      if (path === `/api/dspm/lineage/public/datastores/${PUBLIC_EP}/files`) {
+        return Promise.resolve({ rows: [], total: 0, skip: 0, limit: 7 });
+      }
+      return Promise.reject(new Error(`HTTP 404: {"code":"ASSET_NOT_FOUND","message":"${path}"}`));
+    });
+  }
+
+  it('opens the public path on the datastore step, with no category card (build 7 AC1)', async () => {
+    serveOff();
     renderAt('/xamlens/data-lineage');
-    expect(await screen.findByRole('heading', { name: 'Data lineage' })).toBeInTheDocument();
-    expect(screen.getAllByRole('button').filter(b => b.getAttribute('aria-disabled') === 'true')).toHaveLength(6);
-    expect(get).toHaveBeenCalledTimes(1);
-    expect(get).toHaveBeenCalledWith('/api/dspm/lineage/categories');
+    expect(await screen.findByRole('button', { name: 'Studio MacBook Pro' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Choose a datastore' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Example workspace' })).toHaveAttribute('data-node-level', 'root');
+    expect(screen.queryByRole('heading', { name: 'Data lineage' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Sensitive Findings/ })).toBeNull();
+    expect(get.mock.calls.map(c => c[0])).toEqual([
+      '/api/dspm/lineage/categories', '/api/dspm/lineage/public/datastores?skip=0&limit=7',
+    ]);
   });
 
-  it('strips a deep link\'s query and stays at step 0 (AC5)', async () => {
-    get.mockResolvedValue(OFF);
-    renderAt('/xamlens/data-lineage?category=SENSITIVE_FINDINGS&policy=0f8e2c4a-1b3d-4e5f-8a9b-0c1d2e3f4a5b');
-    expect(await screen.findByRole('heading', { name: 'Data lineage' })).toBeInTheDocument();
-    await waitFor(() => expect(location()).toBe('/xamlens/data-lineage'));
-    expect(screen.queryByRole('button', { name: 'New Investigation' })).toBeNull();
-    expect(get).toHaveBeenCalledTimes(1);
-    expect(get.mock.calls.map(c => c[0])).toEqual(['/api/dspm/lineage/categories']);
+  it('keeps a public deep link through the categories load (build 7 AC3)', async () => {
+    serveOff();
+    renderAt(`/xamlens/data-lineage?datastore=${PUBLIC_EP}`);
+    expect(await screen.findByText('No files found.')).toBeInTheDocument();
+    expect(location()).toBe(`/xamlens/data-lineage?datastore=${PUBLIC_EP}`);
+    expect(screen.getByRole('heading', { name: 'Choose a file' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Studio MacBook Pro' })).toHaveAttribute('aria-pressed', 'true');
   });
 });
 
@@ -477,15 +496,17 @@ describe('DataLineagePage, the investigation', () => {
     expect(search().get('eventQ')).toBe('zzz');
   });
 
-  it('goes back to step 0 when a row answers available: false', async () => {
+  it('goes to the public path when a row answers available: false', async () => {
     serve({
       categories: [ON, OFF],
       policies: params => ({ available: false, rows: [], total: 0, skip: Number(params.get('skip')), limit: 7 }),
     });
     renderAt(STEP1);
     await waitFor(() => expect(location()).toBe('/xamlens/data-lineage'));
-    expect(await screen.findByRole('heading', { name: 'Data lineage' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Choose a datastore' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Data lineage' })).toBeNull();
     expect(requests('/api/dspm/lineage/categories')).toHaveLength(2);
+    expect(requests('/api/dspm/lineage/public/datastores').map(p => p.toString())).toEqual(['skip=0&limit=7']);
   });
 
   it('resets a stale page to 0', async () => {

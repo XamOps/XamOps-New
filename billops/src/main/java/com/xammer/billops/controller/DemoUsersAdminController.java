@@ -5,7 +5,6 @@ import com.xammer.billops.dto.DemoUserLoginAgg;
 import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.UserActivityEventRepository;
 import com.xammer.cloud.domain.AppUser;
-import com.xammer.cloud.domain.UserActivityEvent;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -19,7 +18,7 @@ import java.util.stream.Collectors;
 
 /**
  * Admin "Demo Users" view: lists every user of the {@code is_demo=true} client together with their
- * login history (auth provider, first-seen, last-login, login count, optional last IP) read from
+ * login history (auth provider, first-seen, last-login, login count) read from
  * {@code user_activity_event} LOGIN rows. Read-only; it adds no column to any mapping (NFR2) and
  * uses only existing billops repositories plus the new query methods and DTO.
  *
@@ -56,21 +55,16 @@ public class DemoUsersAdminController {
             DemoUserLoginAgg agg = aggByUserId.get(user.getId());
             if (agg == null) {
                 result.add(new DemoUserDto(user.getEmail(), user.getUsername(),
-                        null, null, null, 0L, null));
+                        null, null, null, 0L));
                 continue;
             }
-            String lastIp = eventRepository
-                    .findFirstByUserIdAndActionOrderByCreatedAtDesc(user.getId(), UserActivityEvent.ACTION_LOGIN)
-                    .map(UserActivityEvent::getIpAddress)
-                    .orElse(null);
             result.add(new DemoUserDto(
                     user.getEmail(),
                     user.getUsername(),
                     agg.getAuthProvider(),
                     agg.getFirstSeen(),
                     agg.getLastLogin(),
-                    agg.getLoginCount(),
-                    lastIp));
+                    agg.getLoginCount()));
         }
         return result;
     }

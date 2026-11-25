@@ -309,6 +309,7 @@ Resources:
                   - 'events:DeleteRule'
                   - 'events:PutTargets'
                   - 'events:RemoveTargets'
+                  - 'events:DisableRule'
                   - 'events:DescribeRule'
                   - 'events:ListTargetsByRule'
                 Resource: !Sub 'arn:${AWS::Partition}:events:*:${AWS::AccountId}:rule/xamops-as-*'
@@ -356,7 +357,10 @@ Resources:
         ZipFile: |
           """
           Creates (and on stack delete, removes) the AutoSpotting event rules in every
-          enabled region, each with a retry policy and a dead-letter queue.
+          enabled region, each with a dead-letter queue. The target is the hub event bus, and
+          EventBridge rejects a RetryPolicy on an event-bus target ("Retry policy is not
+          supported for Event bus targets"), so none is set; bus-to-bus delivery uses
+          EventBridge's own retries.
 
           Failure policy: a per-region failure is recorded and skipped, never fatal. One
           opted-in region with an unusual restriction must not fail onboarding for the whole
@@ -372,8 +376,6 @@ Resources:
           SUFFIX = os.environ.get('RESOURCE_SUFFIX', '')
           DLQ_NAME = f'xamops-as-events-dlq{SUFFIX}'
           TARGET_ID = 'HubTarget'
-          # Rules older than this age are dropped by EventBridge rather than retried.
-          MAX_EVENT_AGE_SECONDS = 3600
 
 
           def rule_name(key):
@@ -415,28 +417,57 @@ Resources:
                   pass
 
 
+          class RulesFailed(RuntimeError):
+              """Raised after every rule was tried; rule_keys names the ones that were rolled back."""
+
+              def __init__(self, region, rule_keys, detail):
+                  super().__init__(f'{region}: rules failed {",".join(rule_keys)}: {detail}'[:300])
+                  self.rule_keys = list(rule_keys)
+
+
           def apply_region(region, account, hub_arn, role_arn, patterns):
               dlq_arn = ensure_dlq(region, account)
               events = boto3.client('events', region_name=region)
+              failed, detail = [], ''
               for key, pattern in patterns.items():
                   name = rule_name(key)
-                  events.put_rule(
-                      Name=name,
-                      Description='XamOps AutoSpotting events - forwards to the hub bus',
-                      EventPattern=json.dumps(pattern),
-                      State='ENABLED',
-                  )
-                  events.put_targets(
-                      Rule=name,
-                      Targets=[{
-                          'Id': TARGET_ID,
-                          'Arn': hub_arn,
-                          'RoleArn': role_arn,
-                          'RetryPolicy': {'MaximumEventAgeInSeconds': MAX_EVENT_AGE_SECONDS,
-                                          'MaximumRetryAttempts': 185},
-                          'DeadLetterConfig': {'Arn': dlq_arn},
-                      }],
-                  )
+                  try:
+                      events.put_rule(
+                          Name=name,
+                          Description='XamOps AutoSpotting events - forwards to the hub bus',
+                          EventPattern=json.dumps(pattern),
+                          State='ENABLED',
+                      )
+                      resp = events.put_targets(
+                          Rule=name,
+                          Targets=[{
+                              'Id': TARGET_ID,
+                              'Arn': hub_arn,
+                              'RoleArn': role_arn,
+                              'DeadLetterConfig': {'Arn': dlq_arn},
+                          }],
+                      )
+                      # PutTargets reports a rejected target in the response rather than raising.
+                      if resp.get('FailedEntryCount'):
+                          raise RuntimeError(f"PutTargets {name}: {resp.get('FailedEntries')}")
+                  except Exception as e:
+                      # No ENABLED rule may stay without a target: delete it, or at least disable it.
+                      try:
+                          try:
+                              events.remove_targets(Rule=name, Ids=[TARGET_ID])
+                          except Exception:
+                              pass
+                          events.delete_rule(Name=name)
+                      except Exception:
+                          try:
+                              events.disable_rule(Name=name)
+                          except Exception as de:
+                              print(f'Could not disable {name} in {region}: {de}')
+                      failed.append(key)
+                      detail = detail or str(e)
+                      print(f'Rule {name} failed in {region}: {e}')
+              if failed:
+                  raise RulesFailed(region, failed, detail)
 
 
           def remove_rules(region, keys):
@@ -519,7 +550,7 @@ Resources:
                   old_keys = set((event.get('OldResourceProperties') or {}).get('RulePatterns') or {})
                   dropped = old_keys - set(patterns)
 
-                  ok, failed = [], {}
+                  ok, failed, rules_failed = [], {}, []
                   for r in regions:
                       try:
                           if dropped:
@@ -528,6 +559,7 @@ Resources:
                           ok.append(r)
                       except Exception as e:
                           failed[r] = str(e)[:200]
+                          rules_failed.extend(f'{r}:{k}' for k in getattr(e, 'rule_keys', []))
                           print(f'Region {r} skipped: {e}')
 
                   print(f'Configured {len(ok)} region(s); {len(failed)} skipped')
@@ -535,6 +567,7 @@ Resources:
                       'RegionsConfigured': ','.join(ok)[:1000] or 'none',
                       'RegionCount': str(len(ok)),
                       'RegionsSkipped': ','.join(failed.keys())[:500] or 'none',
+                      'RulesFailed': ','.join(rules_failed)[:500] or 'none',
                   })
 
               except Exception as e:
@@ -560,6 +593,11 @@ Resources:
       - HubForwardRule
     Properties:
       ServiceToken: !GetAtt RegionFanOutFunction.Arn
+      # First 12 hex of the SHA-256 of the fan-out ZipFile; check_event_patterns.py enforces it.
+      # CloudFormation re-invokes a custom resource only when
+      # its properties change, so without this a stack update would ship new code and never run it
+      # (D-23-02: stacks created before the RetryPolicy fix keep their target-less rules until then).
+      FanOutCodeVersion: 'c1f10c158c24'
       HubBusArn: !GetAtt AutoSpottingHubBus.Arn
       ForwardRoleArn: !GetAtt RegionalForwardRole.Arn
       RulePatterns:

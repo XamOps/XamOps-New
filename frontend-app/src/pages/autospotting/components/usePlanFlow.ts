@@ -33,6 +33,8 @@ export function usePlanFlow({ accountId, row, kind, usesProfile, policyEdit, ret
   const confirmMutation = useConfirmPlan(accountId);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [profile, setProfile] = useState<string | null>(usesProfile ? 'conservative' : null);
+  /** The customer's burstable choice; null until they make one (the group's last confirmed choice then applies). */
+  const [allowBurstable, setAllowBurstableState] = useState<boolean | null>(null);
   const [createError, setCreateError] = useState<unknown>(null);
   const [creating, setCreating] = useState(false);
   const [acked, setAcked] = useState<string[]>([]);
@@ -48,7 +50,7 @@ export function usePlanFlow({ accountId, row, kind, usesProfile, policyEdit, ret
   const warningIds = useMemo(() => (plan ? parseWarningIds(plan) : []), [plan]);
 
   const startPlan = useCallback(
-    async (profileId: string | null) => {
+    async (profileId: string | null, burstable: boolean | null = allowBurstable) => {
       setCreating(true);
       setCreateError(null);
       setOutcome(null);
@@ -59,6 +61,7 @@ export function usePlanFlow({ accountId, row, kind, usesProfile, policyEdit, ret
         ...(row.id ? { groupId: row.id } : { groupRef: row.groupKey }),
         ...(profileId ? { profileId } : {}),
         ...(policyEdit ? { policyEdit } : {}),
+        ...(burstable !== null ? { options: { allowBurstable: burstable } } : {}),
       };
       const sig = JSON.stringify(request);
       if (!createKey.current || createKey.current.sig !== sig) {
@@ -68,13 +71,14 @@ export function usePlanFlow({ accountId, row, kind, usesProfile, policyEdit, ret
         const created = await create.mutateAsync({ request, idempotencyKey: createKey.current.key, retryDelayMs });
         setPlan(created);
         setProfile(profileId);
+        setAllowBurstableState(burstable);
       } catch (e) {
         setCreateError(e);
       } finally {
         setCreating(false);
       }
     },
-    [create, kind, row.id, row.groupKey, policyEdit, retryDelayMs],
+    [create, kind, row.id, row.groupKey, policyEdit, retryDelayMs, allowBurstable],
   );
 
   useEffect(() => {
@@ -87,6 +91,11 @@ export function usePlanFlow({ accountId, row, kind, usesProfile, policyEdit, ret
   /** Choosing a profile creates a superseding plan (the old one becomes SUPERSEDED). */
   const selectProfile = useCallback((profileId: string) => startPlan(profileId), [startPlan]);
 
+  /**
+   * Turning burstable alternatives on or off creates a superseding plan with the same profile; acknowledgments are
+   * cleared, like for a profile change (design-ux-ops.md 3.5).
+   */
+  const selectAllowBurstable = useCallback((value: boolean) => startPlan(profile, value), [startPlan, profile]);
   /** Re-plan after PLAN_STALE or expiry: keeps the chosen profile and clears acknowledgments. */
   const refreshPlan = useCallback(() => startPlan(profile), [startPlan, profile]);
 
@@ -146,6 +155,8 @@ export function usePlanFlow({ accountId, row, kind, usesProfile, policyEdit, ret
     confirming,
     startPlan,
     selectProfile,
+    allowBurstable,
+    selectAllowBurstable,
     refreshPlan,
     toggleAck,
     confirm,

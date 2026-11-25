@@ -131,7 +131,7 @@ public class AutoSpottingNotificationService {
             default -> {
                 if (reason.startsWith("COMPENSATED_") && kind != null && !revertOp) {
                     emitApplyFailed(group, from, to, op, facts, "RESTORED");
-                } else if (to == GroupState.PAUSED && pauseReason == PauseReason.DRIFT) {
+                } else if (to == GroupState.PAUSED && pauseReason == PauseReason.DRIFT && from != GroupState.APPLYING) {
                     Long transitionId = store.latestTransitionId(group.getId());
                     emit(NotificationEvent.DRIFT_PAUSED, group, op, "drift:" + group.getId() + ":" + transitionId,
                             base(group, from, to));

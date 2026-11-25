@@ -1,0 +1,114 @@
+# Rendered by xampulse-agent from the server-provided AgentConfig. Do not edit by hand.
+# Contains no secret: the gateway bearer token is read from a file by the bearertokenauth extension.
+extensions:
+  health_check:
+    endpoint: localhost:13133
+  file_storage:
+    directory: '/var/lib/xampulse/queue'
+    create_directory: true
+    timeout: 2s
+  bearertokenauth:
+    filename: '/var/lib/xampulse/access-token'
+
+receivers:
+  hostmetrics:
+    collection_interval: 60s
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      load: {}
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+          # MemAvailable: what the kernel can hand out without swapping (page cache counts as free).
+          system.linux.memory.available:
+            enabled: true
+      paging:
+        metrics:
+          system.paging.utilization:
+            enabled: true
+      filesystem:
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
+      # loop (snap) and ram devices are never EC2 storage; partitions are kept and filtered at query time.
+      disk:
+        exclude:
+          devices: ['^loop[0-9]+$', '^ram[0-9]+$']
+          match_type: regexp
+      # veth pairs are per-container and come and go with every restart; container traffic is per container
+      # from docker_stats, and the host's real traffic is on its NIC.
+      network:
+        exclude:
+          interfaces: ['^veth']
+          match_type: regexp
+        metrics:
+          system.network.conntrack.count:
+            enabled: true
+          system.network.conntrack.max:
+            enabled: true
+      processes: {}
+  # XamPulse's EC2 receiver: PSI stall time, ENA allowance counters and IMDS Spot/maintenance notices. Each source
+  # that a host cannot provide simply reports nothing (logged once).
+  xampulse_ec2:
+    collection_interval: 60s
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 51
+  resourcedetection:
+    detectors: [ec2]
+    timeout: 2s
+    override: false
+  transform/redact:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - 'replace_pattern(body.string, "\\b\\d(?:[ -]?\\d){12,15}\\b", "[REDACTED_CARD]")'
+          - 'replace_pattern(body.string, "\\b(?:AKIA|ASIA)[A-Z0-9]{16}\\b", "[REDACTED_AWS_KEY]")'
+          - 'replace_pattern(body.string, "\\beyJ[A-Za-z0-9_-]{5,}\\.[A-Za-z0-9_-]{5,}\\.[A-Za-z0-9_-]{5,}\\b", "[REDACTED_JWT]")'
+          - 'replace_pattern(body.string, "(?i)\\bbearer\\s+[A-Za-z0-9._~+/=-]{8,}", "Bearer [REDACTED]")'
+          - 'replace_pattern(body.string, "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b", "[REDACTED_EMAIL]")'
+          - 'replace_pattern(body.string, "(?i)\\b(password|passwd|secret|token|api[_-]?key)\\s*[=:]\\s*[^\\s,;&\"'']+", "$1=[REDACTED]")'
+  batch:
+    send_batch_size: 8192
+    timeout: 5s
+
+exporters:
+  otlphttp:
+    endpoint: 'https://live.xamops.com/xampulse-ingest'
+    compression: gzip
+    auth:
+      authenticator: bearertokenauth
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 60s
+      max_elapsed_time: 0s
+    sending_queue:
+      enabled: true
+      storage: file_storage
+      queue_size: 4096
+
+service:
+  extensions: [health_check, file_storage, bearertokenauth]
+  telemetry:
+    metrics:
+      level: basic
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: localhost
+                port: 8888
+  pipelines:
+    metrics:
+      receivers: [hostmetrics, xampulse_ec2]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [otlphttp]

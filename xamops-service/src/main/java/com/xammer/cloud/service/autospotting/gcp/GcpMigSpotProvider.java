@@ -191,7 +191,7 @@ public class GcpMigSpotProvider implements SpotProvider {
         String revert = write(JSON.createObjectNode().put("program", "REVERT").put("method", "RESTORE_SNAPSHOT")
                 .put("exact", snapshot.exact()));
         return new PlanBody(write(current), write(target), diff, snapshot, ev.result(), rollout, estimates, floor, null,
-                revert);
+                revert, g.id());
     }
 
     /** A policy-only plan (MIG_POLICY_UPDATE, or a CONFIG_APPLY that changes only the update policy): no template, no rollout. */
@@ -218,7 +218,7 @@ public class GcpMigSpotProvider implements SpotProvider {
                 "These rolling-update settings are not valid for this instance group.")), List.of(), List.of());
         String revert = write(JSON.createObjectNode().put("program", "POLICY_RESTORE"));
         return new PlanBody(write(built.current()), write(built.target()), write(built.diff()), null, result, null,
-                List.of(), null, null, revert);
+                List.of(), null, null, revert, g.id());
     }
 
     private static Integer autoscalerBound(JsonNode autoscaler, String field) {

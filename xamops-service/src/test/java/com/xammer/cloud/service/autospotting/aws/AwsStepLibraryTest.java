@@ -279,6 +279,45 @@ class AwsStepLibraryTest {
     }
 
     @Test
+    void aCustomerPolicyAddedAfterAFirstEnablePlanIsPlanStaleAndNeverOverwritten() throws IOException {
+        AwsConversionFixture f = enableFixture();
+        String target = f.plan("conservative").targetJson();
+        assertThat(target).contains("\"owned\":true");
+        // A plan stored without the policy (as when ownership was read from the row's old desired_config) must not pass.
+        when(f.facts.planLiveFingerprint(any())).thenReturn(Optional.of(
+                AwsFingerprint.of(AwsGroupFacts.from(FakeAws.REGION, f.group()))));
+        f.replaceGroup(FakeAws.asg("web-asg").instanceMaintenancePolicy(
+                software.amazon.awssdk.services.autoscaling.model.InstanceMaintenancePolicy.builder()
+                        .minHealthyPercentage(90).maxHealthyPercentage(150).build()).build());
+        StepProgram p = f.library.program(f.context(OperationKind.ENABLE, target, null));
+        StepOutcome out = run(p.at(0), f, 0);
+        assertThat(out).isInstanceOfSatisfying(StepOutcome.Failed.class,
+                x -> assertThat(x.code()).isEqualTo("PLAN_STALE"));
+        assertThat(f.writeCalls()).isEmpty();
+    }
+    @Test
+    void configApplyAndProfileChangeCompensationKeepTheOwnedPolicy() throws IOException {
+        String owned = "{\"instanceMaintenancePolicy\":{\"min\":100,\"max\":200,\"owned\":true}}";
+        software.amazon.awssdk.services.autoscaling.model.InstanceMaintenancePolicy imp =
+                software.amazon.awssdk.services.autoscaling.model.InstanceMaintenancePolicy.builder()
+                        .minHealthyPercentage(100).maxHealthyPercentage(200).build();
+        for (OperationKind kind : List.of(OperationKind.CONFIG_APPLY, OperationKind.PROFILE_CHANGE)) {
+            AwsConversionFixture f = new AwsConversionFixture(FakeAws.asg("web-asg").instanceMaintenancePolicy(imp).build(), true);
+            com.xammer.cloud.service.autospotting.spi.PlanBody plan = f.plan("conservative", kind, owned);
+            assertThat(plan.currentJson()).contains("\"instanceMaintenancePolicy\"");
+            f.spotInstances.add("i-1");
+            runAll(f.library.program(f.context(kind, plan.targetJson(), null)), f);
+            // The owned policy is removed before the compensation runs.
+            f.replaceGroup(f.group().toBuilder().instanceMaintenancePolicy(
+                    (software.amazon.awssdk.services.autoscaling.model.InstanceMaintenancePolicy) null).build());
+            f.log.clear();
+            StepOutcome out = runAll(f.library.program(f.compensating(kind, plan.currentJson())), f);
+            assertThat(out).isInstanceOf(StepOutcome.Done.class);
+            assertThat(f.group().instanceMaintenancePolicy().minHealthyPercentage()).isEqualTo(100);
+            assertThat(f.group().instanceMaintenancePolicy().maxHealthyPercentage()).isEqualTo(200);
+        }
+    }
+    @Test
     void aForeignInstanceRefreshWaitsInsteadOfFailing() throws IOException {
         AwsConversionFixture f = enableFixture();
         String target = f.plan("conservative").targetJson();
@@ -330,12 +369,10 @@ class AwsStepLibraryTest {
 
     @Test
     void aTerminateFirstMaintenancePolicyIsNeverConverted() throws IOException {
-        AwsConversionFixture normal = enableFixture();
-        String target = normal.plan("conservative").targetJson();
         AwsConversionFixture f = new AwsConversionFixture(FakeAws.asg("web-asg").instanceMaintenancePolicy(
                 software.amazon.awssdk.services.autoscaling.model.InstanceMaintenancePolicy.builder()
                         .minHealthyPercentage(90).maxHealthyPercentage(100).build()).build(), true);
-        f.plan("conservative");
+        String target = f.plan("conservative").targetJson();
         StepProgram p = f.library.program(f.context(OperationKind.ENABLE, target, null));
 
         StepOutcome out = run(p.at(0), f, 0);

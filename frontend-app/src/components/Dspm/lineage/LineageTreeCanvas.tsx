@@ -14,7 +14,7 @@ import LineageNodeCard, { nodeName, type LineageNodeView } from './LineageNodeCa
 import type { RowLevel } from './lineageQuery';
 import { rowPlural } from './lineageText';
 import {
-  MESSAGE_W, NODE_H, NODE_W, PAGER, TREE_ZOOM_MAX, TREE_ZOOM_MIN, layoutTree, treeFitZoom, type TreeLevel,
+  MESSAGE_W, NODE_H, NODE_W, PAGER, TREE_ZOOM_MAX, TREE_ZOOM_MIN, isRowLevel, layoutTree, treeFitZoom, type TreeLevel,
 } from './lineageTree';
 
 /** What a row or the band shows instead of nodes. */
@@ -172,6 +172,7 @@ const LineageTreeCanvas: React.FC<Props> = ({ rows, band, fullscreen, fitKey, on
 
             {rows.map((row, i) => {
               const laid = layout.rows[i];
+              const level = row.level;
               const pagerTop = laid.y + (NODE_H - PAGER) / 2;
               const pagerClass = 'absolute flex items-center justify-center rounded-full border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.6)] shadow-sm transition-colors hover:bg-[rgba(0,0,0,0.03)]';
               return (
@@ -201,22 +202,22 @@ const LineageTreeCanvas: React.FC<Props> = ({ rows, band, fullscreen, fitKey, on
                       </button>
                     );
                   })}
-                  {laid.prev !== null && row.level !== 'category' && (
+                  {laid.prev !== null && isRowLevel(level) && (
                     <button
                       type="button"
-                      aria-label={`Show previous ${rowPlural(row.level)}`}
-                      onClick={() => onPage(row.level as RowLevel, -1)}
+                      aria-label={`Show previous ${rowPlural(level)}`}
+                      onClick={() => onPage(level, -1)}
                       className={pagerClass}
                       style={{ left: laid.prev, top: pagerTop, width: PAGER, height: PAGER }}
                     >
                       <Icon icon="mdi:chevron-left" width={18} aria-hidden="true" />
                     </button>
                   )}
-                  {laid.next !== null && row.level !== 'category' && (
+                  {laid.next !== null && isRowLevel(level) && (
                     <button
                       type="button"
-                      aria-label={`Show more ${rowPlural(row.level)}`}
-                      onClick={() => onPage(row.level as RowLevel, 1)}
+                      aria-label={`Show more ${rowPlural(level)}`}
+                      onClick={() => onPage(level, 1)}
                       className={pagerClass}
                       style={{ left: laid.next, top: pagerTop, width: PAGER, height: PAGER }}
                     >

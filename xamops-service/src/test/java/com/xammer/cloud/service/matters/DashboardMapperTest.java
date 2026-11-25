@@ -37,10 +37,22 @@ class DashboardMapperTest {
     /** A cloud row in an invented region with a scan status and category labels. */
     private static DatastoreRowMapper.MappedRow regionRow(String name, String region, String scanStatus, long records,
                                                           String... labels) {
-        DatastoreRow row = new DatastoreRow("id-" + name, null, name, "cloud", "S3", "S3",
+        return regionRow(name, null, "S3", region, scanStatus, records, labels);
+    }
+
+    /** A cloud row with an invented 24-hex {@code source_id} and a provider. */
+    private static DatastoreRowMapper.MappedRow regionRow(String name, String sourceId, String provider, String region,
+                                                          String scanStatus, long records, String... labels) {
+        DatastoreRow row = new DatastoreRow("id-" + name, sourceId, name, "cloud", provider, provider,
                 new DatastoreRow.Risk(null, null, null), new DatastoreRow.Sensitives(records, List.of(labels)),
-                new DatastoreRow.Source("S3", "S3", null, region), new DatastoreRow.Scan(scanStatus, null, null), null);
+                new DatastoreRow.Source(provider, provider, null, region), new DatastoreRow.Scan(scanStatus, null, null),
+                null);
         return new DatastoreRowMapper.MappedRow(row, null);
+    }
+
+    /** An invented ObjectId whose leading timestamp is {@code n}: a smaller n was created earlier. */
+    private static String oid(int n) {
+        return String.format("%08x", n) + "0000000000000000";
     }
 
     private static AssetRowSnapshot snapshot(boolean truncated, DatastoreRowMapper.MappedRow... rows) {
@@ -172,7 +184,7 @@ class DashboardMapperTest {
     }
 
     @Test
-    @DisplayName("regions: cloud rows summed per source.region, scanned = CLASSIFIED, labels by frequency, sorted")
+    @DisplayName("regions: cloud rows summed per source.region, scanned = CLASSIFIED, labels by frequency")
     void regions() {
         Map<DatastoreTab, AssetRowSnapshot> rows = new LinkedHashMap<>();
         rows.put(DatastoreTab.CLOUD, snapshot(false,
@@ -186,10 +198,39 @@ class DashboardMapperTest {
                 regionRow("h", " ", "CLASSIFIED", 90)));
         rows.put(DatastoreTab.ON_PREM, snapshot(false, regionRow("pg", "eu-west-3", "CLASSIFIED", 70)));
         DspmDashboard dashboard = mapper.toDashboard(summary(Map.of()), rows, Map.of());
+        // No source_id: AWS codes by code, then GCP. A region with nothing scanned or found is still listed.
         assertThat(dashboard.regions()).containsExactly(
-                new DspmDashboard.Region("southamerica-east1", 1, 0, 50, List.of("Health")),
-                new DspmDashboard.Region("eu-west-3", 3, 2, 35, List.of("Personal", "Financial")),
-                new DspmDashboard.Region("sa-east-1", 1, 1, 0, List.of()));
+                new DspmDashboard.Region("eu-west-3", 3, 2, List.of("Personal", "Financial")),
+                new DspmDashboard.Region("me-south-1", 1, 0, List.of()),
+                new DspmDashboard.Region("sa-east-1", 1, 1, List.of()),
+                new DspmDashboard.Region("southamerica-east1", 1, 0, List.of("Health")));
+    }
+
+    @Test
+    @DisplayName("regions as the console shows them: EBS left out, AWS then GCP then Azure, each by oldest source_id")
+    void regionsConsoleOrder() {
+        Map<DatastoreTab, AssetRowSnapshot> rows = new LinkedHashMap<>();
+        // Invented rows, in the collector's -severity order, which is not the console's order.
+        rows.put(DatastoreTab.CLOUD, snapshot(false,
+                regionRow("az1", oid(4), "AZURE_BLOB", "francecentral", "NOT_SCANNED", 0),
+                regionRow("s1", oid(9), "S3", "eu-west-3", "CLASSIFIED", 80, "Personal", "IT & Security"),
+                regionRow("v1", oid(1), "EBS", "eu-west-3", "FAILED", 0),
+                regionRow("s2", oid(2), "S3", "ca-central-1", "CLASSIFIED", 12, "IT & Security"),
+                regionRow("v2", oid(3), "EBS", "ca-central-1", "NOT_SCANNED", 0),
+                regionRow("s3", oid(5), "S3", "ca-central-1", "NOT_SCANNED", 0),
+                regionRow("s4", oid(6), "S3", "ca-central-1", "STOPPED", 0),
+                regionRow("bq1", oid(8), "BIGQUERY", "europe", "NOT_SCANNED", 0),
+                regionRow("g1", oid(7), "GCS", "europe-west9", "CLASSIFIED", 0),
+                regionRow("v3", oid(10), "EBS", "sa-east-1", "FAILED", 0),
+                regionRow("s5", oid(11), "S3", "ap-southeast-4", "NOT_SCANNED", 0)));
+        DspmDashboard dashboard = mapper.toDashboard(summary(Map.of()), rows, Map.of());
+        assertThat(dashboard.regions()).containsExactly(
+                new DspmDashboard.Region("ca-central-1", 3, 1, List.of("IT & Security")),
+                new DspmDashboard.Region("eu-west-3", 1, 1, List.of("Personal", "IT & Security")),
+                new DspmDashboard.Region("ap-southeast-4", 1, 0, List.of()),
+                new DspmDashboard.Region("europe-west9", 1, 1, List.of()),
+                new DspmDashboard.Region("europe", 1, 0, List.of()),
+                new DspmDashboard.Region("francecentral", 1, 0, List.of()));
     }
 
     @Test

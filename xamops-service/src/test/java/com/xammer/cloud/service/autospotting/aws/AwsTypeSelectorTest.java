@@ -41,6 +41,46 @@ class AwsTypeSelectorTest {
         assertThat(s.types()).contains("m5a.large").doesNotContain("t3.large");
     }
 
+    private static TypeFacts burstable(String name, int vcpu, long mem, boolean currentGeneration, String arch) {
+        return new TypeFacts(name, vcpu, mem, Set.of(arch), Set.of("on-demand", "spot"), true, false, true,
+                Set.of("legacy-bios", "uefi"), 0, null, 0, false, 3, false, currentGeneration, AZS, 0.01);
+    }
+
+    /** F-23-04 / AD-09: with the option off a burstable original gets no burstable candidate, as before. */
+    @Test
+    void aBurstableOriginalGainsNoBurstableTypeWhileTheOptionIsOff() {
+        TypeFacts t3 = burstable("t3.micro", 2, 1024, true, "x86_64");
+        Selection s = selector.select(t3, AZS, IMAGE, TemplateFacts.none(),
+                List.of(burstable("t3a.micro", 2, 1024, true, "x86_64")));
+        assertThat(s.types()).containsExactly("t3.micro");
+        assertThat(s.noCompatibleTypes()).isTrue();
+    }
+
+    /** AD-09: t3 gains t3a under the same vCPU and memory rules, and not t2 (previous generation) or t4g (arm64). */
+    @Test
+    void anAllowedBurstableOriginalGainsOnlyBurstableTypesThatPassEveryOtherRule() {
+        TypeFacts t3 = burstable("t3.micro", 2, 1024, true, "x86_64");
+        AwsTypeSelector allow = new AwsTypeSelector(12, true);
+        Selection s = allow.select(t3, AZS, IMAGE, TemplateFacts.none(), List.of(
+                burstable("t3a.micro", 2, 1024, true, "x86_64"),
+                burstable("t2.micro", 2, 1024, false, "x86_64"),
+                burstable("t4g.micro", 2, 1024, true, "arm64"),
+                burstable("t3a.small", 2, 2048, true, "x86_64"),
+                burstable("t3a.nano", 2, 512, true, "x86_64")));
+        assertThat(s.types()).containsExactly("t3.micro", "t3a.micro", "t3a.small");
+        assertThat(s.noCompatibleTypes()).isFalse();
+    }
+
+    /** AD-09: the option never adds a burstable type to a non-burstable original and removes nothing. */
+    @Test
+    void theBurstableOptionDoesNotAffectANonBurstableOriginal() {
+        AwsTypeSelector allow = new AwsTypeSelector(12, true);
+        Selection with = allow.select(original, AZS, IMAGE, TemplateFacts.none(),
+                List.of(type("m5a.large", 2, 8192, 0.025), burstable("t3.large")));
+        assertThat(with.types()).containsExactly("m5.large", "m5a.large");
+        assertThat(with.types()).isEqualTo(select(type("m5a.large", 2, 8192, 0.025), burstable("t3.large")).types());
+    }
+
     @Test
     void theOriginalIsAlwaysFirstAndOnlyOnce() {
         Selection s = select(type("m6i.large", 2, 8192, 0.001), type("m5a.large", 2, 8192, 0.002));
@@ -70,6 +110,62 @@ class AwsTypeSelectorTest {
         TypeFacts oneAz = new TypeFacts("m5a.large", 2, 8192, Set.of("x86_64"), Set.of("spot"), false, false, true,
                 Set.of("legacy-bios"), 0, null, 0, false, 3, false, true, Set.of("a"), 0.02);
         assertThat(select(oneAz).types()).containsExactly("m5.large");
+    }
+
+    /** D-23-05: an AL2023 AMI reports BootMode uefi-preferred; instance types list only legacy-bios/uefi. */
+    @Test
+    void aUefiPreferredAmiAcceptsTypesSupportingUefiOrLegacyBios() {
+        ImageFacts al2023 = new ImageFacts("x86_64", "uefi-preferred", true);
+        TypeFacts legacyOnly = new TypeFacts("m5a.large", 2, 8192, Set.of("x86_64"), Set.of("spot"), false, false,
+                true, Set.of("legacy-bios"), 0, null, 0, false, 3, false, true, AZS, 0.02);
+        Selection s = selector.select(original, AZS, al2023, TemplateFacts.none(),
+                List.of(type("m6i.large", 2, 8192, 0.02), legacyOnly));
+        assertThat(s.types()).containsExactlyInAnyOrder("m5.large", "m6i.large", "m5a.large");
+    }
+
+    @Test
+    void anAmiWithoutABootModeAcceptsTypesSupportingUefiOrLegacyBios() {
+        ImageFacts unset = new ImageFacts("x86_64", null, true);
+        ImageFacts blank = new ImageFacts("x86_64", "", true);
+        assertThat(selector.select(original, AZS, unset, TemplateFacts.none(),
+                List.of(type("m6i.large", 2, 8192, 0.02))).types()).contains("m6i.large");
+        assertThat(selector.select(original, AZS, blank, TemplateFacts.none(),
+                List.of(type("m6i.large", 2, 8192, 0.02))).types()).contains("m6i.large");
+    }
+
+    @Test
+    void anX86AmiWithoutABootModeRejectsAUefiOnlyTypeAndAnArmAmiAcceptsIt() {
+        TypeFacts uefiOnly = new TypeFacts("m7i.large", 2, 8192, Set.of("x86_64"), Set.of("spot"), false, false,
+                true, Set.of("uefi"), 0, null, 0, false, 3, false, true, AZS, 0.02);
+        TypeFacts armUefi = new TypeFacts("m6g.large", 2, 8192, Set.of("arm64"), Set.of("spot"), false, false,
+                true, Set.of("uefi"), 0, null, 0, false, 3, false, true, AZS, 0.02);
+        TypeFacts armOriginal = new TypeFacts("m7g.large", 2, 8192, Set.of("arm64"), Set.of("on-demand", "spot"),
+                false, false, true, Set.of("uefi"), 0, null, 0, false, 3, false, true, AZS, 0.03);
+        assertThat(selector.select(original, AZS, new ImageFacts("x86_64", null, true), TemplateFacts.none(),
+                List.of(uefiOnly)).types()).containsExactly("m5.large");
+        assertThat(selector.select(armOriginal, AZS, new ImageFacts("arm64", null, true), TemplateFacts.none(),
+                List.of(armUefi)).types()).contains("m6g.large");
+    }
+
+    @Test
+    void aUefiPreferredAmiAcceptsAUefiOnlyType() {
+        TypeFacts uefiOnly = new TypeFacts("m7i.large", 2, 8192, Set.of("x86_64"), Set.of("spot"), false, false,
+                true, Set.of("uefi"), 0, null, 0, false, 3, false, true, AZS, 0.02);
+        assertThat(selector.select(original, AZS, new ImageFacts("x86_64", "uefi-preferred", true),
+                TemplateFacts.none(), List.of(uefiOnly)).types()).contains("m7i.large");
+    }
+
+    @Test
+    void aUefiAmiStillRejectsALegacyOnlyTypeAndALegacyAmiAUefiOnlyType() {
+        TypeFacts legacyOnly = new TypeFacts("m5a.large", 2, 8192, Set.of("x86_64"), Set.of("spot"), false, false,
+                true, Set.of("legacy-bios"), 0, null, 0, false, 3, false, true, AZS, 0.02);
+        TypeFacts uefiOnly = new TypeFacts("m7i.large", 2, 8192, Set.of("x86_64"), Set.of("spot"), false, false,
+                true, Set.of("uefi"), 0, null, 0, false, 3, false, true, AZS, 0.02);
+        assertThat(selector.select(original, AZS, new ImageFacts("x86_64", "uefi", true), TemplateFacts.none(),
+                List.of(legacyOnly, uefiOnly)).types()).containsExactlyInAnyOrder("m5.large", "m7i.large");
+        assertThat(selector.select(original, AZS, IMAGE, TemplateFacts.none(),
+                List.of(legacyOnly, uefiOnly)).types()).containsExactlyInAnyOrder("m5.large", "m5a.large");
+        assertThat(AwsTypeSelector.bootsImage(Set.of(), "uefi-preferred")).isFalse();
     }
 
     @Test

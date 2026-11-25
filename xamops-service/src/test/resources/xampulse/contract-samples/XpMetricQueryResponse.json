@@ -1,0 +1,13 @@
+{
+  "stepSec" : 60,
+  "series" : [ {
+    "metric" : "system.cpu.utilization",
+    "labels" : {
+      "instance_id" : "i-0abc"
+    },
+    "points" : [ [ 1000, 1.5 ] ],
+    "band" : [ [ 1000.0, 0.0, 2.0 ] ],
+    "compare" : [ [ 1000, 1.0 ] ]
+  } ],
+  "tookMs" : 3
+}

@@ -1,0 +1,18 @@
+<clickhouse>
+    <!-- DEV ONLY. Passwords come from the environment (see .env.example); none are stored here. -->
+    <users>
+        <!-- Writer: used by the OTel gateway and by the backend migration runner / mutations, so in dev it may also
+             run DDL and manage roles. Production uses a narrower writer (xp_writer_role) plus a separate DDL account. -->
+        <xp_writer>
+            <password from_env="XP_CH_WRITER_PASSWORD"/>
+            <networks><ip>::/0</ip></networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <grants>
+                <query>GRANT ALL ON *.* WITH GRANT OPTION</query>
+            </grants>
+        </xp_writer>
+        <!-- The reader (xp_reader) is NOT declared here: XML users load before SQL-defined roles exist and cannot
+             reference xp_reader_role. scripts/apply-schema.sh creates it as an SQL user with that role as its default. -->
+    </users>
+</clickhouse>

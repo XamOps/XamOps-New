@@ -1,0 +1,67 @@
+# XamPulse LOCAL DEVELOPMENT stack. Not for production: single node, dev-only passwords, no TLS.
+#   cp .env.example .env && docker compose up -d --wait
+# Everything here is open source (ClickHouse Apache-2.0, OpenTelemetry Collector Apache-2.0).
+name: xampulse-dev
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8.33.6
+    container_name: xampulse-dev-clickhouse
+    # Loopback only: never reachable from another machine.
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+    environment:
+      CLICKHOUSE_DB: xampulse
+      XP_CH_WRITER_PASSWORD: ${XP_CH_WRITER_PASSWORD:?copy .env.example to .env first}
+      XP_CH_READER_PASSWORD: ${XP_CH_READER_PASSWORD:?copy .env.example to .env first}
+    volumes:
+      - xampulse-dev-clickhouse-data:/var/lib/clickhouse
+      - ./clickhouse/config.d/xampulse.xml:/etc/clickhouse-server/config.d/xampulse.xml:ro
+      - ./clickhouse/users.d/xampulse.xml:/etc/clickhouse-server/users.d/xampulse.xml:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user xp_writer --password \"$$XP_CH_WRITER_PASSWORD\" --query 'SELECT 1'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  otel-gateway:
+    image: otel/opentelemetry-collector-contrib:0.131.0
+    container_name: xampulse-dev-otel-gateway
+    command: ["--config=/etc/otelcol/otel-gateway.yaml"]
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:4318:4318"
+    environment:
+      XP_CH_WRITER_PASSWORD: ${XP_CH_WRITER_PASSWORD:?copy .env.example to .env first}
+    volumes:
+      - ./otel-gateway.yaml:/etc/otelcol/otel-gateway.yaml:ro
+
+  # Optional local edge for testing a real EC2 agent against the backend on this Mac:
+  #   docker compose --profile edge up -d --wait   then   ngrok http --url=<your domain> 8088
+  # Needs XP_INTERNAL_SECRET in .env equal to xampulse.internal-secret in application-local.properties.
+  edge:
+    image: nginx:1.27-alpine
+    container_name: xampulse-dev-edge
+    profiles: ["edge"]
+    depends_on:
+      otel-gateway:
+        condition: service_started
+    ports:
+      - "127.0.0.1:8088:8088"
+    environment:
+      XP_INTERNAL_SECRET: ${XP_INTERNAL_SECRET:?set XP_INTERNAL_SECRET in .env (same as xampulse.internal-secret)}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./nginx/local-edge.conf.template:/etc/nginx/templates/default.conf.template:ro
+
+volumes:
+  xampulse-dev-clickhouse-data:

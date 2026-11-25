@@ -35,6 +35,14 @@ public final class AwsOwnedFields {
         if (config.path("capacityRebalance").asBoolean(false) != live.capacityRebalance()) {
             bad.add("capacityRebalance");
         }
+        if (AwsMaintenancePolicy.hasValue(config)) {
+            JsonNode p = config.path(AwsMaintenancePolicy.KEY);
+            if (!java.util.Objects.equals(AwsMaintenancePolicy.normalize(p.get("min").asInt()), live.minHealthyPercentage())
+                    || !java.util.Objects.equals(AwsMaintenancePolicy.normalize(p.get("max").asInt()),
+                            live.maxHealthyPercentage())) {
+                bad.add("instanceMaintenancePolicy");
+            }
+        }
         if (!wantMip) {
             return bad;
         }

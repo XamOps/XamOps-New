@@ -8,7 +8,8 @@
     "shape": "LAUNCH_TEMPLATE",
     "launchTemplate": { "id": "lt-0abc", "name": null, "version": "$Default" },
     "mixedInstancesPolicy": null,
-    "capacityRebalance": false
+    "capacityRebalance": false,
+    "instanceMaintenancePolicy": { "state": "ABSENT" }
   },
   "context": {
     "min": 2,

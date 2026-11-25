@@ -1,0 +1,7 @@
+{
+  "task_id": "task-xampulse-slice-e",
+  "task_description": "Complete the remaining XamPulse (Observability 1.0) MVP/1.0 backend + Go agent gaps: BaselineJob writing xp_baseline, an events writer deriving xp_events from alert/anomaly lifecycle and EC2 state, a usage rollup job populating xp_usage_daily, host series depth (per-core CPU, steal/iowait, swap, disk/network I/O) for Resource 360, and wiring the GET /hosts/{id}/processes and POST /archive-searches endpoints. All behind xampulse.enabled, tenant-scoped, parameterised SQL, no edits to shipped migrations, no commit/push/merge.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null
+}

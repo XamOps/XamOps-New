@@ -36,17 +36,18 @@ import { inPageState } from '../../../utils/inPageNavigation';
 const URL_SEED_DIMENSIONS = ['provider', 'os', 'region'] as const;
 
 /**
- * The URL's `provider`, `os` and `region` as Include filters, keeping a value only when it passes its dimension's
- * rule (`DIMENSION_VALUE_RULES`, through `isSelectable`) and `os` only on the Endpoint tab. Undefined when
- * nothing is seeded.
+ * The URL's `provider`, `os` and `region` as Include filters (each a comma-separated list), keeping a value
+ * only when it passes its dimension's rule (`DIMENSION_VALUE_RULES`, through `isSelectable`) and `os` only on
+ * the Endpoint tab. Undefined when nothing is seeded.
  */
 function urlSeedFilters(params: URLSearchParams, apiTab: DatastoreApiTab): DatastoreFilterState | undefined {
   const seed: DatastoreFilterState = {};
   for (const dimension of URL_SEED_DIMENSIONS) {
     if (dimension === 'os' && apiTab !== 'endpoint') continue;
-    const value = params.get(dimension);
-    if (value === null || !isSelectable(dimension, { value })) continue;
-    seed[dimension] = { mode: 'include', values: [value] };
+    // A comma-separated list seeds several values (a region tab that merges codes); no value holds a comma.
+    const values = (params.get(dimension) ?? '').split(',').filter(value => isSelectable(dimension, { value }));
+    if (values.length === 0) continue;
+    seed[dimension] = { mode: 'include', values };
   }
   return Object.keys(seed).length > 0 ? seed : undefined;
 }

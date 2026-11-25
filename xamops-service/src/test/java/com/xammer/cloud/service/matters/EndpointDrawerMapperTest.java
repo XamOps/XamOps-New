@@ -207,9 +207,20 @@ class EndpointDrawerMapperTest {
     }
 
     @Test
-    @DisplayName("occurrences: only the entity's match_text, untrimmed, scalars kept, at most 20; toString hides them")
+    @DisplayName("occurrences: a SECRETS-labelled match uses the secret rule; a DTO built directly is masked too")
+    void occurrencesSecretRuleAndFloor() {
+        EndpointOccurrencePage page = mapper.toOccurrences(parse("""
+                {"data": [{"name": "env.txt", "path": "/Users/synthetic/env.txt", "sampleMatches": [
+                  {"name": "GITHUB TOKEN", "label": "SECRETS", "samples": [{"match_text": "ghp_x1Y2z3W4v5U6"}]}]}]}
+                """), "GITHUB TOKEN", 0, 10);
+        assertThat(page.rows().get(0).samples()).containsExactly("ghp_••••••••••••");
+        assertThat(new EndpointOccurrencePage.Occurrence("a.txt", "/a.txt", List.of(), false, List.of("Jane Doe"))
+                .samples()).containsExactly("Ja•• D••");
+    }
+    @Test
+    @DisplayName("occurrences: only the entity's match_text, untrimmed, scalars kept, masked, at most 20; toString hides them")
     void occurrences() {
-        String twentyFive = IntStream.range(0, 25).mapToObj(i -> "{\"match_text\": \"s" + i + "\"}")
+        String twentyFive = IntStream.range(0, 25).mapToObj(i -> "{\"match_text\": \"sample-" + i + "\"}")
                 .collect(Collectors.joining(","));
         EndpointOccurrencePage page = mapper.toOccurrences(parse("""
                 {"success": true, "data": [
@@ -233,9 +244,9 @@ class EndpointDrawerMapperTest {
         assertThat(page.limit()).isEqualTo(10);
         assertThat(page.rows()).hasSize(2);
         assertThat(page.rows().get(0)).isEqualTo(new EndpointOccurrencePage.Occurrence("notes.txt",
-                "/Users/synthetic/notes.txt", List.of("reviewed"), false, List.of("  r***@example.test ", "12345")));
+                "/Users/synthetic/notes.txt", List.of("reviewed"), false, List.of("  r•••@ex•••••.t••• ", "•••45")));
         assertThat(page.rows().get(1).falsePositive()).isTrue();
-        assertThat(page.rows().get(1).samples()).hasSize(20).startsWith("s0").endsWith("s19");
+        assertThat(page.rows().get(1).samples()).hasSize(20).startsWith("sam•••-•").endsWith("sa••••-1•");
         assertThat(page.rows().get(1).tags()).isEmpty();
         assertThat(serialise(page)).doesNotContain(MARKER);
 

@@ -1,0 +1,98 @@
+buildinfo:
+    command: xampulse-otelcol
+    description: XamPulse OpenTelemetry Collector (Linux)
+    version: ""
+receivers:
+    - name: docker_stats
+      module: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/dockerstatsreceiver v0.164.1
+      stability:
+        logs: Undefined
+        metrics: Alpha
+        traces: Undefined
+    - name: file_log
+      module: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/filelogreceiver v0.164.1
+      stability:
+        logs: Beta
+        metrics: Undefined
+        traces: Undefined
+    - name: host_metrics
+      module: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/hostmetricsreceiver v0.164.1
+      stability:
+        logs: Development
+        metrics: Beta
+        traces: Undefined
+    - name: journald
+      module: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/journaldreceiver v0.164.1
+      stability:
+        logs: Alpha
+        metrics: Undefined
+        traces: Undefined
+    - name: otlp
+      module: go.opentelemetry.io/collector/receiver/otlpreceiver v0.164.0
+      stability:
+        logs: Stable
+        metrics: Stable
+        traces: Stable
+    - name: xampulse_ec2
+      module: github.com/xamops/agent/xampulse/xpec2receiver v0.0.0
+      stability:
+        logs: Undefined
+        metrics: Alpha
+        traces: Undefined
+processors:
+    - name: batch
+      module: go.opentelemetry.io/collector/processor/batchprocessor v0.164.0
+      stability:
+        logs: Beta
+        metrics: Beta
+        traces: Beta
+    - name: memory_limiter
+      module: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.164.0
+      stability:
+        logs: Beta
+        metrics: Beta
+        traces: Beta
+    - name: resource_detection
+      module: github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourcedetectionprocessor v0.164.1
+      stability:
+        logs: Beta
+        metrics: Beta
+        traces: Beta
+    - name: transform
+      module: github.com/open-telemetry/opentelemetry-collector-contrib/processor/transformprocessor v0.164.1
+      stability:
+        logs: Beta
+        metrics: Beta
+        traces: Beta
+exporters:
+    - name: otlp_http
+      module: go.opentelemetry.io/collector/exporter/otlphttpexporter v0.164.0
+      stability:
+        logs: Stable
+        metrics: Stable
+        traces: Stable
+connectors: []
+extensions:
+    - name: bearertokenauth
+      module: github.com/open-telemetry/opentelemetry-collector-contrib/extension/bearertokenauthextension v0.164.1
+      stability:
+        extension: Beta
+    - name: file_storage
+      module: github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.164.1
+      stability:
+        extension: Beta
+    - name: health_check
+      module: github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.164.1
+      stability:
+        extension: Alpha
+providers:
+    - scheme: env
+      module: go.opentelemetry.io/collector/confmap/provider/envprovider v1.70.0
+    - scheme: file
+      module: go.opentelemetry.io/collector/confmap/provider/fileprovider v1.70.0
+    - scheme: http
+      module: go.opentelemetry.io/collector/confmap/provider/httpprovider v1.70.0
+    - scheme: https
+      module: go.opentelemetry.io/collector/confmap/provider/httpsprovider v1.70.0
+    - scheme: yaml
+      module: go.opentelemetry.io/collector/confmap/provider/yamlprovider v1.70.0

@@ -202,6 +202,13 @@ public class SecurityConfig {
                                                 .requestMatchers(PATH.matcher("/agentinstall/agent_install.sh")).permitAll()
                                                 .requestMatchers(PATH.matcher("/agentinstall/gcp_disk_agent_install.sh")).permitAll()
                                                 .requestMatchers(PATH.matcher("/agent/download/**")).permitAll()
+                                                // XamPulse: install script (no secrets), nginx auth_request target
+                                                // (rejects without X-Xp-Internal secret with 404) and the live-tail
+                                                // WebSocket (single-use ticket checked in the handshake interceptor).
+                                                // /api/v1/agent/xampulse/** is already covered by /api/v1/agent/**.
+                                                .requestMatchers(PATH.matcher("/agentinstall/xampulse.*")).permitAll()
+                                                .requestMatchers(PATH.matcher("/internal/xampulse/auth")).permitAll()
+                                                .requestMatchers(PATH.matcher("/xampulse-ws/tail")).permitAll()
 
                                                 // Docker/K8s health checks — must be public so health probes don't 401
                                                 .requestMatchers(PATH.matcher("/actuator/health")).permitAll()

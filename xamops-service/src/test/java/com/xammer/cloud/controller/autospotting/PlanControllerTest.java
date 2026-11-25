@@ -233,6 +233,17 @@ class PlanControllerTest {
     }
 
     @Test
+    void createPlan_unknownOptionKey_is400OptionUnknown() throws Exception {
+        mvc.perform(post(plansUrl())
+                        .with(principal("owner@example.com", 5L))
+                        .header("Idempotency-Key", "key-1")
+                        .contentType("application/json")
+                        .content("{\"kind\":\"ENABLE\",\"groupRef\":\"us-east-1/asg\",\"options\":{\"allowSpotMagic\":true}}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(header().string("Content-Type", "application/problem+json"))
+                .andExpect(jsonPath("$.code").value("OPTION_UNKNOWN"));
+    }
+    @Test
     void confirm_valid_is202WithOperationId() throws Exception {
         when(confirmService.confirm(any(), any(), eq(PLAN_ID), any()))
                 .thenReturn(new ConfirmService.ConfirmResult(OP_ID, "QUEUED"));

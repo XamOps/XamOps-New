@@ -237,7 +237,7 @@ class EndpointDrawerServiceTest {
         verify(apiClient, times(1)).agentSensitiveFiles(CREDENTIAL, AGENT_ID, EndpointFilters.NONE, false);
         verify(apiClient, times(1)).agentEntity(CREDENTIAL, AGENT_ID, "EMAIL ADDRESS", 20, 10, true);
         assertThat(page.skip()).isEqualTo(20);
-        assertThat(page.rows().get(0).samples()).containsExactly(MARKER);
+        assertThat(page.rows().get(0).samples()).containsExactly("<<SYNT•••••-SAM•••-3•••>>");
     }
 
     @Test
@@ -308,13 +308,13 @@ class EndpointDrawerServiceTest {
     // ── no sample in the cache ───────────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("no cached value holds a sample, while the occurrence response carries it raw")
+    @DisplayName("no cached value holds a sample, while the occurrence response carries it masked")
     void noSampleIsEverCached() {
         everyMethod().values().forEach(Runnable::run);
         EndpointOccurrencePage occurrences = service.occurrences(10L, AGENT_ID, "EMAIL ADDRESS", 0, 10, true);
 
         assertThat(cache.puts).hasSize(6)
                 .allSatisfy(put -> assertThat(put.json()).as(put.key()).doesNotContain(MARKER));
-        assertThat(occurrences.rows().get(0).samples()).containsExactly(MARKER);
+        assertThat(occurrences.rows().get(0).samples()).containsExactly("<<SYNT•••••-SAM•••-3•••>>");
     }
 }

@@ -140,7 +140,8 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
     /**
      * What XamOps set: {@code desired_config}, plus the instance types of the latest conversion target. The
      * second matters when a revert preempts a conversion that has not finished: the cloud already holds its
-     * types, but {@code desired_config} is written only on success.
+     * types (and, when it sent it, the maintenance policy XamOps owns), but {@code desired_config} is written only on
+     * success.
      */
     static JsonNode mergeDesired(JsonNode desired, JsonNode latestTarget) {
         if (latestTarget == null || !latestTarget.isObject()) {
@@ -150,6 +151,9 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
             return latestTarget;
         }
         ObjectNode merged = desired.deepCopy();
+        if (AwsMaintenancePolicy.owns(latestTarget) && !AwsMaintenancePolicy.owns(desired)) {
+            merged.set(AwsMaintenancePolicy.KEY, latestTarget.get(AwsMaintenancePolicy.KEY).deepCopy());
+        }
         ArrayNode types = merged.putArray("overrides");
         Set<String> seen = new LinkedHashSet<>();
         for (JsonNode source : List.of(desired, latestTarget)) {
@@ -391,6 +395,7 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
         }
         n.put("capacityRebalance", g.capacityRebalance());
         n.put("min", g.min()).put("max", g.max()).put("desired", g.desired());
+        n.putObject(AwsMaintenancePolicy.KEY).put("min", g.minHealthyPercentage()).put("max", g.maxHealthyPercentage());
         return n;
     }
 
@@ -415,7 +420,22 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
             add(diff, f, text(current.path("instancesDistribution").path(f)), text(target.path("instancesDistribution").path(f)));
         }
         add(diff, "capacityRebalance", text(current.path("capacityRebalance")), text(target.path("capacityRebalance")));
+        // AD-08: shown only when the revert writes it, so the customer sees the restore value ("none" = removed).
+        if (target.path(AwsMaintenancePolicy.KEY).isObject()) {
+            add(diff, AwsMaintenancePolicy.KEY, policyText(current.path(AwsMaintenancePolicy.KEY)),
+                    policyText(target.path(AwsMaintenancePolicy.KEY)));
+        }
         return diff;
+    }
+
+    /** {@code none} for an absent policy (also -1/-1), else {@code min 100 / max 200}. */
+    public static String policyText(JsonNode p) {
+        Integer min = p.hasNonNull("min") ? AwsMaintenancePolicy.normalize(p.get("min").asInt()) : null;
+        Integer max = p.hasNonNull("max") ? AwsMaintenancePolicy.normalize(p.get("max").asInt()) : null;
+        if (min == null && max == null) {
+            return "none";
+        }
+        return "min " + (min == null ? "unset" : min) + " / max " + (max == null ? "unset" : max);
     }
 
     private static String templateOf(JsonNode n) {

@@ -30,6 +30,12 @@ export interface XamLensTabDef {
   section?: string;
 }
 
+/**
+ * The switch for the Remediation page (`/xamlens/remediation`), hidden on request (2026-11-20). Off: no
+ * sidebar entry, and the route lands on the default XamLens page like any unknown one. The page,
+ * its endpoint and its demo data stay in place; set this to true to bring it back.
+ */
+export const XAMLENS_REMEDIATION_ENABLED = false;
 export const XAMLENS_HOME = '/xamlens/datastores/all';
 export const XAMLENS_FILES_HOME = '/xamlens/files/saas';
 
@@ -45,14 +51,16 @@ export const XAMLENS_TABS: XamLensTabDef[] = [
   { id: 'data-lineage', label: 'Data Lineage', icon: 'fas fa-diagram-project', href: XAMLENS_LINEAGE_HOME, activePrefix: XAMLENS_LINEAGE_HOME, section: 'Data Inventory' },
   { id: 'document-classes', label: 'Document Classes', icon: 'fas fa-file-invoice', href: '/xamlens/document-classes', activePrefix: '/xamlens/document-classes', section: 'Data Catalogue' },
   { id: 'assists', label: 'Assists', icon: 'fas fa-server', href: '/xamlens/assists', activePrefix: '/xamlens/assists', section: 'Management' },
-  { id: 'remediation', label: 'Remediation', icon: 'fas fa-tools', href: '/xamlens/remediation', activePrefix: '/xamlens/remediation', section: 'Management' },
+  { id: 'remediation', label: 'Remediation', icon: 'fas fa-tools', href: '/xamlens/remediation', activePrefix: '/xamlens/remediation', section: 'Management', sidebar: XAMLENS_REMEDIATION_ENABLED },
   // Connection state. Deep-link only: it matters when something is wrong, not in the healthy path.
   { id: 'connection', label: 'Connection', icon: 'fas fa-circle-nodes', href: '/xamlens/connection', activePrefix: '/xamlens/connection', sidebar: false },
 ];
 
-/** The tabs `XamLensPage` renders as pages of their own (`/xamlens/<id>`). */
-export const XAMLENS_PAGE_TABS = ['dashboard', 'document-classes', 'assists', 'remediation'] as const;
-export type XamLensPageTab = typeof XAMLENS_PAGE_TABS[number];
+const PAGE_TABS = ['dashboard', 'document-classes', 'assists', 'remediation'] as const;
+export type XamLensPageTab = typeof PAGE_TABS[number];
+/** The tabs `XamLensPage` renders as pages of their own (`/xamlens/<id>`); Remediation only when switched on. */
+export const XAMLENS_PAGE_TABS: ReadonlyArray<XamLensPageTab> =
+  PAGE_TABS.filter(t => t !== 'remediation' || XAMLENS_REMEDIATION_ENABLED);
 
 /** Nav entries, in declared order. */
 export const XAMLENS_SIDEBAR_TABS = XAMLENS_TABS.filter(t => t.sidebar !== false);

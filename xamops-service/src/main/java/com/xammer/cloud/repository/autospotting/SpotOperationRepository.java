@@ -96,6 +96,10 @@ public interface SpotOperationRepository extends JpaRepository<SpotOperation, UU
             nativeQuery = true)
     List<UUID> findDueOpIdsForGroup(@Param("groupId") UUID groupId, @Param("now") Instant now);
 
+    /** Whether the op's group has a {@code spot_group} row (no row: nothing can lease or run it, D-23-06). */
+    @Query(value = "SELECT EXISTS (SELECT 1 FROM spot_group WHERE id = :groupId)", nativeQuery = true)
+    boolean groupRowExists(@Param("groupId") UUID groupId);
+
     /**
      * The distinct group ids with at least one due op (QUEUED, or WAITING that is due), so the
      * dispatcher polls only groups with work. Ordered by the oldest due op first, so no group

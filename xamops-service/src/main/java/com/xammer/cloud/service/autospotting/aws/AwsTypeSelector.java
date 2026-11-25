@@ -25,9 +25,28 @@ public final class AwsTypeSelector {
     public static final int MIN_TYPES = 2;
 
     private final int targetCount;
+    private final boolean allowBurstable;
 
     public AwsTypeSelector(int targetCount) {
+        this(targetCount, false);
+    }
+
+    /**
+     * @param allowBurstable the customer's per-plan choice (design-aws.md AD-09, F-23-04): a burstable original may
+     *                       gain burstable alternatives that pass every other rule. Off by default.
+     */
+    public AwsTypeSelector(int targetCount, boolean allowBurstable) {
         this.targetCount = Math.min(Math.max(targetCount, MIN_TYPES), MAX_TYPES);
+        this.allowBurstable = allowBurstable;
+    }
+
+    /** The same selector with the burstable option set. */
+    public AwsTypeSelector withBurstable(boolean allow) {
+        return allow == allowBurstable ? this : new AwsTypeSelector(targetCount, allow);
+    }
+
+    public boolean allowsBurstable() {
+        return allowBurstable;
     }
 
     /** The AMI facts a candidate must be compatible with (§4.3). */
@@ -118,6 +137,26 @@ public final class AwsTypeSelector {
         return new Selection(result, compatible.size());
     }
 
+    /**
+     * Whether a type with {@code supported} boot modes ({@code legacy-bios}, {@code uefi}) can boot an AMI
+     * whose DescribeImages {@code BootMode} is {@code imageBootMode}. {@code uefi-preferred} (the default of
+     * every AL2023 AMI) boots UEFI where the type supports it and legacy BIOS otherwise, so either supported
+     * mode is enough. Before phase 23 defect D-23-05 this was a plain {@code contains}, and
+     * {@code uefi-preferred} matched no type. An unset or blank mode is resolved by the caller to the
+     * architecture default ({@link #defaultBootMode}); here it is treated as flexible only as a fallback.
+     */
+    /** AWS default boot mode of an AMI that sets none: arm64 boots uefi, everything else legacy-bios. */
+    static String defaultBootMode(String architecture) {
+        return "arm64".equals(architecture) ? "uefi" : "legacy-bios";
+    }
+
+    static boolean bootsImage(Set<String> supported, String imageBootMode) {
+        if (imageBootMode == null || imageBootMode.isBlank() || "uefi-preferred".equals(imageBootMode)) {
+            return supported.contains("uefi") || supported.contains("legacy-bios");
+        }
+        return supported.contains(imageBootMode);
+    }
+
     /** True when candidate C is compatible with original O under every §4.3 rule. */
     boolean isCompatible(TypeFacts o, TypeFacts c, Set<String> groupAzs, ImageFacts image, TemplateFacts template) {
         // 1. Architecture: candidate must support the AMI's architecture. Mac excluded.
@@ -147,8 +186,9 @@ public final class AwsTypeSelector {
         } else if (offeredInGroup < 2) {
             return false;
         }
-        // 5. Burstable: XamOps never adds a burstable candidate (the original may be burstable).
-        if (c.burstable()) {
+        // 5. Burstable (AD-09): never added, unless the customer allowed it and the original is burstable itself.
+        // Then a burstable candidate still has to pass every other rule (t3 gains t3a, not t2 or t4g).
+        if (c.burstable() && !(allowBurstable && o.burstable())) {
             return false;
         }
         // 6. Hypervisor/drivers: if O is Nitro, C must be Nitro; a Xen original allows Nitro only with ENA.
@@ -158,8 +198,10 @@ public final class AwsTypeSelector {
         if (!o.nitro() && c.nitro() && !image.enaSupport()) {
             return false;
         }
-        // 7. Boot mode: candidate must support the AMI's boot mode.
-        if (!c.supportedBootModes().contains(image.bootMode())) {
+        // 7. Boot mode: candidate must be able to boot the AMI.
+        String imageBoot = image.bootMode() == null || image.bootMode().isBlank()
+                ? defaultBootMode(image.architecture()) : image.bootMode();
+        if (!bootsImage(c.supportedBootModes(), imageBoot)) {
             return false;
         }
         // 8. Accelerators: same count and model (both none, or both equal).

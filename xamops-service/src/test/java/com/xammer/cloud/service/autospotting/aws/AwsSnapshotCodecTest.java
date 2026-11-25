@@ -54,6 +54,28 @@ class AwsSnapshotCodecTest {
         assertThat(JSON.readTree(p.payloadJson())).isEqualTo(JSON.readTree(golden));
     }
 
+    /** AD-08: the original maintenance policy is captured as an owned field, "absent" included. */
+    @Test
+    void theMaintenancePolicyIsCapturedAsOwnedIncludingAbsent() throws IOException {
+        JsonNode none = JSON.readTree(encode(FakeAws.asg("web-asg").build()).payloadJson()).at("/owned/instanceMaintenancePolicy");
+        assertThat(none.path("state").asText()).isEqualTo("ABSENT");
+        JsonNode cleared = JSON.readTree(encode(FakeAws.asg("web-asg").instanceMaintenancePolicy(
+                software.amazon.awssdk.services.autoscaling.model.InstanceMaintenancePolicy.builder()
+                        .minHealthyPercentage(-1).maxHealthyPercentage(-1).build()).build()).payloadJson())
+                .at("/owned/instanceMaintenancePolicy");
+        assertThat(cleared.path("state").asText()).as("-1/-1 is none").isEqualTo("ABSENT");
+        SnapshotPayload set = encode(FakeAws.asg("web-asg").instanceMaintenancePolicy(
+                software.amazon.awssdk.services.autoscaling.model.InstanceMaintenancePolicy.builder()
+                        .minHealthyPercentage(90).maxHealthyPercentage(150).build()).build());
+        JsonNode saved = JSON.readTree(set.payloadJson()).at("/owned/instanceMaintenancePolicy");
+        assertThat(saved.path("state").asText()).isEqualTo("SET");
+        assertThat(saved.path("min").asInt()).isEqualTo(90);
+        assertThat(saved.path("max").asInt()).isEqualTo(150);
+        assertThat(AwsSnapshotCodec.decodeOwned(set.payloadJson()).orElseThrow().hasMaintenancePolicy()).isTrue();
+        // The key adds well under 60 bytes to the payload (design-aws.md section 5.1).
+        assertThat(saved.toString().length()).isLessThan(60);
+    }
+
     @Test
     void anExistingMixedPolicyIsCapturedWhole() throws IOException {
         AutoScalingGroup g = FakeAws.asg("web-asg").launchTemplate((LaunchTemplateSpecification) null)

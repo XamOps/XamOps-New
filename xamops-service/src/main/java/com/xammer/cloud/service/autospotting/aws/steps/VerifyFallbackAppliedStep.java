@@ -2,6 +2,7 @@ package com.xammer.cloud.service.autospotting.aws.steps;
 
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.service.autospotting.aws.AwsFingerprint;
+import com.xammer.cloud.service.autospotting.aws.AwsMaintenancePolicy;
 import com.xammer.cloud.service.autospotting.aws.AwsGroupFacts;
 import com.xammer.cloud.service.autospotting.aws.AwsProgram;
 import com.xammer.cloud.service.autospotting.aws.AwsReadOnlyView;
@@ -45,11 +46,11 @@ public final class VerifyFallbackAppliedStep extends AwsStep {
             return failed(ErrorKind.NOT_FOUND, "GROUP_NOT_FOUND", "The Auto Scaling group no longer exists.");
         }
         AwsGroupFacts live = AwsGroupFacts.from(program.region(), raw.get());
-        if (!FallbackUpdateStep.applied(live)) {
+        if (!FallbackUpdateStep.applied(live, program.config())) {
             // The write may not be visible yet; poll again. The op deadline bounds this.
             return new StepOutcome.InProgress(Duration.ofSeconds(15), "{\"waiting\":\"FALLBACK_NOT_VISIBLE\"}");
         }
-        return done("{\"" + FallbackSteps.FINGERPRINT + "\":\"" + AwsFingerprint.of(live) + "\"}");
+        return done("{\"" + FallbackSteps.FINGERPRINT + "\":\"" + AwsFingerprint.of(live, AwsMaintenancePolicy.owns(program.config())) + "\"}");
     }
 
     @Override

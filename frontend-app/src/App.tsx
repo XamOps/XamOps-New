@@ -100,6 +100,8 @@ const AzureWarPage = lazy(() => import('./pages/AzureWarPage'));
 const XamSecurePage = lazy(() => import('./pages/XamSecurePage'));
 // DSPM (Matters.ai). Its own module, separate from XamSecure (Upwind CNAPP).
 const XamLensPage = lazy(() => import('./pages/XamLensPage'));
+// XamPulse (Observability 1.0). Independent of the Beta Observability page.
+const XamPulsePage = lazy(() => import('./pages/XamPulsePage'));
 const PerformancePage = lazy(() => import('./pages/PerformancePage'));
 const AlertsPage = lazy(() => import('./pages/AlertsPage'));
 
@@ -276,11 +278,17 @@ import './styles/observability.css';
 // import './styles/accessops.css';
 
 
+// Development-only fixture preview. Production routes always keep the normal authentication gate.
+const isXamPulseFixturePreview = (pathname: string): boolean =>
+    import.meta.env.DEV && import.meta.env.VITE_XAMPULSE_DEMO === 'true' && pathname.startsWith('/xampulse');
+
 // Protected Route wrapper — uses AuthContext so auth is checked once on app
 // mount, not re-checked every time this component remounts on navigation.
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const location = useLocation();
     const { isLoading, authReady, userRoles } = useAuth();
+
+    if (isXamPulseFixturePreview(location.pathname)) return <>{children}</>;
 
     if (isLoading || !authReady) {
         return (
@@ -565,6 +573,10 @@ const AppContent: React.FC = () => {
                             <Route path="/security" element={<SecurityPage />} />
                             <Route path="/xamsecure" element={<Navigate to="/xamsecure/overview" replace />} />
                             <Route path="/xamsecure/:tab" element={<XamSecurePage />} />
+                            <Route path="/xampulse" element={<Navigate to="/xampulse/overview" replace />} />
+                            <Route path="/xampulse/hosts/:instanceId" element={<XamPulsePage />} />
+                            <Route path="/xampulse/containers/:instanceId/:name" element={<XamPulsePage />} />
+                            <Route path="/xampulse/:tab" element={<XamPulsePage />} />
                             <Route path="/xamlens" element={<Navigate to="/xamlens/datastores/all" replace />} />
                             <Route path="/xamlens/datastores/:datastoreTab" element={<XamLensPage />} />
                             <Route path="/xamlens/files/:filesTab" element={<XamLensPage />} />

@@ -8,8 +8,7 @@ import java.time.LocalDateTime;
  * their login history derived from {@code user_activity_event} LOGIN rows.
  *
  * <p>The billops {@code AppUser} mapping is minimal (no {@code authProvider}/{@code lastLoginAt}
- * column), so {@code authProvider}, {@code firstSeen}, {@code lastLogin}, {@code loginCount} and
- * {@code lastIp} are all sourced from the aggregated LOGIN rows — no column is added to any billops
+ * column), so {@code authProvider}, {@code firstSeen}, {@code lastLogin}, {@code loginCount} are all sourced from the aggregated LOGIN rows — no column is added to any billops
  * mapping (NFR2). {@code displayName} is {@code AppUser.username}, which currently equals the email
  * because the auto-provision path sets {@code username = email}; the field is kept because AC-28
  * requires a display-name column in the returned shape.
@@ -21,7 +20,6 @@ import java.time.LocalDateTime;
  *   <li>{@code authProvider} — {@code null} when no LOGIN row; otherwise the provider label.</li>
  *   <li>{@code firstSeen} / {@code lastLogin} — {@code null} when no LOGIN row.</li>
  *   <li>{@code loginCount} — {@code 0} when no LOGIN row.</li>
- *   <li>{@code lastIp} — {@code null} when no LOGIN row or the row captured no IP.</li>
  * </ul>
  */
 public record DemoUserDto(
@@ -30,7 +28,6 @@ public record DemoUserDto(
         String authProvider,
         LocalDateTime firstSeen,
         LocalDateTime lastLogin,
-        long loginCount,
-        String lastIp
+        long loginCount
 ) {
 }

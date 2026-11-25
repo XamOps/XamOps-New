@@ -127,30 +127,30 @@ public class AwsAutoSpottingClientFactory implements AwsViewSource, AwsMutatingS
     }
 
     private AwsReadOnlyView buildView(CloudAccount account, String region) {
-        AwsCredentialsProvider creds = credentials(account, AwsSessionPolicies.Mode.READ);
-        ClientOverrideConfiguration override = overrideConfig(account, region, AwsSessionPolicies.Mode.READ);
+        AwsSessionPolicies.Mode mode = AwsSessionPolicies.Mode.READ;
+        AwsCredentialsProvider creds = credentials(account, mode);
         Region r = Region.of(region);
-        AutoScalingClient asg = client(AutoScalingClient.builder(), creds, r, override, account, "AutoScalingClient", region);
-        Ec2Client ec2 = client(Ec2Client.builder(), creds, r, override, account, "Ec2Client", region);
-        ElasticLoadBalancingV2Client elbv2 = client(ElasticLoadBalancingV2Client.builder(), creds, r, override,
+        AutoScalingClient asg = client(AutoScalingClient.builder(), creds, r, mode, account, "AutoScalingClient", region);
+        Ec2Client ec2 = client(Ec2Client.builder(), creds, r, mode, account, "Ec2Client", region);
+        ElasticLoadBalancingV2Client elbv2 = client(ElasticLoadBalancingV2Client.builder(), creds, r, mode,
                 account, "ElasticLoadBalancingV2Client", region);
-        CloudFormationClient cfn = client(CloudFormationClient.builder(), creds, r, override, account,
+        CloudFormationClient cfn = client(CloudFormationClient.builder(), creds, r, mode, account,
                 "CloudFormationClient", region);
-        EventBridgeClient events = client(EventBridgeClient.builder(), creds, r, override, account,
+        EventBridgeClient events = client(EventBridgeClient.builder(), creds, r, mode, account,
                 "EventBridgeClient", region);
-        ServiceQuotasClient quotas = client(ServiceQuotasClient.builder(), creds, r, override, account,
+        ServiceQuotasClient quotas = client(ServiceQuotasClient.builder(), creds, r, mode, account,
                 "ServiceQuotasClient", region);
-        CloudWatchClient cw = client(CloudWatchClient.builder(), creds, r, override, account, "CloudWatchClient", region);
-        EcsClient ecs = client(EcsClient.builder(), creds, r, override, account, "EcsClient", region);
+        CloudWatchClient cw = client(CloudWatchClient.builder(), creds, r, mode, account, "CloudWatchClient", region);
+        EcsClient ecs = client(EcsClient.builder(), creds, r, mode, account, "EcsClient", region);
         // IAM is global; a regional client still works and is keyed by this view.
-        IamClient iam = client(IamClient.builder(), creds, Region.AWS_GLOBAL, override, account, "IamClient", region);
+        IamClient iam = client(IamClient.builder(), creds, Region.AWS_GLOBAL, mode, account, "IamClient", region);
         return new AwsReadOnlyView(region, asg, ec2, elbv2, cfn, events, quotas, cw, ecs, iam);
     }
 
     private AwsMutatingClient buildMutating(CloudAccount account, String region) {
-        AwsCredentialsProvider creds = credentials(account, AwsSessionPolicies.Mode.WRITE);
-        ClientOverrideConfiguration override = overrideConfig(account, region, AwsSessionPolicies.Mode.WRITE);
-        AutoScalingClient asg = client(AutoScalingClient.builder(), creds, Region.of(region), override,
+        AwsSessionPolicies.Mode mode = AwsSessionPolicies.Mode.WRITE;
+        AwsCredentialsProvider creds = credentials(account, mode);
+        AutoScalingClient asg = client(AutoScalingClient.builder(), creds, Region.of(region), mode,
                 account, "AutoScalingClient", region);
         return new AwsMutatingClient(region, asg);
     }
@@ -180,15 +180,21 @@ public class AwsAutoSpottingClientFactory implements AwsViewSource, AwsMutatingS
                 .build());
     }
 
-    private ClientOverrideConfiguration overrideConfig(CloudAccount account, String region,
-            AwsSessionPolicies.Mode mode) {
+    /**
+     * The override configuration for one client, built from a fresh builder every time. The builder
+     * returned by a built {@link ClientOverrideConfiguration}'s {@code toBuilder()} holds its execution
+     * attributes as an unmodifiable copy, so adding the per-client IAM prefix to it threw
+     * {@code UnsupportedOperationException} for every real client (phase 23 defect D-23-01).
+     */
+    ClientOverrideConfiguration overrideConfig(CloudAccount account, String region,
+            AwsSessionPolicies.Mode mode, String clientSimpleName) {
         boolean write = mode == AwsSessionPolicies.Mode.WRITE;
         ClientOverrideConfiguration.Builder b = ClientOverrideConfiguration.builder()
                 .apiCallAttemptTimeout(write ? WRITE_ATTEMPT_TIMEOUT : READ_ATTEMPT_TIMEOUT)
                 .apiCallTimeout(write ? WRITE_CALL_TIMEOUT : READ_CALL_TIMEOUT)
                 .retryStrategy(RetryMode.STANDARD)
                 .scheduledExecutorService(scheduler);
-        return withPermissionTracking(b, account, region).build();
+        return withPermissionTracking(b, account, region, clientSimpleName).build();
     }
 
     /**
@@ -197,29 +203,26 @@ public class AwsAutoSpottingClientFactory implements AwsViewSource, AwsMutatingS
      * existing catalog (§2.2).
      */
     private ClientOverrideConfiguration.Builder withPermissionTracking(ClientOverrideConfiguration.Builder builder,
-            CloudAccount account, String region) {
+            CloudAccount account, String region, String clientSimpleName) {
         String accountId = account != null ? account.getAwsAccountId() : null;
         if (accountId == null) {
             return builder;
         }
         return builder
                 .putExecutionAttribute(XamOpsExecutionAttributes.ACCOUNT_ID, accountId)
+                .putExecutionAttribute(XamOpsExecutionAttributes.IAM_SERVICE_PREFIX,
+                        AwsPermissionCatalog.iamPrefixForClient(clientSimpleName, null))
                 .putExecutionAttribute(XamOpsExecutionAttributes.REGION, region)
                 .addExecutionInterceptor(permissionInterceptor);
     }
 
     private <BuilderT extends AwsClientBuilder<BuilderT, ClientT>, ClientT> ClientT client(
-            BuilderT builder, AwsCredentialsProvider creds, Region region, ClientOverrideConfiguration override,
+            BuilderT builder, AwsCredentialsProvider creds, Region region, AwsSessionPolicies.Mode mode,
             CloudAccount account, String clientSimpleName, String regionName) {
-        // Per-client IAM prefix for the interceptor (matches AwsClientProvider's stamping).
-        ClientOverrideConfiguration perClient = override.toBuilder()
-                .putExecutionAttribute(XamOpsExecutionAttributes.IAM_SERVICE_PREFIX,
-                        AwsPermissionCatalog.iamPrefixForClient(clientSimpleName, null))
-                .build();
         return builder
                 .credentialsProvider(creds)
                 .region(region)
-                .overrideConfiguration(perClient)
+                .overrideConfiguration(overrideConfig(account, regionName, mode, clientSimpleName))
                 .build();
     }
 

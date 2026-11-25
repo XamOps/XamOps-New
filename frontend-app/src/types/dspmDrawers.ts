@@ -335,7 +335,7 @@ export interface EndpointOccurrence {
   path: string | null;
   tags: string[];
   falsePositive: boolean;
-  /** Raw (Matters masks endpoint samples itself), rendered only through `drawer/SampleValue.tsx`. */
+  /** Masked by xamops-service (build 9), rendered only through `drawer/SampleValue.tsx`. */
   samples: string[];
 }
 

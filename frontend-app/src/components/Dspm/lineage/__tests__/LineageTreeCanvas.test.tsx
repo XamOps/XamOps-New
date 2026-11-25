@@ -168,6 +168,43 @@ describe('LineageTreeCanvas', () => {
     expect(screen.queryByRole('dialog', { name: 'Event details' })).toBeNull();
   });
 
+  it('draws a root node with its name only and the badge, and files with or without the actor line', async () => {
+    const user = userEvent.setup();
+    const fileRow: TreeRowView = {
+      level: 'file',
+      nodes: [
+        { key: 'f1', id: 'f1', view: { kind: 'file', file: { id: 'f1', name: 'plan.docx', extension: 'docx', actor: 'sam', modifiedAt: null } } },
+        { key: 'f2', id: 'f2', view: { kind: 'file', file: { id: 'f2', name: 'budget.xlsx', extension: 'xlsx', actor: null, modifiedAt: null }, actorLine: false } },
+      ],
+      chosen: null,
+      prev: false,
+      next: false,
+      message: null,
+    };
+    const { onNode, onPage } = renderCanvas({
+      rows: [
+        { level: 'root', nodes: [{ key: 'root', id: 'root', view: { kind: 'root', name: 'Example workspace' } }], chosen: 'root', prev: true, next: true, message: null },
+        fileRow,
+      ],
+    });
+    const root = screen.getByRole('button', { name: 'Example workspace' });
+    expect(root).toHaveAttribute('aria-pressed', 'true');
+    expect(root).toHaveAttribute('data-node-level', 'root');
+    expect(within(root).getByText('Example workspace')).toHaveAttribute('title', 'Example workspace');
+    expect(root.querySelector('[data-chosen-badge]')).not.toBeNull();
+    expect(root.textContent).toBe('Example workspace');
+    // The root row never pages.
+    expect(screen.queryByRole('button', { name: /Show (more|previous)/ })).toBeNull();
+    await user.click(root);
+    expect(onNode).toHaveBeenCalledWith('root', 'root');
+    expect(onPage).not.toHaveBeenCalled();
+
+    expect(within(screen.getByRole('button', { name: 'plan.docx' })).getByText('Actor: sam')).toBeInTheDocument();
+    const drive = screen.getByRole('button', { name: 'budget.xlsx' });
+    expect(within(drive).queryByText(/Actor:/)).toBeNull();
+    expect(within(drive).getByText('-')).toBeInTheDocument();
+  });
+
   it('draws a band message in place of the lanes', () => {
     renderCanvas({ band: { kind: 'message', message: { kind: 'empty', text: 'No lineage recorded for this file yet.' } } });
     expect(screen.getByText('No lineage recorded for this file yet.')).toBeInTheDocument();

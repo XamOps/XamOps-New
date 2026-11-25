@@ -828,9 +828,31 @@
             <groupId>com.googlecode.owasp-java-html-sanitizer</groupId>
             <artifactId>owasp-java-html-sanitizer</artifactId>
         </dependency>
+        <!-- XamPulse (Observability 1.0) ClickHouse store. Apache-2.0. Pinned exactly. -->
+        <dependency>
+            <groupId>com.clickhouse</groupId>
+            <artifactId>clickhouse-jdbc</artifactId>
+            <version>0.11.0</version>
+        </dependency>
     </dependencies>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <!-- XamPulse: ship the onboarding templates and install snippets so the backend reads the real files
+                 (template hash, trust panel grants, served install script) and they cannot drift from the repo. -->
+            <resource>
+                <directory>../cloudformation</directory>
+                <includes>
+                    <include>xamops-xampulse*.yml</include>
+                    <include>xamops-readonly-role.yml</include>
+                    <include>xampulse/ssm-snippets/*</include>
+                </includes>
+                <targetPath>xampulse/templates</targetPath>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.jacoco</groupId>

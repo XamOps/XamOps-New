@@ -1,7 +1,6 @@
 import React, { memo } from 'react';
 import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from 'react-simple-maps';
-import type { DashboardRegion } from '../../../types/dspmPages';
-import { regionCoordinates, regionName } from './regionCatalog';
+import type { RegionGroup } from './regionCatalog';
 
 /** The world outline the app's other region maps draw (AzureMapSection, GcpMapSection, MapSection). */
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
@@ -24,14 +23,14 @@ function dotRadius(datastores: number, active: boolean): number {
 }
 
 interface Props {
-  regions: DashboardRegion[];
+  groups: RegionGroup[];
   active: string;
   onSelect: (region: string) => void;
   zoom: number;
 }
 
-/** The world map with one dot per region the catalogue can place; a dot selects its region. */
-const RegionMap: React.FC<Props> = ({ regions, active, onSelect, zoom }) => (
+/** The world map with one dot per tab the catalogue can place; a dot selects its tab. */
+const RegionMap: React.FC<Props> = ({ groups, active, onSelect, zoom }) => (
   <ComposableMap
     projection="geoMercator"
     projectionConfig={{ scale: MAP_SCALE }}
@@ -51,15 +50,15 @@ const RegionMap: React.FC<Props> = ({ regions, active, onSelect, zoom }) => (
           />
         ))}
       </Geographies>
-      {regions.map(region => {
-        const coordinates = regionCoordinates(region.region);
+      {groups.map(group => {
+        const { coordinates } = group;
         if (!coordinates) return null;
-        const selected = region.region === active;
-        const colour = dotColour(region.datastores);
-        const radius = dotRadius(region.datastores, selected);
+        const selected = group.id === active;
+        const colour = dotColour(group.datastores);
+        const radius = dotRadius(group.datastores, selected);
         return (
-          <Marker key={region.region} coordinates={coordinates} onClick={() => onSelect(region.region)} style={{ default: { cursor: 'pointer' }, hover: { cursor: 'pointer' }, pressed: { cursor: 'pointer' } }}>
-            <title>{regionName(region.region)}</title>
+          <Marker key={group.id} coordinates={coordinates} onClick={() => onSelect(group.id)} style={{ default: { cursor: 'pointer' }, hover: { cursor: 'pointer' }, pressed: { cursor: 'pointer' } }}>
+            <title>{group.name}</title>
             {selected && <circle r={radius + 4} fill={colour} opacity={0.25} />}
             <circle
               r={radius}

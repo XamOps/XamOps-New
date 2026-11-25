@@ -1,17 +1,15 @@
 import React from 'react';
-
+import { maskSample } from '../../../../utils/sampleMask';
 /*
- * The only code that turns a sample value into UI (decision D1). Samples are shown raw for now; masking,
- * when it comes, changes `formatSampleForDisplay` and nothing else. React escapes the text, so a value
- * such as `<<Jane Doe>>` shows exactly as Matters returned it.
+ * The only code that turns a sample value into UI (decision D1). Samples arrive masked from xamops-service
+ * (build 9: half mask, nobody sees a raw value). `formatSampleForDisplay` applies the same rule again as a
+ * second layer; the rule is idempotent, so a server-masked value renders unchanged. React escapes the
+ * text, so a value such as `<<Ja•• D••>>` shows exactly as it arrived.
  */
-
-/** The one place samples are formatted. Masking (later) changes this function only. */
-export function formatSampleForDisplay(value: string): string { return value; }
-
+/** The one place samples are formatted: the half mask of `utils/sampleMask`. */
+export function formatSampleForDisplay(value: string): string { return maskSample(value); }
 export const SampleValue: React.FC<{ value: string }> = ({ value }) =>
   <span className="font-mono text-[11px] break-all">{formatSampleForDisplay(value)}</span>;
-
 /** The first sample, then "+N" for the rest; "-" when there is none. */
 export const SampleCell: React.FC<{ samples: string[] }> = ({ samples }) => samples.length === 0
   ? <span>-</span>

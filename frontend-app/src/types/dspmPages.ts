@@ -44,15 +44,14 @@ export interface DashboardEnvironment {
 
 /**
  * `DspmDashboard.Region`: one "Active Sensitive Regions" region, the collected cloud rows of one
- * `source.region` (listed when one of them has sensitive records or is classified).
+ * `source.region` without EBS volumes, as the console counts them.
  */
 export interface DashboardRegion {
-  /** The raw region code, e.g. `eu-west-3`; the widget labels and places it. */
+  /** The raw region code, e.g. `eu-west-3`; the widget labels, merges and places it. */
   region: string;
   datastores: number;
   /** Rows whose scan status is CLASSIFIED. */
   scannedDatastores: number;
-  sensitiveRecords: number;
   /** Sensitive category labels, the most common first. */
   sensitiveLabels: string[];
 }
@@ -61,7 +60,7 @@ export interface DashboardRegion {
 export interface DspmDashboard {
   environments: DashboardEnvironment[];
   topRisky: Record<TopRiskyTab, DatastoreRow[]>;
-  /** Most sensitive records first. */
+  /** In the console's order: AWS, GCP, then Azure regions, each by its oldest datastore. */
   regions: DashboardRegion[];
 }
 

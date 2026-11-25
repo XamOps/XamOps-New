@@ -74,4 +74,18 @@ public class OperationFacts {
                         (SpotOperation o) -> o.getCreatedAt() == null ? java.time.Instant.EPOCH : o.getCreatedAt()))
                 .map(SpotOperation::getTargetConfig);
     }
+    /**
+     * The target configuration of the CONFIG_APPLY / PROFILE_CHANGE that FALLBACK_ENTER {@code fallbackOpId}
+     * preempted, or empty. It becomes {@code desired_config} when the fallback lands, so the fallback program
+     * resolves maintenance-policy ownership from it (the group's old desired_config does not have it yet).
+     */
+    public Optional<String> preemptedConfigTarget(UUID fallbackOpId) {
+        if (fallbackOpId == null) {
+            return Optional.empty();
+        }
+        return operations.findConfigOpsPreemptedBy(fallbackOpId).stream()
+                .map(SpotOperation::getTargetConfig)
+                .filter(t -> t != null && !t.isBlank())
+                .findFirst();
+    }
 }

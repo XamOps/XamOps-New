@@ -1,0 +1,69 @@
+# XamPulse LOCAL edge: the parts of api-gateway/nginx-prod.conf an agent needs, for testing a real EC2 agent
+# against a backend running on this Mac (through an ngrok tunnel to port 8088). Not for production.
+#   /xampulse-ingest/  -> token checked by the backend (/internal/xampulse/auth) -> otel-gateway -> ClickHouse
+#   everything else    -> the backend on the host (desired-state, enrol, refresh, heartbeat, the app itself)
+# Rendered by the nginx image's envsubst step; only ${XP_INTERNAL_SECRET} is substituted (nginx's own $vars are
+# left alone because no environment variable has their names). Keep the ingest block in step with nginx-prod.conf.
+
+upstream xamops_service {
+    server host.docker.internal:8080;
+}
+
+upstream xampulse_otel_gateway {
+    server otel-gateway:4318;
+}
+
+server {
+    listen 8088;
+    client_max_body_size 8m;
+
+    location = /_xp_auth {
+        internal;
+        proxy_pass http://xamops_service/internal/xampulse/auth;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        # Without this nginx sends Host: xamops_service; Tomcat rejects the underscore with 400 (-> 500 here).
+        proxy_set_header Host $host;
+        proxy_set_header Authorization "";
+        proxy_set_header X-Xp-Token $http_authorization;
+        proxy_set_header X-Xp-Tenant "";
+        proxy_set_header X-Xp-Instance "";
+        proxy_set_header X-Xp-Retain-Days "";
+        proxy_set_header X-Xp-Auth-Mode nginx;
+        proxy_set_header X-Xp-Internal "${XP_INTERNAL_SECRET}";
+    }
+
+    location @xp_quota {
+        add_header Retry-After 300 always;
+        return 429;
+    }
+
+    location /xampulse-ingest/ {
+        auth_request /_xp_auth;
+        error_page 403 = @xp_quota;
+        auth_request_set $xp_tenant $upstream_http_x_xp_tenant;
+        auth_request_set $xp_instance $upstream_http_x_xp_instance;
+        auth_request_set $xp_retain $upstream_http_x_xp_retain_days;
+        # Client-supplied X-Xp-* values are overwritten with the trusted ones.
+        proxy_set_header X-Xp-Internal "";
+        proxy_set_header X-Xp-Tenant $xp_tenant;
+        proxy_set_header X-Xp-Instance $xp_instance;
+        proxy_set_header X-Xp-Retain-Days $xp_retain;
+        proxy_set_header X-Xp-Demo "";
+        proxy_set_header Authorization "";
+        proxy_pass http://xampulse_otel_gateway/;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    location / {
+        proxy_pass http://xamops_service;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_read_timeout 90;
+    }
+}

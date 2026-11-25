@@ -12,9 +12,15 @@ import com.xammer.cloud.domain.autospotting.OperationKind;
  * acknowledgments — arrives with plan creation in a later phase (plan-phase-07+). This type exists so
  * {@link SpotProvider} compiles as the cloud-neutral boundary this phase defines.
  */
-public record PlanRequest(GroupRef ref, OperationKind kind, Profile profile) {
+public record PlanRequest(GroupRef ref, OperationKind kind, Profile profile, PlanOptions options) {
+    /** A request with no customer options. */
+    public PlanRequest(GroupRef ref, OperationKind kind, Profile profile) {
+        this(ref, kind, profile, PlanOptions.none());
+    }
+
 
     public PlanRequest {
+        options = options == null ? PlanOptions.none() : options;
         if (ref == null) {
             throw new IllegalArgumentException("group ref is required");
         }

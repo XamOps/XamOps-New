@@ -2,6 +2,7 @@ package com.xammer.cloud.service.autospotting.aws;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import software.amazon.awssdk.services.autoscaling.model.AutoScalingGroup;
+import software.amazon.awssdk.services.autoscaling.model.InstanceMaintenancePolicy;
 import software.amazon.awssdk.services.autoscaling.model.InstancesDistribution;
 import software.amazon.awssdk.services.autoscaling.model.LaunchTemplate;
 import software.amazon.awssdk.services.autoscaling.model.LaunchTemplateOverrides;
@@ -26,8 +27,8 @@ import java.util.Set;
  *       overrides, plus the profile's {@code InstancesDistribution} and {@code CapacityRebalance=true}.</li>
  *   <li><b>Existing MixedInstancesPolicy:</b> {@code InstancesDistribution} and
  *       {@code CapacityRebalance} only; {@code LaunchTemplate} is omitted so the customer's overrides
- *       stay as they are. Only when the target adds instance types does the request carry the live
- *       specification and the live overrides plus the added types.</li>
+ *       stay as they are. Only when the target adds or removes instance types does the request carry the live
+ *       specification and the retained live overrides plus the added types.</li>
  * </ul>
  * Never sent: {@code DesiredCapacity}, {@code MinSize}, {@code MaxSize}, health-check fields, subnets,
  * zones, tags, and {@code SpotMaxPrice}. {@link #forbiddenFields} lets a step verify that before the
@@ -74,9 +75,17 @@ public final class AwsUpdateRequestBuilder {
                 }
             });
             List<String> added = targetTypes.stream().filter(t -> !liveTypes.contains(t)).toList();
-            if (!added.isEmpty() && liveMip.launchTemplate() != null
+            // A target that leaves out live types removes them (the customer turned the burstable option off). The
+            // retained live overrides are kept as the SDK read them, so weights and per-override specs survive.
+            boolean removes = !targetTypes.isEmpty() && liveTypes.stream().anyMatch(t -> !targetTypes.contains(t));
+            if ((!added.isEmpty() || removes) && liveMip.launchTemplate() != null
                     && liveMip.launchTemplate().launchTemplateSpecification() != null) {
-                List<LaunchTemplateOverrides> merged = new ArrayList<>(liveOverrides);
+                List<LaunchTemplateOverrides> merged = new ArrayList<>();
+                for (LaunchTemplateOverrides o : liveOverrides) {
+                    if (o.instanceType() == null || !removes || targetTypes.contains(o.instanceType())) {
+                        merged.add(o);
+                    }
+                }
                 merged.addAll(overrides(added));
                 policy.launchTemplate(LaunchTemplate.builder()
                         .launchTemplateSpecification(copySpec(liveMip.launchTemplate().launchTemplateSpecification()))
@@ -84,11 +93,12 @@ public final class AwsUpdateRequestBuilder {
                         .build());
             }
         }
-        return UpdateAutoScalingGroupRequest.builder()
+        UpdateAutoScalingGroupRequest.Builder request = UpdateAutoScalingGroupRequest.builder()
                 .autoScalingGroupName(live.autoScalingGroupName())
                 .mixedInstancesPolicy(policy.build())
-                .capacityRebalance(target.path("capacityRebalance").asBoolean(true))
-                .build();
+                .capacityRebalance(target.path("capacityRebalance").asBoolean(true));
+        withMaintenancePolicy(request, target);
+        return request.build();
     }
 
     /**
@@ -107,11 +117,26 @@ public final class AwsUpdateRequestBuilder {
         } else {
             spec.launchTemplateName(lt.get("name").asText());
         }
-        return UpdateAutoScalingGroupRequest.builder()
+        UpdateAutoScalingGroupRequest.Builder request = UpdateAutoScalingGroupRequest.builder()
                 .autoScalingGroupName(live.autoScalingGroupName())
                 .launchTemplate(spec.build())
-                .capacityRebalance(target.path("capacityRebalance").asBoolean(false))
-                .build();
+                .capacityRebalance(target.path("capacityRebalance").asBoolean(false));
+        withMaintenancePolicy(request, target);
+        return request.build();
+    }
+
+    /**
+     * Adds {@code InstanceMaintenancePolicy} when the configuration carries a value for it (design-aws.md AD-08):
+     * 100/200 for a policy XamOps owns, or the saved original (-1/-1 clears it) for a restore. Taking it from the
+     * configuration means no program can drop it by accident, and a customer's own policy is never in the target.
+     */
+    public static void withMaintenancePolicy(UpdateAutoScalingGroupRequest.Builder request, JsonNode config) {
+        if (AwsMaintenancePolicy.hasValue(config)) {
+            JsonNode p = config.path(AwsMaintenancePolicy.KEY);
+            request.instanceMaintenancePolicy(InstanceMaintenancePolicy.builder()
+                    .minHealthyPercentage(p.get("min").asInt())
+                    .maxHealthyPercentage(p.get("max").asInt()).build());
+        }
     }
 
     /** The request fields that must never be present; empty means the request is owned-fields only. */

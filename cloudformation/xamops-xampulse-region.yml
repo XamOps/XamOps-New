@@ -1,0 +1,590 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  XamPulse (Observability) regional add-on for production: only the AWS Systems Manager document and association that install the
+  XamPulse agent on the instances you choose in this region. Creates no IAM role, bucket or key.
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Agent install
+        Parameters: [TargetMode, InstanceIds, ObserveTagKey, ObserveTagValue, ReleaseBaseUrl, DesiredStateUrl, ResourceSuffix, IncludeWindowsDocument]
+Parameters:
+  ResourceSuffix:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^-[a-z0-9-]{1,20}$'
+    Description: Suffix that lets one AWS account connect to more than one XamOps environment without name clashes.
+  TargetMode:
+    Type: String
+    Default: InstanceIds
+    AllowedValues: [InstanceIds, Tag, AllManaged]
+    Description: Which instances receive the agent. InstanceIds is the default and never widens by itself.
+  InstanceIds:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Up to 50 EC2 instance ids (TargetMode=InstanceIds). Filled in by the XamOps setup screen.
+  InstanceIds2:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Up to 50 EC2 instance ids (TargetMode=InstanceIds). Filled in by the XamOps setup screen.
+  InstanceIds3:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Up to 50 EC2 instance ids (TargetMode=InstanceIds). Filled in by the XamOps setup screen.
+  InstanceIds4:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Up to 50 EC2 instance ids (TargetMode=InstanceIds). Filled in by the XamOps setup screen.
+  InstanceIds5:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Up to 50 EC2 instance ids (TargetMode=InstanceIds). Filled in by the XamOps setup screen.
+  InstanceIds6:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Up to 50 EC2 instance ids (TargetMode=InstanceIds). Filled in by the XamOps setup screen.
+  InstanceIds7:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Up to 50 EC2 instance ids (TargetMode=InstanceIds). Filled in by the XamOps setup screen.
+  InstanceIds8:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Up to 50 EC2 instance ids (TargetMode=InstanceIds). Filled in by the XamOps setup screen.
+  InstanceIds9:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Up to 50 EC2 instance ids (TargetMode=InstanceIds). Filled in by the XamOps setup screen.
+  InstanceIds10:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Up to 50 EC2 instance ids (TargetMode=InstanceIds). Filled in by the XamOps setup screen.
+  ObserveTagKey:
+    Type: String
+    Default: 'xamops:observe'
+    AllowedPattern: '^[A-Za-z0-9 _.:/=+@-]{1,128}$'
+    Description: Tag key used when TargetMode=Tag.
+  ObserveTagValue:
+    Type: String
+    Default: 'true'
+    AllowedPattern: '^[A-Za-z0-9 _.:/=+@-]{1,256}$'
+    Description: Tag value used when TargetMode=Tag.
+  ReleaseBaseUrl:
+    Type: String
+    Default: 'https://releases.xamops.com/xampulse'
+    AllowedPattern: '^https://[A-Za-z0-9./_-]+$'
+    Description: HTTPS base URL that hosts the signed XamPulse agent release.
+  DesiredStateUrl:
+    Type: String
+    Default: 'https://live.xamops.com/api/v1/agent/xampulse/desired-state'
+    AllowedPattern: '^https://[A-Za-z0-9./_-]+$'
+    Description: XamOps endpoint that answers INSTALL or SKIP for an instance. Reveals no tenant data.
+  IncludeWindowsDocument:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Creates the Windows placeholder document. Windows is planned and no Windows association is created.
+Conditions:
+  CreateWindowsDocument: !Equals [!Ref IncludeWindowsDocument, 'true']
+  TargetIsInstanceIds: !Equals [!Ref TargetMode, InstanceIds]
+  TargetIsTag: !Equals [!Ref TargetMode, Tag]
+  TargetIsAllManaged: !Equals [!Ref TargetMode, AllManaged]
+  HasIds1: !Not [!Equals [!Join ['', !Ref InstanceIds], '']]
+  HasIds2: !Not [!Equals [!Join ['', !Ref InstanceIds2], '']]
+  HasIds3: !Not [!Equals [!Join ['', !Ref InstanceIds3], '']]
+  HasIds4: !Not [!Equals [!Join ['', !Ref InstanceIds4], '']]
+  HasIds5: !Not [!Equals [!Join ['', !Ref InstanceIds5], '']]
+  HasIds6: !Not [!Equals [!Join ['', !Ref InstanceIds6], '']]
+  HasIds7: !Not [!Equals [!Join ['', !Ref InstanceIds7], '']]
+  HasIds8: !Not [!Equals [!Join ['', !Ref InstanceIds8], '']]
+  HasIds9: !Not [!Equals [!Join ['', !Ref InstanceIds9], '']]
+  HasIds10: !Not [!Equals [!Join ['', !Ref InstanceIds10], '']]
+  AssocIds1: !And [!Condition TargetIsInstanceIds, !Condition HasIds1]
+  AssocIds2: !And [!Condition TargetIsInstanceIds, !Condition HasIds2]
+  AssocIds3: !And [!Condition TargetIsInstanceIds, !Condition HasIds3]
+  AssocIds4: !And [!Condition TargetIsInstanceIds, !Condition HasIds4]
+  AssocIds5: !And [!Condition TargetIsInstanceIds, !Condition HasIds5]
+  AssocIds6: !And [!Condition TargetIsInstanceIds, !Condition HasIds6]
+  AssocIds7: !And [!Condition TargetIsInstanceIds, !Condition HasIds7]
+  AssocIds8: !And [!Condition TargetIsInstanceIds, !Condition HasIds8]
+  AssocIds9: !And [!Condition TargetIsInstanceIds, !Condition HasIds9]
+  AssocIds10: !And [!Condition TargetIsInstanceIds, !Condition HasIds10]
+  AssocTag: !Condition TargetIsTag
+  AssocAll: !Condition TargetIsAllManaged
+Resources:
+  LinuxInstallDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: !Sub 'XamOps-XamPulse-Install-Linux${ResourceSuffix}'
+      DocumentType: Command
+      DocumentFormat: YAML
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: '2.2'
+        description: Installs or removes the XamPulse agent on Linux. Asks XamOps for the desired state first. Contains no secret.
+        parameters:
+          ReleaseBaseUrl:
+            type: String
+            description: Base URL of the XamPulse agent release.
+          DesiredStateUrl:
+            type: String
+            description: XamOps desired-state endpoint.
+        mainSteps:
+          - action: aws:runShellScript
+            name: installXamPulseAgent
+            precondition:
+              StringEquals:
+                - platformType
+                - Linux
+            inputs:
+              timeoutSeconds: '900'
+              runCommand:
+                - |
+                  #!/bin/bash
+                  # XamPulse agent installer for Linux.
+                  # Source of truth for the SSM document body in xamops-xampulse*.yml and for GET /agentinstall/xampulse.sh.
+                  # It contains no secret: the agent proves its identity later with its own instance-profile credentials.
+                  # {{ ReleaseBaseUrl }} and {{ DesiredStateUrl }} are SSM document parameters (replaced by Systems Manager)
+                  # or replaced by the XamOps server when the script is served directly.
+                  set -eu
+
+                  RELEASE_BASE_URL="{{ ReleaseBaseUrl }}"
+                  DESIRED_STATE_URL="{{ DesiredStateUrl }}"
+                  STATE_DIR="/var/lib/xampulse"
+                  INSTALL_DIR="/opt/xampulse"
+                  LOG_DIR="/var/log/xampulse"
+                  MARKER="${STATE_DIR}/disabled"
+                  INSTALLED_SHA_FILE="${STATE_DIR}/installed.sha256"
+                  COSIGN_PUBKEY="/etc/xampulse/cosign.pub"
+                  UNIT="/etc/systemd/system/xampulse-agent.service"
+
+                  log() { echo "xampulse-install: $*"; }
+
+                  if [ "$(id -u)" != "0" ]; then
+                    log "must run as root"
+                    exit 1
+                  fi
+                  if [ "$(uname -s)" != "Linux" ]; then
+                    log "this installer supports Linux only"
+                    exit 0
+                  fi
+                  if ! command -v curl >/dev/null 2>&1 || ! command -v sha256sum >/dev/null 2>&1; then
+                    log "curl and sha256sum are required"
+                    exit 1
+                  fi
+
+                  # --- instance identity from IMDSv2 only (no IMDSv1 fallback) ---------------------------------
+                  IMDS_TOKEN="$(curl -fsS --max-time 3 -X PUT "http://169.254.169.254/latest/api/token" \
+                    -H "X-aws-ec2-metadata-token-ttl-seconds: 60" 2>/dev/null || true)"
+                  if [ -z "${IMDS_TOKEN}" ]; then
+                    log "IMDSv2 token unavailable; not an EC2 instance or IMDS is disabled. Nothing to do."
+                    exit 0
+                  fi
+                  IDENTITY="$(curl -fsS --max-time 3 -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" \
+                    "http://169.254.169.254/latest/dynamic/instance-identity/document" 2>/dev/null || true)"
+                  json_field() { echo "${IDENTITY}" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n 1; }
+                  ACCOUNT_ID="$(json_field accountId)"
+                  INSTANCE_ID="$(json_field instanceId)"
+                  if [ -z "${ACCOUNT_ID}" ] || [ -z "${INSTANCE_ID}" ]; then
+                    log "could not read the instance identity document. Nothing to do."
+                    exit 0
+                  fi
+
+                  # --- ask the server whether this instance should have the agent (desired state) --------------
+                  ANSWER="$(curl -fsS --max-time 10 -G "${DESIRED_STATE_URL}" \
+                    --data-urlencode "accountId=${ACCOUNT_ID}" --data-urlencode "instanceId=${INSTANCE_ID}" 2>/dev/null | tr -d '[:space:]' || true)"
+
+                  if [ "${ANSWER}" = "SKIP" ]; then
+                    mkdir -p "${STATE_DIR}"
+                    : > "${MARKER}"
+                    if [ -e "${UNIT}" ] || [ -d "${INSTALL_DIR}" ]; then
+                      systemctl stop xampulse-agent.service >/dev/null 2>&1 || true
+                      systemctl disable xampulse-agent.service >/dev/null 2>&1 || true
+                      rm -f "${UNIT}" "${STATE_DIR}/installed.sha256"
+                      rm -rf "${INSTALL_DIR}"
+                      systemctl daemon-reload >/dev/null 2>&1 || true
+                    fi
+                    log "desired state is SKIP; collection is off for this instance."
+                    exit 0
+                  fi
+                  if [ "${ANSWER}" != "INSTALL" ]; then
+                    # Server unreachable or unexpected answer: honour the local marker, never install on a guess.
+                    if [ -e "${MARKER}" ]; then
+                      log "desired state unavailable and the disabled marker is present; leaving things as they are."
+                    else
+                      log "desired state unavailable; not installing now. An agent that is already running is left alone."
+                    fi
+                    exit 0
+                  fi
+                  rm -f "${MARKER}"
+
+                  # --- platform ------------------------------------------------------------------------------------
+                  case "$(uname -m)" in
+                    x86_64|amd64) ARCH="amd64" ;;
+                    aarch64|arm64) ARCH="arm64" ;;
+                    *) log "unsupported architecture $(uname -m)"; exit 1 ;;
+                  esac
+                  if ! command -v systemctl >/dev/null 2>&1; then
+                    log "systemd is required"
+                    exit 1
+                  fi
+
+                  TMP="$(mktemp -d)"
+                  trap 'rm -rf "${TMP}"' EXIT
+                  AGENT_FILE="xampulse-agent_linux_${ARCH}"
+                  COLLECTOR_FILE="xampulse-otelcol_linux_${ARCH}"
+
+                  curl -fsS --max-time 60 -o "${TMP}/SHA256SUMS" "${RELEASE_BASE_URL}/latest/SHA256SUMS"
+
+                  # Release signature: verified when cosign and a pinned public key are present on the host, otherwise
+                  # the checksum list is trusted over TLS only and that is logged.
+                  if command -v cosign >/dev/null 2>&1 && [ -r "${COSIGN_PUBKEY}" ]; then
+                    curl -fsS --max-time 60 -o "${TMP}/SHA256SUMS.sig" "${RELEASE_BASE_URL}/latest/SHA256SUMS.sig"
+                    cosign verify-blob --key "${COSIGN_PUBKEY}" --signature "${TMP}/SHA256SUMS.sig" "${TMP}/SHA256SUMS" >/dev/null
+                    log "release signature verified"
+                  else
+                    log "WARNING: release signature not verified (cosign or ${COSIGN_PUBKEY} missing); using checksum over TLS only"
+                  fi
+
+                  SUMS_DIGEST="$(sha256sum "${TMP}/SHA256SUMS" | cut -d' ' -f1)"
+                  if [ -r "${INSTALLED_SHA_FILE}" ] && [ "$(cat "${INSTALLED_SHA_FILE}")" = "${SUMS_DIGEST}" ] \
+                     && systemctl is-active --quiet xampulse-agent.service; then
+                    log "already up to date"
+                    exit 0
+                  fi
+
+                  for f in "${AGENT_FILE}" "${COLLECTOR_FILE}"; do
+                    curl -fsS --max-time 300 -o "${TMP}/${f}" "${RELEASE_BASE_URL}/latest/${f}"
+                    EXPECTED="$(grep "[[:space:]]${f}\$" "${TMP}/SHA256SUMS" | head -n 1 | cut -d' ' -f1)"
+                    ACTUAL="$(sha256sum "${TMP}/${f}" | cut -d' ' -f1)"
+                    if [ -z "${EXPECTED}" ] || [ "${EXPECTED}" != "${ACTUAL}" ]; then
+                      log "checksum mismatch for ${f}; aborting"
+                      exit 1
+                    fi
+                  done
+
+                  # --- install ---------------------------------------------------------------------------------------
+                  if ! id xampulse >/dev/null 2>&1; then
+                    useradd --system --no-create-home --shell /usr/sbin/nologin xampulse
+                  fi
+                  for g in adm systemd-journal docker; do
+                    if getent group "${g}" >/dev/null 2>&1; then usermod -a -G "${g}" xampulse || true; fi
+                  done
+                  mkdir -p "${INSTALL_DIR}" "${STATE_DIR}" "${LOG_DIR}"
+                  chown xampulse:xampulse "${STATE_DIR}" "${LOG_DIR}"
+                  chmod 750 "${STATE_DIR}"
+
+                  install -m 0755 "${TMP}/${AGENT_FILE}" "${INSTALL_DIR}/xampulse-agent.new"
+                  install -m 0755 "${TMP}/${COLLECTOR_FILE}" "${INSTALL_DIR}/xampulse-otelcol.new"
+                  mv -f "${INSTALL_DIR}/xampulse-agent.new" "${INSTALL_DIR}/xampulse-agent"
+                  mv -f "${INSTALL_DIR}/xampulse-otelcol.new" "${INSTALL_DIR}/xampulse-otelcol"
+
+                  SERVER_URL="$(echo "${DESIRED_STATE_URL}" | sed 's#/api/v1/agent/xampulse/.*##')"
+
+                  cat > "${UNIT}" <<EOF
+                  [Unit]
+                  Description=XamPulse agent
+                  After=network-online.target
+                  Wants=network-online.target
+                  ConditionPathExists=!${MARKER}
+
+                  [Service]
+                  User=xampulse
+                  Group=xampulse
+                  ExecStart=${INSTALL_DIR}/xampulse-agent run --server ${SERVER_URL} --state-dir ${STATE_DIR} --otelcol ${INSTALL_DIR}/xampulse-otelcol
+                  Restart=always
+                  RestartSec=5
+                  RestartPreventExitStatus=78
+                  NoNewPrivileges=true
+                  ProtectSystem=strict
+                  ProtectHome=true
+                  PrivateTmp=true
+                  ReadWritePaths=${STATE_DIR} ${LOG_DIR}
+                  CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+                  AmbientCapabilities=CAP_DAC_READ_SEARCH
+
+                  [Install]
+                  WantedBy=multi-user.target
+                  EOF
+
+                  echo "${SUMS_DIGEST}" > "${INSTALLED_SHA_FILE}"
+                  systemctl daemon-reload
+                  systemctl enable xampulse-agent.service >/dev/null 2>&1 || true
+                  systemctl restart xampulse-agent.service
+                  log "installed"
+
+  WindowsInstallDocument:
+    Type: AWS::SSM::Document
+    Condition: CreateWindowsDocument
+    Properties:
+      Name: !Sub 'XamOps-XamPulse-Install-Windows${ResourceSuffix}'
+      DocumentType: Command
+      DocumentFormat: YAML
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: '2.2'
+        description: Placeholder. Windows support is planned and this document does nothing.
+        mainSteps:
+          - action: aws:runPowerShellScript
+            name: installXamPulseAgent
+            precondition:
+              StringEquals:
+                - platformType
+                - Windows
+            inputs:
+              timeoutSeconds: '60'
+              runCommand:
+                - |
+                  # XamPulse agent installer for Windows: documented placeholder.
+                  # Windows support is planned and is not part of XamPulse 1.0. This document intentionally does nothing.
+                  Write-Output "Windows support is planned"
+                  exit 0
+
+  AssociationIds1:
+    Type: AWS::SSM::Association
+    Condition: AssocIds1
+    Properties:
+      AssociationName: !Sub 'xamops-xampulse-install${ResourceSuffix}-AssociationIds1'
+      Name: !Ref LinuxInstallDocument
+      ScheduleExpression: rate(30 minutes)
+      ApplyOnlyAtCronInterval: false
+      MaxConcurrency: 10%
+      MaxErrors: 25%
+      Parameters:
+        ReleaseBaseUrl:
+          - !Ref ReleaseBaseUrl
+        DesiredStateUrl:
+          - !Ref DesiredStateUrl
+      Targets:
+        - Key: InstanceIds
+          Values: !Ref InstanceIds
+
+  AssociationIds2:
+    Type: AWS::SSM::Association
+    Condition: AssocIds2
+    Properties:
+      AssociationName: !Sub 'xamops-xampulse-install${ResourceSuffix}-AssociationIds2'
+      Name: !Ref LinuxInstallDocument
+      ScheduleExpression: rate(30 minutes)
+      ApplyOnlyAtCronInterval: false
+      MaxConcurrency: 10%
+      MaxErrors: 25%
+      Parameters:
+        ReleaseBaseUrl:
+          - !Ref ReleaseBaseUrl
+        DesiredStateUrl:
+          - !Ref DesiredStateUrl
+      Targets:
+        - Key: InstanceIds
+          Values: !Ref InstanceIds2
+
+  AssociationIds3:
+    Type: AWS::SSM::Association
+    Condition: AssocIds3
+    Properties:
+      AssociationName: !Sub 'xamops-xampulse-install${ResourceSuffix}-AssociationIds3'
+      Name: !Ref LinuxInstallDocument
+      ScheduleExpression: rate(30 minutes)
+      ApplyOnlyAtCronInterval: false
+      MaxConcurrency: 10%
+      MaxErrors: 25%
+      Parameters:
+        ReleaseBaseUrl:
+          - !Ref ReleaseBaseUrl
+        DesiredStateUrl:
+          - !Ref DesiredStateUrl
+      Targets:
+        - Key: InstanceIds
+          Values: !Ref InstanceIds3
+
+  AssociationIds4:
+    Type: AWS::SSM::Association
+    Condition: AssocIds4
+    Properties:
+      AssociationName: !Sub 'xamops-xampulse-install${ResourceSuffix}-AssociationIds4'
+      Name: !Ref LinuxInstallDocument
+      ScheduleExpression: rate(30 minutes)
+      ApplyOnlyAtCronInterval: false
+      MaxConcurrency: 10%
+      MaxErrors: 25%
+      Parameters:
+        ReleaseBaseUrl:
+          - !Ref ReleaseBaseUrl
+        DesiredStateUrl:
+          - !Ref DesiredStateUrl
+      Targets:
+        - Key: InstanceIds
+          Values: !Ref InstanceIds4
+
+  AssociationIds5:
+    Type: AWS::SSM::Association
+    Condition: AssocIds5
+    Properties:
+      AssociationName: !Sub 'xamops-xampulse-install${ResourceSuffix}-AssociationIds5'
+      Name: !Ref LinuxInstallDocument
+      ScheduleExpression: rate(30 minutes)
+      ApplyOnlyAtCronInterval: false
+      MaxConcurrency: 10%
+      MaxErrors: 25%
+      Parameters:
+        ReleaseBaseUrl:
+          - !Ref ReleaseBaseUrl
+        DesiredStateUrl:
+          - !Ref DesiredStateUrl
+      Targets:
+        - Key: InstanceIds
+          Values: !Ref InstanceIds5
+
+  AssociationIds6:
+    Type: AWS::SSM::Association
+    Condition: AssocIds6
+    Properties:
+      AssociationName: !Sub 'xamops-xampulse-install${ResourceSuffix}-AssociationIds6'
+      Name: !Ref LinuxInstallDocument
+      ScheduleExpression: rate(30 minutes)
+      ApplyOnlyAtCronInterval: false
+      MaxConcurrency: 10%
+      MaxErrors: 25%
+      Parameters:
+        ReleaseBaseUrl:
+          - !Ref ReleaseBaseUrl
+        DesiredStateUrl:
+          - !Ref DesiredStateUrl
+      Targets:
+        - Key: InstanceIds
+          Values: !Ref InstanceIds6
+
+  AssociationIds7:
+    Type: AWS::SSM::Association
+    Condition: AssocIds7
+    Properties:
+      AssociationName: !Sub 'xamops-xampulse-install${ResourceSuffix}-AssociationIds7'
+      Name: !Ref LinuxInstallDocument
+      ScheduleExpression: rate(30 minutes)
+      ApplyOnlyAtCronInterval: false
+      MaxConcurrency: 10%
+      MaxErrors: 25%
+      Parameters:
+        ReleaseBaseUrl:
+          - !Ref ReleaseBaseUrl
+        DesiredStateUrl:
+          - !Ref DesiredStateUrl
+      Targets:
+        - Key: InstanceIds
+          Values: !Ref InstanceIds7
+
+  AssociationIds8:
+    Type: AWS::SSM::Association
+    Condition: AssocIds8
+    Properties:
+      AssociationName: !Sub 'xamops-xampulse-install${ResourceSuffix}-AssociationIds8'
+      Name: !Ref LinuxInstallDocument
+      ScheduleExpression: rate(30 minutes)
+      ApplyOnlyAtCronInterval: false
+      MaxConcurrency: 10%
+      MaxErrors: 25%
+      Parameters:
+        ReleaseBaseUrl:
+          - !Ref ReleaseBaseUrl
+        DesiredStateUrl:
+          - !Ref DesiredStateUrl
+      Targets:
+        - Key: InstanceIds
+          Values: !Ref InstanceIds8
+
+  AssociationIds9:
+    Type: AWS::SSM::Association
+    Condition: AssocIds9
+    Properties:
+      AssociationName: !Sub 'xamops-xampulse-install${ResourceSuffix}-AssociationIds9'
+      Name: !Ref LinuxInstallDocument
+      ScheduleExpression: rate(30 minutes)
+      ApplyOnlyAtCronInterval: false
+      MaxConcurrency: 10%
+      MaxErrors: 25%
+      Parameters:
+        ReleaseBaseUrl:
+          - !Ref ReleaseBaseUrl
+        DesiredStateUrl:
+          - !Ref DesiredStateUrl
+      Targets:
+        - Key: InstanceIds
+          Values: !Ref InstanceIds9
+
+  AssociationIds10:
+    Type: AWS::SSM::Association
+    Condition: AssocIds10
+    Properties:
+      AssociationName: !Sub 'xamops-xampulse-install${ResourceSuffix}-AssociationIds10'
+      Name: !Ref LinuxInstallDocument
+      ScheduleExpression: rate(30 minutes)
+      ApplyOnlyAtCronInterval: false
+      MaxConcurrency: 10%
+      MaxErrors: 25%
+      Parameters:
+        ReleaseBaseUrl:
+          - !Ref ReleaseBaseUrl
+        DesiredStateUrl:
+          - !Ref DesiredStateUrl
+      Targets:
+        - Key: InstanceIds
+          Values: !Ref InstanceIds10
+
+  AssociationTag:
+    Type: AWS::SSM::Association
+    Condition: AssocTag
+    Properties:
+      AssociationName: !Sub 'xamops-xampulse-install${ResourceSuffix}-AssociationTag'
+      Name: !Ref LinuxInstallDocument
+      ScheduleExpression: rate(30 minutes)
+      ApplyOnlyAtCronInterval: false
+      MaxConcurrency: 10%
+      MaxErrors: 25%
+      Parameters:
+        ReleaseBaseUrl:
+          - !Ref ReleaseBaseUrl
+        DesiredStateUrl:
+          - !Ref DesiredStateUrl
+      Targets:
+        - Key: !Sub 'tag:${ObserveTagKey}'
+          Values:
+            - !Ref ObserveTagValue
+
+  AssociationAll:
+    Type: AWS::SSM::Association
+    Condition: AssocAll
+    Properties:
+      AssociationName: !Sub 'xamops-xampulse-install${ResourceSuffix}-AssociationAll'
+      Name: !Ref LinuxInstallDocument
+      ScheduleExpression: rate(30 minutes)
+      ApplyOnlyAtCronInterval: false
+      MaxConcurrency: 10%
+      MaxErrors: 25%
+      Parameters:
+        ReleaseBaseUrl:
+          - !Ref ReleaseBaseUrl
+        DesiredStateUrl:
+          - !Ref DesiredStateUrl
+      Targets:
+        - Key: InstanceIds
+          Values:
+            - '*'
+
+Outputs:
+  AssociationIds:
+    Value: !Join
+      - ','
+      - - !If [AssocIds1, !Ref AssociationIds1, '']
+        - !If [AssocIds2, !Ref AssociationIds2, '']
+        - !If [AssocIds3, !Ref AssociationIds3, '']
+        - !If [AssocIds4, !Ref AssociationIds4, '']
+        - !If [AssocIds5, !Ref AssociationIds5, '']
+        - !If [AssocIds6, !Ref AssociationIds6, '']
+        - !If [AssocIds7, !Ref AssociationIds7, '']
+        - !If [AssocIds8, !Ref AssociationIds8, '']
+        - !If [AssocIds9, !Ref AssociationIds9, '']
+        - !If [AssocIds10, !Ref AssociationIds10, '']
+        - !If [AssocTag, !Ref AssociationTag, '']
+        - !If [AssocAll, !Ref AssociationAll, '']
+  TemplateVersion:
+    Value: '1.0.0'

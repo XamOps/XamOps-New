@@ -3,6 +3,7 @@ package com.xammer.cloud.service.autospotting.aws.steps;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.service.autospotting.aws.AwsFingerprint;
 import com.xammer.cloud.service.autospotting.aws.AwsGroupFacts;
+import com.xammer.cloud.service.autospotting.aws.AwsMaintenancePolicy;
 import com.xammer.cloud.service.autospotting.aws.AwsProgram;
 import com.xammer.cloud.service.autospotting.aws.AwsReadOnlyView;
 import com.xammer.cloud.service.autospotting.aws.AwsStepServices;
@@ -64,7 +65,8 @@ public final class VerifyPreconditionsStep extends AwsStep {
                     "An instance refresh is running on this group. XamOps will wait for it to finish.");
         }
         Optional<String> planned = services.facts().planLiveFingerprint(program.planId());
-        String live = AwsFingerprint.of(facts);
+        String live = AwsFingerprint.of(facts, AwsMaintenancePolicy.owns(program.config()));
+        // The plan's fingerprint includes the maintenance policy exactly when the plan's target owns it (AD-08).
         if (planned.isEmpty() || !planned.get().equals(live)) {
             return failed(ErrorKind.VALIDATION, "PLAN_STALE",
                     "The group changed after this plan was made. Review a fresh plan.");
@@ -77,8 +79,26 @@ public final class VerifyPreconditionsStep extends AwsStep {
             return failed(ErrorKind.VALIDATION, "FULL_SPOT_NOT_CONFIRMED",
                     "This plan runs the group on 100% Spot, which needs your explicit confirmation.");
         }
-        EligibilityResult eligibility = services.evaluator().evaluate(account.get(), program.groupKey(),
-                profileOf(), EvalMode.CONFIRM).result();
+        // The plan's burstable choice (AD-09), so a plan the customer allowed is not blocked here by the default.
+        boolean allowBurstable = program.config().path("options").path("allowBurstable").asBoolean(false);
+        // A target that leaves out live types is the option being turned off: those removals are not "no alternative".
+        java.util.List<String> removing = new java.util.ArrayList<>();
+        java.util.List<String> targetTypes = new java.util.ArrayList<>();
+        program.config().path("overrides").forEach(n -> targetTypes.add(n.asText()));
+        if (!allowBurstable && !targetTypes.isEmpty()) {
+            facts.overrideTypes().stream().filter(t -> !targetTypes.contains(t)).forEach(removing::add);
+            // Types XamOps added that are already gone still mark the plan as an option-off removal.
+            program.config().path("options").path("burstableRemoved").forEach(n -> {
+                if (!removing.contains(n.asText())) {
+                    removing.add(n.asText());
+                }
+            });
+        }
+        // A policy XamOps owns that the customer edited is put back by this very op, so its Max=100 blocker is
+        // dropped here as it is at plan time; a customer's own policy keeps it.
+        EligibilityResult eligibility = AwsMaintenancePolicy.withoutOwnedBlocker(services.evaluator().evaluate(
+                account.get(), program.groupKey(), profileOf(), EvalMode.CONFIRM, allowBurstable, removing).result(),
+                AwsMaintenancePolicy.owns(program.config()));
         if (!eligibility.blockers().isEmpty()) {
             EligibilityResult.Check first = eligibility.blockers().get(0);
             if (first.errorKind() != null) {

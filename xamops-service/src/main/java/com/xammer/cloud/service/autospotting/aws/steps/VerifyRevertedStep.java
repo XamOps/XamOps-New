@@ -50,8 +50,10 @@ public final class VerifyRevertedStep extends AwsRevertStep {
         } else {
             AwsThreeWayDiff.Target target = AwsRestoreProgram.resolve(services, live.account(), live.view(),
                     live.raw(), inputs).diff().target();
-            if (!AwsOwnedFields.mismatches(facts, target.toNode()).isEmpty()) {
-                if (!unwrapFallback(facts, target)) {
+            java.util.List<String> bad = AwsOwnedFields.mismatches(facts, target.toNode());
+            if (!bad.isEmpty()) {
+                // The fallback is accepted only when the policy is restored too (an absent one cleared, AD-08).
+                if (bad.contains("instanceMaintenancePolicy") || !unwrapFallback(facts, target)) {
                     return mismatch();
                 }
                 note = ",\"exact\":false,\"reason\":\"UNWRAP_UNSUPPORTED\"";

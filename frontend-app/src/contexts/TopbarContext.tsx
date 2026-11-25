@@ -89,6 +89,12 @@ export const TopbarProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 };
 
 // Legacy hook for backward compatibility (returns both)
+/**
+ * Setters only, and undefined outside a TopbarProvider (e.g. a page rendered on its own in a test). Does not
+ * subscribe to top-bar state, so calling it never re-renders the page when the bar changes.
+ */
+export const useOptionalTopbarDispatch = (): TopbarDispatchContextType | undefined => useContext(TopbarDispatchContext);
+
 // WARNING: Using this hook will cause re-renders when actions update.
 export const useTopbar = () => {
     const state = useContext(TopbarStateContext);

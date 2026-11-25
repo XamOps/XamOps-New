@@ -1,0 +1,28 @@
+{
+  "rows" : [ {
+    "id" : "row-1",
+    "ts" : "2026-10-30T10:00:00Z",
+    "accountId" : 1,
+    "region" : "us-east-1",
+    "instanceId" : "i-0abc",
+    "service" : "nginx",
+    "source" : "file",
+    "severity" : "ERROR",
+    "body" : "boom",
+    "attrs" : {
+      "k" : "v"
+    },
+    "traceId" : "trace-1",
+    "containerId" : "c1"
+  } ],
+  "nextCursor" : "cur",
+  "scanned" : {
+    "rows" : 10,
+    "bytes" : 100
+  },
+  "tookMs" : 5,
+  "truncated" : false,
+  "parsed" : {
+    "normalised" : "a:b"
+  }
+}

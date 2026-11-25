@@ -5,6 +5,7 @@ import com.xammer.cloud.dto.gcp.GcpContainerVulnerabilityDto;
 import com.xammer.cloud.dto.gcp.GcpIamPolicyDriftDto;
 import com.xammer.cloud.dto.gcp.GcpSecurityFinding;
 import com.xammer.cloud.service.ProwlerService;
+import com.xammer.cloud.service.gcp.GcpSecurityDigest;
 import com.xammer.cloud.service.gcp.GcpSecurityService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -134,8 +135,20 @@ public class GcpSecurityController {
                 .supplyAsync(() -> {
                     List<GcpSecurityFinding> findings =
                             gcpSecurityService.getSecurityFindings(accountId, forceRefresh).join();
-                    int score = gcpSecurityService.calculateSecurityScore(findings);
+                    // When the list was truncated, report the exact totals rather than the cap.
+                    GcpSecurityDigest digest = gcpSecurityService.getSecurityDigest(accountId)
+                            .filter(GcpSecurityDigest::truncated).orElse(null);
                     Map<String, Object> result = new HashMap<>();
+                    if (digest != null) {
+                        Map<String, Long> totals = digest.severityTotals();
+                        result.put("score", gcpSecurityService.calculateSecurityScore(totals));
+                        result.put("totalFindings", digest.total());
+                        result.put("critical", totals.getOrDefault("CRITICAL", 0L));
+                        result.put("high",     totals.getOrDefault("HIGH", 0L));
+                        result.put("medium",   totals.getOrDefault("MEDIUM", 0L));
+                        return result;
+                    }
+                    int score = gcpSecurityService.calculateSecurityScore(findings);
                     result.put("score", score);
                     result.put("totalFindings", findings.size());
                     result.put("critical", findings.stream().filter(f -> "CRITICAL".equalsIgnoreCase(f.getSeverity())).count());
