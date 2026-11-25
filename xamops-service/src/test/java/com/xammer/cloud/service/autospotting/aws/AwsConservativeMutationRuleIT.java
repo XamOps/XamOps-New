@@ -136,7 +136,9 @@ class AwsConservativeMutationRuleIT {
             assertThat(AwsMaintenancePolicy.owns(PlanOptions.ownershipConfigJson(row(h))))
                     .as("nothing was restored, so the claim stays").isTrue();
             // FAILED --> REVERTING: the revert is offered again and restores the original.
-            UUID retry = h.planAndConfirm(new PlanRequest(ref(), OperationKind.REVERT, null, PlanOptions.none()));
+            // Round 4 #5: the retry is planned with the row's own options, as PlanService builds them.
+            UUID retry = h.planAndConfirm(new PlanRequest(ref(), OperationKind.REVERT, null,
+                    PlanOptions.forGroup(null, row(h))));
             assertThat(h.runToEnd(retry)).as("retry error " + h.opError()).isEqualTo("SUCCEEDED");
             assertThat(h.groupState()).isEqualTo("REVERTED");
             assertThat(h.f.group().mixedInstancesPolicy()).isNull();
@@ -194,6 +196,40 @@ class AwsConservativeMutationRuleIT {
             assertThat(PlanOptions.forGroup(null, row(h)).underManagement()).as("claims released").isFalse();
             assertThat(h.jdbc.queryForObject("SELECT count(*) FROM spot_group_snapshot WHERE group_id = ?",
                     Integer.class, h.f.groupId)).as("the original snapshot was kept").isEqualTo(1);
+        }
+    }
+
+    /**
+     * Round 4 #4: the conservative rule on a group with the customer's own settings. A CONFIG_APPLY whose first
+     * update is rejected compensates to its prior configuration; the customer's 90/120 policy and the type they
+     * added must survive the compensation.
+     */
+    @Test
+    void aRejectedFirstCallOnAGroupWithCustomerSettingsCompensatesWithoutOverwritingThem() {
+        List<String> types = List.of("m5.large", "m5a.large", "c5.large"); // c5.large: added by the customer
+        InstanceMaintenancePolicy customer = InstanceMaintenancePolicy.builder().minHealthyPercentage(90)
+                .maxHealthyPercentage(120).build();
+        String stored = "{\"shape\":\"MIXED_INSTANCES_POLICY\",\"launchTemplate\":{\"id\":\"lt-0abc\","
+                + "\"version\":\"$Default\"},\"overrides\":[\"m5.large\",\"m5a.large\"],\"instancesDistribution\":"
+                + "{\"onDemandAllocationStrategy\":\"prioritized\",\"onDemandBaseCapacity\":1,"
+                + "\"onDemandPercentageAboveBaseCapacity\":50,\"spotAllocationStrategy\":\"price-capacity-optimized\"},"
+                + "\"capacityRebalance\":true}";
+        try (AwsOpsHarness h = new AwsOpsHarness(converted(customer, types), GroupState.ACTIVE, "MANAGED", stored,
+                null, null, null)) {
+            h.linkSnapshot(FakeAws.asg("web-asg").build());
+            UUID op = h.planAndConfirm(new PlanRequest(ref(), OperationKind.CONFIG_APPLY,
+                    new Profile("aggressive", null), PlanOptions.forGroup(null, row(h))));
+            rejectFirstUpdates(h, 1);
+            assertThat(h.runToEnd(op)).as("op error " + h.jdbc.queryForList(
+                    "SELECT error_code FROM spot_operation WHERE id = ?", String.class, op)).isEqualTo("SUCCEEDED");
+            assertThat(col(h, "phase", op)).as("compensated (conservative rule)").isEqualTo("COMPENSATING");
+            assertThat(h.groupState()).isEqualTo("ACTIVE");
+            assertThat(h.f.updates).as("no update carried a maintenance policy")
+                    .allSatisfy(r -> assertThat(r.instanceMaintenancePolicy()).isNull());
+            assertThat(h.f.group().instanceMaintenancePolicy()).as("the customer's policy").isEqualTo(customer);
+            List<String> live = new ArrayList<>();
+            h.f.group().mixedInstancesPolicy().launchTemplate().overrides().forEach(o -> live.add(o.instanceType()));
+            assertThat(live).as("the customer's added type").contains("c5.large");
         }
     }
 }
