@@ -500,6 +500,9 @@ public class OperationRunner {
      */
     private void compensateOrFail(LeaseHandle handle, SpotOperation op, SpotGroup group,
                                   StepOutcome.Failed failed) {
+        // D-23b-02: the caller may hold the op as loaded before this pass's steps ran; a mutation earlier in the same
+        // pass (or this step's own intent) is only in the stored row, so read it before deciding "before mutation".
+        op = operations.findById(op.getId()).orElse(op);
         boolean mutatedYet = op.getFirstMutationSeq() != null;
         boolean safety = CompensationTargets.actionClass(op.getKind()) == ActionClass.SAFETY;
 

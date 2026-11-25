@@ -488,4 +488,35 @@ class AwsConfirmedOpsIT {
             assertThat(AwsMaintenancePolicy.owns(PlanOptions.ownershipConfigJson(row(h)))).isTrue();
         }
     }
+
+    /**
+     * D-23b-02: a REVERT that mutates (drain, restore) and then fails terminally in the same runner pass ends FAILED
+     * after mutation, not FAILED_BEFORE_MUTATION with the group sent back to its prior state.
+     */
+    @Test
+    void aRevertThatMutatesAndFailsTerminallyInOnePassEndsFailedNotBeforeMutation() {
+        AutoScalingGroup live = converted(List.of(override("m5.large", null), override("m5a.large", null),
+                override("m6i.large", null)), imp(100, 200));
+        String desired = desiredWith(List.of("m5.large", "m5a.large", "m6i.large"), OWNED);
+        try (AwsOpsHarness h = new AwsOpsHarness(live, FakeAws.asg("web-asg").build(), GroupState.ACTIVE, desired)) {
+            org.mockito.Mockito.doAnswer(inv -> {
+                UpdateAutoScalingGroupRequest r = inv.getArgument(0);
+                h.f.log.add("update");
+                h.f.updates.add(r);
+                h.f.applyUpdate(r);
+                if (r.launchTemplate() != null) {
+                    h.f.replaceGroup(h.f.group().toBuilder().capacityRebalance(true).build());
+                }
+                return software.amazon.awssdk.services.autoscaling.model.UpdateAutoScalingGroupResponse.builder().build();
+            }).when(h.f.write).updateAutoScalingGroup(org.mockito.ArgumentMatchers.any(UpdateAutoScalingGroupRequest.class));
+            h.runner.runClaimed(h.lease, h.f.opId); // drain, restore and the failing verification in one pass
+            assertThat(h.jdbc.queryForObject("SELECT status FROM spot_operation WHERE id = ?", String.class, h.f.opId))
+                    .as("ended in the first pass").isEqualTo("FAILED");
+            assertThat(h.opError()).isEqualTo("REVERT_MISMATCH");
+            assertThat(h.f.updates).as("the cloud was changed").isNotEmpty();
+            assertThat(h.groupState()).as("a revert that changed the group ends FAILED").isEqualTo("FAILED");
+            assertThat(h.jdbc.queryForList("SELECT reason_code FROM spot_group_transition WHERE group_id = ?",
+                    String.class, h.f.groupId)).contains("REVERT_FAILED").doesNotContain("FAILED_BEFORE_MUTATION");
+        }
+    }
 }
