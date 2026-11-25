@@ -176,7 +176,7 @@ class AwsMaintenancePolicyMatrixIT {
 
     private static PlanRequest request(OperationKind kind, String desired) {
         return new PlanRequest(new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg", null), kind,
-                new Profile("aggressive", null), new PlanOptions(null, desired));
+                new Profile("aggressive", null), new PlanOptions(null, desired, true));
     }
 
     @FunctionalInterface

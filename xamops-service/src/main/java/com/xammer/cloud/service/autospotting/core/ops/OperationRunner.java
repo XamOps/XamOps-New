@@ -525,7 +525,8 @@ public class OperationRunner {
             // SAFETY op after mutation: a terminal error ends it FAILED. A REVERT moves REVERTING -> FAILED
             // (§2.2.1); the other SAFETY ops leave the group where it is.
             if (op.getKind() == com.xammer.cloud.domain.autospotting.OperationKind.REVERT) {
-                transitionTo(handle, group, GroupState.FAILED, "REVERT_FAILED", op.getId());
+                transitionTo(handle, group, GroupState.FAILED, "REVERT_FAILED", op.getId(),
+                        configWriteAfterRestore(op, group));
             }
             store.finishFailed(op.getId(), failed.code(), failed.redactedMessage());
             audit(handle, op, group, "OP_FAILED", "FAILED", "SAFETY_TERMINAL_ERROR");
@@ -561,9 +562,13 @@ public class OperationRunner {
             fallbackEffects.exitSucceeded(handle, op, group, desiredConfigWrite(op, group));
             target = null;
         }
-        String[] configWrite = target == null ? null
-                : forward && op.getKind() == com.xammer.cloud.domain.autospotting.OperationKind.REVERT
-                && target == GroupState.REVERTED ? revertedConfigWrite(group) : desiredConfigWrite(op, group);
+        // D-23b-01: a restore program that ends (a REVERT, or an ENABLE compensated to its snapshot) rewrites
+        // desired_config from what it actually did; every other success writes the conversion target.
+        boolean restoreEnded = target == GroupState.REVERTED;
+        String[] configWrite = null;
+        if (target != null) {
+            configWrite = restoreEnded ? configWriteAfterRestore(op, group) : desiredConfigWrite(op, group);
+        }
         if (target != null
                 && !transitionTo(handle, group, target, successReason(op), op.getId(), configWrite)) {
             // The cloud work is done but the group's record could not follow (stale guard or forbidden edge).
@@ -625,18 +630,23 @@ public class OperationRunner {
     }
 
     /**
-     * D-23b-01: a REVERT that restored the group keeps {@code desired_config} (its options are the customer's last
-     * choices) but drops what XamOps owned, via the provider. The fingerprint stays. Returns null when unchanged.
+     * D-23b-01: after a restore program ends (REVERTED, or a REVERT that ended FAILED), {@code desired_config} keeps
+     * the customer's choices but the provider adjusts the markers of what XamOps owned from the steps that actually
+     * ran DONE (a drain-only revert or an early failure leaves XamOps' configuration on the group; a restore removes
+     * it). The fingerprint stays. Returns null when nothing changes.
      */
-    private String[] revertedConfigWrite(SpotGroup group) {
+    private String[] configWriteAfterRestore(SpotOperation op, SpotGroup group) {
         SpotGroup fresh = groups.findById(group.getId()).orElse(group);
         String desired = fresh.getDesiredConfig();
         if (desired == null) {
             return null;
         }
-        String cleared = providers.find(fresh.getProvider()).map(p -> p.desiredConfigAfterRevert(desired)).orElse(desired);
-        return cleared == null || cleared.equals(desired) ? null : new String[] {cleared, fresh.getDesiredFingerprint()};
+        java.util.Set<String> done = store.doneStepNames(op.getId());
+        String after = providers.find(fresh.getProvider())
+                .map(p -> p.desiredConfigAfterRestore(desired, done)).orElse(desired);
+        return after == null || after.equals(desired) ? null : new String[] {after, fresh.getDesiredFingerprint()};
     }
+
     private static String sha256(String text) {
         try {
             return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")

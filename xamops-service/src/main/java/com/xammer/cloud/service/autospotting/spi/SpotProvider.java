@@ -70,11 +70,14 @@ public interface SpotProvider {
     }
 
     /**
-     * The group's {@code desired_config} once a REVERT has restored it (D-23b-01): the same config with the markers
-     * of what XamOps owned removed, so nothing after the revert reads a field as XamOps' that the customer may now
-     * own. Returns the input when there is nothing to remove. The revert itself reads ownership from its own inputs.
+     * The group's {@code desired_config} after a restore program ended (D-23b-01): a REVERT that reached REVERTED or
+     * FAILED, or an ENABLE compensated to its snapshot. {@code doneSteps} are the names of the op's steps that ended
+     * DONE, so the provider answers from what the program actually did, not from the lifecycle edge. When the
+     * restore removed XamOps' configuration, the markers of what XamOps owned go; when it did not (a drain-only
+     * revert, a revert that failed before restoring), the markers stay and the config says XamOps' configuration is
+     * still on the group ({@link PlanOptions#CONFIG_ON_GROUP}). Returns the input when nothing changes.
      */
-    default String desiredConfigAfterRevert(String desiredConfigJson) {
+    default String desiredConfigAfterRestore(String desiredConfigJson, java.util.Set<String> doneSteps) {
         return desiredConfigJson;
     }
     /** A pure decision: the actions the core should execute for this group's status (no I/O). */

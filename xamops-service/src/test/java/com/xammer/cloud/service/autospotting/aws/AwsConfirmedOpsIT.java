@@ -67,7 +67,7 @@ class AwsConfirmedOpsIT {
     }
     private static PlanRequest request(OperationKind kind, Boolean allowBurstable, String desired) {
         return new PlanRequest(new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg", null), kind,
-                new Profile("aggressive", null), new PlanOptions(allowBurstable, desired));
+                new Profile("aggressive", null), new PlanOptions(allowBurstable, desired, true));
     }
     private static List<LaunchTemplateOverrides> sentOverrides(UpdateAutoScalingGroupRequest r) {
         return r.mixedInstancesPolicy().launchTemplate() == null ? null
@@ -274,6 +274,7 @@ class AwsConfirmedOpsIT {
             for (int i = 1; i <= 3; i++) {
                 h.f.spotInstances.add("i-" + (5 - i));
             }
+            int[] updatesBeforeReEnable = {h.f.updates.size()};
             UUID op = h.planAndConfirm(enable);
             assertThat(h.runToEnd(op)).as("enable error " + h.jdbc.queryForList(
                     "SELECT error_code FROM spot_operation WHERE id = ?", String.class, op)).isEqualTo("SUCCEEDED");
@@ -282,11 +283,14 @@ class AwsConfirmedOpsIT {
             assertThat(after).as("live policy after the re-enable").isNotNull();
             assertThat(after.minHealthyPercentage()).isEqualTo(expected.minHealthyPercentage());
             assertThat(after.maxHealthyPercentage()).isEqualTo(expected.maxHealthyPercentage());
-            assertThat(h.f.updates.stream().filter(r -> r.instanceMaintenancePolicy() != null
-                            && r.instanceMaintenancePolicy().minHealthyPercentage() != null
-                            && r.instanceMaintenancePolicy().minHealthyPercentage() == 100
-                            && customer != null))
-                    .as("no update after the revert wrote 100/200 over the customer's policy").isEmpty();
+            if (customer != null) {
+                // Every update after the revert (the re-enable's) must leave the customer's policy out of the request.
+                int revertUpdates = updatesBeforeReEnable[0];
+                assertThat(h.f.updates.subList(revertUpdates, h.f.updates.size()))
+                        .as("the re-enable sent updates").isNotEmpty()
+                        .allSatisfy(r -> assertThat(r.instanceMaintenancePolicy())
+                                .as("no re-enable update carries a maintenance policy").isNull());
+            }
         }
     }
     /** D-23b-01 as found live: enable, revert, the customer sets 90/120, a confirmed re-enable keeps it. */
@@ -324,6 +328,164 @@ class AwsConfirmedOpsIT {
             target.path("overrides").forEach(n -> types.add(n.asText()));
             assertThat(types).as("the customer's own t3a.micro stays").contains("t3.micro", "t3a.micro");
             assertThat(target.path("options").has("burstableRemoved")).isFalse();
+        }
+    }
+
+    private static com.xammer.cloud.domain.autospotting.SpotGroup row(AwsOpsHarness h) {
+        return h.ctx.getBean(com.xammer.cloud.repository.autospotting.SpotGroupRepository.class)
+                .findById(h.f.groupId).orElseThrow();
+    }
+    private static List<String> liveTypes(AwsOpsHarness h) {
+        List<String> out = new ArrayList<>();
+        var mip = h.f.group().mixedInstancesPolicy();
+        if (mip != null && mip.launchTemplate() != null) {
+            mip.launchTemplate().overrides().forEach(o -> out.add(o.instanceType()));
+        }
+        return out;
+    }
+    private static void simulate(AwsOpsHarness h, boolean deny) {
+        org.mockito.Mockito.reset(h.f.aws.iam);
+        if (deny) {
+            org.mockito.Mockito.doThrow(software.amazon.awssdk.awscore.exception.AwsServiceException.builder()
+                            .statusCode(403).awsErrorDetails(software.amazon.awssdk.awscore.exception.AwsErrorDetails
+                                    .builder().errorCode("AccessDenied").build()).build())
+                    .when(h.f.aws.iam).simulatePrincipalPolicy(org.mockito.ArgumentMatchers.any(
+                            software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyRequest.class));
+            return;
+        }
+        org.mockito.Mockito.doAnswer(inv -> {
+            software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyRequest r = inv.getArgument(0);
+            return software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyResponse.builder()
+                    .evaluationResults(r.actionNames().stream().map(a -> software.amazon.awssdk.services.iam.model
+                            .EvaluationResult.builder().evalActionName(a).evalDecision("allowed").build()).toList())
+                    .build();
+        }).when(h.f.aws.iam).simulatePrincipalPolicy(org.mockito.ArgumentMatchers.any(
+                software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyRequest.class));
+    }
+    /**
+     * Review #1-#3, #9: a drain-only revert (the permission check failed, so no exact restore) leaves XamOps' mixed
+     * policy, its types and its 100/200 on the group. Its markers must stay: the re-enable still owns the policy and,
+     * with the burstable option off, removes the type XamOps added; the final exact revert then clears 100/200.
+     */
+    @Test
+    void aDrainOnlyRevertKeepsXamOpsClaimsSoTheReEnableAndTheFinalRevertStillActOnThem() {
+        AutoScalingGroup live = converted(List.of(T3_MICRO, T3A_MICRO), imp(100, 200));
+        String desired = desiredWith(List.of("t3.micro", "t3a.micro"), OWNED
+                + ",\"options\":{\"allowBurstable\":true,\"burstableAdded\":[\"t3a.micro\"]}");
+        AutoScalingGroup original = FakeAws.asg("web-asg").build();
+        AwsOpsHarness[] ref = new AwsOpsHarness[1];
+        try (AwsOpsHarness h = new AwsOpsHarness(live, original, GroupState.ACTIVE, desired, true, fx -> {
+            fx.aws.burstableWorld();
+            org.mockito.Mockito.doThrow(software.amazon.awssdk.awscore.exception.AwsServiceException.builder()
+                            .statusCode(403).awsErrorDetails(software.amazon.awssdk.awscore.exception.AwsErrorDetails
+                                    .builder().errorCode("AccessDenied").build()).build())
+                    .when(fx.aws.iam).simulatePrincipalPolicy(org.mockito.ArgumentMatchers.any(
+                            software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyRequest.class));
+        })) {
+            ref[0] = h;
+            assertThat(h.f.json(h.plan.targetJson()).path("mode").asText()).as("the revert is drain-only")
+                    .isEqualTo("DRAIN_ONLY");
+            h.runner.runClaimed(h.lease, h.f.opId);
+            assertThat(h.runToEnd(h.f.opId)).as("drain-only revert error " + h.opError()).isEqualTo("SUCCEEDED");
+            assertThat(h.groupState()).isEqualTo("REVERTED");
+            assertThat(h.f.group().mixedInstancesPolicy()).as("the mixed policy stays").isNotNull();
+            assertThat(h.f.group().instanceMaintenancePolicy()).as("XamOps' policy stays").isEqualTo(imp(100, 200));
+            var stored = row(h);
+            assertThat(AwsMaintenancePolicy.owns(stored.getDesiredConfig())).as("policy claim kept").isTrue();
+            assertThat(h.f.json(stored.getDesiredConfig()).path("options").path("burstableAdded").toString())
+                    .as("burstableAdded kept").isEqualTo("[\"t3a.micro\"]");
+            assertThat(h.f.json(stored.getDesiredConfig()).path(PlanOptions.CONFIG_ON_GROUP).asBoolean())
+                    .as("the row records that XamOps' configuration is still on the group").isTrue();
+
+            simulate(h, false); // the stack was updated: permissions are fine again
+            toPlanned(h);
+            PlanOptions options = optionsFor(h, false);
+            assertThat(options.underManagement()).isTrue();
+            PlanRequest enable = new PlanRequest(new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg", null),
+                    OperationKind.ENABLE, new Profile("aggressive", null), options);
+            var plan = h.provider.createPlan(enable, h.f.aws.view());
+            var target = h.f.json(plan.targetJson());
+            assertThat(AwsMaintenancePolicy.owns(target)).as("the re-enable still owns XamOps' policy").isTrue();
+            List<String> types = new ArrayList<>();
+            target.path("overrides").forEach(n -> types.add(n.asText()));
+            assertThat(types).as("option off removes the type XamOps added").doesNotContain("t3a.micro");
+            assertThat(target.path("options").path("burstableRemoved").toString()).isEqualTo("[\"t3a.micro\"]");
+            for (int i = 1; i <= 3; i++) {
+                h.f.spotInstances.add("i-" + (5 - i));
+            }
+            UUID op = h.planAndConfirm(enable);
+            assertThat(h.runToEnd(op)).as("re-enable error " + h.jdbc.queryForList(
+                    "SELECT error_code FROM spot_operation WHERE id = ?", String.class, op)).isEqualTo("SUCCEEDED");
+            assertThat(h.groupState()).isEqualTo("ACTIVE");
+            assertThat(liveTypes(h)).as("t3a.micro removed on the group").doesNotContain("t3a.micro");
+            assertThat(h.f.group().instanceMaintenancePolicy()).isEqualTo(imp(100, 200));
+            assertThat(h.f.json(row(h).getDesiredConfig()).has(PlanOptions.CONFIG_ON_GROUP))
+                    .as("the new desired_config is the re-enable's target").isFalse();
+
+        }
+    }
+    /**
+     * Review #7, #9: a revert that ends FAILED after its restore step already cleared XamOps' policy must not keep
+     * claiming it, so a policy the customer sets afterwards is read as theirs.
+     */
+    @Test
+    void aRevertThatFailsAfterItsRestoreReleasesTheClaimOnThePolicyItCleared() {
+        AutoScalingGroup live = converted(List.of(override("m5.large", null), override("m5a.large", null),
+                override("m6i.large", null)), imp(100, 200));
+        String desired = desiredWith(List.of("m5.large", "m5a.large", "m6i.large"), OWNED);
+        try (AwsOpsHarness h = new AwsOpsHarness(live, FakeAws.asg("web-asg").build(), GroupState.ACTIVE, desired)) {
+            org.mockito.Mockito.doAnswer(inv -> {
+                UpdateAutoScalingGroupRequest r = inv.getArgument(0);
+                h.f.log.add("update");
+                h.f.updates.add(r);
+                h.f.applyUpdate(r);
+                if (r.launchTemplate() != null) {
+                    // Someone turns Capacity Rebalancing on right after the restore: verification fails terminally.
+                    h.f.replaceGroup(h.f.group().toBuilder().capacityRebalance(true).build());
+                }
+                return software.amazon.awssdk.services.autoscaling.model.UpdateAutoScalingGroupResponse.builder().build();
+            }).when(h.f.write).updateAutoScalingGroup(org.mockito.ArgumentMatchers.any(UpdateAutoScalingGroupRequest.class));
+            // One Spot instance makes the drain wait once, so the restore runs in a later pass (as it does live).
+            h.f.spotInstances.add("i-4");
+            h.runner.runClaimed(h.lease, h.f.opId);
+            h.f.spotInstances.clear();
+            assertThat(h.runToEnd(h.f.opId)).as("revert error " + h.opError()).isEqualTo("FAILED");
+            assertThat(h.groupState()).as("revert error " + h.opError()).isEqualTo("FAILED");
+            assertThat(h.f.group().instanceMaintenancePolicy()).as("the restore cleared XamOps' policy").isNull();
+            assertThat(AwsMaintenancePolicy.owns(row(h).getDesiredConfig())).as("claim released").isFalse();
+            h.f.replaceGroup(h.f.group().toBuilder().instanceMaintenancePolicy(imp(90, 120)).build());
+            assertThat(AwsMaintenancePolicy.owns(PlanOptions.ownershipConfigJson(row(h))))
+                    .as("the customer's 90/120 is read as theirs").isFalse();
+        }
+    }
+    /** Review #7 counterpart: a revert that fails before restoring keeps the claim (the policy is still XamOps'). */
+    @Test
+    void aRevertThatFailsBeforeItsRestoreKeepsTheClaim() {
+        AutoScalingGroup live = converted(List.of(override("m5.large", null), override("m5a.large", null),
+                override("m6i.large", null)), imp(100, 200));
+        String desired = desiredWith(List.of("m5.large", "m5a.large", "m6i.large"), OWNED);
+        try (AwsOpsHarness h = new AwsOpsHarness(live, FakeAws.asg("web-asg").build(), GroupState.ACTIVE, desired)) {
+            org.mockito.Mockito.doAnswer(inv -> {
+                UpdateAutoScalingGroupRequest r = inv.getArgument(0);
+                if (r.launchTemplate() != null) {
+                    throw software.amazon.awssdk.awscore.exception.AwsServiceException.builder().statusCode(400)
+                            .awsErrorDetails(software.amazon.awssdk.awscore.exception.AwsErrorDetails.builder()
+                                    .errorCode("AccessDenied").build()).build();
+                }
+                h.f.log.add("update");
+                h.f.updates.add(r);
+                h.f.applyUpdate(r);
+                return software.amazon.awssdk.services.autoscaling.model.UpdateAutoScalingGroupResponse.builder().build();
+            }).when(h.f.write).updateAutoScalingGroup(org.mockito.ArgumentMatchers.any(UpdateAutoScalingGroupRequest.class));
+            // One Spot instance makes the drain wait once, so the restore runs in a later pass (as it does live).
+            h.f.spotInstances.add("i-4");
+            h.runner.runClaimed(h.lease, h.f.opId);
+            h.f.spotInstances.clear();
+            assertThat(h.runToEnd(h.f.opId)).as("revert error " + h.opError()).isEqualTo("FAILED");
+            assertThat(h.groupState()).as("revert error " + h.opError()).isEqualTo("FAILED");
+            assertThat(h.f.group().instanceMaintenancePolicy()).as("XamOps' policy is still live").isEqualTo(imp(100, 200));
+            assertThat(AwsMaintenancePolicy.owns(row(h).getDesiredConfig())).as("claim kept").isTrue();
+            assertThat(AwsMaintenancePolicy.owns(PlanOptions.ownershipConfigJson(row(h)))).isTrue();
         }
     }
 }

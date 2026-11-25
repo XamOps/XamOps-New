@@ -234,6 +234,18 @@ public class OperationStore {
                 .orElse(0);
     }
 
+    /** The names of the steps of {@code operationId} that ended DONE (D-23b-01: what a revert actually did). */
+    @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
+    public java.util.Set<String> doneStepNames(java.util.UUID operationId) {
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        for (com.xammer.cloud.domain.autospotting.SpotOperationStep s : steps.findByOperationIdOrderBySeqAsc(operationId)) {
+            if (s.getStatus() == StepStatus.DONE) {
+                out.add(s.getName());
+            }
+        }
+        return out;
+    }
+
     private static String requestIdsJson(List<String> requestIds) {
         if (requestIds == null || requestIds.isEmpty()) {
             return null;

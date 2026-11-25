@@ -42,6 +42,32 @@ class PlanOptionsOwnershipTest {
         assertThat(o.storedAllowBurstable()).as("the customer's choice is remembered in every state").isTrue();
     }
 
+    @ParameterizedTest
+    @EnumSource(value = GroupState.class, names = {"UNMANAGED", "PLANNED", "REVERTED", "LEGACY_UNCONFIRMED"})
+    void aConfigStillOnTheGroupKeepsTheMarkersOutsideTheManagedStates(GroupState state) {
+        SpotGroup g = group(state);
+        String flagged = DESIRED.substring(0, DESIRED.length() - 1) + ",\"" + PlanOptions.CONFIG_ON_GROUP + "\":true}";
+        g.setDesiredConfig(flagged);
+        PlanOptions o = PlanOptions.forGroup(null, g);
+        assertThat(o.underManagement()).isTrue();
+        assertThat(o.storedBurstableAdded()).containsExactly("t3a.micro");
+        assertThat(PlanOptions.ownershipConfigJson(g)).isEqualTo(flagged);
+    }
+
+    @Test
+    void aGoneGroupNeverClaimsEvenWithTheFlag() {
+        SpotGroup g = group(GroupState.GONE);
+        g.setDesiredConfig("{\"" + PlanOptions.CONFIG_ON_GROUP + "\":true}");
+        assertThat(PlanOptions.forGroup(null, g).underManagement()).isFalse();
+    }
+
+    @Test
+    void theStaticGateMatchesTheOptions() {
+        assertThat(PlanOptions.ownershipConfigJson((SpotGroup) null)).isNull();
+        assertThat(PlanOptions.ownershipConfigJson(group(GroupState.ACTIVE))).isEqualTo(DESIRED);
+        assertThat(PlanOptions.ownershipConfigJson(group(GroupState.REVERTED))).isNull();
+    }
+
     @Test
     void aGroupWithNoRowHasNoStoredConfig() {
         PlanOptions o = PlanOptions.forGroup(true, null);

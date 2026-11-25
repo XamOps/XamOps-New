@@ -15,22 +15,28 @@ import com.xammer.cloud.domain.autospotting.SpotGroup;
  *
  * <p>{@code underManagement} says whether XamOps' configuration is on the group now (D-23b-01). Only then do the
  * ownership markers in {@code desired_config} (the burstable types XamOps added, AWS's owned maintenance policy)
- * describe the live group. After a revert, or before a first enable, the provider decides ownership from the live
+ * describe the live group. It is true in the managed states, and after a restore program that left XamOps'
+ * configuration on the group (a drain-only revert), which the provider records as {@link #CONFIG_ON_GROUP}.
+ * Otherwise (before a first enable, after a full revert, a legacy row) the provider decides ownership from the live
  * group alone, so a setting the customer makes after a revert is never treated as XamOps'.
+ *
+ * <p>There is deliberately no constructor that defaults {@code underManagement}: production code builds the options
+ * with {@link #forGroup} or {@link #none()}, so the pre-fix reading cannot come back through a convenience call.
  */
 public record PlanOptions(Boolean allowBurstable, String desiredConfigJson, boolean underManagement) {
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
+    /**
+     * Top-level {@code desired_config} key a provider writes when a restore program ended without removing
+     * XamOps' configuration from the group (e.g. a drain-only revert): its ownership markers still apply.
+     */
+    public static final String CONFIG_ON_GROUP = "configOnGroup";
+
     /** The states in which XamOps' configuration is on the group (no revert or first enable has removed it). */
     private static final java.util.Set<GroupState> MANAGED = java.util.EnumSet.of(GroupState.APPLYING,
             GroupState.ACTIVE, GroupState.DEGRADED, GroupState.FALLBACK, GroupState.PAUSED, GroupState.REVERTING,
             GroupState.FAILED);
-
-    /** Options whose stored config's ownership markers apply (a group under management). */
-    public PlanOptions(Boolean allowBurstable, String desiredConfigJson) {
-        this(allowBurstable, desiredConfigJson, true);
-    }
 
     public static PlanOptions none() {
         return new PlanOptions(null, null, false);
@@ -41,11 +47,31 @@ public record PlanOptions(Boolean allowBurstable, String desiredConfigJson, bool
         if (group == null) {
             return new PlanOptions(allowBurstable, null, false);
         }
-        return new PlanOptions(allowBurstable, group.getDesiredConfig(), isUnderManagement(group.getState()));
+        return new PlanOptions(allowBurstable, group.getDesiredConfig(),
+                isUnderManagement(group.getState(), group.getDesiredConfig()));
     }
 
-    public static boolean isUnderManagement(GroupState state) {
-        return state != null && MANAGED.contains(state);
+    /** True in a managed state, or when {@code desiredConfigJson} records {@link #CONFIG_ON_GROUP}. */
+    public static boolean isUnderManagement(GroupState state, String desiredConfigJson) {
+        if (state != null && MANAGED.contains(state)) {
+            return true;
+        }
+        if (state == GroupState.GONE || desiredConfigJson == null || desiredConfigJson.isBlank()) {
+            return false;
+        }
+        try {
+            return JSON.readTree(desiredConfigJson).path(CONFIG_ON_GROUP).asBoolean(false);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            return false;
+        }
+    }
+
+    /**
+     * The group's {@code desired_config} when its ownership markers describe the live group, else null. Every
+     * reader of those markers on a group row goes through this (plans, status, drift), so they cannot disagree.
+     */
+    public static String ownershipConfigJson(SpotGroup group) {
+        return group == null ? null : forGroup(null, group).ownershipConfigJson();
     }
 
     /** {@code desired_config} when its ownership markers apply to the live group, else null. */

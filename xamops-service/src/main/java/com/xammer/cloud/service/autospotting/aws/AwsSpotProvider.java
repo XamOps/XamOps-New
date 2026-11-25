@@ -453,9 +453,15 @@ public class AwsSpotProvider implements SpotProvider {
                 g.hasLegacyTag() && !g.hasMarker());
     }
 
-    /** D-23b-01: after a revert, the maintenance policy and the burstable types XamOps added are no longer its own. */
+    /**
+     * D-23b-01. A restore program that ran {@link com.xammer.cloud.service.autospotting.aws.steps.RestoreShapeStep}
+     * to DONE removed XamOps' configuration (the shape, the types it added, and the maintenance policy it owned, which
+     * the restore clears or keeps as the customer's), so those markers go; the remembered {@code allowBurstable}
+     * choice stays. Without that step (a drain-only revert, or a failure before the restore) the configuration is still
+     * on the group: the markers stay and {@link PlanOptions#CONFIG_ON_GROUP} records it.
+     */
     @Override
-    public String desiredConfigAfterRevert(String desiredConfigJson) {
+    public String desiredConfigAfterRestore(String desiredConfigJson, java.util.Set<String> doneSteps) {
         if (desiredConfigJson == null || desiredConfigJson.isBlank()) {
             return desiredConfigJson;
         }
@@ -468,17 +474,31 @@ public class AwsSpotProvider implements SpotProvider {
         if (!(parsed instanceof ObjectNode n)) {
             return desiredConfigJson;
         }
-        boolean changed = false;
+        boolean restored = doneSteps != null
+                && doneSteps.contains(com.xammer.cloud.service.autospotting.aws.steps.RestoreShapeStep.NAME);
+        if (!restored) {
+            if (n.path(PlanOptions.CONFIG_ON_GROUP).asBoolean(false)) {
+                return desiredConfigJson;
+            }
+            n.put(PlanOptions.CONFIG_ON_GROUP, true);
+            return write(n);
+        }
+        boolean changed = n.remove(PlanOptions.CONFIG_ON_GROUP) != null;
         if (AwsMaintenancePolicy.owns(n)) {
             n.remove(AwsMaintenancePolicy.KEY);
             changed = true;
         }
-        if (n.path("options") instanceof ObjectNode opts
-                && (opts.remove("burstableAdded") != null | opts.remove("burstableRemoved") != null)) {
-            changed = true;
+        if (n.path("options") instanceof ObjectNode opts) {
+            if (opts.remove("burstableAdded") != null) {
+                changed = true;
+            }
+            if (opts.remove("burstableRemoved") != null) {
+                changed = true;
+            }
         }
         return changed ? write(n) : desiredConfigJson;
     }
+
     // ---- status ----
 
     @Override
@@ -487,8 +507,9 @@ public class AwsSpotProvider implements SpotProvider {
                 new AwsReadException("account", ErrorKind.NOT_FOUND));
         String[] parts = AwsEligibilityEvaluator.split(group.getGroupKey());
         AwsReadOnlyView v = viewFor(account, parts[0], view);
+        // Ownership through the same state-aware gate as planning (D-23b-01), so status and plans agree.
         return withFallbackSignals(group, statusReader.read(v, parts[1],
-                AwsMaintenancePolicy.owns(group.getDesiredConfig())), v, parts[1]);
+                AwsMaintenancePolicy.owns(PlanOptions.ownershipConfigJson(group))), v, parts[1]);
     }
 
     @Override
@@ -497,6 +518,8 @@ public class AwsSpotProvider implements SpotProvider {
                 new AwsReadException("account", ErrorKind.NOT_FOUND));
         String[] parts = AwsEligibilityEvaluator.split(group.getGroupKey());
         AwsReadOnlyView v = viewFor(account, parts[0], view);
+        // desiredConfigJson is the config a succeeding conversion is about to write (its target), not the stored row,
+        // so it is read directly: that target is XamOps' configuration on the group by construction (D-23b-01).
         GroupStatus status = statusReader.read(v, parts[1], AwsMaintenancePolicy.owns(desiredConfigJson));
         return status == null || !status.found() ? null : status.liveFingerprint();
     }
