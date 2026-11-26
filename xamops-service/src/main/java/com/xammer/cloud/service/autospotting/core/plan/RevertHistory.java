@@ -39,47 +39,6 @@ public final class RevertHistory {
                 .orElse(false);
     }
 
-    /**
-     * Whether a REVERT may be planned or confirmed for {@code group} in {@code state}, beyond the plain kind/state
-     * table (design-core 7.4; phase 23b round 4 #1). {@code regrant} feeds {@link PlanKinds#isAllowed}.
-     * <ul>
-     *   <li>REVERTED: only when XamOps' configuration is still on the group, i.e. the last revert was drain-only
-     *       (GR-02, PASSROLE_DENIED) or the row records {@code configOnGroup} (any drain-only revert, D-23b-01).</li>
-     *   <li>PLANNED: only when a confirmed ENABLE has not finished, or the row records {@code configOnGroup}, so an
-     *       enable that failed before its first mutation never takes away a revert that was available.</li>
-     * </ul>
-     * {@code refusal} is null when allowed, else the 409 code.
-     */
-    public record RevertGate(String refusal, boolean regrant) {
-    }
-
-    public static RevertGate revertGate(SpotOperationRepository operations, SpotPlanRepository plans,
-                                        com.xammer.cloud.domain.autospotting.SpotGroup group,
-                                        com.xammer.cloud.domain.autospotting.GroupState state) {
-        if (group == null) {
-            return new RevertGate("NOT_MANAGED", false);
-        }
-        boolean configOnGroup = com.xammer.cloud.service.autospotting.spi.PlanOptions.forGroup(null, group)
-                .configOnGroup();
-        boolean regrant = state == com.xammer.cloud.domain.autospotting.GroupState.REVERTED
-                && (configOnGroup || lastRevertPassRoleDenied(operations, plans, group.getId()));
-        String refusal = switch (state) {
-            case UNMANAGED, GONE -> "NOT_MANAGED";
-            case REVERTED -> regrant ? null : "NOT_MANAGED";
-            case PLANNED -> configOnGroup || hasUnfinishedEnable(operations, group.getId()) ? null : "NOT_MANAGED";
-            case REVERTING -> "AS_GROUP_BUSY";
-            default -> null;
-        };
-        return new RevertGate(refusal, regrant);
-    }
-
-    /** True when a confirmed ENABLE op of the group has not ended (QUEUED, RUNNING or WAITING). */
-    public static boolean hasUnfinishedEnable(SpotOperationRepository operations, UUID groupId) {
-        return groupId != null && operations.findByGroupId(groupId).stream()
-                .anyMatch(o -> o.getKind() == OperationKind.ENABLE && (o.getStatus() == OperationStatus.QUEUED
-                        || o.getStatus() == OperationStatus.RUNNING || o.getStatus() == OperationStatus.WAITING));
-    }
-
     private static boolean drainOnlyForPassRole(SpotPlan plan) {
         if (plan == null || plan.getBody() == null) {
             return false;
