@@ -164,10 +164,12 @@ class AwsRevertMatrixIT {
         // F: the running Spot count decides the drain (review High #2, #3).
         r.add(new Row("F1", GroupState.REVERTED, "PASSROLE_DENIED", false, Snap.M, Perm.OK, "spot unreadable",
                 blocked("SPOT_COUNT_UNREADABLE", "REVERTED", "already at 100%")));
+        // F2/F3: share 100 with Spot still running. Auto Scaling won't replace them on its own (an unchanged update
+        // starts nothing, and AD-01 rules out an instance refresh), so the plan is blocked (review High #2, option A).
         r.add(new Row("F2", GroupState.FAILED, "", true, Snap.R, Perm.OK, "share 100, spot running",
-                restoredOnly(List.of("REVERT_FROM_FAILED"))));
+                failed(blocked("REVERT_SPOT_STUCK", "FAILED", null, "still running at 100% On-Demand"))));
         r.add(new Row("F3", GroupState.FAILED, "", true, Snap.R, Perm.PR, "share 100, spot running",
-                drained(List.of("REVERT_FROM_FAILED", "REVERT_NEEDS_PASSROLE"), "PASSROLE_DENIED")));
+                failed(blocked("REVERT_SPOT_STUCK", "FAILED", null, "still running at 100% On-Demand"))));
         // D: not managed / busy.
         r.add(new Row("D1", GroupState.UNMANAGED, null, false, Snap.M, Perm.OK, null, refusedAtPlan("NOT_MANAGED", "UNMANAGED")));
         r.add(new Row("D2", GroupState.REVERTING, null, true, Snap.R, Perm.OK, null, refusedAtPlan("AS_GROUP_BUSY", "REVERTING")));
@@ -376,7 +378,9 @@ class AwsRevertMatrixIT {
             }
             h.store.claimForRun(op);
             h.runner.runClaimed(h.lease, op);
-            h.f.spotInstances.clear(); // the drain (if it ran) replaced Spot with On-Demand
+            if (h.f.replacementStarted) {
+                h.f.spotInstances.clear(); // a drain that changed the purchase mix replaced Spot with On-Demand
+            }
             String status = h.runToEnd(op);
             assertThat(status).as("op (error " + h.jdbc.queryForList("SELECT error_code FROM spot_operation WHERE id = ?",
                     String.class, op) + ")").isEqualTo("SUCCEEDED");

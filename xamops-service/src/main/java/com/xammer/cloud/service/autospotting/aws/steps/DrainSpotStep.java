@@ -18,8 +18,8 @@ import java.util.List;
  * Step 1 of the REVERT program (design-aws.md §5.3): {@code OnDemandPercentageAboveBaseCapacity=100}, the base
  * unchanged. Raising the On-Demand share is a purchase-option change, so Auto Scaling replaces Spot with
  * On-Demand launch-first (AC-REV-06) and the group never drops below its capacity. Convergent: when the share is
- * already 100 and no Spot instance runs (a retry, or a group with no policy) no call is made; at share 100 with Spot
- * still running the call is sent again. The step is left out of the program when the
+ * already 100 and no Spot instance runs (a retry, or a group with no policy) no call is made. The plan refuses share
+ * 100 with Spot still running (REVERT_SPOT_STUCK); if that state appears after the plan, the call is sent again. The step is left out of the program when the
  * snapshot itself had Spot. Asserts the lease before the call.
  */
 public final class DrainSpotStep extends AwsRevertStep {
@@ -49,8 +49,8 @@ public final class DrainSpotStep extends AwsRevertStep {
         if (drained(facts) && !spotRunning(live)) {
             return done("{\"alreadyDrained\":true}");
         }
-        // Share 100 with Spot still running (a customer edit, or a drain that did not take) re-sends the drain: the
-        // plan calls this drain open, so the step must act on it, not report it done (review High #2).
+        // Share 100 with Spot still running after the plan was made (the plan blocks it, REVERT_SPOT_STUCK) re-sends the
+        // drain rather than report it done; the wait step then bounds the operation.
         UpdateAutoScalingGroupRequest request = AwsRestoreRequests.drain(live.raw());
         List<String> forbidden = AwsRestoreRequests.forbidden(request);
         if (!forbidden.isEmpty()) {

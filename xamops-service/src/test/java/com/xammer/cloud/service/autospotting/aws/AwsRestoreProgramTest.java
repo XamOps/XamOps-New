@@ -468,6 +468,28 @@ class AwsRestoreProgramTest {
     }
 
     @Test
+    void share100WithSpotRunningIsBlockedUntilTheSpotInstancesAreGone() throws IOException {
+        AwsConversionFixture f = fixture(drainedGroup(), FakeAws.asg("web-asg").build());
+        f.spotInstances.add("i-1");
+        PlanBody stuck = plan(f, GroupState.REVERTED);
+        assertThat(stuck.eligibility().blockers()).extracting(c -> c.code()).containsExactly("REVERT_SPOT_STUCK");
+        assertThat(stuck.eligibility().blockers().get(0).text()).contains("still running at 100% On-Demand")
+                .contains("then plan again");
+        f.spotInstances.clear();
+        PlanBody clear = plan(f, GroupState.REVERTED);
+        assertThat(clear.eligibility().blockers()).isEmpty();
+        assertThat(json(clear.targetJson()).path("mode").asText()).isEqualTo("RESTORE_ONLY");
+    }
+    @Test
+    void anUnchangedDrainStartsNoReplacementInTheFake() {
+        AwsConversionFixture f = fixture(drainedGroup(), FakeAws.asg("web-asg").build());
+        f.client.updateAutoScalingGroup(AwsRestoreRequests.drain(f.group()));
+        assertThat(f.replacementStarted).as("re-sending share 100 changes nothing").isFalse();
+        AwsConversionFixture g = fixture(converted(), FakeAws.asg("web-asg").build());
+        g.client.updateAutoScalingGroup(AwsRestoreRequests.drain(g.group()));
+        assertThat(g.replacementStarted).as("50 -> 100 changes the purchase mix").isTrue();
+    }
+    @Test
     void theDrainProbeDoesNotAdoptAShare100GroupThatStillRunsSpot() throws IOException {
         AwsConversionFixture f = fixture(drainedGroup(), FakeAws.asg("web-asg").build());
         PlanBody body = plan(f, GroupState.REVERTED);

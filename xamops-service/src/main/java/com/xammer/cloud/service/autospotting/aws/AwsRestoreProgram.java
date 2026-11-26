@@ -268,10 +268,16 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
             return blocked(row, check("SPOT_COUNT_UNREADABLE", "XamOps couldn't read how many Spot instances this "
                     + "group is running, so it can't plan the revert yet. Nothing was changed. Try again in a minute."));
         }
+        if (live.mixedInstancesPolicy() && shareDrained && spotRead > 0) {
+            // Already at 100% On-Demand with Spot still running: re-sending the same drain starts no replacement, and
+            // XamOps never starts an instance refresh (AD-01), so a revert would wait to its deadline (review High #2).
+            return blocked(row, check(REVERT_SPOT_STUCK, "Spot instances are still running at 100% On-Demand; Auto "
+                    + "Scaling won't replace them on its own. Replace them, or wait for them to end, then plan again."));
+        }
         int spotNow = spotRead == null ? 0 : spotRead;
-        // The drain is open while XamOps' mixed policy still allows Spot (share below 100) or Spot instances are still
-        // running at share 100. DrainSpotStep re-issues the drain in the second case, so plan and step agree.
-        boolean drainOpen = live.mixedInstancesPolicy() && (!shareDrained || spotNow > 0);
+        // The drain is open while XamOps' mixed policy still allows Spot (share below 100); share 100 with Spot running
+        // was blocked above.
+        boolean drainOpen = live.mixedInstancesPolicy() && !shareDrained;
         if (owned.isEmpty()) {
             if (live.mixedInstancesPolicy() && (drainOpen || !configOnGroup)) {
                 // Matrix Q-C (2026-11-26): the original can't be read, so the closest safe target is a drain to 100%
@@ -421,6 +427,8 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
 
     /** Warning and reason id: the saved original is missing or unreadable (matrix Q-C). */
     public static final String ORIGINAL_UNAVAILABLE = "ORIGINAL_UNAVAILABLE";
+    /** Plan blocker: share 100 with Spot still running, which no drain call can replace (review High #2). */
+    public static final String REVERT_SPOT_STUCK = "REVERT_SPOT_STUCK";
 
     /**
      * Matrix Q-C: no readable original, XamOps' mixed policy on the group. The plan drains to 100% On-Demand only
