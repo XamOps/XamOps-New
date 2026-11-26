@@ -81,6 +81,12 @@ public interface SpotProvider {
     default String desiredConfigAfterRestore(String desiredConfigJson, java.util.Set<String> doneSteps) {
         return desiredConfigJson;
     }
+
+    /** As above, with the restore op's target config, so a provider can record why it did not restore. */
+    default String desiredConfigAfterRestore(String desiredConfigJson, java.util.Set<String> doneSteps,
+                                             String restoreTargetJson) {
+        return desiredConfigAfterRestore(desiredConfigJson, doneSteps);
+    }
     /** A pure decision: the actions the core should execute for this group's status (no I/O). */
     List<ReconcileAction> reconcile(SpotGroup group, GroupStatus status);
 }

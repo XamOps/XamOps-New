@@ -24,7 +24,7 @@ import com.xammer.cloud.domain.autospotting.SpotGroup;
  * with {@link #forGroup} or {@link #none()}, so the pre-fix reading cannot come back through a convenience call.
  */
 public record PlanOptions(Boolean allowBurstable, String desiredConfigJson, boolean underManagement,
-                          boolean originalLinked) {
+                          boolean originalLinked, java.util.UUID groupId) {
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -33,6 +33,15 @@ public record PlanOptions(Boolean allowBurstable, String desiredConfigJson, bool
      * XamOps' configuration from the group (e.g. a drain-only revert): its ownership markers still apply.
      */
     public static final String CONFIG_ON_GROUP = "configOnGroup";
+
+    /** Why the drain-only revert left the configuration: PASSROLE_DENIED or CHECK_FAILED (absent on older rows). */
+    public static final String CONFIG_ON_GROUP_REASON = "configOnGroupReason";
+
+    /**
+     * Blocker code for ENABLE / ADOPT while {@link #CONFIG_ON_GROUP} is set (D-23b-03 option b). Provider-neutral:
+     * the core keeps such a group out of PLANNED so the exact revert stays available.
+     */
+    public static final String BLOCKER_CONFIG_STILL_ON_GROUP = "CONFIG_STILL_ON_GROUP";
 
     /** The states in which XamOps' configuration is on the group (no revert or first enable has removed it). */
     private static final java.util.Set<GroupState> MANAGED = java.util.EnumSet.of(GroupState.APPLYING,
@@ -44,20 +53,21 @@ public record PlanOptions(Boolean allowBurstable, String desiredConfigJson, bool
      * chooses the text of the CONFIG_STILL_ON_GROUP blocker (D-23b-03 option b).
      */
     public PlanOptions(Boolean allowBurstable, String desiredConfigJson, boolean underManagement) {
-        this(allowBurstable, desiredConfigJson, underManagement, false);
+        this(allowBurstable, desiredConfigJson, underManagement, false, null);
     }
 
     public static PlanOptions none() {
-        return new PlanOptions(null, null, false, false);
+        return new PlanOptions(null, null, false, false, null);
     }
 
     /** The options for a plan on {@code group} (null when it has no row yet). */
     public static PlanOptions forGroup(Boolean allowBurstable, SpotGroup group) {
         if (group == null) {
-            return new PlanOptions(allowBurstable, null, false, false);
+            return new PlanOptions(allowBurstable, null, false, false, null);
         }
         return new PlanOptions(allowBurstable, group.getDesiredConfig(),
-                isUnderManagement(group.getState(), group.getDesiredConfig()), group.getSnapshotId() != null);
+                isUnderManagement(group.getState(), group.getDesiredConfig()), group.getSnapshotId() != null,
+                group.getId());
     }
 
     /** True in a managed state, or when {@code desiredConfigJson} records {@link #CONFIG_ON_GROUP}. */
@@ -93,6 +103,18 @@ public record PlanOptions(Boolean allowBurstable, String desiredConfigJson, bool
      * True when the stored config says a restore program left XamOps' configuration on the group (a drain-only
      * revert, D-23b-03): the group's linked snapshot is still the customer's original.
      */
+    /** {@link #CONFIG_ON_GROUP_REASON} from the stored config, or null. */
+    public String configOnGroupReason() {
+        if (!configOnGroup()) {
+            return null;
+        }
+        try {
+            return JSON.readTree(desiredConfigJson).path(CONFIG_ON_GROUP_REASON).asText(null);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            return null;
+        }
+    }
+
     public boolean configOnGroup() {
         if (!underManagement || desiredConfigJson == null || desiredConfigJson.isBlank()) {
             return false;

@@ -15,8 +15,9 @@ import java.util.UUID;
 
 /**
  * What a group's last REVERT ended with, read from the operation and its plan body ({@code revertPath.reasons}).
- * Only GR-02 needs it: a REVERTED group may be reverted again only after a drain-only revert, one that ended
- * {@code EXACT_RESTORE_IMPOSSIBLE(PASSROLE_DENIED)} (design-aws.md §5.3, {@link PlanKinds}). No write, no cloud call.
+ * Only GR-02 needs it: a REVERTED group may be reverted again only after a drain-only revert that left XamOps'
+ * configuration on it: the last revert ended {@code EXACT_RESTORE_IMPOSSIBLE(PASSROLE_DENIED)}, or the row records
+ * {@code configOnGroup} (PASSROLE_DENIED or CHECK_FAILED; design-aws.md §5.3, {@link PlanKinds}). No write, no cloud call.
  */
 public final class RevertHistory {
     public static final String PASSROLE_DENIED = "PASSROLE_DENIED";

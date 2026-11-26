@@ -58,6 +58,11 @@ final class AwsOpsHarness implements AutoCloseable {
                              com.xammer.cloud.domain.CloudAccount account) {
             return delegate.plan(request, account);
         }
+
+        @Override
+        public boolean originalReadable(java.util.UUID groupId) {
+            return delegate.originalReadable(groupId);
+        }
     }
 
     final PgHarness.Database db;

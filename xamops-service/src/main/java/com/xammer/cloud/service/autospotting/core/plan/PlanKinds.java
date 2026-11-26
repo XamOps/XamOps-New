@@ -56,15 +56,15 @@ public final class PlanKinds {
 
     /**
      * {@link #isAllowed(OperationKind, GroupState)} plus the GR-02 row (design-aws.md §5.3): a REVERT is allowed
-     * from REVERTED only when the group's last REVERT op ended with {@code EXACT_RESTORE_IMPOSSIBLE(PASSROLE_DENIED)},
-     * that is, after a drain-only revert. Every other REVERTED group still has nothing to revert
+     * from REVERTED only after a drain-only revert that left XamOps' configuration on the group (PASSROLE_DENIED or
+     * CHECK_FAILED, {@link RevertHistory#revertAllowedAgain}). Every other REVERTED group still has nothing to revert
      * ({@code NOT_MANAGED}).
      *
-     * @param lastRevertPassRoleDenied whether the last REVERT op of the group was a drain-only revert
+     * @param regrant whether {@link RevertHistory#revertAllowedAgain} re-grants the revert for this group
      */
-    public static boolean isAllowed(OperationKind kind, GroupState state, boolean lastRevertPassRoleDenied) {
+    public static boolean isAllowed(OperationKind kind, GroupState state, boolean regrant) {
         if (kind == OperationKind.REVERT && state == GroupState.REVERTED) {
-            return lastRevertPassRoleDenied;
+            return regrant;
         }
         return isAllowed(kind, state);
     }

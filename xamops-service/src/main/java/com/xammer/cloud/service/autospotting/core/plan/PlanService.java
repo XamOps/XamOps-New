@@ -253,7 +253,8 @@ public class PlanService {
         // D-23b-03 option (b): an ENABLE blocked because XamOps' configuration is still on the group (drain-only
         // revert) leaves the group REVERTED, so the exact revert it asks for stays available (a PLANNED group has
         // nothing to revert). The plan can never be confirmed; a later plan supersedes it and expiry is a no-op.
-        boolean configStillOnGroup = eligibility.blockers().stream().anyMatch(b -> "CONFIG_STILL_ON_GROUP".equals(b.code()));
+        boolean configStillOnGroup = eligibility.blockers().stream()
+                .anyMatch(b -> PlanOptions.BLOCKER_CONFIG_STILL_ON_GROUP.equals(b.code()));
         if (cmd.kind() == OperationKind.ENABLE && !dryRun && group != null
                 && group.getState() != GroupState.PLANNED && !configStillOnGroup) {
             try {
@@ -297,7 +298,8 @@ public class PlanService {
     private void checkKindState(OperationKind kind, SpotGroup group, GroupState state) {
         boolean regrant = false;
         if (kind == OperationKind.REVERT) {
-            // GR-02: a REVERTED group is revertible again only after a drain-only revert (PASSROLE_DENIED).
+            // GR-02: a REVERTED group is revertible again only after a drain-only revert that left XamOps'
+            // configuration on it (PASSROLE_DENIED or CHECK_FAILED; RevertHistory.revertAllowedAgain).
             regrant = group != null && state == GroupState.REVERTED
                     && RevertHistory.revertAllowedAgain(operations, plans, group);
             // §7.4 REVERT exceptions, resolved before the general table.

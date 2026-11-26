@@ -54,7 +54,8 @@ public final class GroupTransitions {
         put(m, GroupState.UNMANAGED, GroupState.PLANNED, GroupState.GONE);
 
         // REVERTED --> PLANNED (new enable plan); --> REVERTING (GR-02: the exact revert offered after a drain-only
-        //          revert ended with PASSROLE_DENIED; plan kinds allow it from no other REVERTED group); --> GONE.
+        //          revert left XamOps' configuration on the group, PASSROLE_DENIED or CHECK_FAILED; plan kinds allow
+        //          it from no other REVERTED group); --> GONE.
         put(m, GroupState.REVERTED, GroupState.PLANNED, GroupState.REVERTING, GroupState.GONE);
 
         // PLANNED --> PLANNED (superseding enable plan, inherits from_state, 7.4);

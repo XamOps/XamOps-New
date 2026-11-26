@@ -376,7 +376,11 @@ class AwsConfirmedOpsIT {
             assertThat(h.f.json(stored.getDesiredConfig()).path("options").path("burstableAdded").toString())
                     .as("burstableAdded kept").isEqualTo("[\"t3a.micro\"]");
             String text = assertEnableBlocked(h);
-            assertThat(text).isEqualTo("XamOps' configuration is still on this group. Grant iam:PassRole and run Revert first.");
+            // This drain happened because the permission check could not run (CHECK_FAILED): no PassRole advice.
+            assertThat(h.f.json(row(h).getDesiredConfig()).path(PlanOptions.CONFIG_ON_GROUP_REASON).asText())
+                    .isEqualTo("CHECK_FAILED");
+            assertThat(text).isEqualTo("XamOps' configuration is still on this group. The last revert couldn't check its "
+                    + "permissions, so it only moved the group to On-Demand. Run Revert first to restore the original.");
             assertThat(h.groupState()).isEqualTo("REVERTED");
             UUID snapshotBefore = row(h).getSnapshotId();
             h.f.spotInstances.clear();
@@ -591,14 +595,140 @@ class AwsConfirmedOpsIT {
                 .filter(b -> b.code().equals(AwsSpotProvider.CONFIG_STILL_ON_GROUP)).findFirst().orElseThrow();
         assertThat(h.provider.checkEligibility(asgRef(), h.f.aws.view(), new Profile("aggressive", null),
                 com.xammer.cloud.service.autospotting.spi.EvalMode.PLAN, optionsFor(h, null)).blockers())
-                .extracting(b -> b.code()).as("the group list shows it too").contains(AwsSpotProvider.CONFIG_STILL_ON_GROUP);
+                .extracting(b -> b.code()).contains(AwsSpotProvider.CONFIG_STILL_ON_GROUP);
+        // Review #1: the group list and the detail row (AwsGroupLister.buildRow) show the same blocker.
+        var lookup = org.mockito.Mockito.mock(com.xammer.cloud.service.autospotting.core.GroupLookup.class);
+        org.mockito.Mockito.when(lookup.forAccount(Provider.AWS, 7L)).thenReturn(List.of(row(h)));
+        AwsGroupLister lister = new AwsGroupLister(h.f.views, h.f.evaluator, h.provider, new AwsGroupStatusReader(),
+                lookup, java.time.Duration.ofSeconds(20), java.time.Clock.systemUTC());
+        var detail = lister.row(FakeAws.account(), FakeAws.REGION + "/web-asg", row(h)).orElseThrow();
+        assertThat(detail.enableAllowed()).as("detail: Enable is not offered").isFalse();
+        assertThat(detail.blockers()).extracting(b -> b.code()).contains(AwsSpotProvider.CONFIG_STILL_ON_GROUP);
+        var listed = lister.list(FakeAws.account()).items().stream()
+                .filter(r -> r.groupKey().equals(FakeAws.REGION + "/web-asg")).findFirst().orElseThrow();
+        assertThat(listed.enableAllowed()).as("list: Enable is not offered").isFalse();
+        assertThat(listed.blockers()).extracting(b -> b.code()).contains(AwsSpotProvider.CONFIG_STILL_ON_GROUP);
         assertThat(PlanOptions.forGroup(null, row(h)).configOnGroup()).isTrue();
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> h.planAndConfirm(enable))
                 .as("a blocked enable cannot be confirmed")
                 .isInstanceOfSatisfying(com.xammer.cloud.service.autospotting.core.AutoSpottingApiException.class,
-                        e -> assertThat(e.getCode()).isEqualTo(AwsSpotProvider.CONFIG_STILL_ON_GROUP));
+                        e -> {
+                            // 422 with the plan's first blocker (CONFIG_STILL_ON_GROUP, or a permission gap listed
+                            // before it while PassRole is still denied).
+                            assertThat(e.getStatus().value()).isEqualTo(422);
+                            assertThat(plan.eligibility().blockers()).extracting(b -> b.code()).contains(e.getCode());
+                        });
         // The refused plan stays OPEN until the next plan supersedes it (PlanService does that; the harness does not).
         h.jdbc.update("UPDATE spot_plan SET status = 'SUPERSEDED' WHERE group_id = ? AND status = 'OPEN'", h.f.groupId);
         return blocker.text();
+    }
+
+    /** Review #3: a drain caused by a denied iam:PassRole names the permission to grant. */
+    @Test
+    void afterAPassRoleDeniedDrainTheBlockerSaysToGrantPassRole() {
+        AutoScalingGroup live = converted(List.of(T3_MICRO, T3A_MICRO), imp(100, 200));
+        String desired = desiredWith(List.of("t3.micro", "t3a.micro"), OWNED
+                + ",\"options\":{\"allowBurstable\":true,\"burstableAdded\":[\"t3a.micro\"]}");
+        try (AwsOpsHarness h = new AwsOpsHarness(live, FakeAws.asg("web-asg").build(), GroupState.ACTIVE, desired, true,
+                fx -> {
+                    fx.aws.burstableWorld();
+                    passRoleDenied(fx);
+                })) {
+            assertThat(h.f.json(h.plan.targetJson()).path("reasons").toString()).contains("PASSROLE_DENIED");
+            h.runner.runClaimed(h.lease, h.f.opId);
+            assertThat(h.runToEnd(h.f.opId)).as("drain error " + h.opError()).isEqualTo("SUCCEEDED");
+            assertThat(h.f.json(row(h).getDesiredConfig()).path(PlanOptions.CONFIG_ON_GROUP_REASON).asText())
+                    .isEqualTo("PASSROLE_DENIED");
+            // While PassRole is still denied the enable also carries PERMISSION_MISSING; the drain's own text is
+            // what matters here, so the remaining permissions are made fine.
+            simulate(h, false);
+            assertThat(assertEnableBlocked(h))
+                    .isEqualTo("XamOps' configuration is still on this group. Grant iam:PassRole and run Revert first.");
+        }
+    }
+
+    /** An instance profile on the template and a denied iam:PassRole for it (the PASSROLE_DENIED drain). */
+    private static void passRoleDenied(AwsConversionFixture fx) {
+        org.mockito.Mockito.doReturn(software.amazon.awssdk.services.ec2.model.DescribeLaunchTemplateVersionsResponse
+                .builder().launchTemplateVersions(software.amazon.awssdk.services.ec2.model.LaunchTemplateVersion.builder()
+                        .versionNumber(7L).launchTemplateData(software.amazon.awssdk.services.ec2.model
+                                .ResponseLaunchTemplateData.builder().imageId("ami-0aaa").instanceType("t3.micro")
+                                .iamInstanceProfile(software.amazon.awssdk.services.ec2.model
+                                        .LaunchTemplateIamInstanceProfileSpecification.builder().name("web-profile").build())
+                                .build()).build()).build())
+                .when(fx.aws.ec2).describeLaunchTemplateVersions(org.mockito.ArgumentMatchers.any(
+                        software.amazon.awssdk.services.ec2.model.DescribeLaunchTemplateVersionsRequest.class));
+        org.mockito.Mockito.doReturn(software.amazon.awssdk.services.iam.model.GetInstanceProfileResponse.builder()
+                        .instanceProfile(software.amazon.awssdk.services.iam.model.InstanceProfile.builder().roles(
+                                software.amazon.awssdk.services.iam.model.Role.builder()
+                                        .arn("arn:aws:iam::111122223333:role/web").build()).build()).build())
+                .when(fx.aws.iam).getInstanceProfile(org.mockito.ArgumentMatchers.any(
+                        software.amazon.awssdk.services.iam.model.GetInstanceProfileRequest.class));
+        org.mockito.Mockito.doAnswer(inv -> {
+            software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyRequest r = inv.getArgument(0);
+            return software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyResponse.builder()
+                    .evaluationResults(r.actionNames().stream().map(a -> software.amazon.awssdk.services.iam.model
+                            .EvaluationResult.builder().evalActionName(a)
+                            .evalDecision("iam:PassRole".equals(a) ? "implicitDeny" : "allowed").build()).toList())
+                    .build();
+        }).when(fx.aws.iam).simulatePrincipalPolicy(org.mockito.ArgumentMatchers.any(
+                software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyRequest.class));
+    }
+
+    /** Review #4: a REVERT plan blocked by SNAPSHOT_MISSING is refused at confirm; no op, alert or audit row. */
+    @Test
+    void aRevertPlanBlockedBySnapshotMissingIsNotConfirmable() {
+        try (AwsOpsHarness h = drainOnlyReverted()) {
+            h.jdbc.update("UPDATE spot_group SET snapshot_id = NULL WHERE id = ?", h.f.groupId);
+            int ops = h.jdbc.queryForObject("SELECT count(*) FROM spot_operation", Integer.class);
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> h.planAndConfirm(new PlanRequest(asgRef(),
+                            OperationKind.REVERT, null, optionsFor(h, null))))
+                    .isInstanceOfSatisfying(com.xammer.cloud.service.autospotting.core.AutoSpottingApiException.class,
+                            e -> assertThat(e.getCode()).isEqualTo("SNAPSHOT_MISSING"));
+            assertThat(h.jdbc.queryForObject("SELECT count(*) FROM spot_operation", Integer.class))
+                    .as("no operation").isEqualTo(ops);
+        }
+    }
+
+    /** Review #8: a link to a snapshot whose payload doesn't decode is "missing" for the blocker text too. */
+    @Test
+    void aLinkedButUnreadableOriginalGetsTheContactSupportText() {
+        try (AwsOpsHarness h = drainOnlyReverted()) {
+            UUID bad = UUID.randomUUID();
+            h.jdbc.update("INSERT INTO spot_group_snapshot (id, group_id, provider, schema_version, exact, payload,"
+                    + " payload_sha256, captured_at, captured_by_op) VALUES (?, ?, 'AWS', 1, true, '{\"junk\":true}'::jsonb,"
+                    + " 'x', now(), ?)", bad, h.f.groupId, UUID.randomUUID());
+            h.jdbc.update("UPDATE spot_group SET snapshot_id = ? WHERE id = ?", bad, h.f.groupId);
+            assertThat(assertEnableBlocked(h)).contains("missing or can't be read").contains("Contact support")
+                    .doesNotContain("Run Revert");
+        }
+    }
+
+    /** Review #9: ADOPT is blocked too, and its confirm is refused. */
+    @Test
+    void anAdoptAfterADrainOnlyRevertIsBlockedAndNotConfirmable() {
+        try (AwsOpsHarness h = drainOnlyReverted()) {
+            PlanRequest adopt = new PlanRequest(asgRef(), OperationKind.ADOPT, new Profile("aggressive", null),
+                    optionsFor(h, null));
+            var plan = h.provider.createPlan(adopt, h.f.aws.view());
+            assertThat(plan.eligibility().blockers()).extracting(b -> b.code())
+                    .contains(AwsSpotProvider.CONFIG_STILL_ON_GROUP);
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> h.planAndConfirm(adopt))
+                    .isInstanceOf(com.xammer.cloud.service.autospotting.core.AutoSpottingApiException.class);
+        }
+    }
+
+    /** Review #5: during the drain-only window status treats a customer-set policy as theirs, like planning. */
+    @Test
+    void afterADrainOnlyRevertStatusTreatsACustomerPolicyAsTheirsLikePlanning() {
+        try (AwsOpsHarness h = drainOnlyReverted()) {
+            assertThat(h.provider.getStatus(row(h), h.f.aws.view()).liveFingerprint()).as("100/200 is still XamOps'")
+                    .isEqualTo(AwsFingerprint.of(AwsGroupFacts.from(FakeAws.REGION, h.f.group()), true));
+            h.f.replaceGroup(h.f.group().toBuilder().instanceMaintenancePolicy(imp(90, 120)).build());
+            AwsGroupFacts facts = AwsGroupFacts.from(FakeAws.REGION, h.f.group());
+            assertThat(h.provider.getStatus(row(h), h.f.aws.view()).liveFingerprint())
+                    .as("the customer's 90/120 is theirs in status").isEqualTo(AwsFingerprint.of(facts, false));
+            assertThat(AwsSpotProvider.ownsPolicy(optionsFor(h, null), facts)).as("and in planning").isFalse();
+        }
     }
 }
