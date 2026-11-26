@@ -275,6 +275,55 @@ final class AwsOpsHarness implements AutoCloseable {
                         + " false, ?::jsonb, false, 'tester', ?, ?)",
                 planId, f.groupId, request.kind().name(), from, fingerprint, body.toString(), warnings.toString(),
                 Timestamp.from(now), Timestamp.from(now.plusSeconds(3600)));
+        return confirmWith(planId, warningIds);
+    }
+
+    /** The persisted group row. */
+    com.xammer.cloud.domain.autospotting.SpotGroup row() {
+        return ctx.getBean(SpotGroupRepository.class).findById(f.groupId).orElseThrow();
+    }
+
+    /** The account the harness plans and confirms for (id 7, client 1). */
+    static com.xammer.cloud.domain.CloudAccount harnessAccount() {
+        com.xammer.cloud.domain.CloudAccount account = FakeAws.account();
+        com.xammer.cloud.domain.Client client = new com.xammer.cloud.domain.Client();
+        client.setId(1L);
+        account.setClient(client);
+        return account;
+    }
+
+    /**
+     * A plan through the real {@link com.xammer.cloud.service.autospotting.core.plan.PlanService} (the kind/state
+     * gate, NOT_MANAGED, AS_GROUP_BUSY, the provider plan, the stored body and fingerprint), as the API makes it.
+     */
+    com.xammer.cloud.domain.autospotting.SpotPlan planThroughService(OperationKind kind) {
+        var service = new com.xammer.cloud.service.autospotting.core.plan.PlanService(ctx.getBean(SpotPlanRepository.class),
+                ctx.getBean(SpotGroupRepository.class), ctx.getBean(SpotOperationRepository.class),
+                new ProviderRegistry(List.of(provider)),
+                org.mockito.Mockito.mock(com.xammer.cloud.service.autospotting.core.plan.FeeBasisResolver.class),
+                org.mockito.Mockito.mock(com.xammer.cloud.service.autospotting.core.plan.RevertPreconditions.class),
+                ctx.getBean(SwitchService.class),
+                org.mockito.Mockito.mock(com.xammer.cloud.service.autospotting.core.switches.AutoSpottingSwitchProperties.class),
+                ctx.getBean(GroupLifecycleService.class), java.time.Duration.ofMinutes(15));
+        var tx = new org.springframework.transaction.support.TransactionTemplate(
+                ctx.getBean(org.springframework.transaction.PlatformTransactionManager.class));
+        tx.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return tx.execute(st -> service.createPlan(harnessAccount(), null,
+                new com.xammer.cloud.service.autospotting.core.plan.PlanService.CreateCommand(kind, f.groupId, null,
+                        "aggressive", false, null, "hash-" + UUID.randomUUID(), "tester")));
+    }
+
+    /** Confirm a stored plan through ConfirmService, acknowledging every warning it lists. Returns the op id. */
+    UUID confirmPlan(UUID planId) {
+        String ids = jdbc.queryForObject("SELECT warning_ids::text FROM spot_plan WHERE id = ?", String.class, planId);
+        List<String> warningIds = new java.util.ArrayList<>();
+        if (ids != null) {
+            f.json(ids).forEach(n -> warningIds.add(n.asText()));
+        }
+        return confirmWith(planId, warningIds);
+    }
+
+    private UUID confirmWith(UUID planId, List<String> warningIds) {
         var authorization = org.mockito.Mockito.mock(com.xammer.cloud.service.autospotting.core.AutoSpottingAuthorization.class);
         org.mockito.Mockito.when(authorization.authorizeConfirm(org.mockito.ArgumentMatchers.any(),
                         org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
@@ -292,17 +341,16 @@ final class AwsOpsHarness implements AutoCloseable {
                 org.mockito.Mockito.mock(com.xammer.cloud.service.autospotting.core.switches.AutoSpottingSwitchProperties.class),
                 new ProviderRegistry(List.of(provider)), ctx.getBean(AutoSpottingAuditWriter.class),
                 org.mockito.Mockito.mock(com.xammer.cloud.service.autospotting.notify.AutoSpottingNotificationService.class));
-        com.xammer.cloud.domain.CloudAccount account = FakeAws.account();
-        com.xammer.cloud.domain.Client client = new com.xammer.cloud.domain.Client();
-        client.setId(1L);
-        account.setClient(client);
+        com.xammer.cloud.domain.CloudAccount account = harnessAccount();
         com.xammer.cloud.security.ClientUserDetails user = new com.xammer.cloud.security.ClientUserDetails("owner", "x",
                 List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_USER")), 1L, 100L, "t");
         // ConfirmService carries @Transactional(REQUIRES_NEW) as a Spring bean; emulate that proxy here.
         return new org.springframework.transaction.support.TransactionTemplate(
                 ctx.getBean(org.springframework.transaction.PlatformTransactionManager.class))
                 .execute(status -> confirm.confirm(account, user, planId,
-                        new com.xammer.cloud.service.autospotting.core.plan.ConfirmService.ConfirmCommand(1, warningIds,
+                        new com.xammer.cloud.service.autospotting.core.plan.ConfirmService.ConfirmCommand(
+                                jdbc.queryForObject("SELECT version FROM spot_plan WHERE id = ?", Integer.class, planId),
+                                warningIds,
                                 false, null, false, "k-" + planId, "h-" + planId))).operationId();
     }
 

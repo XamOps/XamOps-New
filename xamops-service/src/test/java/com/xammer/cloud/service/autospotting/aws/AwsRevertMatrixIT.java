@@ -1,0 +1,332 @@
+package com.xammer.cloud.service.autospotting.aws;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.xammer.cloud.domain.autospotting.GroupState;
+import com.xammer.cloud.domain.autospotting.OperationKind;
+import com.xammer.cloud.service.autospotting.core.AutoSpottingApiException;
+import com.xammer.cloud.service.autospotting.spi.PlanOptions;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
+import software.amazon.awssdk.services.autoscaling.model.AutoScalingGroup;
+import software.amazon.awssdk.services.autoscaling.model.InstanceMaintenancePolicy;
+import software.amazon.awssdk.services.autoscaling.model.InstancesDistribution;
+import software.amazon.awssdk.services.autoscaling.model.LaunchTemplate;
+import software.amazon.awssdk.services.autoscaling.model.LaunchTemplateOverrides;
+import software.amazon.awssdk.services.autoscaling.model.LaunchTemplateSpecification;
+import software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Stream;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+
+/**
+ * The AWS REVERT matrix of phase 23b ({@code impl/phase-23b/revert-matrix.md}), one row per test, through the
+ * production path: the real PlanService (kind/state gate, NOT_MANAGED, AS_GROUP_BUSY, the provider plan), the real
+ * ConfirmService (every listed warning acknowledged; any blocker refused) and the real OperationRunner on the AWS fake.
+ * Each row asserts the plan result, the confirm outcome, the steps that ran, the end state, what is left on the ASG
+ * (mixed policy and its share, XamOps' 100/200, its added types, the marker tag) and the ownership markers after.
+ * Spot: a row whose drain is open has Spot instances in the fake; the drain steps must run before the restore.
+ */
+@Tag("containers")
+class AwsRevertMatrixIT {
+
+    enum Snap { R, M, U }
+
+    enum Perm { OK, PR, CF }
+
+    private static final List<String> TYPES = List.of("m5.large", "m5a.large");
+    private static final List<String> ALL_STEPS = List.of("VERIFY_PRECONDITIONS", "DRAIN_SPOT", "WAIT_SPOT_DRAINED",
+            "RESTORE_SHAPE", "VERIFY_REVERTED", "REMOVE_MARKER");
+    private static final List<String> DRAIN_STEPS = List.of("VERIFY_PRECONDITIONS", "DRAIN_SPOT", "WAIT_SPOT_DRAINED",
+            "VERIFY_REVERTED", "REMOVE_MARKER");
+
+    /** What the ASG and the row look like after the row ran. */
+    record Expect(String plan, List<String> warnings, boolean confirmed, List<String> steps, String endState,
+                  boolean mip, boolean xamopsPolicy, boolean tag, boolean markersKept, String cogReason,
+                  String blockerTextExcludes) {
+    }
+
+    record Row(String id, GroupState state, String cog, boolean drainOpen, Snap snap, Perm perm, String setup,
+               Expect expect) {
+        @Override
+        public String toString() {
+            return id + " " + state + " cog=" + cog + " drain=" + (drainOpen ? "open" : "done") + " snap=" + snap
+                    + " perm=" + perm + (setup == null ? "" : " " + setup);
+        }
+    }
+
+    private static Expect restored(List<String> warnings) {
+        return new Expect("RESTORE", warnings, true, ALL_STEPS, "REVERTED", false, false, false, false, null, null);
+    }
+
+    private static Expect restoredOnly(List<String> warnings) {
+        return new Expect("RESTORE_ONLY", warnings, true, ALL_STEPS, "REVERTED", false, false, false, false, null, null);
+    }
+
+    private static Expect drained(List<String> warnings, String reason) {
+        return new Expect("DRAIN_ONLY", warnings, true, DRAIN_STEPS, "REVERTED", true, true, false, true, reason, null);
+    }
+
+    private static Expect blocked(String code, String endState, String excludes) {
+        return new Expect("BLOCKED:" + code, List.of(), false, List.of(), endState, true, true, true, true, null, excludes);
+    }
+
+    private static Expect refusedAtPlan(String code, String endState) {
+        return new Expect("409:" + code, List.of(), false, List.of(), endState, false, false, false, false, null, null);
+    }
+
+    static Stream<Row> rows() {
+        List<Row> r = new ArrayList<>();
+        // A: managed groups, no configOnGroup.
+        for (GroupState s : List.of(GroupState.ACTIVE, GroupState.DEGRADED, GroupState.PAUSED)) {
+            r.add(new Row("A1", s, null, true, Snap.R, Perm.OK, null, restored(List.of())));
+        }
+        r.add(new Row("A2", GroupState.ACTIVE, null, true, Snap.R, Perm.PR, null,
+                drained(List.of("REVERT_NEEDS_PASSROLE"), "PASSROLE_DENIED")));
+        r.add(new Row("A3", GroupState.ACTIVE, null, true, Snap.R, Perm.CF, null,
+                drained(List.of("REVERT_CHECK_FAILED"), "CHECK_FAILED")));
+        r.add(new Row("A4", GroupState.ACTIVE, null, true, Snap.M, Perm.OK, null,
+                drained(List.of("ORIGINAL_UNAVAILABLE"), "ORIGINAL_UNAVAILABLE")));
+        r.add(new Row("A4u", GroupState.ACTIVE, null, true, Snap.U, Perm.OK, null,
+                drained(List.of("ORIGINAL_UNAVAILABLE"), "ORIGINAL_UNAVAILABLE")));
+        r.add(new Row("A5", GroupState.FALLBACK, null, false, Snap.R, Perm.OK, null, restored(List.of())));
+        r.add(new Row("A6", GroupState.APPLYING, null, true, Snap.R, Perm.OK, "enable in flight", restored(List.of())));
+        r.add(new Row("A7", GroupState.FAILED, null, true, Snap.R, Perm.OK, null, restored(List.of("REVERT_FROM_FAILED"))));
+        r.add(new Row("A8", GroupState.FAILED, null, true, Snap.M, Perm.OK, null,
+                drained(List.of("REVERT_FROM_FAILED", "ORIGINAL_UNAVAILABLE"), "ORIGINAL_UNAVAILABLE")));
+        // B: REVERTED after a drain-only revert (configOnGroup).
+        r.add(new Row("B1", GroupState.REVERTED, "PASSROLE_DENIED", false, Snap.R, Perm.OK, null, restoredOnly(List.of())));
+        r.add(new Row("B2", GroupState.REVERTED, "PASSROLE_DENIED", false, Snap.R, Perm.PR, null,
+                blocked("REVERT_NEEDS_PASSROLE", "REVERTED", null)));
+        r.add(new Row("B3", GroupState.REVERTED, "CHECK_FAILED", false, Snap.R, Perm.CF, null,
+                blocked("REVERT_CHECK_FAILED", "REVERTED", "PassRole")));
+        r.add(new Row("B4", GroupState.REVERTED, "PASSROLE_DENIED", false, Snap.M, Perm.OK, null,
+                blocked("SNAPSHOT_MISSING", "REVERTED", null)));
+        r.add(new Row("B5", GroupState.REVERTED, "CHECK_FAILED", true, Snap.R, Perm.OK, null, restoredOnly(List.of())));
+        r.add(new Row("B6", GroupState.REVERTED, null, false, Snap.R, Perm.OK, null,
+                refusedAtPlan("NOT_MANAGED", "REVERTED")));
+        // C: FAILED with configOnGroup (a revert mutated and did not restore).
+        r.add(new Row("C1", GroupState.FAILED, "", false, Snap.R, Perm.OK, null, restoredOnly(List.of("REVERT_FROM_FAILED"))));
+        r.add(new Row("C2", GroupState.FAILED, "", true, Snap.R, Perm.OK, null, restoredOnly(List.of("REVERT_FROM_FAILED"))));
+        r.add(new Row("C3", GroupState.FAILED, "", false, Snap.R, Perm.PR, null,
+                blocked("REVERT_NEEDS_PASSROLE", "FAILED", null)));
+        r.add(new Row("C3c", GroupState.FAILED, "", false, Snap.R, Perm.CF, null,
+                blocked("REVERT_CHECK_FAILED", "FAILED", "PassRole")));
+        r.add(new Row("C4", GroupState.FAILED, "", true, Snap.R, Perm.PR, null,
+                drained(List.of("REVERT_FROM_FAILED", "REVERT_NEEDS_PASSROLE"), "PASSROLE_DENIED")));
+        r.add(new Row("C5", GroupState.FAILED, "", false, Snap.M, Perm.OK, null,
+                blocked("SNAPSHOT_MISSING", "FAILED", null)));
+        r.add(new Row("C6", GroupState.FAILED, "", true, Snap.M, Perm.OK, null,
+                drained(List.of("REVERT_FROM_FAILED", "ORIGINAL_UNAVAILABLE"), "ORIGINAL_UNAVAILABLE")));
+        // D: not managed / busy.
+        r.add(new Row("D1", GroupState.UNMANAGED, null, false, Snap.M, Perm.OK, null, refusedAtPlan("NOT_MANAGED", "UNMANAGED")));
+        r.add(new Row("D2", GroupState.REVERTING, null, true, Snap.R, Perm.OK, null, refusedAtPlan("AS_GROUP_BUSY", "REVERTING")));
+        r.add(new Row("D3", GroupState.PLANNED, null, false, Snap.M, Perm.OK, null, refusedAtPlan("NOT_MANAGED", "PLANNED")));
+        r.add(new Row("D4", GroupState.PLANNED, null, false, Snap.M, Perm.OK, "enable queued",
+                refusedAtPlan("NOT_MANAGED", "PLANNED")));
+        return r.stream();
+    }
+
+    // ---- fixtures ----
+
+    private static InstanceMaintenancePolicy owned() {
+        return InstanceMaintenancePolicy.builder().minHealthyPercentage(100).maxHealthyPercentage(200).build();
+    }
+
+    /** The live group: XamOps' MIP (share 50 when the drain is open, else 100), its types, 100/200 and the marker. */
+    private static AutoScalingGroup live(boolean drainOpen) {
+        return FakeAws.asg("web-asg").launchTemplate((LaunchTemplateSpecification) null).capacityRebalance(true)
+                .tags(FakeAws.tag(AwsGroupFacts.MARKER_TAG, "marker")).instanceMaintenancePolicy(owned())
+                .mixedInstancesPolicy(MixedInstancesPolicy.builder().launchTemplate(LaunchTemplate.builder()
+                                .launchTemplateSpecification(LaunchTemplateSpecification.builder().launchTemplateId("lt-0abc")
+                                        .version("$Default").build())
+                                .overrides(TYPES.stream().map(t -> LaunchTemplateOverrides.builder().instanceType(t).build())
+                                        .toList()).build())
+                        .instancesDistribution(InstancesDistribution.builder().onDemandAllocationStrategy("prioritized")
+                                .onDemandBaseCapacity(1).onDemandPercentageAboveBaseCapacity(drainOpen ? 50 : 100)
+                                .spotAllocationStrategy("price-capacity-optimized").build()).build())
+                .build();
+    }
+
+    private static String desired(String cog) {
+        return "{\"shape\":\"MIXED_INSTANCES_POLICY\",\"launchTemplate\":{\"id\":\"lt-0abc\",\"version\":\"$Default\"},"
+                + "\"overrides\":" + TYPES.stream().map(t -> "\"" + t + "\"").toList()
+                + ",\"instancesDistribution\":{\"onDemandAllocationStrategy\":\"prioritized\",\"onDemandBaseCapacity\":1,"
+                + "\"onDemandPercentageAboveBaseCapacity\":50,\"spotAllocationStrategy\":\"price-capacity-optimized\"},"
+                + "\"capacityRebalance\":true,\"instanceMaintenancePolicy\":{\"owned\":true,\"min\":100,\"max\":200}"
+                + (cog == null ? "" : ",\"" + PlanOptions.CONFIG_ON_GROUP + "\":true"
+                        + (cog.isEmpty() ? "" : ",\"" + PlanOptions.CONFIG_ON_GROUP_REASON + "\":\"" + cog + "\""))
+                + "}";
+    }
+
+    private static void perms(AwsConversionFixture fx, Perm perm) {
+        if (perm == Perm.CF) {
+            doThrow(AwsServiceException.builder().statusCode(403).awsErrorDetails(AwsErrorDetails.builder()
+                    .errorCode("AccessDenied").build()).build()).when(fx.aws.iam).simulatePrincipalPolicy(any(
+                    software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyRequest.class));
+            return;
+        }
+        if (perm == Perm.PR) {
+            doReturn(software.amazon.awssdk.services.ec2.model.DescribeLaunchTemplateVersionsResponse.builder()
+                    .launchTemplateVersions(software.amazon.awssdk.services.ec2.model.LaunchTemplateVersion.builder()
+                            .versionNumber(7L).launchTemplateData(software.amazon.awssdk.services.ec2.model
+                                    .ResponseLaunchTemplateData.builder().imageId("ami-0aaa").instanceType("m5.large")
+                                    .iamInstanceProfile(software.amazon.awssdk.services.ec2.model
+                                            .LaunchTemplateIamInstanceProfileSpecification.builder().name("web-profile")
+                                            .build()).build()).build()).build())
+                    .when(fx.aws.ec2).describeLaunchTemplateVersions(any(
+                            software.amazon.awssdk.services.ec2.model.DescribeLaunchTemplateVersionsRequest.class));
+            doReturn(software.amazon.awssdk.services.iam.model.GetInstanceProfileResponse.builder().instanceProfile(
+                    software.amazon.awssdk.services.iam.model.InstanceProfile.builder().roles(
+                            software.amazon.awssdk.services.iam.model.Role.builder()
+                                    .arn("arn:aws:iam::111122223333:role/web").build()).build()).build())
+                    .when(fx.aws.iam).getInstanceProfile(any(
+                            software.amazon.awssdk.services.iam.model.GetInstanceProfileRequest.class));
+            doAnswer(inv -> {
+                software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyRequest q = inv.getArgument(0);
+                return software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyResponse.builder()
+                        .evaluationResults(q.actionNames().stream().map(a -> software.amazon.awssdk.services.iam.model
+                                .EvaluationResult.builder().evalActionName(a)
+                                .evalDecision("iam:PassRole".equals(a) ? "implicitDeny" : "allowed").build()).toList())
+                        .build();
+            }).when(fx.aws.iam).simulatePrincipalPolicy(any(
+                    software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyRequest.class));
+        }
+    }
+
+    private static AwsOpsHarness harness(Row row) {
+        if ("enable queued".equals(row.setup())) {
+            return new AwsOpsHarness(FakeAws.asg("web-asg").build(), OperationKind.ENABLE, GroupState.PLANNED,
+                    GroupState.PLANNED, "conservative");
+        }
+        boolean converted = row.state() != GroupState.UNMANAGED && row.state() != GroupState.PLANNED;
+        AutoScalingGroup group = converted ? live(row.drainOpen()) : FakeAws.asg("web-asg").build();
+        String configMode = row.state() == GroupState.FALLBACK ? "FALLBACK" : "MANAGED";
+        String pause = row.state() == GroupState.PAUSED ? "OPERATOR" : null;
+        AwsOpsHarness h = new AwsOpsHarness(group, row.state(), configMode, converted ? desired(row.cog()) : null,
+                null, pause, pause == null ? null : GroupState.ACTIVE);
+        if (row.snap() == Snap.R) {
+            h.linkSnapshot(FakeAws.asg("web-asg").build());
+        } else if (row.snap() == Snap.U) {
+            UUID bad = UUID.randomUUID();
+            h.jdbc.update("INSERT INTO spot_group_snapshot (id, group_id, provider, schema_version, exact, payload,"
+                    + " payload_sha256, captured_at, captured_by_op) VALUES (?, ?, 'AWS', 1, true,"
+                    + " '{\"junk\":true}'::jsonb, 'x', now(), ?)", bad, h.f.groupId, UUID.randomUUID());
+            h.jdbc.update("UPDATE spot_group SET snapshot_id = ? WHERE id = ?", bad, h.f.groupId);
+        }
+        perms(h.f, row.perm());
+        if (row.drainOpen()) {
+            h.f.spotInstances.add("i-3");
+            h.f.spotInstances.add("i-4");
+        }
+        if ("enable in flight".equals(row.setup())) {
+            h.startEnableInFlight(desired(null));
+        }
+        return h;
+    }
+
+    private static List<String> doneSteps(AwsOpsHarness h, UUID op) {
+        return h.jdbc.queryForList("SELECT name FROM spot_operation_step WHERE operation_id = ? AND status = 'DONE'"
+                + " ORDER BY seq", String.class, op);
+    }
+
+    // ---- the matrix ----
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("rows")
+    void everyRevertRowEndsWhereTheMatrixSays(Row row) {
+        Expect e = row.expect();
+        try (AwsOpsHarness h = harness(row)) {
+            // Plan through the real PlanService.
+            com.xammer.cloud.domain.autospotting.SpotPlan plan;
+            try {
+                plan = h.planThroughService(OperationKind.REVERT);
+            } catch (AutoSpottingApiException ex) {
+                assertThat("409:" + ex.getCode()).as("plan result").isEqualTo(e.plan());
+                assertThat(h.groupState()).as("end state").isEqualTo(e.endState());
+                return;
+            }
+            JsonNode body = h.f.json(plan.getBody());
+            List<String> blockerCodes = new ArrayList<>();
+            body.path("eligibility").path("blockers").forEach(b -> blockerCodes.add(b.path("code").asText()));
+            List<String> warningIds = new ArrayList<>();
+            body.path("eligibility").path("warnings").forEach(w -> warningIds.add(w.path("id").asText()));
+            String result = blockerCodes.isEmpty() ? body.path("target").path("mode").asText()
+                    : "BLOCKED:" + blockerCodes.get(0);
+            assertThat(result).as("plan result (blockers " + blockerCodes + ", warnings " + warningIds + ")")
+                    .isEqualTo(e.plan());
+            assertThat(warningIds).as("warnings").containsAll(e.warnings());
+            if (e.blockerTextExcludes() != null) {
+                assertThat(body.path("eligibility").path("blockers").get(0).path("text").asText())
+                        .as("blocker text").doesNotContain(e.blockerTextExcludes());
+            }
+            int opsBefore = h.jdbc.queryForObject("SELECT count(*) FROM spot_operation WHERE kind = 'REVERT'", Integer.class);
+            UUID op;
+            try {
+                op = h.confirmPlan(plan.getId());
+            } catch (AutoSpottingApiException ex) {
+                assertThat(e.confirmed()).as("confirm refused with " + ex.getCode()).isFalse();
+                assertThat(ex.getStatus().value()).isEqualTo(422);
+                assertThat(h.jdbc.queryForObject("SELECT count(*) FROM spot_operation WHERE kind = 'REVERT'",
+                        Integer.class)).as("no revert op").isEqualTo(opsBefore);
+                assertAfter(h, e);
+                return;
+            }
+            assertThat(e.confirmed()).as("confirm accepted").isTrue();
+            if ("enable in flight".equals(row.setup())) {
+                h.store.claimForRun(h.enableOpId);
+                h.runner.runClaimed(h.lease, h.enableOpId);
+                assertThat(h.jdbc.queryForObject("SELECT status FROM spot_operation WHERE id = ?", String.class,
+                        h.enableOpId)).as("the in-flight enable was preempted").isEqualTo("CANCELLED");
+            }
+            h.store.claimForRun(op);
+            h.runner.runClaimed(h.lease, op);
+            h.f.spotInstances.clear(); // the drain (if it ran) replaced Spot with On-Demand
+            String status = h.runToEnd(op);
+            assertThat(status).as("op (error " + h.jdbc.queryForList("SELECT error_code FROM spot_operation WHERE id = ?",
+                    String.class, op) + ")").isEqualTo("SUCCEEDED");
+            assertThat(doneSteps(h, op)).as("steps").isEqualTo(e.steps());
+            assertAfter(h, e);
+        }
+    }
+
+    private static void assertAfter(AwsOpsHarness h, Expect e) {
+        assertThat(h.groupState()).as("end state").isEqualTo(e.endState());
+        AutoScalingGroup g = h.f.group();
+        assertThat(g.mixedInstancesPolicy() != null).as("XamOps' mixed policy left").isEqualTo(e.mip());
+        if (e.mip() && e.steps().contains("DRAIN_SPOT")) {
+            assertThat(g.mixedInstancesPolicy().instancesDistribution().onDemandPercentageAboveBaseCapacity())
+                    .as("drained to 100% On-Demand").isEqualTo(100);
+        }
+        assertThat(g.instanceMaintenancePolicy() != null).as("100/200 left").isEqualTo(e.xamopsPolicy());
+        if (e.mip()) {
+            List<String> types = new ArrayList<>();
+            g.mixedInstancesPolicy().launchTemplate().overrides().forEach(o -> types.add(o.instanceType()));
+            assertThat(types).as("XamOps' types left").containsExactlyInAnyOrderElementsOf(TYPES);
+        }
+        assertThat(g.tags().stream().anyMatch(t -> AwsGroupFacts.MARKER_TAG.equals(t.key())))
+                .as("marker tag left").isEqualTo(e.tag());
+        var row = h.row();
+        if (row.getDesiredConfig() == null) {
+            assertThat(e.markersKept()).as("markers").isFalse();
+            return;
+        }
+        PlanOptions o = PlanOptions.forGroup(null, row);
+        assertThat(AwsMaintenancePolicy.owns(row.getDesiredConfig())).as("owned-policy marker kept")
+                .isEqualTo(e.markersKept());
+        assertThat(o.configOnGroup()).as("configOnGroup").isEqualTo(e.markersKept());
+        if (e.cogReason() != null) {
+            assertThat(o.configOnGroupReason()).as("configOnGroup reason").isEqualTo(e.cogReason());
+        }
+    }
+}
