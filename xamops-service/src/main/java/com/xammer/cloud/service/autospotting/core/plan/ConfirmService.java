@@ -202,13 +202,15 @@ public class ConfirmService {
                     "Acknowledge every warning before confirming.");
         }
 
-        // 5b. A REVERT whose saved original can't be read can never run (it would only fail in step 0): refuse it
-        // with the plan's own text, before an operation, alert or audit row exists (D-23b-03 review #4).
+        // 5b. A REVERT plan that carries any blocker can never run (it would fail in step 0): refuse it with the
+        // plan's own code and text before an operation, alert or audit row exists (revert matrix, review High #2).
+        // An unreadable plan body fails closed.
         if (revert) {
-            JsonNode missing = blockerWithCode(plan, "SNAPSHOT_MISSING");
-            if (missing != null) {
-                throw new AutoSpottingApiException(HttpStatus.UNPROCESSABLE_ENTITY, "SNAPSHOT_MISSING",
-                        missing.path("text").asText("The saved original configuration of this group could not be read."));
+            JsonNode blocker = revertBlocker(plan);
+            if (blocker != null) {
+                throw new AutoSpottingApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+                        blocker.path("code").asText("CHECK_FAILED"),
+                        blocker.path("text").asText("This revert can't run yet. Review a fresh revert plan."));
             }
         }
         // 6. PROGRESS kinds only (never REVERT): 100% Spot without opt-in, or desired ≤ 1.
@@ -391,19 +393,16 @@ public class ConfirmService {
         }
         return false;
     }
-    /** The plan's blocker with {@code code}, or null. */
-    private JsonNode blockerWithCode(SpotPlan plan, String code) {
+    /** A REVERT plan's first blocker, a synthetic CHECK_FAILED when the body can't be read, or null. */
+    private JsonNode revertBlocker(SpotPlan plan) {
         try {
-            JsonNode body = objectMapper.readTree(plan.getBody() == null ? "{}" : plan.getBody());
-            for (JsonNode b : body.path("eligibility").path("blockers")) {
-                if (code.equals(b.path("code").asText())) {
-                    return b;
-                }
-            }
+            JsonNode blockers = objectMapper.readTree(plan.getBody() == null ? "{}" : plan.getBody())
+                    .path("eligibility").path("blockers");
+            return blockers.isArray() && !blockers.isEmpty() ? blockers.get(0) : null;
         } catch (Exception e) {
-            return null;
+            return objectMapper.createObjectNode().put("code", "CHECK_FAILED")
+                    .put("text", "This revert plan could not be read. Review a fresh revert plan.");
         }
-        return null;
     }
 
     /** The first definitive blocker the plan recorded, or null when it has none. */
