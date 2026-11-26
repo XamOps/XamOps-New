@@ -128,6 +128,13 @@ class AwsRevertMatrixIT {
                 blocked("SNAPSHOT_MISSING", "FAILED", null)));
         r.add(new Row("C6", GroupState.FAILED, "", true, Snap.M, Perm.OK, null,
                 drained(List.of("REVERT_FROM_FAILED", "ORIGINAL_UNAVAILABLE"), "ORIGINAL_UNAVAILABLE")));
+        // E: the first ENABLE mutated the group but never wrote desired_config (review High #1).
+        r.add(new Row("E1", GroupState.APPLYING, null, true, Snap.R, Perm.PR, "enable in flight, no desired",
+                drained(List.of("REVERT_NEEDS_PASSROLE"), "PASSROLE_DENIED")));
+        r.add(new Row("E2", GroupState.FAILED, null, true, Snap.M, Perm.OK, "failed enable, no desired",
+                drained(List.of("REVERT_FROM_FAILED", "ORIGINAL_UNAVAILABLE"), "ORIGINAL_UNAVAILABLE")));
+        r.add(new Row("E3", GroupState.FAILED, null, true, Snap.R, Perm.CF, "failed enable, no desired",
+                drained(List.of("REVERT_FROM_FAILED", "REVERT_CHECK_FAILED"), "CHECK_FAILED")));
         // D: not managed / busy.
         r.add(new Row("D1", GroupState.UNMANAGED, null, false, Snap.M, Perm.OK, null, refusedAtPlan("NOT_MANAGED", "UNMANAGED")));
         r.add(new Row("D2", GroupState.REVERTING, null, true, Snap.R, Perm.OK, null, refusedAtPlan("AS_GROUP_BUSY", "REVERTING")));
@@ -213,8 +220,13 @@ class AwsRevertMatrixIT {
         AutoScalingGroup group = converted ? live(row.drainOpen()) : FakeAws.asg("web-asg").build();
         String configMode = row.state() == GroupState.FALLBACK ? "FALLBACK" : "MANAGED";
         String pause = row.state() == GroupState.PAUSED ? "OPERATOR" : null;
-        AwsOpsHarness h = new AwsOpsHarness(group, row.state(), configMode, converted ? desired(row.cog()) : null,
-                null, pause, pause == null ? null : GroupState.ACTIVE);
+        boolean noDesired = row.setup() != null && row.setup().contains("no desired");
+        AwsOpsHarness h = new AwsOpsHarness(group, row.state(), configMode,
+                converted && !noDesired ? desired(row.cog()) : null, null, pause,
+                pause == null ? null : GroupState.ACTIVE);
+        if (noDesired && row.state() == GroupState.FAILED) {
+            h.insertFailedConversion(OperationKind.ENABLE, desired(null));
+        }
         if (row.snap() == Snap.R) {
             h.linkSnapshot(FakeAws.asg("web-asg").build());
         } else if (row.snap() == Snap.U) {
@@ -229,7 +241,7 @@ class AwsRevertMatrixIT {
             h.f.spotInstances.add("i-3");
             h.f.spotInstances.add("i-4");
         }
-        if ("enable in flight".equals(row.setup())) {
+        if (row.setup() != null && row.setup().startsWith("enable in flight")) {
             h.startEnableInFlight(desired(null));
         }
         return h;
@@ -283,7 +295,7 @@ class AwsRevertMatrixIT {
                 return;
             }
             assertThat(e.confirmed()).as("confirm accepted").isTrue();
-            if ("enable in flight".equals(row.setup())) {
+            if (row.setup() != null && row.setup().startsWith("enable in flight")) {
                 h.store.claimForRun(h.enableOpId);
                 h.runner.runClaimed(h.lease, h.enableOpId);
                 assertThat(h.jdbc.queryForObject("SELECT status FROM spot_operation WHERE id = ?", String.class,

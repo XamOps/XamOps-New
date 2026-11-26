@@ -640,18 +640,38 @@ public class OperationRunner {
      */
     private String[] configWriteAfterRestore(SpotOperation op, SpotGroup group) {
         SpotGroup fresh = groups.findById(group.getId()).orElse(group);
-        String desired = fresh.getDesiredConfig();
+        String stored = fresh.getDesiredConfig();
+        // A first ENABLE that mutated the cloud but never succeeded left desired_config null. The conversion target it
+        // sent is then the only record of what XamOps put on the group, so the residual-configuration gate is built
+        // from it (review High #1); with no conversion target the gate alone is recorded.
+        String desired = stored != null ? stored : latestConversionTarget(fresh.getId());
         if (desired == null) {
-            return null;
+            desired = "{}";
         }
         java.util.Set<String> done = store.doneStepNames(op.getId());
+        String base = desired;
         String after = providers.find(fresh.getProvider())
-                .map(p -> p.desiredConfigAfterRestore(desired, done, op.getTargetConfig())).orElse(desired);
+                .map(p -> p.desiredConfigAfterRestore(base, done, op.getTargetConfig())).orElse(desired);
+        if (stored == null && (after == null || !after.contains(com.xammer.cloud.service.autospotting.spi.PlanOptions
+                .CONFIG_ON_GROUP))) {
+            return null; // the restore removed XamOps' configuration: nothing to remember, nothing was written before
+        }
         // The fingerprint is kept, not recomputed: once a restore releases the policy claim it differs from a fresh
         // one by the ownership bit only. That is harmless because drift is classified only for ACTIVE, DEGRADED,
         // FALLBACK and PAUSED rows (DriftClassifier.classifiable), and a restore ends REVERTED or FAILED; the next
         // conversion's success writes both again. Widening drift classification must recompute it here.
         return after == null || after.equals(desired) ? null : new String[] {after, fresh.getDesiredFingerprint()};
+    }
+
+    /** The target of the group's most recent conversion op (ENABLE, ADOPT, CONFIG_APPLY, PROFILE_CHANGE), or null. */
+    private String latestConversionTarget(java.util.UUID groupId) {
+        return operations.findByGroupId(groupId).stream()
+                .filter(o -> o.getTargetConfig() != null && switch (o.getKind()) {
+                    case ENABLE, ADOPT, CONFIG_APPLY, PROFILE_CHANGE -> true;
+                    default -> false;
+                })
+                .max(java.util.Comparator.comparing(o -> o.getCreatedAt() == null ? Instant.EPOCH : o.getCreatedAt()))
+                .map(SpotOperation::getTargetConfig).orElse(null);
     }
 
     private static String sha256(String text) {

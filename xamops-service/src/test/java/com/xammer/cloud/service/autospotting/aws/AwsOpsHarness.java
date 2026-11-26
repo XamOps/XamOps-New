@@ -229,6 +229,16 @@ final class AwsOpsHarness implements AutoCloseable {
         jdbc.update("UPDATE spot_operation SET first_mutation_seq = 3 WHERE id = ?", enableOpId);
     }
 
+    /** A conversion op that sent {@code targetJson} to the cloud and ended FAILED without writing desired_config. */
+    void insertFailedConversion(OperationKind kind, String targetJson) {
+        UUID id = UUID.randomUUID();
+        store.insertQueued(OperationRecord.builder(id, f.groupId, 7L, kind)
+                .priorState(GroupState.UNMANAGED)
+                .compensationTarget(com.xammer.cloud.domain.autospotting.CompensationTarget.SNAPSHOT)
+                .targetConfigJson(targetJson).requestedBy("tester").build());
+        store.claimForRun(id);
+        store.finishFailed(id, "COMPENSATION_FAILED", "test");
+    }
     /** Link {@code original} as the group's saved snapshot (what an ENABLE or ADOPT captured before it changed anything). */
     void linkSnapshot(AutoScalingGroup original) {
         UUID snapshotId = UUID.randomUUID();
