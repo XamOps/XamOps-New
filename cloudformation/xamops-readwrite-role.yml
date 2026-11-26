@@ -1,5 +1,9 @@
-# Template version rw-2026.11.1 (Metadata.XamOps.TemplateVersion and Outputs.TemplateVersion).
+# Template version rw-2026.11.2 (Metadata.XamOps.TemplateVersion and Outputs.TemplateVersion).
 # Bump both, identically in the prod, uat and local variants, on every permission change.
+#
+# rw-2026.11.2: XamOpsAutoSpottingRead gains ec2:DescribeTags. The event consumer falls back to it to find the
+# Auto Scaling group of an instance that has already left its group (a terminated Spot instance); without it those
+# events were dead-lettered. Existing stacks need "Update stack" with this template.
 #
 # rw-2026.11.1: AutoSpotting events nested stack (AutoSpottingEventsStack, guarded by
 # EnableAutoSpottingEvents) with rules that match what EC2 and Auto Scaling emit: Spot
@@ -30,7 +34,7 @@ Metadata:
       ignore_checks:
         - W2001
   XamOps:
-    TemplateVersion: rw-2026.11.1
+    TemplateVersion: rw-2026.11.2
   AWS::CloudFormation::Interface:
     ParameterGroups:
       - Label:
@@ -1323,6 +1327,7 @@ Resources:
               - 'ec2:DescribeRegions'
               - 'ec2:DescribeSpotPriceHistory'
               - 'ec2:DescribeSubnets'
+              - 'ec2:DescribeTags'
               - 'ec2:GetSpotPlacementScores'
               - 'ecs:DescribeCapacityProviders'
               - 'elasticloadbalancing:DescribeInstanceHealth'
@@ -1826,4 +1831,4 @@ Outputs:
 
   TemplateVersion:
     Description: Version of this XamOps read-write template. XamOps reads it to know which permissions the stack carries.
-    Value: rw-2026.11.1
+    Value: rw-2026.11.2

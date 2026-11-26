@@ -79,6 +79,7 @@ public final class AwsSessionPolicies {
         a.add("ec2:DescribeInstanceTypeOfferings");
         a.add("ec2:DescribeInstances");
         a.add("ec2:DescribeSubnets");
+        a.add("ec2:DescribeTags");
         a.add("ec2:DescribeSpotPriceHistory");
         a.add("ec2:DescribeCapacityReservations");
         a.add("ec2:GetSpotPlacementScores");

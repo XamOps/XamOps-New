@@ -18,7 +18,7 @@ class StackCapabilityControllerTest {
         assertThat(dto.updateRequired()).isTrue();
         assertThat(dto.missing()).extracting(StackCapabilityDto.Missing::code)
                 .contains("AS_EVENTS_MULTI_REGION", "AS_PASSROLE_SCOPED", "AS_SIMULATE_SELF", "AS_QUOTA_READS");
-        assertThat(dto.latestVersion()).isEqualTo("rw-2026.11.1");
+        assertThat(dto.latestVersion()).isEqualTo("rw-2026.11.2");
     }
     @Test
     void aCurrentStackNeedsNoUpdate() {

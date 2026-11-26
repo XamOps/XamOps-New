@@ -23,7 +23,9 @@ public enum StackCapabilities {
     /** {@code iam:SimulatePrincipalPolicy} on the connection role itself. */
     AS_SIMULATE_SELF("rw-2026.10.1", true, "permission self-check", false),
     /** Service Quotas and CloudWatch reads for the Spot vCPU quota check. */
-    AS_QUOTA_READS("rw-2026.10.1", true, "Spot quota reads", true);
+    AS_QUOTA_READS("rw-2026.10.1", true, "Spot quota reads", true),
+    /** {@code ec2:DescribeTags}, so an event of an instance that already left its group still finds the group. */
+    AS_EVENTS_TAG_LOOKUP("rw-2026.11.2", false, "event lookup of terminated instances", false);
     private final String minimumVersion;
     private final boolean requiredForConversion;
     private final String label;

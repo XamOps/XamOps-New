@@ -36,7 +36,8 @@ class StackCapabilitiesTest {
     }
     @Test
     void theLatestVersionIsTheNewestMinimum() {
-        assertThat(StackCapabilities.latestVersion()).isEqualTo("rw-2026.11.1");
-        assertThat(StackCapabilities.latestVersion()).isEqualTo(AwsEligibilityRules.MINIMUM_STACK_VERSION);
+        assertThat(StackCapabilities.latestVersion()).isEqualTo("rw-2026.11.2");
+        // The tag lookup is not required for a conversion, so the minimum stays at the events stack.
+        assertThat(AwsEligibilityRules.MINIMUM_STACK_VERSION).isEqualTo("rw-2026.11.1");
     }
 }

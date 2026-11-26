@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Contract for the three served read-write connection templates (prod, uat, local) at template
- * version rw-2026.11.1. Static: the templates are parsed from {@code cloudformation/}, no AWS call
+ * version rw-2026.11.2. Static: the templates are parsed from {@code cloudformation/}, no AWS call
  * is made, so this runs in CI.
  *
  * <p>Pins what an in-place "Update stack" must never change (anything that replaces the role or a
@@ -37,7 +37,7 @@ class ReadWriteTemplateContractTest {
     /** The module directory is the working directory of a surefire run. */
     private static final Path CLOUDFORMATION = Path.of("..", "cloudformation");
 
-    private static final String VERSION = "rw-2026.11.1";
+    private static final String VERSION = "rw-2026.11.2";
     private static final String ROLE = "XamOpsReadWriteRole";
     private static final String READ_ONLY_ROLE = "XamOpsReadOnlyRole";
     private static final String READ_ONLY_ACCESS = "arn:aws:iam::aws:policy/ReadOnlyAccess";
@@ -140,7 +140,7 @@ class ReadWriteTemplateContractTest {
             "ec2:DescribeCapacityReservations", "ec2:DescribeImages", "ec2:DescribeInstanceTypeOfferings",
             "ec2:DescribeInstanceTypes", "ec2:DescribeInstances", "ec2:DescribeLaunchTemplateVersions",
             "ec2:DescribeLaunchTemplates", "ec2:DescribePlacementGroups", "ec2:DescribeRegions",
-            "ec2:DescribeSpotPriceHistory", "ec2:DescribeSubnets", "ec2:GetSpotPlacementScores",
+            "ec2:DescribeSpotPriceHistory", "ec2:DescribeSubnets", "ec2:DescribeTags", "ec2:GetSpotPlacementScores",
             "ecs:DescribeCapacityProviders", "elasticloadbalancing:DescribeInstanceHealth",
             "elasticloadbalancing:DescribeTargetGroupAttributes", "elasticloadbalancing:DescribeTargetHealth",
             "events:DescribeRule", "iam:GetInstanceProfile", "servicequotas:GetServiceQuota",
