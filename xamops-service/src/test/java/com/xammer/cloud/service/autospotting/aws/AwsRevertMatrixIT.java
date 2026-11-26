@@ -145,7 +145,7 @@ class AwsRevertMatrixIT {
         r.add(new Row("C4", GroupState.FAILED, "", true, Snap.R, Perm.PR, null,
                 drained(List.of("REVERT_FROM_FAILED", "REVERT_NEEDS_PASSROLE"), "PASSROLE_DENIED")));
         r.add(new Row("C5", GroupState.FAILED, "", false, Snap.M, Perm.OK, null,
-                blocked("SNAPSHOT_MISSING", "FAILED", null)));
+                failed(blocked("SNAPSHOT_MISSING", "FAILED", null))));
         r.add(new Row("C6", GroupState.FAILED, "", true, Snap.M, Perm.OK, null,
                 drained(List.of("REVERT_FROM_FAILED", "ORIGINAL_UNAVAILABLE"), "ORIGINAL_UNAVAILABLE")));
         // E: the first ENABLE mutated the group but never wrote desired_config (review High #1).
@@ -154,6 +154,12 @@ class AwsRevertMatrixIT {
         r.add(new Row("E2", GroupState.FAILED, null, true, Snap.M, Perm.OK, "failed enable, no desired",
                 drained(List.of("REVERT_FROM_FAILED", "ORIGINAL_UNAVAILABLE"), "ORIGINAL_UNAVAILABLE")));
         r.add(new Row("E3", GroupState.FAILED, null, true, Snap.R, Perm.CF, "failed enable, no desired",
+                drained(List.of("REVERT_FROM_FAILED", "REVERT_CHECK_FAILED"), "CHECK_FAILED")));
+        // E4: a later CONFIG_APPLY failed before it mutated; the gate is still built from the ENABLE that did (review #10).
+        r.add(new Row("E4", GroupState.FAILED, null, true, Snap.R, Perm.CF, "failed enable, no desired, unmutated apply",
+                drained(List.of("REVERT_FROM_FAILED", "REVERT_CHECK_FAILED"), "CHECK_FAILED")));
+        // E5: no conversion target at all; the gate still records configOnGroup with a fingerprint (review #11).
+        r.add(new Row("E5", GroupState.FAILED, null, true, Snap.R, Perm.CF, "no desired, no conversion target",
                 drained(List.of("REVERT_FROM_FAILED", "REVERT_CHECK_FAILED"), "CHECK_FAILED")));
         // F: the running Spot count decides the drain (review High #2, #3).
         r.add(new Row("F1", GroupState.REVERTED, "PASSROLE_DENIED", false, Snap.M, Perm.OK, "spot unreadable",
@@ -255,8 +261,13 @@ class AwsRevertMatrixIT {
         AwsOpsHarness h = new AwsOpsHarness(group, row.state(), configMode,
                 converted && !noDesired ? desired(row.cog()) : null, null, pause,
                 pause == null ? null : GroupState.ACTIVE);
-        if (noDesired && row.state() == GroupState.FAILED) {
+        if (noDesired && row.state() == GroupState.FAILED && !row.setup().contains("no conversion target")) {
             h.insertFailedConversion(OperationKind.ENABLE, desired(null));
+        }
+        if (row.setup() != null && row.setup().contains("unmutated apply")) {
+            // A different target that never reached the cloud: if it were picked, the owned-policy marker would go.
+            h.insertUnmutatedConversion(OperationKind.CONFIG_APPLY, desired(null).replace(
+                    ",\"instanceMaintenancePolicy\":{\"owned\":true,\"min\":100,\"max\":200}", ""));
         }
         if (row.snap() == Snap.R) {
             h.linkSnapshot(FakeAws.asg("web-asg").build());
@@ -380,6 +391,17 @@ class AwsRevertMatrixIT {
                 assertThat(first.mixedInstancesPolicy().instancesDistribution().onDemandPercentageAboveBaseCapacity())
                         .as("first update drains to 100% On-Demand").isEqualTo(100);
                 assertThat(first.launchTemplate()).as("the drain carries no launch template").isNull();
+            }
+            if (row.setup() != null && row.setup().contains("no conversion target")) {
+                // No record of what XamOps put on the group: the gate says configuration remains, claims no owned
+                // policy it cannot prove, and carries a fingerprint (review #11).
+                var g = h.row();
+                assertThat(PlanOptions.forGroup(null, g).configOnGroup()).as("configOnGroup").isTrue();
+                assertThat(PlanOptions.forGroup(null, g).configOnGroupReason()).isEqualTo("CHECK_FAILED");
+                assertThat(AwsMaintenancePolicy.owns(g.getDesiredConfig())).as("no owned-policy claim").isFalse();
+                assertThat(g.getDesiredFingerprint()).as("desired_fingerprint").isNotNull();
+                assertThat(h.groupState()).isEqualTo(e.endState());
+                return;
             }
             assertAfter(h, e);
         }

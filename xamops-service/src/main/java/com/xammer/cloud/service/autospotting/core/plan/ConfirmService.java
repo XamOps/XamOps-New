@@ -131,6 +131,20 @@ public class ConfirmService {
         }
     }
 
+    /**
+     * 409 {@code PLAN_STALE}; like {@link BlockedRevertException} the confirm transaction commits when it is thrown,
+     * so the STALE mark written just before it is kept (review Medium #6).
+     */
+    public static final class StalePlanException extends AutoSpottingApiException {
+        public StalePlanException() {
+            super(HttpStatus.CONFLICT, "PLAN_STALE", "The group changed after the plan was created. Review a fresh plan.");
+        }
+    }
+
+    /** Blocker codes whose cause the customer cannot clear by waiting or granting a permission: a retry after re-planning can't help. */
+    private static final Set<String> NOT_RETRYABLE_BLOCKERS = Set.of("SNAPSHOT_MISSING", "GROUP_NOT_FOUND",
+            "REVERT_SNAPSHOT_MISSING", "GCP_MIG_NOT_FOUND");
+
     /** The 202 result: the operation id and its status. */
     public record ConfirmResult(UUID operationId, String status) {
     }
@@ -140,7 +154,7 @@ public class ConfirmService {
      * UPDATE and the op insert commit together. A second confirm (any key, any instance) returns the
      * existing op id (§7.4 idempotent confirm, AC-SPN-01).
      */
-    @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = ConfirmService.BlockedRevertException.class)
+    @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = {ConfirmService.BlockedRevertException.class, ConfirmService.StalePlanException.class})
     public ConfirmResult confirm(CloudAccount account, ClientUserDetails user, UUID planId, ConfirmCommand cmd) {
         SpotPlan plan = plans.findById(planId)
                 .filter(p -> account.getId().equals(p.getCloudAccountId()))
@@ -181,6 +195,14 @@ public class ConfirmService {
 
         // 4. Plan OPEN and not expired; version matches.
         if (plan.getStatus() != SpotPlan.PlanStatus.OPEN) {
+            // A blocked revert plan is marked STALE by its first refusal; a repeat (double-click, a client retrying a
+            // response it never saw) gets the same blocker, not PLAN_EXPIRED (review Medium #4).
+            if (revert && plan.getStatus() == SpotPlan.PlanStatus.STALE) {
+                JsonNode blocker = revertBlocker(plan);
+                if (blocker != null) {
+                    throw blockedRevert(blocker);
+                }
+            }
             throw new AutoSpottingApiException(HttpStatus.CONFLICT, "PLAN_EXPIRED",
                     "This plan is no longer open. Review a fresh plan.");
         }
@@ -203,9 +225,7 @@ public class ConfirmService {
             JsonNode blocker = revertBlocker(plan);
             if (blocker != null) {
                 plans.markStaleIfOpen(plan.getId());
-                String code = blocker.path("code").asText("CHECK_FAILED");
-                throw new BlockedRevertException(code, blocker.path("text").asText(
-                        "This revert can't run yet. Review a fresh revert plan."), REVERT_NEEDS_PERMISSION.equals(code));
+                throw blockedRevert(blocker);
             }
         }
         // 5. Every warning id acknowledged.
@@ -264,8 +284,7 @@ public class ConfirmService {
         FingerprintOutcome fp = reReadFingerprint(provider, group, plan);
         if (fp == FingerprintOutcome.MISMATCH) {
             plans.markStaleIfOpen(plan.getId());
-            throw new AutoSpottingApiException(HttpStatus.CONFLICT, "PLAN_STALE",
-                    "The group changed after the plan was created. Review a fresh plan.");
+            throw new StalePlanException();
         }
 
         // 7. Busy and preemption (§4.7). The new op id is minted now so a preemption records it.
@@ -380,6 +399,13 @@ public class ConfirmService {
             // empty/invalid list is treated as no warnings.
         }
         return ids;
+    }
+
+    /** The 422 for a blocked revert plan: retryable unless the cause (a missing snapshot, a vanished group) cannot clear. */
+    private static BlockedRevertException blockedRevert(JsonNode blocker) {
+        String code = blocker.path("code").asText("CHECK_FAILED");
+        return new BlockedRevertException(code, blocker.path("text").asText(
+                "This revert can't run yet. Review a fresh revert plan."), !NOT_RETRYABLE_BLOCKERS.contains(code));
     }
 
     /** A REVERT plan's first blocker, a synthetic CHECK_FAILED when the body can't be read, or null. */

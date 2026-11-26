@@ -237,7 +237,19 @@ final class AwsOpsHarness implements AutoCloseable {
                 .compensationTarget(com.xammer.cloud.domain.autospotting.CompensationTarget.SNAPSHOT)
                 .targetConfigJson(targetJson).requestedBy("tester").build());
         store.claimForRun(id);
+        jdbc.update("UPDATE spot_operation SET first_mutation_seq = 3 WHERE id = ?", id);
         store.finishFailed(id, "COMPENSATION_FAILED", "test");
+    }
+    /** A later conversion op that failed in step 0, before any mutation: it put nothing on the group. */
+    void insertUnmutatedConversion(OperationKind kind, String targetJson) {
+        UUID id = UUID.randomUUID();
+        store.insertQueued(OperationRecord.builder(id, f.groupId, 7L, kind)
+                .priorState(GroupState.FAILED)
+                .compensationTarget(com.xammer.cloud.domain.autospotting.CompensationTarget.NONE)
+                .targetConfigJson(targetJson).requestedBy("tester").build());
+        jdbc.update("UPDATE spot_operation SET created_at = created_at + interval '1 minute' WHERE id = ?", id);
+        store.claimForRun(id);
+        store.finishFailed(id, "PRECONDITION_FAILED", "test");
     }
     /** Link {@code original} as the group's saved snapshot (what an ENABLE or ADOPT captured before it changed anything). */
     void linkSnapshot(AutoScalingGroup original) {

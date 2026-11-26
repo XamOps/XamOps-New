@@ -660,20 +660,18 @@ public class OperationRunner {
         // one by the ownership bit only. That is harmless because drift is classified only for ACTIVE, DEGRADED,
         // FALLBACK and PAUSED rows (DriftClassifier.classifiable), and a restore ends REVERTED or FAILED; the next
         // conversion's success writes both again. Widening drift classification must recompute it here.
-        return after == null || after.equals(desired) ? null : new String[] {after, fresh.getDesiredFingerprint()};
+        if (after == null || after.equals(desired)) {
+            return null;
+        }
+        // With no conversion target the row never had a fingerprint; a gate row must not carry a desired_config
+        // without one (review Medium #11), so it is the hash of the gate itself.
+        return new String[] {after, fresh.getDesiredFingerprint() != null ? fresh.getDesiredFingerprint() : sha256(after)};
     }
 
     /** The target of the group's most recent conversion op (ENABLE, ADOPT, CONFIG_APPLY, PROFILE_CHANGE), or null. */
     private String latestConversionTarget(java.util.UUID groupId) {
-        return operations.findByGroupId(groupId).stream()
-                .filter(o -> o.getTargetConfig() != null && switch (o.getKind()) {
-                    case ENABLE, ADOPT, CONFIG_APPLY, PROFILE_CHANGE -> true;
-                    default -> false;
-                })
-                .max(java.util.Comparator.comparing(o -> o.getCreatedAt() == null ? Instant.EPOCH : o.getCreatedAt()))
-                .map(SpotOperation::getTargetConfig).orElse(null);
+        return OperationFacts.latestConversionTarget(operations.findByGroupId(groupId));
     }
-
     private static String sha256(String text) {
         try {
             return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")

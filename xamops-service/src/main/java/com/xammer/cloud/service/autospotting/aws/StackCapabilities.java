@@ -74,6 +74,20 @@ public enum StackCapabilities {
     public static List<StackCapabilities> missingForConversion(String version) {
         return missingForConversion(version, EnumSet.noneOf(StackCapabilities.class));
     }
+    /**
+     * Every capability a stack at {@code version} lacks, whether or not a conversion needs it: what the "Update
+     * stack" prompt lists. A capability that does not block conversion (for example {@link #AS_EVENTS_TAG_LOOKUP},
+     * which keeps events from dead-lettering) still has to be offered, or customers on an older stack are never told.
+     */
+    public static List<StackCapabilities> missingForUpdate(String version) {
+        List<StackCapabilities> missing = new ArrayList<>();
+        for (StackCapabilities c : values()) {
+            if (!c.presentAt(version)) {
+                missing.add(c);
+            }
+        }
+        return missing;
+    }
     /** The newest minimum version in the table: the version "Update stack" brings an account to. */
     public static String latestVersion() {
         String latest = values()[0].minimumVersion;

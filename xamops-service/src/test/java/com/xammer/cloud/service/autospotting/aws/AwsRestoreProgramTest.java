@@ -468,6 +468,30 @@ class AwsRestoreProgramTest {
     }
 
     @Test
+    void theDrainProbeDoesNotAdoptAShare100GroupThatStillRunsSpot() throws IOException {
+        AwsConversionFixture f = fixture(drainedGroup(), FakeAws.asg("web-asg").build());
+        PlanBody body = plan(f, GroupState.REVERTED);
+        StepProgram p = f.provider.restore(revert(f, body.targetJson()), null);
+        f.spotInstances.add("i-1");
+        assertThat(p.at(1).probe(f.stepContext(1))).as("share 100 with Spot running is not drained")
+                .isNotInstanceOf(StepOutcome.Done.class);
+        f.spotInstances.clear();
+        assertThat(p.at(1).probe(f.stepContext(1))).isInstanceOf(StepOutcome.Done.class);
+    }
+    @Test
+    void anUnreadableSpotCountDoesNotFailTheDrainStepAndTheDrainStaysOpen() throws IOException {
+        AwsConversionFixture f = fixture(drainedGroup(), FakeAws.asg("web-asg").build());
+        PlanBody body = plan(f, GroupState.REVERTED);
+        StepProgram p = f.provider.restore(revert(f, body.targetJson()), null);
+        doThrow(AwsServiceException.builder().statusCode(500).build()).when(f.aws.asg).describeScalingActivities(
+                any(software.amazon.awssdk.services.autoscaling.model.DescribeScalingActivitiesRequest.class));
+        assertThat(p.at(1).probe(f.stepContext(1))).as("an unknown count is not drained")
+                .isNotInstanceOf(StepOutcome.Done.class);
+        assertThat(p.at(1).execute(f.stepContext(1))).as("the step sends the drain instead of failing")
+                .isInstanceOf(StepOutcome.Done.class);
+        assertThat(f.updates).hasSize(1);
+    }
+    @Test
     void gr02RunsStepZeroThenRestoreWithNoDrainCall() throws IOException {
         AwsConversionFixture f = fixture(drainedGroup(), FakeAws.asg("web-asg").build());
         PlanBody body = plan(f, GroupState.REVERTED);

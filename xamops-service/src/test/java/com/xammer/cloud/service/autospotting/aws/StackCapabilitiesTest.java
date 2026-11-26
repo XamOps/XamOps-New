@@ -4,6 +4,7 @@ import java.util.EnumSet;
 import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static com.xammer.cloud.service.autospotting.aws.StackCapabilities.AS_EVENTS_MULTI_REGION;
+import static com.xammer.cloud.service.autospotting.aws.StackCapabilities.AS_EVENTS_TAG_LOOKUP;
 import static com.xammer.cloud.service.autospotting.aws.StackCapabilities.AS_PASSROLE_SCOPED;
 import static com.xammer.cloud.service.autospotting.aws.StackCapabilities.AS_QUOTA_READS;
 import static com.xammer.cloud.service.autospotting.aws.StackCapabilities.AS_SIMULATE_SELF;
@@ -39,5 +40,11 @@ class StackCapabilitiesTest {
         assertThat(StackCapabilities.latestVersion()).isEqualTo("rw-2026.11.2");
         // The tag lookup is not required for a conversion, so the minimum stays at the events stack.
         assertThat(AwsEligibilityRules.MINIMUM_STACK_VERSION).isEqualTo("rw-2026.11.1");
+    }
+    @Test
+    void aCapabilityThatDoesNotBlockConversionIsStillOfferedByUpdateStack() {
+        assertThat(StackCapabilities.missingForConversion("rw-2026.11.1")).isEmpty();
+        assertThat(StackCapabilities.missingForUpdate("rw-2026.11.1")).containsExactly(AS_EVENTS_TAG_LOOKUP);
+        assertThat(StackCapabilities.missingForUpdate("rw-2026.11.2")).isEmpty();
     }
 }

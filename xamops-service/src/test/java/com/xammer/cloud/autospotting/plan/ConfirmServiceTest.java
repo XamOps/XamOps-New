@@ -437,6 +437,55 @@ class ConfirmServiceTest {
         assertThat(tx.noRollbackFor()).contains(ConfirmService.BlockedRevertException.class);
     }
     @Test
+    void aRepeatedConfirmOfABlockedRevertAnswersTheSameBlockerNotPlanExpired() {
+        SpotGroup g = group(GroupState.ACTIVE);
+        SpotPlan p = plan(OperationKind.REVERT, g.getId(), "[]", false);
+        p.setStatus(SpotPlan.PlanStatus.STALE); // the first refusal marked it
+        p.setBody("{\"eligibility\":{\"blockers\":[{\"code\":\"SPOT_COUNT_UNREADABLE\",\"text\":\"Try again in a minute.\"}]}}");
+        when(plans.findById(p.getId())).thenReturn(Optional.of(p));
+        when(operations.findByPlanId(p.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+        assertThatThrownBy(() -> confirm.confirm(account(), user(), p.getId(), cmd(1, List.of(), false)))
+                .isInstanceOfSatisfying(AutoSpottingApiException.class, ex -> {
+                    assertThat(ex.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+                    assertThat(ex.getCode()).isEqualTo("SPOT_COUNT_UNREADABLE");
+                    assertThat(ex.getMessage()).isEqualTo("Try again in a minute.");
+                    assertThat(ex.isRetryable()).isTrue();
+                });
+    }
+    @Test
+    void aStaleRevertPlanWithoutABlockerStillSaysPlanExpired() {
+        SpotGroup g = group(GroupState.ACTIVE);
+        SpotPlan p = plan(OperationKind.REVERT, g.getId(), "[]", false);
+        p.setStatus(SpotPlan.PlanStatus.STALE);
+        p.setBody("{\"eligibility\":{\"blockers\":[]}}");
+        when(plans.findById(p.getId())).thenReturn(Optional.of(p));
+        when(operations.findByPlanId(p.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+        assertThatThrownBy(() -> confirm.confirm(account(), user(), p.getId(), cmd(1, List.of(), false)))
+                .isInstanceOfSatisfying(AutoSpottingApiException.class, ex -> assertThat(ex.getCode()).isEqualTo("PLAN_EXPIRED"));
+    }
+    @Test
+    void theBlockedRevertsThatCannotClearAreNotRetryable() {
+        SpotGroup g = group(GroupState.ACTIVE);
+        SpotPlan p = plan(OperationKind.REVERT, g.getId(), "[]", false);
+        p.setBody("{\"eligibility\":{\"blockers\":[{\"code\":\"SNAPSHOT_MISSING\",\"text\":\"x\"}]}}");
+        when(plans.findById(p.getId())).thenReturn(Optional.of(p));
+        when(operations.findByPlanId(p.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+        assertThatThrownBy(() -> confirm.confirm(account(), user(), p.getId(), cmd(1, List.of(), false)))
+                .isInstanceOfSatisfying(AutoSpottingApiException.class, ex -> assertThat(ex.isRetryable()).isFalse());
+    }
+    @Test
+    void theStaleMarkOfAFingerprintMismatchSurvivesItsRefusal() throws Exception {
+        var tx = ConfirmService.class.getMethod("confirm", CloudAccount.class,
+                com.xammer.cloud.security.ClientUserDetails.class, java.util.UUID.class,
+                ConfirmService.ConfirmCommand.class)
+                .getAnnotation(org.springframework.transaction.annotation.Transactional.class);
+        assertThat(tx.noRollbackFor()).contains(ConfirmService.StalePlanException.class);
+        assertThat(new ConfirmService.StalePlanException().getCode()).isEqualTo("PLAN_STALE");
+    }
+    @Test
     void aRevertPlanWithAnUnreadableBodyFailsClosedWithCheckFailed() {
         SpotGroup g = group(GroupState.ACTIVE);
         SpotPlan p = plan(OperationKind.REVERT, g.getId(), "[]", false);

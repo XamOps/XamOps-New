@@ -47,7 +47,7 @@ class AutoSpottingPermissionCoverageTest {
     private static final Map<String, String> READ_CLIENTS = Map.of(
             "ec2", "ec2", "autoScaling", "autoscaling", "iam", "iam", "cloudFormation", "cloudformation",
             "cloudWatch", "cloudwatch", "ecs", "ecs", "elbv2", "elasticloadbalancing",
-            "serviceQuotas", "servicequotas");
+            "serviceQuotas", "servicequotas", "eventBridge", "events");
 
     private static final Pattern READ_CALL = Pattern.compile("\\b(\\w+)\\(\\)\\s*\\.\\s*(\\w+)\\(");
     private static final Pattern MUTATING_CALL = Pattern.compile("\\bautoScaling\\s*\\.\\s*(\\w+)\\(");
@@ -105,6 +105,39 @@ class AutoSpottingPermissionCoverageTest {
         return actions;
     }
 
+    /**
+     * The scan only sees {@code accessor().call(} chains (a client held in a local, passed to a helper or used as a method
+     * reference is invisible), so it also fails when {@code AwsReadOnlyView} gains a client accessor that READ_CLIENTS
+     * does not map (review Medium #8, Low #14).
+     */
+    @Test
+    void everyClientAccessorOfTheReadViewIsMapped() {
+        List<String> unmapped = java.util.Arrays.stream(com.xammer.cloud.service.autospotting.aws.AwsReadOnlyView.class
+                        .getDeclaredMethods())
+                .filter(m -> java.lang.reflect.Modifier.isPublic(m.getModifiers()) && m.getParameterCount() == 0
+                        && m.getReturnType().getSimpleName().endsWith("Client"))
+                .map(java.lang.reflect.Method::getName).filter(n -> !READ_CLIENTS.containsKey(n)).sorted().toList();
+        assertThat(unmapped).as("AwsReadOnlyView client accessors missing from READ_CLIENTS").isEmpty();
+        assertThat(readActions()).contains("events:DescribeRule");
+    }
+    /** Scoped grants must stay scoped: presence of the action alone is not coverage. */
+    @ParameterizedTest
+    @EnumSource(Variant.class)
+    void scopedActionsAreGrantedOnlyWithTheirScope(Variant variant) {
+        CfnTemplate template = CfnTemplate.load(CLOUDFORMATION.resolve(variant.file));
+        List<Statement> statements = statementsOf(template.properties("XamOpsAutoSpottingPolicy").get("PolicyDocument"),
+                "XamOpsAutoSpottingPolicy");
+        for (String action : List.of("iam:PassRole", "ec2:RunInstances", "ec2:CreateTags")) {
+            List<Statement> granting = statements.stream().filter(st -> st.isAllow() && st.matchesAction(action)).toList();
+            assertThat(granting).as(variant.file + " " + action).isNotEmpty();
+            assertThat(granting).as(variant.file + " " + action + " must carry a Condition")
+                    .allMatch(st -> st.condition() != null);
+        }
+        List<Statement> getRole = statements.stream().filter(st -> st.isAllow() && st.matchesAction("iam:GetRole")).toList();
+        assertThat(getRole).isNotEmpty();
+        assertThat(getRole).as(variant.file + " iam:GetRole must be limited to the forwarder role")
+                .allMatch(st -> !"\"*\"".equals(CfnTemplate.canonical(st.body().get("Resource"))));
+    }
     @Test
     void theScanFindsTheCallsItIsMeantToCheck() {
         assertThat(readActions()).contains("autoscaling:DescribeAutoScalingGroups", "ec2:DescribeInstances",
@@ -139,6 +172,14 @@ class AutoSpottingPermissionCoverageTest {
         List<String> missingWrite = new ArrayList<>(readActions().stream().filter(a -> !granted(writeGranted, a)).toList());
         writeActions().stream().filter(a -> !granted(writeGranted, a)).forEach(missingWrite::add);
         assertThat(missingRead).as("READ session policy does not grant").isEmpty();
+        // A wildcard satisfies any check, so the exact form is pinned where it ships: READ must list its actions
+        // (the Describe* fallback would make this assertion vacuous), and WRITE must list the writes by name.
+        assertThat(policies.usesDescribeFallback(AwsSessionPolicies.Mode.READ))
+                .as("READ session policy fell back to Describe*; shrink its action list").isFalse();
+        assertThat(readActions().stream().filter(a -> !readGranted.contains(a)).toList())
+                .as("READ session policy must list each read action by name").isEmpty();
+        assertThat(writeActions().stream().filter(a -> !writeGranted.contains(a)).toList())
+                .as("WRITE session policy must list each write action by name").isEmpty();
         assertThat(missingWrite).as("WRITE session policy does not grant").isEmpty();
     }
 

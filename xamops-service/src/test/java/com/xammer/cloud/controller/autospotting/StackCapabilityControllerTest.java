@@ -21,8 +21,14 @@ class StackCapabilityControllerTest {
         assertThat(dto.latestVersion()).isEqualTo("rw-2026.11.2");
     }
     @Test
-    void aCurrentStackNeedsNoUpdate() {
+    void aStackWithoutTheEventTagLookupIsPromptedToUpdate() {
         StackCapabilityDto dto = StackCapabilityController.describe(account("read-write", "rw-2026.11.1"));
+        assertThat(dto.updateRequired()).isTrue();
+        assertThat(dto.missing()).extracting(StackCapabilityDto.Missing::code).containsExactly("AS_EVENTS_TAG_LOOKUP");
+    }
+    @Test
+    void aCurrentStackNeedsNoUpdate() {
+        StackCapabilityDto dto = StackCapabilityController.describe(account("read-write", "rw-2026.11.2"));
         assertThat(dto.updateRequired()).isFalse();
         assertThat(dto.missing()).isEmpty();
     }

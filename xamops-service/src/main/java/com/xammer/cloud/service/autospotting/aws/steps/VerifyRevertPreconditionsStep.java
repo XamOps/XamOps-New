@@ -76,7 +76,9 @@ public final class VerifyRevertPreconditionsStep extends AwsRevertStep {
         }
         AwsRestoreProgram.Resolved resolved = AwsRestoreProgram.resolve(services, live.account(), live.view(),
                 live.raw(), inputs);
-        if (!inputs.compensation()) {
+        // A drain-only revert keeps the types and the template, so the plan lists none of the restore's acks; step 0
+        // asks for the same set the plan showed (found by revert matrix row E5).
+        if (!inputs.compensation() && inputs.mode() != AwsRestoreProgram.Mode.DRAIN_ONLY) {
             String acks = services.facts().planConfirmAcks(program.planId()).orElse("");
             for (String ack : resolved.diff().acks()) {
                 if (!acks.contains(ack)) {

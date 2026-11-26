@@ -265,7 +265,7 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
         if (live.mixedInstancesPolicy() && shareDrained && spotRead == null) {
             // Whether the drain is open depends on the running Spot count here, and the read failed: an unknown is not
             // zero, so no mode or blocker text is chosen from it (review High #3). The customer can plan again.
-            return blocked(raw, check("SPOT_COUNT_UNREADABLE", "XamOps couldn't read how many Spot instances this "
+            return blocked(row, check("SPOT_COUNT_UNREADABLE", "XamOps couldn't read how many Spot instances this "
                     + "group is running, so it can't plan the revert yet. Nothing was changed. Try again in a minute."));
         }
         int spotNow = spotRead == null ? 0 : spotRead;
@@ -278,7 +278,7 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
                 // On-Demand. It never claims a restore; configOnGroup records ORIGINAL_UNAVAILABLE.
                 return originalUnavailable(account, view, raw, live, row, spotNow);
             }
-            return blocked(raw, check("SNAPSHOT_MISSING", configOnGroup
+            return blocked(row, check("SNAPSHOT_MISSING", configOnGroup
                     ? "XamOps can't read the original configuration it saved for this group, so it can't restore it. "
                     + "The group is already at 100% On-Demand. Contact support."
                     : "The saved original configuration of this group could not be read."));
@@ -389,7 +389,7 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
                 payloadReasons, payload, AwsFingerprint.sha256(payload));
         PlanBody.Rollout rollout = new PlanBody.Rollout(
                 mode == Mode.RESTORE_ONLY ? "RESTORE_ONLY" : "DRAIN_LAUNCH_FIRST",
-                mode == Mode.RESTORE_ONLY ? 0 : spotNow, 1, "5 min to 1 h",
+                mode == Mode.RESTORE_ONLY ? Integer.valueOf(0) : spotRead, 1, "5 min to 1 h",
                 Math.max(0, live.max() - live.desired()) + " instance(s) above desired (max " + live.max() + ")", null);
         return new PlanBody(write(current), write(target), write(diffNode(current, target)), snapshot,
                 new EligibilityResult(blockers, shown, List.of()), rollout, List.of(), null, null,
@@ -462,8 +462,10 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
                 null, write(revert));
     }
 
-    private PlanBody blocked(AutoScalingGroup raw, Check blocker) {
-        return new PlanBody(null, null, null, null, new EligibilityResult(List.of(blocker), List.of(), List.of()),
+    private PlanBody blocked(SpotGroup row, Check blocker) {
+        // A FAILED group's plan carries REVERT_FROM_FAILED whichever blocker fires, like the permission-blocked plan.
+        return new PlanBody(null, null, null, null,
+                new EligibilityResult(List.of(blocker), withFromFailed(row, List.of()), List.of()),
                 null, List.of(), null, null, null);
     }
 

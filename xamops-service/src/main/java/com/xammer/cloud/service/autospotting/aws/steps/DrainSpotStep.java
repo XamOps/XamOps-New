@@ -67,19 +67,28 @@ public final class DrainSpotStep extends AwsRevertStep {
     @Override
     StepOutcome doProbe(StepContext ctx) {
         Live live = live();
-        if (live.failure() == null && drained(AwsGroupFacts.from(program.region(), live.raw()))) {
+        // The same test as doExecute: share 100 with Spot still running is not drained (review High #3).
+        if (live.failure() == null && drained(AwsGroupFacts.from(program.region(), live.raw())) && !spotRunning(live)) {
             return done("{\"alreadyDrained\":true}");
         }
         return notYet();
     }
 
-    /** Spot instances in service now; read only when the share is already 100 (a failed read is retried by the runner). */
+    /**
+     * Whether Spot instances may still be in service. Read only when the share is already 100. A failed read, or a group
+     * the observer no longer finds, counts as running: the drain stays open and is re-sent, and the step does not fail
+     * on a read it only uses to skip a call (review Medium #5).
+     */
     private boolean spotRunning(Live live) {
         if (!AwsGroupFacts.from(program.region(), live.raw()).mixedInstancesPolicy()) {
             return false;
         }
-        return services.observer().observe(live.view(), program.groupName())
-                .map(snapshot -> snapshot.spotNow() > 0).orElse(false);
+        try {
+            return services.observer().observe(live.view(), program.groupName())
+                    .map(snapshot -> snapshot.spotNow() > 0).orElse(true);
+        } catch (com.xammer.cloud.service.autospotting.aws.AwsReadException e) {
+            return true;
+        }
     }
 
     /** A group with no mixed policy has no Spot share to remove. */

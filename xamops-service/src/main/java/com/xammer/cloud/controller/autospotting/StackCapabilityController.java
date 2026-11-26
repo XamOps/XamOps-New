@@ -44,7 +44,7 @@ public class StackCapabilityController {
         if (!readWrite) {
             return new StackCapabilityDto(false, version, latest, false, List.of());
         }
-        List<StackCapabilityDto.Missing> missing = StackCapabilities.missingForConversion(version).stream()
+        List<StackCapabilityDto.Missing> missing = StackCapabilities.missingForUpdate(version).stream()
                 .map(c -> new StackCapabilityDto.Missing(c.name(), c.label())).toList();
         return new StackCapabilityDto(true, version, latest, !missing.isEmpty(), missing);
     }
