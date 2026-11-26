@@ -354,16 +354,40 @@ final class AwsOpsHarness implements AutoCloseable {
         com.xammer.cloud.domain.CloudAccount account = harnessAccount();
         com.xammer.cloud.security.ClientUserDetails user = new com.xammer.cloud.security.ClientUserDetails("owner", "x",
                 List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_USER")), 1L, 100L, "t");
-        // ConfirmService carries @Transactional(REQUIRES_NEW) as a Spring bean; emulate that proxy here.
-        return new org.springframework.transaction.support.TransactionTemplate(
+        // ConfirmService carries @Transactional(REQUIRES_NEW, noRollbackFor = BlockedRevertException) as a Spring bean;
+        // emulate that proxy here: a BlockedRevertException commits (the plan is marked STALE) and is rethrown.
+        com.xammer.cloud.service.autospotting.core.AutoSpottingApiException[] refused =
+                new com.xammer.cloud.service.autospotting.core.AutoSpottingApiException[1];
+        var result = new org.springframework.transaction.support.TransactionTemplate(
                 ctx.getBean(org.springframework.transaction.PlatformTransactionManager.class))
-                .execute(status -> confirm.confirm(account, user, planId,
-                        new com.xammer.cloud.service.autospotting.core.plan.ConfirmService.ConfirmCommand(
-                                jdbc.queryForObject("SELECT version FROM spot_plan WHERE id = ?", Integer.class, planId),
-                                warningIds,
-                                false, null, false, "k-" + planId, "h-" + planId))).operationId();
+                .execute(status -> {
+                    try {
+                        return confirm.confirm(account, user, planId,
+                                new com.xammer.cloud.service.autospotting.core.plan.ConfirmService.ConfirmCommand(
+                                        jdbc.queryForObject("SELECT version FROM spot_plan WHERE id = ?", Integer.class,
+                                                planId),
+                                        warningIds, false, null, false, "k-" + planId, "h-" + planId));
+                    } catch (com.xammer.cloud.service.autospotting.core.AutoSpottingApiException e) {
+                        if (!"BlockedRevertException".equals(e.getClass().getSimpleName())) {
+                            throw e;
+                        }
+                        refused[0] = e;
+                        return null;
+                    }
+                });
+        if (refused[0] != null) {
+            throw refused[0];
+        }
+        return result.operationId();
     }
-
+    /** The status of a stored plan. */
+    String planStatus(UUID planId) {
+        return jdbc.queryForObject("SELECT status FROM spot_plan WHERE id = ?", String.class, planId);
+    }
+    /** Confirm a stored plan acknowledging {@code acks} only (not every warning it lists). */
+    UUID confirmPlan(UUID planId, List<String> acks) {
+        return confirmWith(planId, acks);
+    }
     /** Claim {@code opId} and run it until it ends, moving the clock a minute between runs. */
     String runToEnd(UUID opId) {
         for (int round = 0; round < 60; round++) {

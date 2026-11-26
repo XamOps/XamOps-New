@@ -306,10 +306,15 @@ class AwsRevertMatrixIT {
             int opsBefore = h.jdbc.queryForObject("SELECT count(*) FROM spot_operation WHERE kind = 'REVERT'", Integer.class);
             UUID op;
             try {
-                op = h.confirmPlan(plan.getId());
+                // A blocked row confirms with no acknowledgements: the answer is the blocker, never ACK_REQUIRED.
+                op = e.confirmed() ? h.confirmPlan(plan.getId()) : h.confirmPlan(plan.getId(), List.of());
             } catch (AutoSpottingApiException ex) {
                 assertThat(e.confirmed()).as("confirm refused with " + ex.getCode()).isFalse();
                 assertThat(ex.getStatus().value()).isEqualTo(422);
+                assertThat(ex.getCode()).as("the plan's first blocker").isEqualTo(blockerCodes.get(0));
+                assertThat(ex.getMessage()).as("the plan's blocker text")
+                        .isEqualTo(body.path("eligibility").path("blockers").get(0).path("text").asText());
+                assertThat(h.planStatus(plan.getId())).as("a refused plan does not stay OPEN").isEqualTo("STALE");
                 assertThat(h.jdbc.queryForObject("SELECT count(*) FROM spot_operation WHERE kind = 'REVERT'",
                         Integer.class)).as("no revert op").isEqualTo(opsBefore);
                 assertAfter(h, e);

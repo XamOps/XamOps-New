@@ -382,7 +382,7 @@ class ConfirmServiceTest {
     }
 
     @Test
-    void gr03AGcpRevertPlanThatNeedsAPermissionIs409RetryableAndNoOp_otherRevertsAreNotRefused() {
+    void gr03AGcpRevertPlanThatNeedsAPermissionIs422RetryableAndNoOp_otherRevertsAreNotRefused() {
         CloudAccount gcp = account();
         gcp.setProvider("GCP");
         SpotGroup g = group(GroupState.ACTIVE);
@@ -394,10 +394,12 @@ class ConfirmServiceTest {
         when(groups.findById(g.getId())).thenReturn(Optional.of(g));
         assertThatThrownBy(() -> confirm.confirm(gcp, user(), p.getId(), cmd(1, List.of(), false)))
                 .isInstanceOfSatisfying(AutoSpottingApiException.class, ex -> {
-                    assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+                    assertThat(ex.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
                     assertThat(ex.getCode()).isEqualTo("REVERT_NEEDS_PERMISSION");
+                    assertThat(ex.getMessage()).isEqualTo("x");
                     assertThat(ex.isRetryable()).isTrue();
                 });
+        verify(plans).markStaleIfOpen(p.getId());
         verify(operationStore, never()).insertQueued(any());
         verify(plans, never()).confirmIfOpen(any(), anyInt(), anyString(), any(), anyString(), any());
         // The same blocker on an AWS plan is not a GCP refusal (AWS has its own drain-only path), and a GCP revert
@@ -411,6 +413,28 @@ class ConfirmServiceTest {
         when(groups.findById(ok.getId())).thenReturn(Optional.of(ok));
         when(plans.confirmIfOpen(eq(clean.getId()), eq(1), anyString(), any(), anyString(), any())).thenReturn(1);
         assertThat(confirm.confirm(gcp, user(), clean.getId(), cmd(1, List.of(), false)).status()).isEqualTo("QUEUED");
+    }
+    @Test
+    void aBlockedRevertAnswersItsBlockerBeforeTheAcknowledgementAndTheRefusalCommits() throws Exception {
+        SpotGroup g = group(GroupState.FAILED);
+        SpotPlan p = plan(OperationKind.REVERT, g.getId(), "[\"REVERT_FROM_FAILED\"]", false);
+        p.setBody("{\"eligibility\":{\"blockers\":[{\"code\":\"REVERT_NEEDS_PASSROLE\",\"text\":\"Grant it.\"}]}}");
+        when(plans.findById(p.getId())).thenReturn(Optional.of(p));
+        when(operations.findByPlanId(p.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+        assertThatThrownBy(() -> confirm.confirm(account(), user(), p.getId(), cmd(1, List.of(), false)))
+                .isInstanceOfSatisfying(AutoSpottingApiException.class, ex -> {
+                    assertThat(ex.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+                    assertThat(ex.getCode()).isEqualTo("REVERT_NEEDS_PASSROLE");
+                    assertThat(ex.getMessage()).isEqualTo("Grant it.");
+                });
+        verify(plans).markStaleIfOpen(p.getId());
+        // The STALE mark must survive the refusal: the exception is exempt from the transaction's rollback.
+        var tx = ConfirmService.class.getMethod("confirm", CloudAccount.class,
+                com.xammer.cloud.security.ClientUserDetails.class, java.util.UUID.class,
+                ConfirmService.ConfirmCommand.class)
+                .getAnnotation(org.springframework.transaction.annotation.Transactional.class);
+        assertThat(tx.noRollbackFor()).contains(ConfirmService.BlockedRevertException.class);
     }
     @Test
     void unreadableSwitchStoreHoldsRevert() {

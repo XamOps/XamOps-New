@@ -116,12 +116,19 @@ public class ConfirmService {
     /** The confirm command (controller-resolved; the account is already tenancy-authorized). */
     /** The marker stored in {@code confirm_acks} when the customer confirmed a 100% Spot plan (FR-PLN-04). */
     public static final String FULL_SPOT_OPTIN = "FULL_SPOT_OPTIN";
-    /** GR-03: the 409 code of a GCP revert plan that needs a permission XamOps does not have. */
+    /** GR-03: the code of a GCP revert plan blocker for a permission XamOps does not have (422 on confirm, retryable). */
     public static final String REVERT_NEEDS_PERMISSION = "REVERT_NEEDS_PERMISSION";
 
     public record ConfirmCommand(int planVersion, List<String> acknowledgedWarningIds, boolean fullSpotOptIn,
                                  String reason, boolean dryRunRequested, String idempotencyKey,
                                  String requestSha256) {
+    }
+
+    /** 422 for a blocked REVERT plan; the confirm transaction commits (it only marks the plan STALE) when it is thrown. */
+    public static final class BlockedRevertException extends AutoSpottingApiException {
+        BlockedRevertException(String code, String text, boolean retryable) {
+            super(HttpStatus.UNPROCESSABLE_ENTITY, code, text, retryable, null, null);
+        }
     }
 
     /** The 202 result: the operation id and its status. */
@@ -133,7 +140,7 @@ public class ConfirmService {
      * UPDATE and the op insert commit together. A second confirm (any key, any instance) returns the
      * existing op id (§7.4 idempotent confirm, AC-SPN-01).
      */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = ConfirmService.BlockedRevertException.class)
     public ConfirmResult confirm(CloudAccount account, ClientUserDetails user, UUID planId, ConfirmCommand cmd) {
         SpotPlan plan = plans.findById(planId)
                 .filter(p -> account.getId().equals(p.getCloudAccountId()))
@@ -186,13 +193,20 @@ public class ConfirmService {
                     "The plan changed since you read it. Reload and try again.");
         }
 
-        // GR-03: a GCP revert has no partial safe target that needs fewer permissions than the PATCH itself, so a plan
-        // that carries REVERT_NEEDS_PERMISSION is refused here (retryable: re-plan after the grant). Nothing was
-        // enqueued, so the group keeps its state and fallback and billing carry on.
-        if (revert && provider == Provider.GCP && planNeedsPermission(plan)) {
-            throw new AutoSpottingApiException(HttpStatus.CONFLICT, REVERT_NEEDS_PERMISSION,
-                    "XamOps is missing a permission it needs to revert this group. Grant it, then plan the revert again.",
-                    true, null, null);
+        // 4b. A REVERT plan that carries any blocker can never run (it would fail in step 0): refuse it, on either
+        // provider, with the plan's own code and text (GR-03 for GCP's REVERT_NEEDS_PERMISSION), before the
+        // acknowledgement check, so the client is told why instead of being asked to tick a box that unblocks
+        // nothing, and before an operation, alert or audit row exists. The plan is marked STALE in the same
+        // commit (BlockedRevertException keeps the transaction), so a refused plan does not stay OPEN and
+        // unconfirmable; the customer plans again once the cause is fixed. An unreadable plan body fails closed.
+        if (revert) {
+            JsonNode blocker = revertBlocker(plan);
+            if (blocker != null) {
+                plans.markStaleIfOpen(plan.getId());
+                String code = blocker.path("code").asText("CHECK_FAILED");
+                throw new BlockedRevertException(code, blocker.path("text").asText(
+                        "This revert can't run yet. Review a fresh revert plan."), REVERT_NEEDS_PERMISSION.equals(code));
+            }
         }
         // 5. Every warning id acknowledged.
         Set<String> required = warningIds(plan);
@@ -202,17 +216,6 @@ public class ConfirmService {
                     "Acknowledge every warning before confirming.");
         }
 
-        // 5b. A REVERT plan that carries any blocker can never run (it would fail in step 0): refuse it with the
-        // plan's own code and text before an operation, alert or audit row exists (revert matrix, review High #2).
-        // An unreadable plan body fails closed.
-        if (revert) {
-            JsonNode blocker = revertBlocker(plan);
-            if (blocker != null) {
-                throw new AutoSpottingApiException(HttpStatus.UNPROCESSABLE_ENTITY,
-                        blocker.path("code").asText("CHECK_FAILED"),
-                        blocker.path("text").asText("This revert can't run yet. Review a fresh revert plan."));
-            }
-        }
         // 6. PROGRESS kinds only (never REVERT): 100% Spot without opt-in, or desired ≤ 1.
         if (!revert && CompensationTargets.actionClass(plan.getKind())
                 == com.xammer.cloud.domain.autospotting.ActionClass.PROGRESS) {
@@ -379,20 +382,6 @@ public class ConfirmService {
         return ids;
     }
 
-    /** True when the plan's eligibility carries a {@code REVERT_NEEDS_PERMISSION} blocker (GCP, GR-03). */
-    private boolean planNeedsPermission(SpotPlan plan) {
-        try {
-            JsonNode body = objectMapper.readTree(plan.getBody() == null ? "{}" : plan.getBody());
-            for (JsonNode blocker : body.path("eligibility").path("blockers")) {
-                if (REVERT_NEEDS_PERMISSION.equals(blocker.path("code").asText())) {
-                    return true;
-                }
-            }
-        } catch (Exception ignored) {
-            // an unreadable body carries no such blocker; step 0 of the revert checks the permissions again
-        }
-        return false;
-    }
     /** A REVERT plan's first blocker, a synthetic CHECK_FAILED when the body can't be read, or null. */
     private JsonNode revertBlocker(SpotPlan plan) {
         try {

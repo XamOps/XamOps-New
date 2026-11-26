@@ -48,7 +48,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * GR-03 on real PostgreSQL (plan-phase-28.md 28.1): a GCP revert with a missing restore permission is refused at
- * confirm (409 {@code REVERT_NEEDS_PERMISSION}, retryable) and a step 0 that finds the permission missing ends the op
+ * confirm (422 {@code REVERT_NEEDS_PERMISSION}, retryable) and a step 0 that finds the permission missing ends the op
  * FAILED before any mutation, so the group stays ACTIVE, fallback and billing resume, and a Spot shortage then enqueues
  * FALLBACK_ENTER. The real runner, lease, stores and GCP provider run over a stubbed Compute; no GCP call is made.
  */
@@ -100,16 +100,31 @@ class GcpRevertPermissionIT {
             ClientUserDetails user = new ClientUserDetails("owner", "x", List.of(new SimpleGrantedAuthority("ROLE_USER")),
                     1L, 100L, "t");
             ConfirmService confirm = confirmService(h);
-            assertThatThrownBy(() -> confirm.confirm(account, user, planId,
-                    new ConfirmService.ConfirmCommand(1, List.of(), false, null, false, "k", "h")))
+            // ConfirmService is a REQUIRES_NEW transaction that commits through a BlockedRevertException (it marks the
+            // plan STALE); the IT has no proxy, so it emulates that here.
+            assertThatThrownBy(() -> {
+                ConfirmService.BlockedRevertException[] refused = new ConfirmService.BlockedRevertException[1];
+                new org.springframework.transaction.support.TransactionTemplate(h.ctx.getBean(
+                        org.springframework.transaction.PlatformTransactionManager.class)).executeWithoutResult(st -> {
+                    try {
+                        confirm.confirm(account, user, planId,
+                                new ConfirmService.ConfirmCommand(1, List.of(), false, null, false, "k", "h"));
+                    } catch (ConfirmService.BlockedRevertException e) {
+                        refused[0] = e;
+                    }
+                });
+                if (refused[0] != null) {
+                    throw refused[0];
+                }
+            })
                     .isInstanceOfSatisfying(AutoSpottingApiException.class, ex -> {
-                        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+                        assertThat(ex.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
                         assertThat(ex.getCode()).isEqualTo("REVERT_NEEDS_PERMISSION");
                         assertThat(ex.isRetryable()).isTrue();
                     });
             assertThat(h.count("SELECT count(*) FROM spot_operation WHERE kind = 'REVERT'")).isZero();
             assertThat(h.jdbc.queryForObject("SELECT status FROM spot_plan WHERE id = ?", String.class, planId))
-                    .as("the plan stays open: re-plan after the grant").isEqualTo("OPEN");
+                    .as("the refused plan is STALE: re-plan after the grant").isEqualTo("STALE");
             assertThat(h.groupState()).isEqualTo("ACTIVE");
             // After the grant a fresh plan carries no such blocker.
             h.f.gcp.grantedProject.add(UPDATE);
