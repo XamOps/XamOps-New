@@ -202,6 +202,15 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
     // ---- plan ----
 
     @Override
+    public boolean originalReadable(java.util.UUID groupId) {
+        if (groupId == null) {
+            return false;
+        }
+        Optional<AwsSnapshotStore.Stored> stored = services.snapshots().findLinked(groupId);
+        return stored.isPresent() && AwsSnapshotCodec.decodeOwned(stored.get().payload()).isPresent();
+    }
+
+    @Override
     public PlanBody plan(PlanRequest req, CloudAccount account) {
         String[] parts = AwsEligibilityEvaluator.split(req.ref().groupKey());
         AwsReadOnlyView view = services.view(account, parts[0]);
@@ -212,7 +221,11 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
         AutoScalingGroup raw = found.get();
         AwsGroupFacts live = AwsGroupFacts.from(parts[0], raw);
         SpotGroup row = groups.live(Provider.AWS, account.getId(), req.ref().groupKey()).orElse(null);
-        Mode mode = row != null && row.getState() == GroupState.REVERTED ? Mode.RESTORE_ONLY : Mode.RESTORE;
+        // GR-02: the exact restore only, never another drain, after a drain-only revert (REVERTED) and whenever the
+        // row records that XamOps' configuration is still on the group, including a FAILED exact revert (review #2).
+        Mode mode = row != null && (row.getState() == GroupState.REVERTED
+                || com.xammer.cloud.service.autospotting.spi.PlanOptions.forGroup(null, row).configOnGroup())
+                ? Mode.RESTORE_ONLY : Mode.RESTORE;
         Optional<AwsSnapshotStore.Stored> stored = row == null ? Optional.empty()
                 : services.snapshots().findLinked(row.getId());
         String payload = stored.map(AwsSnapshotStore.Stored::payload).orElse(null);

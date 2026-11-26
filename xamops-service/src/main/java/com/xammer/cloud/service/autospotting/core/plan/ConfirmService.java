@@ -164,7 +164,8 @@ public class ConfirmService {
         }
 
         // 3. Kind and state (the §7.4 table), repeated under the group's current state. GR-02: a REVERTED
-        // group is revertible only after a drain-only revert (PASSROLE_DENIED).
+        // group is revertible only after a drain-only revert that left XamOps' configuration on it (PASSROLE_DENIED
+        // or CHECK_FAILED; RevertHistory.revertAllowedAgain).
         boolean regrant = revert && group != null && state == GroupState.REVERTED
                 && RevertHistory.revertAllowedAgain(operations, plans, group);
         if (!PlanKinds.isAllowed(plan.getKind(), state, regrant)) {
@@ -201,6 +202,15 @@ public class ConfirmService {
                     "Acknowledge every warning before confirming.");
         }
 
+        // 5b. A REVERT whose saved original can't be read can never run (it would only fail in step 0): refuse it
+        // with the plan's own text, before an operation, alert or audit row exists (D-23b-03 review #4).
+        if (revert) {
+            JsonNode missing = blockerWithCode(plan, "SNAPSHOT_MISSING");
+            if (missing != null) {
+                throw new AutoSpottingApiException(HttpStatus.UNPROCESSABLE_ENTITY, "SNAPSHOT_MISSING",
+                        missing.path("text").asText("The saved original configuration of this group could not be read."));
+            }
+        }
         // 6. PROGRESS kinds only (never REVERT): 100% Spot without opt-in, or desired ≤ 1.
         if (!revert && CompensationTargets.actionClass(plan.getKind())
                 == com.xammer.cloud.domain.autospotting.ActionClass.PROGRESS) {
@@ -381,6 +391,21 @@ public class ConfirmService {
         }
         return false;
     }
+    /** The plan's blocker with {@code code}, or null. */
+    private JsonNode blockerWithCode(SpotPlan plan, String code) {
+        try {
+            JsonNode body = objectMapper.readTree(plan.getBody() == null ? "{}" : plan.getBody());
+            for (JsonNode b : body.path("eligibility").path("blockers")) {
+                if (code.equals(b.path("code").asText())) {
+                    return b;
+                }
+            }
+        } catch (Exception e) {
+            return null;
+        }
+        return null;
+    }
+
     /** The first definitive blocker the plan recorded, or null when it has none. */
     private JsonNode firstBlocker(SpotPlan plan) {
         try {

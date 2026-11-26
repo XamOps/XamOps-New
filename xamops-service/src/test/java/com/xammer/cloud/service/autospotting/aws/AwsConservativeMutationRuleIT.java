@@ -200,8 +200,30 @@ class AwsConservativeMutationRuleIT {
             assertThat(col(h, "first_mutation_seq", revert)).isNotNull();
             assertThat(h.groupState()).as("after mutation: FAILED, revertable").isEqualTo("FAILED");
             assertThat(h.f.group().mixedInstancesPolicy()).as("the rejected call changed nothing").isNotNull();
+            assertThat(PlanOptions.forGroup(null, row(h)).configOnGroup()).as("still on the group").isTrue();
+            // Review #2: with the permission check failing again, the FAILED row's retry is the exact restore and
+            // blocked, never another drain-only no-op.
+            org.mockito.Mockito.reset(h.f.aws.iam);
+            org.mockito.Mockito.doThrow(AwsServiceException.builder().statusCode(403).awsErrorDetails(
+                    AwsErrorDetails.builder().errorCode("AccessDenied").build()).build()).when(h.f.aws.iam)
+                    .simulatePrincipalPolicy(any(software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyRequest.class));
+            var blocked = h.provider.createPlan(new PlanRequest(ref(), OperationKind.REVERT, null,
+                    PlanOptions.forGroup(null, row(h))), h.f.aws.view());
+            assertThat(h.f.json(blocked.targetJson()).path("mode").asText()).isEqualTo("RESTORE_ONLY");
+            assertThat(blocked.eligibility().blockers()).as("blocked, not drain-only").isNotEmpty();
+            org.mockito.Mockito.reset(h.f.aws.iam);
+            doAnswer(inv -> {
+                software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyRequest r = inv.getArgument(0);
+                return software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyResponse.builder()
+                        .evaluationResults(r.actionNames().stream().map(a -> software.amazon.awssdk.services.iam.model
+                                .EvaluationResult.builder().evalActionName(a).evalDecision("allowed").build()).toList())
+                        .build();
+            }).when(h.f.aws.iam).simulatePrincipalPolicy(any(
+                    software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyRequest.class));
             UUID retry = h.planAndConfirm(new PlanRequest(ref(), OperationKind.REVERT, null,
                     PlanOptions.forGroup(null, row(h))));
+            assertThat(h.jdbc.queryForObject("SELECT target_config->>'mode' FROM spot_operation WHERE id = ?",
+                    String.class, retry)).as("the retry is the exact restore").isEqualTo("RESTORE_ONLY");
             assertThat(h.runToEnd(retry)).as("retry error " + h.opError()).isEqualTo("SUCCEEDED");
             assertThat(h.groupState()).isEqualTo("REVERTED");
             assertThat(h.f.group().mixedInstancesPolicy()).as("the true original is restored").isNull();
@@ -254,12 +276,16 @@ class AwsConservativeMutationRuleIT {
                     "SELECT error_code FROM spot_operation WHERE id = ?", String.class, op)).isEqualTo("SUCCEEDED");
             assertThat(col(h, "phase", op)).as("compensated (conservative rule)").isEqualTo("COMPENSATING");
             assertThat(h.groupState()).isEqualTo("ACTIVE");
-            assertThat(h.f.updates).as("no update carried a maintenance policy")
-                    .allSatisfy(r -> assertThat(r.instanceMaintenancePolicy()).isNull());
+            org.mockito.Mockito.verify(h.f.write, org.mockito.Mockito.atLeastOnce())
+                    .updateAutoScalingGroup(any(UpdateAutoScalingGroupRequest.class)); // the rejected first call
+            // The compensation found the prior configuration still live (the rejected call changed nothing), so any
+            // update it did send must not carry a maintenance policy.
+            assertThat(h.f.updates).allSatisfy(r -> assertThat(r.instanceMaintenancePolicy()).isNull());
             assertThat(h.f.group().instanceMaintenancePolicy()).as("the customer's policy").isEqualTo(customer);
             List<String> live = new ArrayList<>();
             h.f.group().mixedInstancesPolicy().launchTemplate().overrides().forEach(o -> live.add(o.instanceType()));
-            assertThat(live).as("the customer's added type").contains("c5.large");
+            assertThat(live).as("exactly the types before the op, the customer's c5.large included")
+                    .containsExactlyInAnyOrderElementsOf(types);
         }
     }
 }
