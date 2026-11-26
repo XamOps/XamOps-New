@@ -318,10 +318,12 @@ public class PlanService {
         }
     }
 
-    /** A PLANNED group with a confirmed-but-unstarted ENABLE can be reverted (§7.4); dark until ops run. */
+    /**
+     * design-core 7.4 as amended on 2026-11-26 (revert matrix Q-A): a PLANNED group is never revertible, also not
+     * with a confirmed ENABLE that hasn't started. That op starts on the next dispatch, and the customer reverts once
+     * the group is APPLYING or ACTIVE. So this is always false.
+     */
     private boolean hasConfirmedEnable(SpotGroup group) {
-        // No confirmed ENABLE op exists in this phase (no op runs). The safe reading for a PLANNED
-        // group with only an OPEN plan is NOT_MANAGED (§7.4), so default false.
         return false;
     }
 

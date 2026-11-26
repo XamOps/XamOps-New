@@ -82,4 +82,31 @@ class AwsDesiredConfigAfterRestoreTest {
         assertThat(json(provider.desiredConfigAfterRestore(FULL, null)).path(PlanOptions.CONFIG_ON_GROUP).asBoolean())
                 .as("no step information means nothing was restored").isTrue();
     }
+
+    @Test
+    void aDrainRecordsItsCauseAndALaterDrainWithAnotherCauseRewritesIt() throws Exception {
+        String passRole = provider.desiredConfigAfterRestore(FULL, DRAINED, "{\"reasons\":[\"PASSROLE_DENIED\"]}");
+        assertThat(json(passRole).path(PlanOptions.CONFIG_ON_GROUP_REASON).asText()).isEqualTo("PASSROLE_DENIED");
+        String rewritten = provider.desiredConfigAfterRestore(passRole, DRAINED, "{\"reasons\":[\"CHECK_FAILED\"]}");
+        assertThat(json(rewritten).path(PlanOptions.CONFIG_ON_GROUP_REASON).asText()).isEqualTo("CHECK_FAILED");
+        String unavailable = provider.desiredConfigAfterRestore(rewritten, DRAINED,
+                "{\"reasons\":[\"ORIGINAL_UNAVAILABLE\"]}");
+        assertThat(json(unavailable).path(PlanOptions.CONFIG_ON_GROUP_REASON).asText()).isEqualTo("ORIGINAL_UNAVAILABLE");
+        assertThat(provider.desiredConfigAfterRestore(unavailable, DRAINED, "{\"reasons\":[]}"))
+                .as("no cause in the target keeps the stored one").isEqualTo(unavailable);
+        assertThat(json(provider.desiredConfigAfterRestore(unavailable, RESTORED, null))
+                .has(PlanOptions.CONFIG_ON_GROUP_REASON)).as("a restore clears it").isFalse();
+    }
+
+    @Test
+    void theBlockerTextFollowsTheCauseAndNeverSendsToABlockedRevert() {
+        assertThat(AwsSpotProvider.configStillOnGroupText("PASSROLE_DENIED", true))
+                .isEqualTo("XamOps' configuration is still on this group. Grant iam:PassRole and run Revert first.");
+        assertThat(AwsSpotProvider.configStillOnGroupText("CHECK_FAILED", true))
+                .contains("couldn't check its permissions").doesNotContain("PassRole");
+        assertThat(AwsSpotProvider.configStillOnGroupText(null, true)).as("cause-free (older rows)")
+                .contains("Run Revert first").contains("if it asks for iam:PassRole");
+        assertThat(AwsSpotProvider.configStillOnGroupText("ORIGINAL_UNAVAILABLE", false))
+                .contains("Contact support").doesNotContain("Run Revert");
+    }
 }

@@ -23,10 +23,8 @@ public interface AwsRevertProgramFactory {
     PlanBody plan(PlanRequest request, CloudAccount account);
 
     /**
-     * True when the group's linked original snapshot exists and decodes, the same read the revert plan makes
-     * (D-23b-03 review #8). The CONFIG_STILL_ON_GROUP text recommends Revert only then.
+     * True when the group's linked original snapshot exists and decodes (D-23b-03 review #8). The
+     * CONFIG_STILL_ON_GROUP text recommends Revert only then. No default (review #6): every implementation answers.
      */
-    default boolean originalReadable(java.util.UUID groupId) {
-        return false;
-    }
+    boolean originalReadable(java.util.UUID groupId);
 }

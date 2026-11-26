@@ -613,11 +613,12 @@ class AwsConfirmedOpsIT {
                 .as("a blocked enable cannot be confirmed")
                 .isInstanceOfSatisfying(com.xammer.cloud.service.autospotting.core.AutoSpottingApiException.class,
                         e -> {
-                            // 422 with the plan's first blocker (CONFIG_STILL_ON_GROUP, or a permission gap listed
-                            // before it while PassRole is still denied).
+                            // CONFIG_STILL_ON_GROUP is the first blocker (review #4), so confirm names it.
                             assertThat(e.getStatus().value()).isEqualTo(422);
-                            assertThat(plan.eligibility().blockers()).extracting(b -> b.code()).contains(e.getCode());
+                            assertThat(e.getCode()).isEqualTo(AwsSpotProvider.CONFIG_STILL_ON_GROUP);
                         });
+        assertThat(plan.eligibility().blockers().get(0).code()).as("first blocker")
+                .isEqualTo(AwsSpotProvider.CONFIG_STILL_ON_GROUP);
         // The refused plan stays OPEN until the next plan supersedes it (PlanService does that; the harness does not).
         h.jdbc.update("UPDATE spot_plan SET status = 'SUPERSEDED' WHERE group_id = ? AND status = 'OPEN'", h.f.groupId);
         return blocker.text();

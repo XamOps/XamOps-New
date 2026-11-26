@@ -99,11 +99,7 @@ public record PlanOptions(Boolean allowBurstable, String desiredConfigJson, bool
     }
 
 
-    /**
-     * True when the stored config says a restore program left XamOps' configuration on the group (a drain-only
-     * revert, D-23b-03): the group's linked snapshot is still the customer's original.
-     */
-    /** {@link #CONFIG_ON_GROUP_REASON} from the stored config, or null. */
+    /** {@link #CONFIG_ON_GROUP_REASON} from the stored config (PASSROLE_DENIED, CHECK_FAILED, ORIGINAL_UNAVAILABLE), or null. */
     public String configOnGroupReason() {
         if (!configOnGroup()) {
             return null;
@@ -115,6 +111,10 @@ public record PlanOptions(Boolean allowBurstable, String desiredConfigJson, bool
         }
     }
 
+    /**
+     * True when the stored config says a restore program left XamOps' configuration on the group (a drain-only
+     * revert, D-23b-03): its ownership markers still describe the live group.
+     */
     public boolean configOnGroup() {
         if (!underManagement || desiredConfigJson == null || desiredConfigJson.isBlank()) {
             return false;
