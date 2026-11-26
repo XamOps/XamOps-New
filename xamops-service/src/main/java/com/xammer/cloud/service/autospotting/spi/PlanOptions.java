@@ -34,7 +34,7 @@ public record PlanOptions(Boolean allowBurstable, String desiredConfigJson, bool
      */
     public static final String CONFIG_ON_GROUP = "configOnGroup";
 
-    /** Why the drain-only revert left the configuration: PASSROLE_DENIED or CHECK_FAILED (absent on older rows). */
+    /** Why the drain-only revert left the configuration: PASSROLE_DENIED, CHECK_FAILED or ORIGINAL_UNAVAILABLE (absent on older rows). */
     public static final String CONFIG_ON_GROUP_REASON = "configOnGroupReason";
 
     /**

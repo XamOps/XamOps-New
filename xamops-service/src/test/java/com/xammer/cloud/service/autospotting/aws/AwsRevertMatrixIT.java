@@ -53,7 +53,7 @@ class AwsRevertMatrixIT {
     /** What the ASG and the row look like after the row ran. */
     record Expect(String plan, List<String> warnings, boolean confirmed, List<String> steps, String endState,
                   boolean mip, boolean xamopsPolicy, boolean tag, boolean markersKept, String cogReason,
-                  String blockerTextExcludes) {
+                  String blockerTextExcludes, String blockerTextIncludes) {
     }
 
     record Row(String id, GroupState state, String cog, boolean drainOpen, Snap snap, Perm perm, String setup,
@@ -66,23 +66,35 @@ class AwsRevertMatrixIT {
     }
 
     private static Expect restored(List<String> warnings) {
-        return new Expect("RESTORE", warnings, true, ALL_STEPS, "REVERTED", false, false, false, false, null, null);
+        return new Expect("RESTORE", warnings, true, ALL_STEPS, "REVERTED", false, false, false, false, null, null, null);
     }
 
     private static Expect restoredOnly(List<String> warnings) {
-        return new Expect("RESTORE_ONLY", warnings, true, ALL_STEPS, "REVERTED", false, false, false, false, null, null);
+        return new Expect("RESTORE_ONLY", warnings, true, ALL_STEPS, "REVERTED", false, false, false, false, null, null, null);
     }
 
     private static Expect drained(List<String> warnings, String reason) {
-        return new Expect("DRAIN_ONLY", warnings, true, DRAIN_STEPS, "REVERTED", true, true, false, true, reason, null);
+        return new Expect("DRAIN_ONLY", warnings, true, DRAIN_STEPS, "REVERTED", true, true, false, true, reason, null, null);
     }
 
     private static Expect blocked(String code, String endState, String excludes) {
-        return new Expect("BLOCKED:" + code, List.of(), false, List.of(), endState, true, true, true, true, null, excludes);
+        return blocked(code, endState, excludes, null);
+    }
+
+    private static Expect blocked(String code, String endState, String excludes, String includes) {
+        return new Expect("BLOCKED:" + code, List.of(), false, List.of(), endState, true, true, true, true, null, excludes,
+                includes);
+    }
+
+    /** A FAILED group's blocked plan still carries REVERT_FROM_FAILED. */
+    private static Expect failed(Expect e) {
+        return new Expect(e.plan(), List.of("REVERT_FROM_FAILED"), e.confirmed(), e.steps(), e.endState(), e.mip(),
+                e.xamopsPolicy(), e.tag(), e.markersKept(), e.cogReason(), e.blockerTextExcludes(),
+                e.blockerTextIncludes());
     }
 
     private static Expect refusedAtPlan(String code, String endState) {
-        return new Expect("409:" + code, List.of(), false, List.of(), endState, false, false, false, false, null, null);
+        return new Expect("409:" + code, List.of(), false, List.of(), endState, false, false, false, false, null, null, null);
     }
 
     static Stream<Row> rows() {
@@ -99,6 +111,14 @@ class AwsRevertMatrixIT {
                 drained(List.of("ORIGINAL_UNAVAILABLE"), "ORIGINAL_UNAVAILABLE")));
         r.add(new Row("A4u", GroupState.ACTIVE, null, true, Snap.U, Perm.OK, null,
                 drained(List.of("ORIGINAL_UNAVAILABLE"), "ORIGINAL_UNAVAILABLE")));
+        for (Perm perm : List.of(Perm.PR, Perm.CF)) {
+            // The unreadable original is drained whatever the permission check says (no PassRole is needed).
+            r.add(new Row("A4p", GroupState.ACTIVE, null, true, Snap.M, perm, null,
+                    drained(List.of("ORIGINAL_UNAVAILABLE"), "ORIGINAL_UNAVAILABLE")));
+        }
+        // A9: already at 100% On-Demand with no Spot: only bookkeeping is left (marker removed, reason recorded).
+        r.add(new Row("A9", GroupState.ACTIVE, null, false, Snap.M, Perm.OK, null,
+                drained(List.of("ORIGINAL_UNAVAILABLE"), "ORIGINAL_UNAVAILABLE")));
         r.add(new Row("A5", GroupState.FALLBACK, null, false, Snap.R, Perm.OK, null, restored(List.of())));
         r.add(new Row("A6", GroupState.APPLYING, null, true, Snap.R, Perm.OK, "enable in flight", restored(List.of())));
         r.add(new Row("A7", GroupState.FAILED, null, true, Snap.R, Perm.OK, null, restored(List.of("REVERT_FROM_FAILED"))));
@@ -109,7 +129,7 @@ class AwsRevertMatrixIT {
         r.add(new Row("B2", GroupState.REVERTED, "PASSROLE_DENIED", false, Snap.R, Perm.PR, null,
                 blocked("REVERT_NEEDS_PASSROLE", "REVERTED", null)));
         r.add(new Row("B3", GroupState.REVERTED, "CHECK_FAILED", false, Snap.R, Perm.CF, null,
-                blocked("REVERT_CHECK_FAILED", "REVERTED", "PassRole")));
+                blocked("REVERT_CHECK_FAILED", "REVERTED", "PassRole", "iam:SimulatePrincipalPolicy")));
         r.add(new Row("B4", GroupState.REVERTED, "PASSROLE_DENIED", false, Snap.M, Perm.OK, null,
                 blocked("SNAPSHOT_MISSING", "REVERTED", null)));
         r.add(new Row("B5", GroupState.REVERTED, "CHECK_FAILED", true, Snap.R, Perm.OK, null, restoredOnly(List.of())));
@@ -119,9 +139,9 @@ class AwsRevertMatrixIT {
         r.add(new Row("C1", GroupState.FAILED, "", false, Snap.R, Perm.OK, null, restoredOnly(List.of("REVERT_FROM_FAILED"))));
         r.add(new Row("C2", GroupState.FAILED, "", true, Snap.R, Perm.OK, null, restoredOnly(List.of("REVERT_FROM_FAILED"))));
         r.add(new Row("C3", GroupState.FAILED, "", false, Snap.R, Perm.PR, null,
-                blocked("REVERT_NEEDS_PASSROLE", "FAILED", null)));
+                failed(blocked("REVERT_NEEDS_PASSROLE", "FAILED", null))));
         r.add(new Row("C3c", GroupState.FAILED, "", false, Snap.R, Perm.CF, null,
-                blocked("REVERT_CHECK_FAILED", "FAILED", "PassRole")));
+                failed(blocked("REVERT_CHECK_FAILED", "FAILED", "PassRole", "iam:SimulatePrincipalPolicy"))));
         r.add(new Row("C4", GroupState.FAILED, "", true, Snap.R, Perm.PR, null,
                 drained(List.of("REVERT_FROM_FAILED", "REVERT_NEEDS_PASSROLE"), "PASSROLE_DENIED")));
         r.add(new Row("C5", GroupState.FAILED, "", false, Snap.M, Perm.OK, null,
@@ -220,8 +240,11 @@ class AwsRevertMatrixIT {
 
     private static AwsOpsHarness harness(Row row) {
         if ("enable queued".equals(row.setup())) {
-            return new AwsOpsHarness(FakeAws.asg("web-asg").build(), OperationKind.ENABLE, GroupState.PLANNED,
-                    GroupState.PLANNED, "conservative");
+            AwsOpsHarness queued = new AwsOpsHarness(FakeAws.asg("web-asg").build(), OperationKind.ENABLE,
+                    GroupState.PLANNED, GroupState.PLANNED, "conservative");
+            // The harness claims its op; the row is a confirmed ENABLE that has not started, so put it back to QUEUED.
+            queued.jdbc.update("UPDATE spot_operation SET status = 'QUEUED' WHERE id = ?", queued.f.opId);
+            return queued;
         }
         boolean converted = row.state() != GroupState.UNMANAGED && row.state() != GroupState.PLANNED;
         boolean share100 = row.setup() != null && row.setup().contains("share 100");
@@ -298,7 +321,20 @@ class AwsRevertMatrixIT {
                     : "BLOCKED:" + blockerCodes.get(0);
             assertThat(result).as("plan result (blockers " + blockerCodes + ", warnings " + warningIds + ")")
                     .isEqualTo(e.plan());
-            assertThat(warningIds).as("warnings").containsAll(e.warnings());
+            assertThat(warningIds).as("warnings").containsExactlyInAnyOrderElementsOf(e.warnings());
+            if (body.path("target").has("acks")) {
+                List<String> acks = new ArrayList<>();
+                body.path("target").path("acks").forEach(a -> acks.add(a.asText()));
+                assertThat(acks).as("target.acks lists what confirm requires (review #10)")
+                        .containsExactlyInAnyOrderElementsOf(warningIds);
+            }
+            if ("ORIGINAL_UNAVAILABLE".equals(e.cogReason())) {
+                assertOriginalUnavailableContract(h, body);
+            }
+            if (e.blockerTextIncludes() != null) {
+                assertThat(body.path("eligibility").path("blockers").get(0).path("text").asText())
+                        .as("blocker text").contains(e.blockerTextIncludes());
+            }
             if (e.blockerTextExcludes() != null) {
                 assertThat(body.path("eligibility").path("blockers").get(0).path("text").asText())
                         .as("blocker text").doesNotContain(e.blockerTextExcludes());
@@ -334,6 +370,9 @@ class AwsRevertMatrixIT {
             assertThat(status).as("op (error " + h.jdbc.queryForList("SELECT error_code FROM spot_operation WHERE id = ?",
                     String.class, op) + ")").isEqualTo("SUCCEEDED");
             assertThat(doneSteps(h, op)).as("steps").isEqualTo(e.steps());
+            if (!row.drainOpen() && "DRAIN_ONLY".equals(e.plan())) {
+                assertThat(h.f.updates).as("the group is already drained: no ASG update, only bookkeeping").isEmpty();
+            }
             if (row.drainOpen() && e.steps().contains("DRAIN_SPOT")) {
                 // The drain must be a real call, sent before any restore: share 100 and no launch template.
                 assertThat(h.f.updates).as("the drain call").isNotEmpty();
@@ -344,6 +383,25 @@ class AwsRevertMatrixIT {
             }
             assertAfter(h, e);
         }
+    }
+
+    /** PD-16: an unavailable original is drained, never presented as a restore. */
+    private static void assertOriginalUnavailableContract(AwsOpsHarness h, JsonNode body) {
+        assertThat(body.path("target").path("mode").asText()).isEqualTo("DRAIN_ONLY");
+        assertThat(body.path("target").path("exact").asBoolean(true)).as("target.exact").isFalse();
+        assertThat(body.path("target").path("reasons").toString()).isEqualTo("[\"ORIGINAL_UNAVAILABLE\"]");
+        assertThat(body.path("revertPath").path("method").asText()).isEqualTo("DRAIN_ONLY");
+        assertThat(body.path("revertPath").path("exact").asBoolean(true)).as("revertPath.exact").isFalse();
+        assertThat(body.path("revertPath").path("reasons").toString()).isEqualTo("[\"ORIGINAL_UNAVAILABLE\"]");
+        assertThat(body.path("revertPath").path("remediation").asText()).isEqualTo("Contact support");
+        assertThat(body.path("target").path("instancesDistribution").path("onDemandPercentageAboveBaseCapacity").asInt())
+                .as("the target is the drained live shape").isEqualTo(100);
+        var plan = h.provider.createPlan(new com.xammer.cloud.service.autospotting.spi.PlanRequest(
+                new com.xammer.cloud.service.autospotting.spi.GroupRef(com.xammer.cloud.domain.autospotting.Provider.AWS,
+                        7L, FakeAws.REGION + "/web-asg", null), OperationKind.REVERT, null), h.f.aws.view());
+        assertThat(plan.snapshotToStore()).as("no snapshot is stored or claimed").isNull();
+        assertThat(plan.eligibility().warnings()).filteredOn(w -> "ORIGINAL_UNAVAILABLE".equals(w.id()))
+                .singleElement().satisfies(w -> assertThat(w.text()).contains("Contact support"));
     }
 
     private static void assertAfter(AwsOpsHarness h, Expect e) {

@@ -302,9 +302,11 @@ public class PlanService {
             // configuration on it (PASSROLE_DENIED or CHECK_FAILED; RevertHistory.revertAllowedAgain).
             regrant = group != null && state == GroupState.REVERTED
                     && RevertHistory.revertAllowedAgain(operations, plans, group);
-            // §7.4 REVERT exceptions, resolved before the general table.
+            // §7.4 REVERT exceptions, resolved before the general table. A PLANNED group is never revertible, also
+            // not with a confirmed ENABLE that hasn't started (design-core 7.4 as amended 2026-11-26, matrix Q-A):
+            // that op starts on the next dispatch, and the customer reverts once the group is APPLYING or ACTIVE.
             if (group == null || state == GroupState.UNMANAGED || state == GroupState.REVERTED && !regrant
-                    || state == GroupState.GONE || state == GroupState.PLANNED && !hasConfirmedEnable(group)) {
+                    || state == GroupState.GONE || state == GroupState.PLANNED) {
                 throw new AutoSpottingApiException(HttpStatus.CONFLICT, "NOT_MANAGED",
                         "XamOps does not manage this group, so there is nothing to revert.");
             }
@@ -316,15 +318,6 @@ public class PlanService {
         if (!PlanKinds.isAllowed(kind, state, regrant)) {
             throw AutoSpottingApiException.planKindNotAllowed(PlanKinds.notAllowedDetail(kind, state));
         }
-    }
-
-    /**
-     * design-core 7.4 as amended on 2026-11-26 (revert matrix Q-A): a PLANNED group is never revertible, also not
-     * with a confirmed ENABLE that hasn't started. That op starts on the next dispatch, and the customer reverts once
-     * the group is APPLYING or ACTIVE. So this is always false.
-     */
-    private boolean hasConfirmedEnable(SpotGroup group) {
-        return false;
     }
 
     private GroupRef refFor(CloudAccount account, Provider provider, SpotGroup group, CreateCommand cmd) {

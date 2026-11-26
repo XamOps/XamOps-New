@@ -437,6 +437,22 @@ class ConfirmServiceTest {
         assertThat(tx.noRollbackFor()).contains(ConfirmService.BlockedRevertException.class);
     }
     @Test
+    void aRevertPlanWithAnUnreadableBodyFailsClosedWithCheckFailed() {
+        SpotGroup g = group(GroupState.ACTIVE);
+        SpotPlan p = plan(OperationKind.REVERT, g.getId(), "[]", false);
+        p.setBody("not json");
+        when(plans.findById(p.getId())).thenReturn(Optional.of(p));
+        when(operations.findByPlanId(p.getId())).thenReturn(Optional.empty());
+        when(groups.findById(g.getId())).thenReturn(Optional.of(g));
+        assertThatThrownBy(() -> confirm.confirm(account(), user(), p.getId(), cmd(1, List.of(), false)))
+                .isInstanceOfSatisfying(AutoSpottingApiException.class, ex -> {
+                    assertThat(ex.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+                    assertThat(ex.getCode()).isEqualTo("CHECK_FAILED");
+                    assertThat(ex.getMessage()).contains("could not be read");
+                });
+        verify(operationStore, never()).insertQueued(any());
+    }
+    @Test
     void unreadableSwitchStoreHoldsRevert() {
         when(switchService.readUncached()).thenReturn(new SwitchState(Set.of(), Set.of(), true, false));
         SpotGroup g = group(GroupState.ACTIVE);

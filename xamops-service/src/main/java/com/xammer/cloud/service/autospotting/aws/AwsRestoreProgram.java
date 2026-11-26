@@ -371,8 +371,9 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
         if (!drainOnly) {
             diff.customerOverrides().forEach(dropped::add);
         }
+        List<Check> shown = withFromFailed(row, unique);
         ArrayNode acks = target.putArray("acks");
-        unique.forEach(w -> acks.add(w.id()));
+        shown.forEach(w -> acks.add(w.id()));
         if (!drainOnly && diff.versionDrift()) {
             target.put("contextDrift", "LAUNCH_TEMPLATE_VERSION");
         }
@@ -391,7 +392,7 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
                 mode == Mode.RESTORE_ONLY ? 0 : spotNow, 1, "5 min to 1 h",
                 Math.max(0, live.max() - live.desired()) + " instance(s) above desired (max " + live.max() + ")", null);
         return new PlanBody(write(current), write(target), write(diffNode(current, target)), snapshot,
-                new EligibilityResult(blockers, withFromFailed(row, unique), List.of()), rollout, List.of(), null, null,
+                new EligibilityResult(blockers, shown, List.of()), rollout, List.of(), null, null,
                 write(revert));
     }
 
@@ -447,7 +448,9 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
         target.putArray("reasons").add(ORIGINAL_UNAVAILABLE);
         target.putArray("kept");
         target.putArray("customerOverrides");
-        target.putArray("acks").add(ORIGINAL_UNAVAILABLE);
+        List<Check> shown = withFromFailed(row, warnings);
+        ArrayNode acks = target.putArray("acks");
+        shown.forEach(w -> acks.add(w.id()));
         ObjectNode revert = JSON.createObjectNode().put("program", "REVERT").put("method", "DRAIN_ONLY")
                 .put("exact", false);
         revert.putArray("reasons").add(ORIGINAL_UNAVAILABLE);
@@ -455,7 +458,7 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
         PlanBody.Rollout rollout = new PlanBody.Rollout("DRAIN_LAUNCH_FIRST", spotNow, 1, "5 min to 1 h",
                 Math.max(0, live.max() - live.desired()) + " instance(s) above desired (max " + live.max() + ")", null);
         return new PlanBody(write(current), write(target), write(diffNode(current, target)), null,
-                new EligibilityResult(blockers, withFromFailed(row, warnings), List.of()), rollout, List.of(), null,
+                new EligibilityResult(blockers, shown, List.of()), rollout, List.of(), null,
                 null, write(revert));
     }
 
