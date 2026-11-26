@@ -94,7 +94,8 @@ class AutoSpottingEventListenerIT {
         AutoSpottingSwitchProperties sp = mock(AutoSpottingSwitchProperties.class);
         when(sp.cloudEnabled(true)).thenReturn(true);
         listener = new AutoSpottingEventListener(sqs, props, processor, null, switches, sp, env, true);
-        dlq = new AwsEventDlqService(sqs, props, new ObjectMapper(), mock(AutoSpottingAuditWriter.class));
+        dlq = new AwsEventDlqService(sqs, props, new ObjectMapper(), mock(AutoSpottingAuditWriter.class),
+                com.xammer.cloud.service.autospotting.aws.events.AwsEventDlqServiceTest.txManager());
     }
 
     @AfterEach

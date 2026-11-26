@@ -11,6 +11,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageRequest;
 import software.amazon.awssdk.services.sqs.model.GetQueueAttributesRequest;
@@ -73,15 +76,19 @@ public class AwsEventDlqService {
     private final AwsEventProperties properties;
     private final ObjectMapper mapper;
     private final AutoSpottingAuditWriter audit;
+    private final TransactionTemplate auditTx;
     private final AtomicBoolean resending = new AtomicBoolean(false);
 
     public AwsEventDlqService(SqsClient sqs, AwsEventProperties properties,
                               @Qualifier("objectMapper") ObjectMapper mapper,
-                              AutoSpottingAuditWriter audit) {
+                              AutoSpottingAuditWriter audit, PlatformTransactionManager txManager) {
         this.sqs = sqs;
         this.properties = properties;
         this.mapper = mapper;
         this.audit = audit;
+        // The audit writer is MANDATORY and redrive runs outside any transaction (D-23b-04), so the row gets its own.
+        this.auditTx = new TransactionTemplate(txManager);
+        this.auditTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     /** The DLQ summary; an unconfigured or refused queue reads as {@code configured=false}. */
@@ -258,7 +265,8 @@ public class AwsEventDlqService {
                     .details("{\"reason\":" + mapper.writeValueAsString(reason == null ? "" : reason)
                             + (result == null ? "" : ",\"mode\":\"" + result.mode() + "\",\"moved\":" + result.moved())
                             + "}");
-            audit.write(b.build());
+            AuditRecord record = b.build();
+            auditTx.executeWithoutResult(status -> audit.write(record));
         } catch (Exception e) {
             log.warn("DLQ redrive audit not written: {}", e.toString());
         }
