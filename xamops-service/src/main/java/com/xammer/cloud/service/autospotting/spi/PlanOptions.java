@@ -40,8 +40,8 @@ public record PlanOptions(Boolean allowBurstable, String desiredConfigJson, bool
             GroupState.FAILED);
 
     /**
-     * Options with no linked original snapshot known ({@code originalLinked=false}): the safe side, an enable never
-     * promises to keep an original it was not shown to exist (D-23b-03 review #1).
+     * Options with no linked original snapshot known ({@code originalLinked=false}). {@code originalLinked} only
+     * chooses the text of the CONFIG_STILL_ON_GROUP blocker (D-23b-03 option b).
      */
     public PlanOptions(Boolean allowBurstable, String desiredConfigJson, boolean underManagement) {
         this(allowBurstable, desiredConfigJson, underManagement, false);
@@ -88,14 +88,6 @@ public record PlanOptions(Boolean allowBurstable, String desiredConfigJson, bool
         return underManagement ? desiredConfigJson : null;
     }
 
-    /**
-     * True when an enable keeps the group's linked snapshot as the original (D-23b-03): XamOps' configuration is
-     * still on the group and a linked snapshot exists. Without the link no promise is made and the enable captures
-     * the group as it is (the original was already lost).
-     */
-    public boolean keepsOriginal() {
-        return originalLinked && configOnGroup();
-    }
 
     /**
      * True when the stored config says a restore program left XamOps' configuration on the group (a drain-only

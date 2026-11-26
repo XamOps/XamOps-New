@@ -629,9 +629,7 @@ public class OperationRunner {
         if (fingerprint == null) {
             fingerprint = sha256(op.getTargetConfig());
         }
-        String config = providers.find(group.getProvider()).map(p -> p.desiredConfigFromTarget(op.getTargetConfig()))
-                .orElse(op.getTargetConfig());
-        return new String[] {config, fingerprint};
+        return new String[] {op.getTargetConfig(), fingerprint};
     }
 
     /**

@@ -69,13 +69,6 @@ public interface SpotProvider {
         return null;
     }
 
-    /**
-     * The {@code desired_config} a successful conversion writes from its target: the target without any plan-time
-     * instruction that only the op's own steps read (AWS: {@code keepLinkedSnapshot}, D-23b-03 review #6).
-     */
-    default String desiredConfigFromTarget(String targetConfigJson) {
-        return targetConfigJson;
-    }
 
     /**
      * The group's {@code desired_config} after a restore program ended (D-23b-01): a REVERT that reached REVERTED or

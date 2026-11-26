@@ -43,17 +43,6 @@ public final class PersistSnapshotStep extends AwsStep {
         if (existing.isPresent()) {
             return output(existing.get());
         }
-        if (program.kind() == OperationKind.ENABLE
-                && program.config().path(com.xammer.cloud.service.autospotting.aws.AwsSpotProvider.KEEP_LINKED_SNAPSHOT)
-                        .asBoolean(false)) {
-            // D-23b-03: an enable after a drain-only revert. The drained group still carries XamOps' configuration,
-            // so the linked snapshot (taken before the first enable) stays the original the next revert restores.
-            // The plan promised that original; without it, fail closed instead of capturing the drained group.
-            Optional<AwsSnapshotStore.Stored> linked = services.snapshots().findLinked(program.groupId());
-            return linked.isPresent() ? output(linked.get())
-                    : failed(ErrorKind.VALIDATION, "SNAPSHOT_MISSING",
-                            "The original configuration saved before the first enable could not be found. Plan again.");
-        }
         if (program.kind() == OperationKind.ADOPT) {
             Optional<AwsSnapshotStore.Stored> linked = services.snapshots().findLinked(program.groupId());
             return linked.isPresent() ? output(linked.get())

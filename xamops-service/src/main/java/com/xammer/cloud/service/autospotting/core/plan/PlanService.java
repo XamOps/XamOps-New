@@ -250,8 +250,12 @@ public class PlanService {
         // ENABLE for a PLANNED group inherits the prior from_state (handled above) and stays PLANNED.
         // A dry-run ENABLE plan does NOT move the group to PLANNED (§7.2), so a dry-run never changes
         // state and the ledger never sees it (PO-04).
+        // D-23b-03 option (b): an ENABLE blocked because XamOps' configuration is still on the group (drain-only
+        // revert) leaves the group REVERTED, so the exact revert it asks for stays available (a PLANNED group has
+        // nothing to revert). The plan can never be confirmed; a later plan supersedes it and expiry is a no-op.
+        boolean configStillOnGroup = eligibility.blockers().stream().anyMatch(b -> "CONFIG_STILL_ON_GROUP".equals(b.code()));
         if (cmd.kind() == OperationKind.ENABLE && !dryRun && group != null
-                && group.getState() != GroupState.PLANNED) {
+                && group.getState() != GroupState.PLANNED && !configStillOnGroup) {
             try {
                 moveToPlanned(group, user);
             } catch (DataIntegrityViolationException e) {
@@ -295,7 +299,7 @@ public class PlanService {
         if (kind == OperationKind.REVERT) {
             // GR-02: a REVERTED group is revertible again only after a drain-only revert (PASSROLE_DENIED).
             regrant = group != null && state == GroupState.REVERTED
-                    && RevertHistory.lastRevertPassRoleDenied(operations, plans, group.getId());
+                    && RevertHistory.revertAllowedAgain(operations, plans, group);
             // §7.4 REVERT exceptions, resolved before the general table.
             if (group == null || state == GroupState.UNMANAGED || state == GroupState.REVERTED && !regrant
                     || state == GroupState.GONE || state == GroupState.PLANNED && !hasConfirmedEnable(group)) {

@@ -360,79 +360,51 @@ class AwsConfirmedOpsIT {
                 software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyRequest.class));
     }
     /**
-     * Review #1-#3, #9: a drain-only revert (the permission check failed, so no exact restore) leaves XamOps' mixed
-     * policy, its types and its 100/200 on the group. Its markers must stay: the re-enable still owns the policy and,
-     * with the burstable option off, removes the type XamOps added; it keeps the original snapshot (D-23b-03), so the
-     * final exact revert restores the true original, including clearing 100/200.
+     * D-23b-03 option (b), the user's decision of 2026-11-25. A drain-only revert (here the permission check
+     * failed, so no exact restore) leaves XamOps' mixed policy, its added type and its 100/200 on the group; the
+     * markers stay (D-23b-01). A new ENABLE is blocked with CONFIG_STILL_ON_GROUP; only the exact REVERT is
+     * offered. With permissions fixed it restores the original saved before the first enable (shape, no added
+     * type, 100/200 cleared), and afterwards an ENABLE is allowed again and takes a fresh snapshot.
      */
     @Test
-    void aDrainOnlyRevertKeepsXamOpsClaimsSoTheReEnableAndTheExactRevertActOnTheTrueOriginal() {
-        AutoScalingGroup live = converted(List.of(T3_MICRO, T3A_MICRO), imp(100, 200));
-        String desired = desiredWith(List.of("t3.micro", "t3a.micro"), OWNED
-                + ",\"options\":{\"allowBurstable\":true,\"burstableAdded\":[\"t3a.micro\"]}");
-        AutoScalingGroup original = FakeAws.asg("web-asg").build();
-        AwsOpsHarness[] ref = new AwsOpsHarness[1];
-        try (AwsOpsHarness h = new AwsOpsHarness(live, original, GroupState.ACTIVE, desired, true, fx -> {
-            fx.aws.burstableWorld();
-            org.mockito.Mockito.doThrow(software.amazon.awssdk.awscore.exception.AwsServiceException.builder()
-                            .statusCode(403).awsErrorDetails(software.amazon.awssdk.awscore.exception.AwsErrorDetails
-                                    .builder().errorCode("AccessDenied").build()).build())
-                    .when(fx.aws.iam).simulatePrincipalPolicy(org.mockito.ArgumentMatchers.any(
-                            software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyRequest.class));
-        })) {
-            ref[0] = h;
-            assertThat(h.f.json(h.plan.targetJson()).path("mode").asText()).as("the revert is drain-only")
-                    .isEqualTo("DRAIN_ONLY");
-            h.runner.runClaimed(h.lease, h.f.opId);
-            assertThat(h.runToEnd(h.f.opId)).as("drain-only revert error " + h.opError()).isEqualTo("SUCCEEDED");
-            assertThat(h.groupState()).isEqualTo("REVERTED");
+    void afterADrainOnlyRevertOnlyTheExactRevertIsOfferedAndAfterItAnEnableIsAllowedAgain() {
+        try (AwsOpsHarness h = drainOnlyReverted()) {
             assertThat(h.f.group().mixedInstancesPolicy()).as("the mixed policy stays").isNotNull();
             assertThat(h.f.group().instanceMaintenancePolicy()).as("XamOps' policy stays").isEqualTo(imp(100, 200));
             var stored = row(h);
             assertThat(AwsMaintenancePolicy.owns(stored.getDesiredConfig())).as("policy claim kept").isTrue();
             assertThat(h.f.json(stored.getDesiredConfig()).path("options").path("burstableAdded").toString())
                     .as("burstableAdded kept").isEqualTo("[\"t3a.micro\"]");
-            assertThat(h.f.json(stored.getDesiredConfig()).path(PlanOptions.CONFIG_ON_GROUP).asBoolean())
-                    .as("the row records that XamOps' configuration is still on the group").isTrue();
-
-            simulate(h, false); // the stack was updated: permissions are fine again
+            String text = assertEnableBlocked(h);
+            assertThat(text).isEqualTo("XamOps' configuration is still on this group. Grant iam:PassRole and run Revert first.");
+            assertThat(h.groupState()).isEqualTo("REVERTED");
+            UUID snapshotBefore = row(h).getSnapshotId();
+            h.f.spotInstances.clear();
+            UUID revert = h.planAndConfirm(new PlanRequest(asgRef(), OperationKind.REVERT, null, optionsFor(h, null)));
+            assertThat(h.jdbc.queryForObject("SELECT target_config->>'mode' FROM spot_operation WHERE id = ?",
+                    String.class, revert)).as("the exact restore (GR-02)").isEqualTo("RESTORE_ONLY");
+            assertThat(h.runToEnd(revert)).as("revert error " + h.opError()).isEqualTo("SUCCEEDED");
+            assertThat(h.groupState()).isEqualTo("REVERTED");
+            assertThat(h.f.group().mixedInstancesPolicy()).as("the original shape, no added type").isNull();
+            assertThat(h.f.group().instanceMaintenancePolicy()).as("100/200 cleared").isNull();
+            assertThat(row(h).getSnapshotId()).as("restored from the linked original").isEqualTo(snapshotBefore);
+            assertThat(PlanOptions.forGroup(null, row(h)).configOnGroup()).isFalse();
+            assertThat(AwsMaintenancePolicy.owns(row(h).getDesiredConfig())).as("claim released").isFalse();
+            // Enable is allowed again, with a fresh snapshot of the restored group.
             toPlanned(h);
-            PlanOptions options = optionsFor(h, false);
-            assertThat(options.underManagement()).isTrue();
-            PlanRequest enable = new PlanRequest(new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg", null),
-                    OperationKind.ENABLE, new Profile("aggressive", null), options);
-            var plan = h.provider.createPlan(enable, h.f.aws.view());
-            var target = h.f.json(plan.targetJson());
-            assertThat(AwsMaintenancePolicy.owns(target)).as("the re-enable still owns XamOps' policy").isTrue();
-            List<String> types = new ArrayList<>();
-            target.path("overrides").forEach(n -> types.add(n.asText()));
-            assertThat(types).as("option off removes the type XamOps added").doesNotContain("t3a.micro");
-            assertThat(target.path("options").path("burstableRemoved").toString()).isEqualTo("[\"t3a.micro\"]");
+            PlanRequest enable = new PlanRequest(asgRef(), OperationKind.ENABLE, new Profile("aggressive", null),
+                    optionsFor(h, null));
+            assertThat(h.provider.createPlan(enable, h.f.aws.view()).eligibility().blockers()).isEmpty();
             for (int i = 1; i <= 3; i++) {
                 h.f.spotInstances.add("i-" + (5 - i));
             }
             UUID op = h.planAndConfirm(enable);
-            assertThat(h.runToEnd(op)).as("re-enable error " + h.jdbc.queryForList(
+            assertThat(h.runToEnd(op)).as("enable error " + h.jdbc.queryForList(
                     "SELECT error_code FROM spot_operation WHERE id = ?", String.class, op)).isEqualTo("SUCCEEDED");
             assertThat(h.groupState()).isEqualTo("ACTIVE");
-            assertThat(liveTypes(h)).as("t3a.micro removed on the group").doesNotContain("t3a.micro");
-            assertThat(h.f.group().instanceMaintenancePolicy()).isEqualTo(imp(100, 200));
-            assertThat(h.f.json(row(h).getDesiredConfig()).has(PlanOptions.CONFIG_ON_GROUP))
-                    .as("the new desired_config is the re-enable's target").isFalse();
             assertThat(h.jdbc.queryForObject("SELECT count(*) FROM spot_group_snapshot WHERE group_id = ?",
-                    Integer.class, h.f.groupId)).as("D-23b-03: the re-enable kept the original snapshot").isEqualTo(1);
-            assertThat(h.f.json(row(h).getDesiredConfig()).has(AwsSpotProvider.KEEP_LINKED_SNAPSHOT))
-                    .as("review #6: the step instruction is not stored in desired_config").isFalse();
-            h.f.spotInstances.clear(); // the final revert drains Spot first
-            UUID revert = h.planAndConfirm(new PlanRequest(new GroupRef(Provider.AWS, 7L,
-                    FakeAws.REGION + "/web-asg", null), OperationKind.REVERT, null, PlanOptions.none()));
-            assertThat(h.runToEnd(revert)).as("final revert error " + h.jdbc.queryForList(
-                    "SELECT error_code FROM spot_operation WHERE id = ?", String.class, revert)).isEqualTo("SUCCEEDED");
-            assertThat(h.groupState()).isEqualTo("REVERTED");
-            assertThat(h.f.group().instanceMaintenancePolicy()).as("the final revert clears 100/200").isNull();
-            assertThat(h.f.group().mixedInstancesPolicy()).as("exact restore").isNull();
-            assertThat(AwsMaintenancePolicy.owns(row(h).getDesiredConfig())).as("claim released").isFalse();
-
+                    Integer.class, h.f.groupId)).as("a fresh snapshot").isEqualTo(2);
+            assertThat(row(h).getSnapshotId()).isNotEqualTo(snapshotBefore);
         }
     }
     /**
@@ -550,145 +522,39 @@ class AwsConfirmedOpsIT {
         simulate(h, false);
         return h;
     }
-    /**
-     * D-23b-03: a policy the customer sets between the drain-only revert and the re-enable is theirs: the re-enable
-     * neither targets nor sends 100/200, the plan says so, and the final revert keeps 90/120.
-     */
+    /** Option (b): a policy the customer sets after the drain-only revert is kept by the exact revert. */
     @Test
-    void aPolicyTheCustomerSetsAfterADrainOnlyRevertIsKeptByTheReEnableAndTheFinalRevert() {
+    void aPolicyTheCustomerSetsAfterADrainOnlyRevertIsKeptByTheExactRevert() {
         try (AwsOpsHarness h = drainOnlyReverted()) {
             h.f.replaceGroup(h.f.group().toBuilder().instanceMaintenancePolicy(imp(90, 120)).build());
-            toPlanned(h);
-            PlanRequest enable = new PlanRequest(new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg", null),
-                    OperationKind.ENABLE, new Profile("aggressive", null), optionsFor(h, false));
-            var plan = h.provider.createPlan(enable, h.f.aws.view());
-            assertThat(h.f.json(plan.targetJson()).has(AwsMaintenancePolicy.KEY)).as("not in the target").isFalse();
-            var kept = plan.eligibility().warnings().stream().filter(w -> w.code().equals("ORIGINAL_SNAPSHOT_KEPT"))
-                    .findFirst().orElseThrow();
-            assertThat(kept.text()).contains("maintenance policy changed").contains("XamOps keeps it");
-            assertThat(plan.eligibility().warnings().stream().map(w -> w.code())).contains("IMP_MIN_HEALTHY_LOW");
-            for (int i = 1; i <= 3; i++) {
-                h.f.spotInstances.add("i-" + (5 - i));
-            }
-            int before = h.f.updates.size();
-            UUID op = h.planAndConfirm(enable);
-            assertThat(h.runToEnd(op)).isEqualTo("SUCCEEDED");
-            assertThat(h.f.updates.subList(before, h.f.updates.size()))
-                    .allSatisfy(r -> assertThat(r.instanceMaintenancePolicy()).isNull());
-            assertThat(h.f.group().instanceMaintenancePolicy()).isEqualTo(imp(90, 120));
+            assertEnableBlocked(h);
             h.f.spotInstances.clear();
-            UUID revert = h.planAndConfirm(new PlanRequest(new GroupRef(Provider.AWS, 7L,
-                    FakeAws.REGION + "/web-asg", null), OperationKind.REVERT, null, PlanOptions.none()));
-            assertThat(h.runToEnd(revert)).as("final revert error " + h.opError()).isEqualTo("SUCCEEDED");
+            UUID revert = h.planAndConfirm(new PlanRequest(asgRef(), OperationKind.REVERT, null, optionsFor(h, null)));
+            assertThat(h.runToEnd(revert)).as("revert error " + h.opError()).isEqualTo("SUCCEEDED");
             assertThat(h.f.group().mixedInstancesPolicy()).as("exact restore of the original").isNull();
             assertThat(h.f.group().instanceMaintenancePolicy()).as("the customer's policy stays").isEqualTo(imp(90, 120));
         }
     }
     /**
-     * D-23b-03: another XamOps-owned field the customer changes after the drain-only revert (here an override they
-     * add) is surfaced in the plan's acknowledged warning, because the final revert restores the original for it.
+     * Option (b), missing original: the enable is blocked with a plain message that does not send the customer to
+     * the revert, because the revert is blocked too (SNAPSHOT_MISSING).
      */
     @Test
-    void anOwnedFieldTheCustomerChangesAfterADrainOnlyRevertIsListedInThePlan() {
-        try (AwsOpsHarness h = drainOnlyReverted()) {
-            var mip = h.f.group().mixedInstancesPolicy();
-            List<LaunchTemplateOverrides> more = new ArrayList<>(mip.launchTemplate().overrides());
-            more.add(override("t3a.small", null));
-            h.f.replaceGroup(h.f.group().toBuilder().mixedInstancesPolicy(mip.toBuilder().launchTemplate(
-                    mip.launchTemplate().toBuilder().overrides(more).build()).build()).build());
-            toPlanned(h);
-            var plan = h.provider.createPlan(new PlanRequest(new GroupRef(Provider.AWS, 7L,
-                    FakeAws.REGION + "/web-asg", null), OperationKind.ENABLE, new Profile("aggressive", null),
-                    optionsFor(h, null)), h.f.aws.view());
-            var kept = plan.eligibility().warnings().stream().filter(w -> w.code().equals("ORIGINAL_SNAPSHOT_KEPT"))
-                    .findFirst().orElseThrow();
-            assertThat(kept.id()).isEqualTo("w-original-snapshot-kept");
-            assertThat(kept.text()).contains("Changed on the group since that revert: overrides")
-                    .contains("restores the original for them");
-            assertThat(AwsMaintenancePolicy.owns(h.f.json(plan.targetJson()))).as("100/200 still XamOps'").isTrue();
-            assertThat(h.f.json(plan.targetJson()).path(AwsSpotProvider.KEEP_LINKED_SNAPSHOT).asBoolean()).isTrue();
-            // Review #7: the promise holds through both operations.
-            UUID snapshotBefore = row(h).getSnapshotId();
-            for (int i = 1; i <= 3; i++) {
-                h.f.spotInstances.add("i-" + (5 - i));
-            }
-            UUID op = h.planAndConfirm(new PlanRequest(new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg",
-                    null), OperationKind.ENABLE, new Profile("aggressive", null), optionsFor(h, null)));
-            assertThat(h.runToEnd(op)).as("re-enable error " + h.jdbc.queryForList(
-                    "SELECT error_code FROM spot_operation WHERE id = ?", String.class, op)).isEqualTo("SUCCEEDED");
-            assertThat(liveTypes(h)).as("the target is applied on top of the customer's override").contains("t3a.small");
-            assertThat(row(h).getSnapshotId()).as("the linked original is unchanged").isEqualTo(snapshotBefore);
-            assertThat(h.jdbc.queryForObject("SELECT count(*) FROM spot_group_snapshot WHERE group_id = ?",
-                    Integer.class, h.f.groupId)).isEqualTo(1);
-            h.f.spotInstances.clear();
-            UUID revert = h.planAndConfirm(new PlanRequest(new GroupRef(Provider.AWS, 7L,
-                    FakeAws.REGION + "/web-asg", null), OperationKind.REVERT, null, PlanOptions.none()));
-            assertThat(h.runToEnd(revert)).as("final revert error " + h.opError()).isEqualTo("SUCCEEDED");
-            assertThat(h.f.group().mixedInstancesPolicy()).as("the saved original (launch template only)").isNull();
-            assertThat(h.f.group().instanceMaintenancePolicy()).as("100/200 cleared").isNull();
-        }
-    }
-    /** Review #2: a share above base the customer set after the drain (not the drained 100) is listed. */
-    @Test
-    void aCustomerChangeToTheOnDemandShareAfterADrainOnlyRevertIsListedInThePlan() {
-        try (AwsOpsHarness h = drainOnlyReverted()) {
-            var mip = h.f.group().mixedInstancesPolicy();
-            assertThat(mip.instancesDistribution().onDemandPercentageAboveBaseCapacity()).as("drained").isEqualTo(100);
-            toPlanned(h);
-            PlanRequest enable = new PlanRequest(new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg", null),
-                    OperationKind.ENABLE, new Profile("aggressive", null), optionsFor(h, null));
-            String drainedText = h.provider.createPlan(enable, h.f.aws.view()).eligibility().warnings().stream()
-                    .filter(w -> w.code().equals("ORIGINAL_SNAPSHOT_KEPT")).findFirst().orElseThrow().text();
-            assertThat(drainedText).as("the drain's own 100 is not a customer change").doesNotContain("Changed on the group");
-            h.f.replaceGroup(h.f.group().toBuilder().mixedInstancesPolicy(mip.toBuilder().instancesDistribution(
-                    mip.instancesDistribution().toBuilder().onDemandPercentageAboveBaseCapacity(70).build()).build())
-                    .build());
-            String text = h.provider.createPlan(enable, h.f.aws.view()).eligibility().warnings().stream()
-                    .filter(w -> w.code().equals("ORIGINAL_SNAPSHOT_KEPT")).findFirst().orElseThrow().text();
-            assertThat(text).contains("Changed on the group since that revert: onDemandPercentageAboveBaseCapacity");
-        }
-    }
-    /** Review #1, plan side: with no linked snapshot the plan makes no promise (no instruction, no warning). */
-    @Test
-    void withoutALinkedSnapshotTheEnableAfterADrainOnlyRevertMakesNoKeptOriginalPromise() {
+    void withoutTheSavedOriginalBothEnableAndRevertSayPlainlyThatItIsMissing() {
         try (AwsOpsHarness h = drainOnlyReverted()) {
             h.jdbc.update("UPDATE spot_group SET snapshot_id = NULL WHERE id = ?", h.f.groupId);
-            toPlanned(h);
-            var plan = h.provider.createPlan(new PlanRequest(new GroupRef(Provider.AWS, 7L,
-                    FakeAws.REGION + "/web-asg", null), OperationKind.ENABLE, new Profile("aggressive", null),
+            String text = assertEnableBlocked(h);
+            assertThat(text).contains("is missing").contains("can't restore it").contains("Contact support")
+                    .doesNotContain("Revert");
+            var revert = h.provider.createPlan(new PlanRequest(asgRef(), OperationKind.REVERT, null,
                     optionsFor(h, null)), h.f.aws.view());
-            assertThat(plan.eligibility().warnings().stream().map(w -> w.code())).doesNotContain("ORIGINAL_SNAPSHOT_KEPT");
-            assertThat(h.f.json(plan.targetJson()).has(AwsSpotProvider.KEEP_LINKED_SNAPSHOT)).isFalse();
-            assertThat(AwsMaintenancePolicy.owns(h.f.json(plan.targetJson())))
-                    .as("the markers still apply: XamOps' configuration is on the group").isTrue();
+            assertThat(revert.eligibility().blockers()).extracting(b -> b.code()).containsExactly("SNAPSHOT_MISSING");
+            assertThat(revert.eligibility().blockers().get(0).text()).contains("original configuration");
         }
     }
-    /** Review #1, step side: the plan promised the linked original; if it is gone at run time, fail closed. */
+    /** D-23b-03 counterpart: an enable after a full revert is not blocked and takes a fresh snapshot. */
     @Test
-    void aKeptOriginalEnableWhoseLinkedSnapshotIsGoneFailsClosedWithSnapshotMissing() {
-        try (AwsOpsHarness h = drainOnlyReverted()) {
-            toPlanned(h);
-            PlanRequest enable = new PlanRequest(new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg", null),
-                    OperationKind.ENABLE, new Profile("aggressive", null), optionsFor(h, null));
-            for (int i = 1; i <= 3; i++) {
-                h.f.spotInstances.add("i-" + (5 - i));
-            }
-            int before = h.f.updates.size();
-            UUID op = h.planAndConfirm(enable);
-            assertThat(h.jdbc.queryForObject("SELECT target_config->>'keepLinkedSnapshot' FROM spot_operation"
-                    + " WHERE id = ?", String.class, op)).isEqualTo("true");
-            h.jdbc.update("UPDATE spot_group SET snapshot_id = NULL WHERE id = ?", h.f.groupId);
-            assertThat(h.runToEnd(op)).isEqualTo("FAILED");
-            assertThat(h.jdbc.queryForObject("SELECT error_code FROM spot_operation WHERE id = ?", String.class, op))
-                    .isEqualTo("SNAPSHOT_MISSING");
-            assertThat(h.f.updates.size()).as("nothing was sent").isEqualTo(before);
-            assertThat(h.jdbc.queryForObject("SELECT count(*) FROM spot_group_snapshot WHERE group_id = ?",
-                    Integer.class, h.f.groupId)).as("the drained group was not captured").isEqualTo(1);
-        }
-    }
-    /** D-23b-03 counterpart: a first enable, or one after a full revert, takes a fresh snapshot and shows no warning. */
-    @Test
-    void anEnableAfterAFullRevertTakesAFreshSnapshotAndHasNoOriginalKeptWarning() {
+    void anEnableAfterAFullRevertTakesAFreshSnapshotAndIsNotBlocked() {
         AutoScalingGroup live = converted(List.of(override("m5.large", null), override("m5a.large", null),
                 override("m6i.large", null)), imp(100, 200));
         try (AwsOpsHarness h = new AwsOpsHarness(live, FakeAws.asg("web-asg").build(), GroupState.ACTIVE,
@@ -699,8 +565,8 @@ class AwsConfirmedOpsIT {
             PlanRequest enable = new PlanRequest(new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg", null),
                     OperationKind.ENABLE, new Profile("aggressive", null), optionsFor(h, null));
             var plan = h.provider.createPlan(enable, h.f.aws.view());
-            assertThat(plan.eligibility().warnings().stream().map(w -> w.code())).doesNotContain("ORIGINAL_SNAPSHOT_KEPT");
-            assertThat(h.f.json(plan.targetJson()).has(AwsSpotProvider.KEEP_LINKED_SNAPSHOT)).isFalse();
+            assertThat(plan.eligibility().blockers()).extracting(b -> b.code())
+                    .doesNotContain(AwsSpotProvider.CONFIG_STILL_ON_GROUP);
             for (int i = 1; i <= 3; i++) {
                 h.f.spotInstances.add("i-" + (5 - i));
             }
@@ -711,22 +577,28 @@ class AwsConfirmedOpsIT {
         }
     }
 
-    /** Review round 2 #4: after a drain-only revert, status resolves policy ownership exactly as planning does. */
-    @Test
-    void afterADrainOnlyRevertStatusTreatsACustomerPolicyAsTheirsLikePlanning() {
-        try (AwsOpsHarness h = drainOnlyReverted()) {
-            var owned = h.provider.getStatus(row(h), h.f.aws.view()).liveFingerprint();
-            assertThat(owned).as("100/200 is still XamOps'")
-                    .isEqualTo(AwsFingerprint.of(AwsGroupFacts.from(FakeAws.REGION, h.f.group()), true));
-            h.f.replaceGroup(h.f.group().toBuilder().instanceMaintenancePolicy(imp(90, 120)).build());
-            AwsGroupFacts facts = AwsGroupFacts.from(FakeAws.REGION, h.f.group());
-            assertThat(h.provider.getStatus(row(h), h.f.aws.view()).liveFingerprint())
-                    .as("the customer's 90/120 is theirs in status too").isEqualTo(AwsFingerprint.of(facts, false));
-            toPlanned(h);
-            var plan = h.provider.createPlan(new PlanRequest(new GroupRef(Provider.AWS, 7L,
-                    FakeAws.REGION + "/web-asg", null), OperationKind.ENABLE, new Profile("aggressive", null),
-                    optionsFor(h, null)), h.f.aws.view());
-            assertThat(AwsMaintenancePolicy.owns(h.f.json(plan.targetJson()))).as("planning agrees").isFalse();
-        }
+
+    private static GroupRef asgRef() {
+        return new GroupRef(Provider.AWS, 7L, FakeAws.REGION + "/web-asg", null);
+    }
+
+    /** The ENABLE plan for the persisted row must carry CONFIG_STILL_ON_GROUP, and confirming it is refused. */
+    private static String assertEnableBlocked(AwsOpsHarness h) {
+        PlanRequest enable = new PlanRequest(asgRef(), OperationKind.ENABLE, new Profile("aggressive", null),
+                optionsFor(h, null));
+        var plan = h.provider.createPlan(enable, h.f.aws.view());
+        var blocker = plan.eligibility().blockers().stream()
+                .filter(b -> b.code().equals(AwsSpotProvider.CONFIG_STILL_ON_GROUP)).findFirst().orElseThrow();
+        assertThat(h.provider.checkEligibility(asgRef(), h.f.aws.view(), new Profile("aggressive", null),
+                com.xammer.cloud.service.autospotting.spi.EvalMode.PLAN, optionsFor(h, null)).blockers())
+                .extracting(b -> b.code()).as("the group list shows it too").contains(AwsSpotProvider.CONFIG_STILL_ON_GROUP);
+        assertThat(PlanOptions.forGroup(null, row(h)).configOnGroup()).isTrue();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> h.planAndConfirm(enable))
+                .as("a blocked enable cannot be confirmed")
+                .isInstanceOfSatisfying(com.xammer.cloud.service.autospotting.core.AutoSpottingApiException.class,
+                        e -> assertThat(e.getCode()).isEqualTo(AwsSpotProvider.CONFIG_STILL_ON_GROUP));
+        // The refused plan stays OPEN until the next plan supersedes it (PlanService does that; the harness does not).
+        h.jdbc.update("UPDATE spot_plan SET status = 'SUPERSEDED' WHERE group_id = ? AND status = 'OPEN'", h.f.groupId);
+        return blocker.text();
     }
 }

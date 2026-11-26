@@ -39,6 +39,21 @@ public final class RevertHistory {
                 .orElse(false);
     }
 
+    /**
+     * GR-02, widened by D-23b-03 option (b): a REVERTED group may be reverted again while XamOps' configuration is
+     * still on it, i.e. after any drain-only revert. That is the last revert being PASSROLE_DENIED, or the row's
+     * {@code desired_config} recording {@code configOnGroup} (which also covers a CHECK_FAILED drain). ENABLE and
+     * ADOPT are blocked in that situation, so without this the group would have no way back.
+     */
+    public static boolean revertAllowedAgain(SpotOperationRepository operations, SpotPlanRepository plans,
+                                             com.xammer.cloud.domain.autospotting.SpotGroup group) {
+        if (group == null || group.getState() != com.xammer.cloud.domain.autospotting.GroupState.REVERTED) {
+            return false;
+        }
+        return com.xammer.cloud.service.autospotting.spi.PlanOptions.forGroup(null, group).configOnGroup()
+                || lastRevertPassRoleDenied(operations, plans, group.getId());
+    }
+
     private static boolean drainOnlyForPassRole(SpotPlan plan) {
         if (plan == null || plan.getBody() == null) {
             return false;

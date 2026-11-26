@@ -33,8 +33,8 @@ import static org.mockito.Mockito.doAnswer;
 /**
  * Review round 3 (design-core 9.4, the conservative rule): once the first mutating step's intent row exists, any
  * terminal failure, including a 4xx the cloud answered with no effect, is after mutation and compensates. Pinned
- * through the real OperationRunner and the AWS fake: (a) ENABLE, (b) REVERT, (c) the re-enable after a drain-only
- * revert (configOnGroup), which must end revertable.
+ * through the real OperationRunner and the AWS fake: (a) ENABLE, (b) REVERT, (c) the exact revert after a drain-only
+ * revert (configOnGroup), which must stay revertable; plus the positive before-mutation case.
  */
 @Tag("containers")
 class AwsConservativeMutationRuleIT {
@@ -46,11 +46,16 @@ class AwsConservativeMutationRuleIT {
 
     /** The first {@code rejections} update calls are refused with a 400 (no effect); the rest apply. */
     private static void rejectFirstUpdates(AwsOpsHarness h, int rejections) {
+        rejectFirstUpdates(h, rejections, rejected());
+    }
+
+    /** As above with {@code error}: a 403 for a restore write, where a 400 would take the unwrap fallback instead. */
+    private static void rejectFirstUpdates(AwsOpsHarness h, int rejections, AwsServiceException error) {
         AtomicInteger n = new AtomicInteger();
         doAnswer(inv -> {
             UpdateAutoScalingGroupRequest r = inv.getArgument(0);
             if (n.getAndIncrement() < rejections) {
-                throw rejected();
+                throw error;
             }
             h.f.log.add("update");
             h.f.updates.add(r);
@@ -156,12 +161,12 @@ class AwsConservativeMutationRuleIT {
     }
 
     /**
-     * (c) After a drain-only revert (configOnGroup), the re-enable's first mutating call is rejected. The ENABLE
-     * compensates to the kept original snapshot: XamOps' configuration leaves the group, the markers are released,
-     * and the group ends REVERTED, so it is never stranded (a new enable plan or GR-02 revert is possible).
+     * (c) After a drain-only revert (configOnGroup) the ENABLE is blocked (D-23b-03 option b), and the exact revert
+     * is the way back. When that revert's first write is rejected, it ends FAILED (after mutation, conservative
+     * rule) and stays revertable: a retry restores the true original. The group is never stranded.
      */
     @Test
-    void aReEnableAfterADrainOnlyRevertWhoseFirstCallIsRejectedEndsRevertedOnTheTrueOriginal() {
+    void afterADrainOnlyRevertARejectedExactRevertEndsFailedAndARetryRestoresTheOriginal() {
         List<String> types = List.of("m5.large", "m5a.large");
         AutoScalingGroup original = FakeAws.asg("web-asg").build();
         try (AwsOpsHarness h = new AwsOpsHarness(converted(owned(), types), original, GroupState.ACTIVE,
@@ -173,7 +178,7 @@ class AwsConservativeMutationRuleIT {
             h.runner.runClaimed(h.lease, h.f.opId);
             assertThat(h.runToEnd(h.f.opId)).as("drain-only error " + h.opError()).isEqualTo("SUCCEEDED");
             assertThat(h.groupState()).isEqualTo("REVERTED");
-            assertThat(PlanOptions.forGroup(null, row(h)).keepsOriginal()).as("configOnGroup with the original").isTrue();
+            assertThat(PlanOptions.forGroup(null, row(h)).configOnGroup()).isTrue();
             org.mockito.Mockito.reset(h.f.aws.iam);
             doAnswer(inv -> {
                 software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyRequest r = inv.getArgument(0);
@@ -183,19 +188,44 @@ class AwsConservativeMutationRuleIT {
                         .build();
             }).when(h.f.aws.iam).simulatePrincipalPolicy(any(
                     software.amazon.awssdk.services.iam.model.SimulatePrincipalPolicyRequest.class));
-            AwsConfirmedOpsIT.toPlanned(h);
-            rejectFirstUpdates(h, 1);
-            UUID enable = h.planAndConfirm(new PlanRequest(ref(), OperationKind.ENABLE,
-                    new Profile("aggressive", null), PlanOptions.forGroup(null, row(h))));
-            assertThat(h.runToEnd(enable)).as("re-enable error " + h.jdbc.queryForList(
-                    "SELECT error_code FROM spot_operation WHERE id = ?", String.class, enable)).isEqualTo("SUCCEEDED");
-            assertThat(col(h, "phase", enable)).as("compensated").isEqualTo("COMPENSATING");
-            assertThat(h.groupState()).as("revertable end state, not stranded").isEqualTo("REVERTED");
+            var enable = h.provider.createPlan(new PlanRequest(ref(), OperationKind.ENABLE,
+                    new Profile("aggressive", null), PlanOptions.forGroup(null, row(h))), h.f.aws.view());
+            assertThat(enable.eligibility().blockers()).extracting(b -> b.code()).contains("CONFIG_STILL_ON_GROUP");
+            // The exact revert's first write is the restore; AWS refuses it with AccessDenied (no effect).
+            rejectFirstUpdates(h, 1, (AwsServiceException) AwsServiceException.builder().statusCode(403)
+                    .awsErrorDetails(AwsErrorDetails.builder().errorCode("AccessDenied").build()).build());
+            UUID revert = h.planAndConfirm(new PlanRequest(ref(), OperationKind.REVERT, null,
+                    PlanOptions.forGroup(null, row(h))));
+            assertThat(h.runToEnd(revert)).isEqualTo("FAILED");
+            assertThat(col(h, "first_mutation_seq", revert)).isNotNull();
+            assertThat(h.groupState()).as("after mutation: FAILED, revertable").isEqualTo("FAILED");
+            assertThat(h.f.group().mixedInstancesPolicy()).as("the rejected call changed nothing").isNotNull();
+            UUID retry = h.planAndConfirm(new PlanRequest(ref(), OperationKind.REVERT, null,
+                    PlanOptions.forGroup(null, row(h))));
+            assertThat(h.runToEnd(retry)).as("retry error " + h.opError()).isEqualTo("SUCCEEDED");
+            assertThat(h.groupState()).isEqualTo("REVERTED");
             assertThat(h.f.group().mixedInstancesPolicy()).as("the true original is restored").isNull();
             assertThat(h.f.group().instanceMaintenancePolicy()).as("100/200 cleared").isNull();
             assertThat(PlanOptions.forGroup(null, row(h)).underManagement()).as("claims released").isFalse();
-            assertThat(h.jdbc.queryForObject("SELECT count(*) FROM spot_group_snapshot WHERE group_id = ?",
-                    Integer.class, h.f.groupId)).as("the original snapshot was kept").isEqualTo(1);
+        }
+    }
+
+    /**
+     * The positive before-mutation case (round 4 #3): an ENABLE whose step 0 refuses a stale plan never records a
+     * mutating intent, so it fails back to prior_state (PLANNED) with FAILED_BEFORE_MUTATION and nothing is written.
+     */
+    @Test
+    void anEnableThatFailsAtVerifyPreconditionsFailsBeforeMutationBackToPlanned() {
+        try (AwsOpsHarness h = new AwsOpsHarness(FakeAws.asg("web-asg").build(), OperationKind.ENABLE,
+                GroupState.PLANNED, GroupState.PLANNED, "conservative")) {
+            h.f.replaceGroup(h.f.group().toBuilder().capacityRebalance(true).build()); // changed after the plan
+            assertThat(h.runToEnd(h.f.opId)).isEqualTo("FAILED");
+            assertThat(h.opError()).isEqualTo("PLAN_STALE");
+            assertThat(col(h, "first_mutation_seq", h.f.opId)).isNull();
+            assertThat(h.groupState()).isEqualTo("PLANNED");
+            assertThat(h.jdbc.queryForList("SELECT details->>'reason' FROM autospotting_audit WHERE operation_id = ?"
+                    + " AND event_type = 'OP_FAILED'", String.class, h.f.opId)).containsExactly("FAILED_BEFORE_MUTATION");
+            assertThat(h.f.writeCalls()).isEmpty();
         }
     }
 
