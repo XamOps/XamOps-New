@@ -44,8 +44,11 @@ import java.util.Set;
  *  RESTORE        0 VERIFY_PRECONDITIONS  1 DRAIN_SPOT  2 WAIT_SPOT_DRAINED  3 RESTORE_SHAPE  4 VERIFY_REVERTED
  *                 5 REMOVE_MARKER  (6 transition: the runner)
  *                 steps 1 and 2 are left out when the snapshot itself had Spot
- *  DRAIN_ONLY     0, 1, 2, 4, 5: the closest safe target when an exact restore is impossible (no PassRole)
- *  RESTORE_ONLY   0, 3, 4, 5: GR-02, an exact revert after a drain-only revert (P is already 100)
+ *  DRAIN_ONLY     0, 1, 2, 4, 5: the closest safe target when an exact restore is impossible (no PassRole, the
+ *                 permission check failed, or the saved original is missing or unreadable); never claims a restore
+ *  RESTORE_ONLY   0, 1, 2, 3, 4, 5: GR-02, the exact revert while XamOps' configuration is still on the group. The
+ *                 drain steps stay: they are no-ops when the group is already at 100% On-Demand with no Spot, and
+ *                 drain first when it is not (a FAILED revert whose drain never finished; review High #1)
  * </pre>
  *
  * The program is derived from immutable inputs (the op, the stored snapshot, the group row), so any instance
@@ -100,6 +103,18 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
                 compensation);
         String payload = payloadOf(g, liveSnapshot);
         Optional<AwsSnapshotCodec.Owned> owned = AwsSnapshotCodec.decodeOwned(payload);
+        if (owned.isEmpty() && mode == Mode.DRAIN_ONLY && !compensation) {
+            // ORIGINAL_UNAVAILABLE (matrix Q-C): drain to 100% On-Demand only; no snapshot is needed or claimed.
+            Inputs in = new Inputs(mode, false, null, parse(g.getDesiredConfig()), parse(g.getAcceptedFields()),
+                    reasonsOf(target));
+            List<Step> steps = new ArrayList<>();
+            steps.add(new VerifyRevertPreconditionsStep(services, p, in));
+            steps.add(new DrainSpotStep(services, p, in));
+            steps.add(new WaitSpotDrainedStep(services, p, in));
+            steps.add(new VerifyRevertedStep(services, p, in));
+            steps.add(new RemoveMarkerStep(services, p, in, steps.size()));
+            return new StepProgram(steps);
+        }
         if (owned.isEmpty()) {
             return new StepProgram(List.of(new RevertSnapshotMissingStep(services, p)));
         }
@@ -108,8 +123,8 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
                         .orElse(null)));
         Inputs in = new Inputs(mode, compensation, payload, desired, parse(g.getAcceptedFields()), reasonsOf(target));
         boolean legacy = AwsSnapshotCodec.CAPTURED_RECONSTRUCTED.equals(owned.get().capturedFrom());
-        boolean drain = mode != Mode.RESTORE_ONLY
-                && (mode == Mode.DRAIN_ONLY || legacy || !AwsThreeWayDiff.snapshotHadSpot(owned.get()));
+        boolean drain = mode == Mode.RESTORE_ONLY || mode == Mode.DRAIN_ONLY || legacy
+                || !AwsThreeWayDiff.snapshotHadSpot(owned.get());
         List<Step> steps = new ArrayList<>();
         steps.add(new VerifyRevertPreconditionsStep(services, p, in));
         if (drain) {
@@ -201,6 +216,11 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
 
     // ---- plan ----
 
+    /**
+     * True when the group's linked snapshot row exists and its payload decodes. This covers the stored original
+     * only, not the plan's reconstruction of a legacy-tagged group with no marker (review #5): a configOnGroup row
+     * always has a stored snapshot, because only a revert of a group XamOps enabled can leave configOnGroup.
+     */
     @Override
     public boolean originalReadable(java.util.UUID groupId) {
         if (groupId == null) {
@@ -238,8 +258,22 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
             payloadReasons.addAll(rebuilt.inexactReasons());
         }
         Optional<AwsSnapshotCodec.Owned> owned = AwsSnapshotCodec.decodeOwned(payload);
+        boolean configOnGroup = row != null
+                && com.xammer.cloud.service.autospotting.spi.PlanOptions.forGroup(null, row).configOnGroup();
+        int spotNow = spotNow(view, parts[1]);
+        // The drain is open while XamOps' mixed policy still runs Spot or allows it (share above base below 100).
+        boolean drainOpen = live.mixedInstancesPolicy() && (spotNow > 0 || live.onDemandPercentageAboveBase() == null
+                || live.onDemandPercentageAboveBase() != 100);
         if (owned.isEmpty()) {
-            return blocked(raw, check("SNAPSHOT_MISSING", "The saved original configuration of this group could not be read."));
+            if (live.mixedInstancesPolicy() && (drainOpen || !configOnGroup)) {
+                // Matrix Q-C (2026-11-26): the original can't be read, so the closest safe target is a drain to 100%
+                // On-Demand. It never claims a restore; configOnGroup records ORIGINAL_UNAVAILABLE.
+                return originalUnavailable(account, view, raw, live, row, spotNow);
+            }
+            return blocked(raw, check("SNAPSHOT_MISSING", configOnGroup
+                    ? "XamOps can't read the original configuration it saved for this group, so it can't restore it. "
+                    + "The group is already at 100% On-Demand. Contact support."
+                    : "The saved original configuration of this group could not be read."));
         }
         JsonNode desired = row == null ? null : mergeDesired(parse(row.getDesiredConfig()),
                 parse(services.facts().latestConversionTarget(row.getId()).orElse(null)));
@@ -268,8 +302,14 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
         } else if (perm.passRoleDenied() || perm.checkFailed()) {
             String id = perm.passRoleDenied() ? "REVERT_NEEDS_PASSROLE" : "REVERT_CHECK_FAILED";
             reasons.add(perm.passRoleDenied() ? "PASSROLE_DENIED" : "CHECK_FAILED");
-            if (mode == Mode.RESTORE_ONLY) {
-                blockers.add(Check.of(id, id, "The exact revert still needs iam:PassRole. Update the stack, then plan again."));
+            if (mode == Mode.RESTORE_ONLY && !drainOpen) {
+                // GR-02 / PD-15: only the exact revert is left, and it needs the permission (review Medium #3:
+                // the text follows the cause).
+                blockers.add(Check.of(id, id, perm.passRoleDenied()
+                        ? "The exact revert still needs iam:PassRole. Update the stack, then plan again."
+                        : "XamOps couldn't check the permissions the exact revert needs. Nothing was changed. Try "
+                        + "again later; if it keeps failing, check that the connection role can run "
+                        + "iam:SimulatePrincipalPolicy."));
             } else {
                 drainOnly = true;
                 mode = Mode.DRAIN_ONLY;
@@ -338,18 +378,74 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
         }
         SnapshotPayload snapshot = new SnapshotPayload(Provider.AWS, AwsSnapshotCodec.SCHEMA_VERSION, storedExact,
                 payloadReasons, payload, AwsFingerprint.sha256(payload));
-        int spotNow = 0;
-        try {
-            spotNow = services.observer().observe(view, parts[1]).map(AwsRolloutObserver.Snapshot::spotNow).orElse(0);
-        } catch (AwsReadException e) {
-            spotNow = 0; // the count is a display figure; the revert reads it again at run time
-        }
         PlanBody.Rollout rollout = new PlanBody.Rollout(
                 mode == Mode.RESTORE_ONLY ? "RESTORE_ONLY" : "DRAIN_LAUNCH_FIRST",
                 mode == Mode.RESTORE_ONLY ? 0 : spotNow, 1, "5 min to 1 h",
                 Math.max(0, live.max() - live.desired()) + " instance(s) above desired (max " + live.max() + ")", null);
         return new PlanBody(write(current), write(target), write(diffNode(current, target)), snapshot,
-                new EligibilityResult(blockers, unique, List.of()), rollout, List.of(), null, null, write(revert));
+                new EligibilityResult(blockers, withFromFailed(row, unique), List.of()), rollout, List.of(), null, null,
+                write(revert));
+    }
+
+    /** Spot instances running now (display and drain decision); 0 when the read fails (step 0 reads it again). */
+    private int spotNow(AwsReadOnlyView view, String name) {
+        try {
+            return services.observer().observe(view, name).map(AwsRolloutObserver.Snapshot::spotNow).orElse(0);
+        } catch (AwsReadException e) {
+            return 0;
+        }
+    }
+
+    /** design-core 7.4: a FAILED group's revert plan carries REVERT_FROM_FAILED, which confirm must acknowledge. */
+    private static List<Check> withFromFailed(SpotGroup row, List<Check> warnings) {
+        if (row == null || row.getState() != GroupState.FAILED) {
+            return warnings;
+        }
+        List<Check> out = new ArrayList<>(warnings);
+        out.add(0, Check.of("REVERT_FROM_FAILED", "REVERT_FROM_FAILED",
+                "The last operation and its compensation failed; review the plan's live configuration first."));
+        return out;
+    }
+
+    /** Warning and reason id: the saved original is missing or unreadable (matrix Q-C). */
+    public static final String ORIGINAL_UNAVAILABLE = "ORIGINAL_UNAVAILABLE";
+
+    /**
+     * Matrix Q-C: no readable original, XamOps' mixed policy on the group. The plan drains to 100% On-Demand only
+     * (the mixed policy, its types and 100/200 stay), says so, and never claims a restore. Only
+     * {@code UpdateAutoScalingGroup} is needed, so no PassRole check.
+     */
+    private PlanBody originalUnavailable(CloudAccount account, AwsReadOnlyView view, AutoScalingGroup raw,
+                                         AwsGroupFacts live, SpotGroup row, int spotNow) {
+        AwsPlanReader.RevertPermissions perm = account.getRoleArn() == null
+                ? new AwsPlanReader.RevertPermissions(List.of("autoscaling:UpdateAutoScalingGroup"), false, false)
+                : services.reader().revertPermissions(view, account.getRoleArn(), live.arn(), null);
+        List<Check> blockers = new ArrayList<>();
+        if (!perm.missing().isEmpty()) {
+            blockers.add(check("PERMISSION_MISSING", "The connection role is missing: "
+                    + String.join(", ", perm.missing()) + ". Update the stack to allow it."));
+        }
+        List<Check> warnings = List.of(Check.of(ORIGINAL_UNAVAILABLE, ORIGINAL_UNAVAILABLE,
+                "XamOps can't read the original configuration it saved for this group, so it can't restore it. It "
+                        + "can move the group to 100% On-Demand: XamOps' mixed policy, its instance types and its "
+                        + "maintenance policy stay on the group. Contact support to restore the original."));
+        ObjectNode current = currentNode(live);
+        ObjectNode target = drained(current);
+        target.put("mode", Mode.DRAIN_ONLY.name());
+        target.put("exact", false);
+        target.putArray("reasons").add(ORIGINAL_UNAVAILABLE);
+        target.putArray("kept");
+        target.putArray("customerOverrides");
+        target.putArray("acks").add(ORIGINAL_UNAVAILABLE);
+        ObjectNode revert = JSON.createObjectNode().put("program", "REVERT").put("method", "DRAIN_ONLY")
+                .put("exact", false);
+        revert.putArray("reasons").add(ORIGINAL_UNAVAILABLE);
+        revert.put("remediation", "Contact support");
+        PlanBody.Rollout rollout = new PlanBody.Rollout("DRAIN_LAUNCH_FIRST", spotNow, 1, "5 min to 1 h",
+                Math.max(0, live.max() - live.desired()) + " instance(s) above desired (max " + live.max() + ")", null);
+        return new PlanBody(write(current), write(target), write(diffNode(current, target)), null,
+                new EligibilityResult(blockers, withFromFailed(row, warnings), List.of()), rollout, List.of(), null,
+                null, write(revert));
     }
 
     private PlanBody blocked(AutoScalingGroup raw, Check blocker) {

@@ -237,8 +237,9 @@ public class AwsSpotProvider implements SpotProvider {
         }
         String text = configStillOnGroupText(options.configOnGroupReason(),
                 options.originalLinked() && revertPrograms.originalReadable(options.groupId()));
+        // First, so the row's enableBlockedBy and a confirm refusal name it (review #4).
         List<EligibilityResult.Check> blockers = new ArrayList<>(r.blockers());
-        blockers.add(EligibilityResult.Check.of("b-" + CONFIG_STILL_ON_GROUP, CONFIG_STILL_ON_GROUP, text));
+        blockers.add(0, EligibilityResult.Check.of("b-" + CONFIG_STILL_ON_GROUP, CONFIG_STILL_ON_GROUP, text));
         return new EligibilityResult(blockers, r.warnings(), r.deferred());
     }
 
@@ -536,7 +537,8 @@ public class AwsSpotProvider implements SpotProvider {
         }
         try {
             for (JsonNode r : JSON.readTree(restoreTargetJson).path("reasons")) {
-                if ("PASSROLE_DENIED".equals(r.asText()) || "CHECK_FAILED".equals(r.asText())) {
+                if ("PASSROLE_DENIED".equals(r.asText()) || "CHECK_FAILED".equals(r.asText())
+                        || AwsRestoreProgram.ORIGINAL_UNAVAILABLE.equals(r.asText())) {
                     return r.asText();
                 }
             }

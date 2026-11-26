@@ -459,19 +459,24 @@ class AwsRestoreProgramTest {
 
     // ---- GR-02: the exact revert after a drain-only revert ----
 
-    @Test
-    void gr02RunsStepZeroThenRestoreWithNoDrainCall() throws IOException {
-        // After the drain-only revert: the policy is still there at 100% On-Demand and the marker is gone.
-        AutoScalingGroup drained = converted().toBuilder().tags(java.util.List.<software.amazon.awssdk.services.autoscaling.model.TagDescription>of()).mixedInstancesPolicy(
+    /** After the drain-only revert: XamOps' policy is still there at 100% On-Demand and the marker is gone. */
+    private static AutoScalingGroup drainedGroup() {
+        return converted().toBuilder().tags(java.util.List.<software.amazon.awssdk.services.autoscaling.model.TagDescription>of()).mixedInstancesPolicy(
                 converted().mixedInstancesPolicy().toBuilder().instancesDistribution(
                         converted().mixedInstancesPolicy().instancesDistribution().toBuilder()
                                 .onDemandPercentageAboveBaseCapacity(100).build()).build()).build();
-        AwsConversionFixture f = fixture(drained, FakeAws.asg("web-asg").build());
+    }
+
+    @Test
+    void gr02RunsStepZeroThenRestoreWithNoDrainCall() throws IOException {
+        AwsConversionFixture f = fixture(drainedGroup(), FakeAws.asg("web-asg").build());
         PlanBody body = plan(f, GroupState.REVERTED);
         assertThat(json(body.targetJson()).path("mode").asText()).isEqualTo("RESTORE_ONLY");
         assertThat(json(body.targetJson()).path("exact").asBoolean()).isTrue();
         StepProgram p = f.provider.restore(revert(f, body.targetJson()), null);
-        assertThat(names(p)).containsExactly("VERIFY_PRECONDITIONS", "RESTORE_SHAPE", "VERIFY_REVERTED", "REMOVE_MARKER");
+        // RESTORE_ONLY keeps the drain steps (revert matrix B1/B5); on a drained group they make no call.
+        assertThat(names(p)).containsExactly("VERIFY_PRECONDITIONS", "DRAIN_SPOT", "WAIT_SPOT_DRAINED", "RESTORE_SHAPE",
+                "VERIFY_REVERTED", "REMOVE_MARKER");
         for (int i = 0; i < p.size(); i++) {
             assertThat(run(p, i, f)).as(p.at(i).name()).isInstanceOf(StepOutcome.Done.class);
         }
@@ -482,10 +487,20 @@ class AwsRestoreProgramTest {
 
     @Test
     void gr02WhilePassRoleIsStillDeniedIsABlockedPlanNotAnotherDrain() throws IOException {
-        AwsConversionFixture f = fixture(converted(), FakeAws.asg("web-asg").build());
+        AwsConversionFixture f = fixture(drainedGroup(), FakeAws.asg("web-asg").build());
         instanceProfile(f, true);
         PlanBody body = plan(f, GroupState.REVERTED);
         assertThat(body.eligibility().blockers()).extracting(b -> b.id()).containsExactly("REVERT_NEEDS_PASSROLE");
+    }
+
+    /** Revert matrix Q-B: with the drain still open (share 50) a permission gap gives another drain, not a blocker. */
+    @Test
+    void gr02WithTheDrainStillOpenAndPassRoleDeniedDrainsAgain() throws IOException {
+        AwsConversionFixture f = fixture(converted(), FakeAws.asg("web-asg").build());
+        instanceProfile(f, true);
+        PlanBody body = plan(f, GroupState.REVERTED);
+        assertThat(body.eligibility().blockers()).isEmpty();
+        assertThat(json(body.targetJson()).path("mode").asText()).isEqualTo("DRAIN_ONLY");
     }
 
     // ---- exact=false and confirmation ----
@@ -519,7 +534,7 @@ class AwsRestoreProgramTest {
 
     @Test
     void ifAwsRefusesTheUnwrapTheSingleOverrideFallbackIsUsedAndReportedInexact() {
-        AwsConversionFixture f = fixture(converted(), FakeAws.asg("web-asg").build());
+        AwsConversionFixture f = fixture(drainedGroup(), FakeAws.asg("web-asg").build());
         doAnswer(inv -> {
             UpdateAutoScalingGroupRequest r = inv.getArgument(0);
             if (r.launchTemplate() != null && r.mixedInstancesPolicy() == null) {
@@ -532,8 +547,12 @@ class AwsRestoreProgramTest {
             return UpdateAutoScalingGroupResponse.builder().build();
         }).when(f.write).updateAutoScalingGroup(any(UpdateAutoScalingGroupRequest.class));
         StepProgram p = f.provider.restore(revert(f, "{\"mode\":\"RESTORE_ONLY\"}"), null);
-        assertThat(run(p, 0, f)).isInstanceOf(StepOutcome.Done.class);
-        StepOutcome restored = run(p, 1, f);
+        // Steps 0-2: preconditions and the no-op drain of an already drained group; 3 is the restore.
+        for (int i = 0; i < 3; i++) {
+            assertThat(run(p, i, f)).as(p.at(i).name()).isInstanceOf(StepOutcome.Done.class);
+        }
+        assertThat(f.updates).as("no drain call").isEmpty();
+        StepOutcome restored = run(p, 3, f);
         assertThat(restored).isInstanceOfSatisfying(StepOutcome.Done.class, d ->
                 assertThat(d.outputJson()).contains("UNWRAP_UNSUPPORTED").contains("\"exact\":false"));
         UpdateAutoScalingGroupRequest fallback = f.updates.get(0);
@@ -542,7 +561,7 @@ class AwsRestoreProgramTest {
         assertThat(fallback.mixedInstancesPolicy().instancesDistribution().onDemandBaseCapacity()).isZero();
         assertThat(fallback.mixedInstancesPolicy().instancesDistribution().onDemandPercentageAboveBaseCapacity()).isEqualTo(100);
         assertThat(fallback.capacityRebalance()).isFalse();
-        assertThat(run(p, 2, f)).isInstanceOfSatisfying(StepOutcome.Done.class, d ->
+        assertThat(run(p, 4, f)).isInstanceOfSatisfying(StepOutcome.Done.class, d ->
                 assertThat(d.outputJson()).contains("UNWRAP_UNSUPPORTED"));
     }
 

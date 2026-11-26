@@ -60,6 +60,20 @@ public final class VerifyRevertPreconditionsStep extends AwsRevertStep {
                         "The group changed after this plan was made. Review a fresh revert plan.");
             }
         }
+        if (inputs.snapshotPayload() == null) {
+            // ORIGINAL_UNAVAILABLE drain: nothing to resolve against. It only needs UpdateAutoScalingGroup.
+            if (live.account().getRoleArn() == null) {
+                return failed(ErrorKind.PERMISSION, "PERMISSION_MISSING", "No connection role is stored for this account.");
+            }
+            AwsPlanReader.RevertPermissions perm = services.reader().revertPermissions(live.view(),
+                    live.account().getRoleArn(), facts.arn(), null);
+            if (!perm.missing().isEmpty()) {
+                return failed(ErrorKind.PERMISSION, "PERMISSION_MISSING",
+                        "The connection role is missing: " + String.join(", ", perm.missing()) + ".");
+            }
+            return done("{\"fingerprint\":\"" + fingerprint + "\",\"mode\":\"" + inputs.mode()
+                    + "\",\"exact\":false,\"keptLive\":0}");
+        }
         AwsRestoreProgram.Resolved resolved = AwsRestoreProgram.resolve(services, live.account(), live.view(),
                 live.raw(), inputs);
         if (!inputs.compensation()) {
