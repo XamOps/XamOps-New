@@ -18,7 +18,8 @@ import java.util.List;
  * Step 1 of the REVERT program (design-aws.md §5.3): {@code OnDemandPercentageAboveBaseCapacity=100}, the base
  * unchanged. Raising the On-Demand share is a purchase-option change, so Auto Scaling replaces Spot with
  * On-Demand launch-first (AC-REV-06) and the group never drops below its capacity. Convergent: when the share is
- * already 100 (a retry, or a group with no policy) no call is made. The step is left out of the program when the
+ * already 100 and no Spot instance runs (a retry, or a group with no policy) no call is made; at share 100 with Spot
+ * still running the call is sent again. The step is left out of the program when the
  * snapshot itself had Spot. Asserts the lease before the call.
  */
 public final class DrainSpotStep extends AwsRevertStep {
@@ -45,9 +46,11 @@ public final class DrainSpotStep extends AwsRevertStep {
             return live.failure();
         }
         AwsGroupFacts facts = AwsGroupFacts.from(program.region(), live.raw());
-        if (drained(facts)) {
+        if (drained(facts) && !spotRunning(live)) {
             return done("{\"alreadyDrained\":true}");
         }
+        // Share 100 with Spot still running (a customer edit, or a drain that did not take) re-sends the drain: the
+        // plan calls this drain open, so the step must act on it, not report it done (review High #2).
         UpdateAutoScalingGroupRequest request = AwsRestoreRequests.drain(live.raw());
         List<String> forbidden = AwsRestoreRequests.forbidden(request);
         if (!forbidden.isEmpty()) {
@@ -68,6 +71,15 @@ public final class DrainSpotStep extends AwsRevertStep {
             return done("{\"alreadyDrained\":true}");
         }
         return notYet();
+    }
+
+    /** Spot instances in service now; read only when the share is already 100 (a failed read is retried by the runner). */
+    private boolean spotRunning(Live live) {
+        if (!AwsGroupFacts.from(program.region(), live.raw()).mixedInstancesPolicy()) {
+            return false;
+        }
+        return services.observer().observe(live.view(), program.groupName())
+                .map(snapshot -> snapshot.spotNow() > 0).orElse(false);
     }
 
     /** A group with no mixed policy has no Spot share to remove. */

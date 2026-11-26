@@ -260,10 +260,18 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
         Optional<AwsSnapshotCodec.Owned> owned = AwsSnapshotCodec.decodeOwned(payload);
         boolean configOnGroup = row != null
                 && com.xammer.cloud.service.autospotting.spi.PlanOptions.forGroup(null, row).configOnGroup();
-        int spotNow = spotNow(view, parts[1]);
-        // The drain is open while XamOps' mixed policy still runs Spot or allows it (share above base below 100).
-        boolean drainOpen = live.mixedInstancesPolicy() && (spotNow > 0 || live.onDemandPercentageAboveBase() == null
-                || live.onDemandPercentageAboveBase() != 100);
+        Integer spotRead = spotNow(view, parts[1]);
+        boolean shareDrained = live.onDemandPercentageAboveBase() != null && live.onDemandPercentageAboveBase() == 100;
+        if (live.mixedInstancesPolicy() && shareDrained && spotRead == null) {
+            // Whether the drain is open depends on the running Spot count here, and the read failed: an unknown is not
+            // zero, so no mode or blocker text is chosen from it (review High #3). The customer can plan again.
+            return blocked(raw, check("SPOT_COUNT_UNREADABLE", "XamOps couldn't read how many Spot instances this "
+                    + "group is running, so it can't plan the revert yet. Nothing was changed. Try again in a minute."));
+        }
+        int spotNow = spotRead == null ? 0 : spotRead;
+        // The drain is open while XamOps' mixed policy still allows Spot (share below 100) or Spot instances are still
+        // running at share 100. DrainSpotStep re-issues the drain in the second case, so plan and step agree.
+        boolean drainOpen = live.mixedInstancesPolicy() && (!shareDrained || spotNow > 0);
         if (owned.isEmpty()) {
             if (live.mixedInstancesPolicy() && (drainOpen || !configOnGroup)) {
                 // Matrix Q-C (2026-11-26): the original can't be read, so the closest safe target is a drain to 100%
@@ -387,12 +395,15 @@ public class AwsRestoreProgram implements AwsRevertProgramFactory {
                 write(revert));
     }
 
-    /** Spot instances running now (display and drain decision); 0 when the read fails (step 0 reads it again). */
-    private int spotNow(AwsReadOnlyView view, String name) {
+    /**
+     * Spot instances running now, or null when the read fails. The drain decision uses it only at share 100 and treats
+     * null as unknown (a blocker), never as zero; elsewhere it is display only.
+     */
+    private Integer spotNow(AwsReadOnlyView view, String name) {
         try {
             return services.observer().observe(view, name).map(AwsRolloutObserver.Snapshot::spotNow).orElse(0);
         } catch (AwsReadException e) {
-            return 0;
+            return null;
         }
     }
 

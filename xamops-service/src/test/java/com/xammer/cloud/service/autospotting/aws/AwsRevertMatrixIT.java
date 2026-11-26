@@ -135,6 +135,13 @@ class AwsRevertMatrixIT {
                 drained(List.of("REVERT_FROM_FAILED", "ORIGINAL_UNAVAILABLE"), "ORIGINAL_UNAVAILABLE")));
         r.add(new Row("E3", GroupState.FAILED, null, true, Snap.R, Perm.CF, "failed enable, no desired",
                 drained(List.of("REVERT_FROM_FAILED", "REVERT_CHECK_FAILED"), "CHECK_FAILED")));
+        // F: the running Spot count decides the drain (review High #2, #3).
+        r.add(new Row("F1", GroupState.REVERTED, "PASSROLE_DENIED", false, Snap.M, Perm.OK, "spot unreadable",
+                blocked("SPOT_COUNT_UNREADABLE", "REVERTED", "already at 100%")));
+        r.add(new Row("F2", GroupState.FAILED, "", true, Snap.R, Perm.OK, "share 100, spot running",
+                restoredOnly(List.of("REVERT_FROM_FAILED"))));
+        r.add(new Row("F3", GroupState.FAILED, "", true, Snap.R, Perm.PR, "share 100, spot running",
+                drained(List.of("REVERT_FROM_FAILED", "REVERT_NEEDS_PASSROLE"), "PASSROLE_DENIED")));
         // D: not managed / busy.
         r.add(new Row("D1", GroupState.UNMANAGED, null, false, Snap.M, Perm.OK, null, refusedAtPlan("NOT_MANAGED", "UNMANAGED")));
         r.add(new Row("D2", GroupState.REVERTING, null, true, Snap.R, Perm.OK, null, refusedAtPlan("AS_GROUP_BUSY", "REVERTING")));
@@ -217,7 +224,8 @@ class AwsRevertMatrixIT {
                     GroupState.PLANNED, "conservative");
         }
         boolean converted = row.state() != GroupState.UNMANAGED && row.state() != GroupState.PLANNED;
-        AutoScalingGroup group = converted ? live(row.drainOpen()) : FakeAws.asg("web-asg").build();
+        boolean share100 = row.setup() != null && row.setup().contains("share 100");
+        AutoScalingGroup group = converted ? live(row.drainOpen() && !share100) : FakeAws.asg("web-asg").build();
         String configMode = row.state() == GroupState.FALLBACK ? "FALLBACK" : "MANAGED";
         String pause = row.state() == GroupState.PAUSED ? "OPERATOR" : null;
         boolean noDesired = row.setup() != null && row.setup().contains("no desired");
@@ -237,6 +245,19 @@ class AwsRevertMatrixIT {
             h.jdbc.update("UPDATE spot_group SET snapshot_id = ? WHERE id = ?", bad, h.f.groupId);
         }
         perms(h.f, row.perm());
+        if ("spot unreadable".equals(row.setup())) {
+            // The first activities read (the plan's Spot count) fails once; later reads (the fingerprint) succeed.
+            java.util.concurrent.atomic.AtomicBoolean failed = new java.util.concurrent.atomic.AtomicBoolean();
+            doAnswer(inv -> {
+                if (failed.compareAndSet(false, true)) {
+                    throw AwsServiceException.builder().statusCode(500).awsErrorDetails(AwsErrorDetails.builder()
+                            .errorCode("InternalFailure").build()).build();
+                }
+                return software.amazon.awssdk.services.autoscaling.model.DescribeScalingActivitiesResponse.builder()
+                        .activities(List.of()).build();
+            }).when(h.f.aws.asg).describeScalingActivities(any(
+                    software.amazon.awssdk.services.autoscaling.model.DescribeScalingActivitiesRequest.class));
+        }
         if (row.drainOpen()) {
             h.f.spotInstances.add("i-3");
             h.f.spotInstances.add("i-4");
@@ -308,6 +329,14 @@ class AwsRevertMatrixIT {
             assertThat(status).as("op (error " + h.jdbc.queryForList("SELECT error_code FROM spot_operation WHERE id = ?",
                     String.class, op) + ")").isEqualTo("SUCCEEDED");
             assertThat(doneSteps(h, op)).as("steps").isEqualTo(e.steps());
+            if (row.drainOpen() && e.steps().contains("DRAIN_SPOT")) {
+                // The drain must be a real call, sent before any restore: share 100 and no launch template.
+                assertThat(h.f.updates).as("the drain call").isNotEmpty();
+                var first = h.f.updates.get(0);
+                assertThat(first.mixedInstancesPolicy().instancesDistribution().onDemandPercentageAboveBaseCapacity())
+                        .as("first update drains to 100% On-Demand").isEqualTo(100);
+                assertThat(first.launchTemplate()).as("the drain carries no launch template").isNull();
+            }
             assertAfter(h, e);
         }
     }
