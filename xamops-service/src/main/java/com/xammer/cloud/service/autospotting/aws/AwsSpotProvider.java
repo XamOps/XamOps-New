@@ -234,16 +234,6 @@ public class AwsSpotProvider implements SpotProvider {
      * revert restores the original for them. A changed maintenance policy is the customer's and is kept.
      */
     static EligibilityResult withOriginalKept(EligibilityResult r, PlanOptions options, AwsGroupFacts g) {
-        if (r != null && options != null && options.configOnGroup() && !options.keepsOriginal()) {
-            // Round 4 #2: XamOps' configuration is still on the group but the original saved before the first enable
-            // is gone. Enabling would save XamOps' own configuration as "the original"; block instead.
-            List<EligibilityResult.Check> blockers = new ArrayList<>(r.blockers());
-            blockers.add(EligibilityResult.Check.of("b-SNAPSHOT_MISSING", "SNAPSHOT_MISSING",
-                    "XamOps can't find the original configuration it saved before it first enabled this group, and its "
-                    + "own configuration is still on the group. Enabling now would save that as the original. Revert "
-                    + "the group first, or contact support."));
-            return new EligibilityResult(blockers, r.warnings(), r.deferred());
-        }
         if (r == null || options == null || !options.keepsOriginal()) {
             return r;
         }
