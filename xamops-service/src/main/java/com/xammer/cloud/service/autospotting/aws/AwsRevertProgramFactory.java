@@ -21,4 +21,10 @@ public interface AwsRevertProgramFactory {
      * impossible, the closest safe target marked {@code exact=false}. Never runs the conversion eligibility checks.
      */
     PlanBody plan(PlanRequest request, CloudAccount account);
+
+    /**
+     * True when the group's linked original snapshot exists and decodes (D-23b-03 review #8). The
+     * CONFIG_STILL_ON_GROUP text recommends Revert only then. No default (review #6): every implementation answers.
+     */
+    boolean originalReadable(java.util.UUID groupId);
 }

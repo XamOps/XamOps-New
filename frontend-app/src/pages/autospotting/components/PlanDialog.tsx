@@ -320,7 +320,7 @@ export const PlanDialog: React.FC<PlanDialogProps> = ({
               <p>
                 {[
                   body.rollout.method,
-                  body.rollout.instancesToReplace !== undefined
+                  body.rollout.instancesToReplace != null
                     ? `${body.rollout.instancesToReplace} instances to replace`
                     : null,
                   body.rollout.surge !== undefined ? `surge ${body.rollout.surge}` : null,

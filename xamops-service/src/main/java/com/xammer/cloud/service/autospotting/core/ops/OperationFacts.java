@@ -65,14 +65,21 @@ public class OperationFacts {
         if (groupId == null) {
             return Optional.empty();
         }
-        return operations.findByGroupId(groupId).stream()
-                .filter(o -> o.getTargetConfig() != null && switch (o.getKind()) {
+        return Optional.ofNullable(latestConversionTarget(operations.findByGroupId(groupId)));
+    }
+    /**
+     * The newest conversion target among {@code groupOperations} that recorded a first mutation: an operation that
+     * failed before it touched the cloud put nothing on the group, so it must not outrank one that did.
+     */
+    public static String latestConversionTarget(java.util.List<SpotOperation> groupOperations) {
+        return groupOperations.stream()
+                .filter(o -> o.getTargetConfig() != null && o.getFirstMutationSeq() != null && switch (o.getKind()) {
                     case ENABLE, ADOPT, CONFIG_APPLY, PROFILE_CHANGE -> true;
                     default -> false;
                 })
                 .max(java.util.Comparator.comparing(
                         (SpotOperation o) -> o.getCreatedAt() == null ? java.time.Instant.EPOCH : o.getCreatedAt()))
-                .map(SpotOperation::getTargetConfig);
+                .map(SpotOperation::getTargetConfig).orElse(null);
     }
     /**
      * The target configuration of the CONFIG_APPLY / PROFILE_CHANGE that FALLBACK_ENTER {@code fallbackOpId}

@@ -69,6 +69,24 @@ public interface SpotProvider {
         return null;
     }
 
+
+    /**
+     * The group's {@code desired_config} after a restore program ended (D-23b-01): a REVERT that reached REVERTED or
+     * FAILED, or an ENABLE compensated to its snapshot. {@code doneSteps} are the names of the op's steps that ended
+     * DONE, so the provider answers from what the program actually did, not from the lifecycle edge. When the
+     * restore removed XamOps' configuration, the markers of what XamOps owned go; when it did not (a drain-only
+     * revert, a revert that failed before restoring), the markers stay and the config says XamOps' configuration is
+     * still on the group ({@link PlanOptions#CONFIG_ON_GROUP}). Returns the input when nothing changes.
+     */
+    default String desiredConfigAfterRestore(String desiredConfigJson, java.util.Set<String> doneSteps) {
+        return desiredConfigJson;
+    }
+
+    /** As above, with the restore op's target config, so a provider can record why it did not restore. */
+    default String desiredConfigAfterRestore(String desiredConfigJson, java.util.Set<String> doneSteps,
+                                             String restoreTargetJson) {
+        return desiredConfigAfterRestore(desiredConfigJson, doneSteps);
+    }
     /** A pure decision: the actions the core should execute for this group's status (no I/O). */
     List<ReconcileAction> reconcile(SpotGroup group, GroupStatus status);
 }

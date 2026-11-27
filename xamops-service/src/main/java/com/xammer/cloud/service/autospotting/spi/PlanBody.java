@@ -65,7 +65,7 @@ public record PlanBody(
     /** The rollout plan: how the conversion is applied and its bounds (§7.3). */
     public record Rollout(
             String method,
-            int instancesToReplace,
+            Integer instancesToReplace,
             int surge,
             String durationRange,
             String headroom,

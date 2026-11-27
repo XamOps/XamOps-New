@@ -58,6 +58,11 @@ final class AwsOpsHarness implements AutoCloseable {
                              com.xammer.cloud.domain.CloudAccount account) {
             return delegate.plan(request, account);
         }
+
+        @Override
+        public boolean originalReadable(java.util.UUID groupId) {
+            return delegate.originalReadable(groupId);
+        }
     }
 
     final PgHarness.Database db;
@@ -224,6 +229,28 @@ final class AwsOpsHarness implements AutoCloseable {
         jdbc.update("UPDATE spot_operation SET first_mutation_seq = 3 WHERE id = ?", enableOpId);
     }
 
+    /** A conversion op that sent {@code targetJson} to the cloud and ended FAILED without writing desired_config. */
+    void insertFailedConversion(OperationKind kind, String targetJson) {
+        UUID id = UUID.randomUUID();
+        store.insertQueued(OperationRecord.builder(id, f.groupId, 7L, kind)
+                .priorState(GroupState.UNMANAGED)
+                .compensationTarget(com.xammer.cloud.domain.autospotting.CompensationTarget.SNAPSHOT)
+                .targetConfigJson(targetJson).requestedBy("tester").build());
+        store.claimForRun(id);
+        jdbc.update("UPDATE spot_operation SET first_mutation_seq = 3 WHERE id = ?", id);
+        store.finishFailed(id, "COMPENSATION_FAILED", "test");
+    }
+    /** A later conversion op that failed in step 0, before any mutation: it put nothing on the group. */
+    void insertUnmutatedConversion(OperationKind kind, String targetJson) {
+        UUID id = UUID.randomUUID();
+        store.insertQueued(OperationRecord.builder(id, f.groupId, 7L, kind)
+                .priorState(GroupState.FAILED)
+                .compensationTarget(com.xammer.cloud.domain.autospotting.CompensationTarget.NONE)
+                .targetConfigJson(targetJson).requestedBy("tester").build());
+        jdbc.update("UPDATE spot_operation SET created_at = created_at + interval '1 minute' WHERE id = ?", id);
+        store.claimForRun(id);
+        store.finishFailed(id, "PRECONDITION_FAILED", "test");
+    }
     /** Link {@code original} as the group's saved snapshot (what an ENABLE or ADOPT captured before it changed anything). */
     void linkSnapshot(AutoScalingGroup original) {
         UUID snapshotId = UUID.randomUUID();
@@ -270,6 +297,55 @@ final class AwsOpsHarness implements AutoCloseable {
                         + " false, ?::jsonb, false, 'tester', ?, ?)",
                 planId, f.groupId, request.kind().name(), from, fingerprint, body.toString(), warnings.toString(),
                 Timestamp.from(now), Timestamp.from(now.plusSeconds(3600)));
+        return confirmWith(planId, warningIds);
+    }
+
+    /** The persisted group row. */
+    com.xammer.cloud.domain.autospotting.SpotGroup row() {
+        return ctx.getBean(SpotGroupRepository.class).findById(f.groupId).orElseThrow();
+    }
+
+    /** The account the harness plans and confirms for (id 7, client 1). */
+    static com.xammer.cloud.domain.CloudAccount harnessAccount() {
+        com.xammer.cloud.domain.CloudAccount account = FakeAws.account();
+        com.xammer.cloud.domain.Client client = new com.xammer.cloud.domain.Client();
+        client.setId(1L);
+        account.setClient(client);
+        return account;
+    }
+
+    /**
+     * A plan through the real {@link com.xammer.cloud.service.autospotting.core.plan.PlanService} (the kind/state
+     * gate, NOT_MANAGED, AS_GROUP_BUSY, the provider plan, the stored body and fingerprint), as the API makes it.
+     */
+    com.xammer.cloud.domain.autospotting.SpotPlan planThroughService(OperationKind kind) {
+        var service = new com.xammer.cloud.service.autospotting.core.plan.PlanService(ctx.getBean(SpotPlanRepository.class),
+                ctx.getBean(SpotGroupRepository.class), ctx.getBean(SpotOperationRepository.class),
+                new ProviderRegistry(List.of(provider)),
+                org.mockito.Mockito.mock(com.xammer.cloud.service.autospotting.core.plan.FeeBasisResolver.class),
+                org.mockito.Mockito.mock(com.xammer.cloud.service.autospotting.core.plan.RevertPreconditions.class),
+                ctx.getBean(SwitchService.class),
+                org.mockito.Mockito.mock(com.xammer.cloud.service.autospotting.core.switches.AutoSpottingSwitchProperties.class),
+                ctx.getBean(GroupLifecycleService.class), java.time.Duration.ofMinutes(15));
+        var tx = new org.springframework.transaction.support.TransactionTemplate(
+                ctx.getBean(org.springframework.transaction.PlatformTransactionManager.class));
+        tx.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return tx.execute(st -> service.createPlan(harnessAccount(), null,
+                new com.xammer.cloud.service.autospotting.core.plan.PlanService.CreateCommand(kind, f.groupId, null,
+                        "aggressive", false, null, "hash-" + UUID.randomUUID(), "tester")));
+    }
+
+    /** Confirm a stored plan through ConfirmService, acknowledging every warning it lists. Returns the op id. */
+    UUID confirmPlan(UUID planId) {
+        String ids = jdbc.queryForObject("SELECT warning_ids::text FROM spot_plan WHERE id = ?", String.class, planId);
+        List<String> warningIds = new java.util.ArrayList<>();
+        if (ids != null) {
+            f.json(ids).forEach(n -> warningIds.add(n.asText()));
+        }
+        return confirmWith(planId, warningIds);
+    }
+
+    private UUID confirmWith(UUID planId, List<String> warningIds) {
         var authorization = org.mockito.Mockito.mock(com.xammer.cloud.service.autospotting.core.AutoSpottingAuthorization.class);
         org.mockito.Mockito.when(authorization.authorizeConfirm(org.mockito.ArgumentMatchers.any(),
                         org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
@@ -287,20 +363,43 @@ final class AwsOpsHarness implements AutoCloseable {
                 org.mockito.Mockito.mock(com.xammer.cloud.service.autospotting.core.switches.AutoSpottingSwitchProperties.class),
                 new ProviderRegistry(List.of(provider)), ctx.getBean(AutoSpottingAuditWriter.class),
                 org.mockito.Mockito.mock(com.xammer.cloud.service.autospotting.notify.AutoSpottingNotificationService.class));
-        com.xammer.cloud.domain.CloudAccount account = FakeAws.account();
-        com.xammer.cloud.domain.Client client = new com.xammer.cloud.domain.Client();
-        client.setId(1L);
-        account.setClient(client);
+        com.xammer.cloud.domain.CloudAccount account = harnessAccount();
         com.xammer.cloud.security.ClientUserDetails user = new com.xammer.cloud.security.ClientUserDetails("owner", "x",
                 List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_USER")), 1L, 100L, "t");
-        // ConfirmService carries @Transactional(REQUIRES_NEW) as a Spring bean; emulate that proxy here.
-        return new org.springframework.transaction.support.TransactionTemplate(
+        // ConfirmService carries @Transactional(REQUIRES_NEW, noRollbackFor = BlockedRevertException) as a Spring bean;
+        // emulate that proxy here: a BlockedRevertException commits (the plan is marked STALE) and is rethrown.
+        com.xammer.cloud.service.autospotting.core.AutoSpottingApiException[] refused =
+                new com.xammer.cloud.service.autospotting.core.AutoSpottingApiException[1];
+        var result = new org.springframework.transaction.support.TransactionTemplate(
                 ctx.getBean(org.springframework.transaction.PlatformTransactionManager.class))
-                .execute(status -> confirm.confirm(account, user, planId,
-                        new com.xammer.cloud.service.autospotting.core.plan.ConfirmService.ConfirmCommand(1, warningIds,
-                                false, null, false, "k-" + planId, "h-" + planId))).operationId();
+                .execute(status -> {
+                    try {
+                        return confirm.confirm(account, user, planId,
+                                new com.xammer.cloud.service.autospotting.core.plan.ConfirmService.ConfirmCommand(
+                                        jdbc.queryForObject("SELECT version FROM spot_plan WHERE id = ?", Integer.class,
+                                                planId),
+                                        warningIds, false, null, false, "k-" + planId, "h-" + planId));
+                    } catch (com.xammer.cloud.service.autospotting.core.AutoSpottingApiException e) {
+                        if (!"BlockedRevertException".equals(e.getClass().getSimpleName())) {
+                            throw e;
+                        }
+                        refused[0] = e;
+                        return null;
+                    }
+                });
+        if (refused[0] != null) {
+            throw refused[0];
+        }
+        return result.operationId();
     }
-
+    /** The status of a stored plan. */
+    String planStatus(UUID planId) {
+        return jdbc.queryForObject("SELECT status FROM spot_plan WHERE id = ?", String.class, planId);
+    }
+    /** Confirm a stored plan acknowledging {@code acks} only (not every warning it lists). */
+    UUID confirmPlan(UUID planId, List<String> acks) {
+        return confirmWith(planId, acks);
+    }
     /** Claim {@code opId} and run it until it ends, moving the clock a minute between runs. */
     String runToEnd(UUID opId) {
         for (int round = 0; round < 60; round++) {

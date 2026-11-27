@@ -14,7 +14,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.ArgumentMatchers.any;
 
 /** DLQ listing (no bodies), replay by move task, the FIFO re-send fallback and one replay at a time. */
-class AwsEventDlqServiceTest {
+public class AwsEventDlqServiceTest {
 
     private final FakeSqsClient sqs = new FakeSqsClient();
     private final AutoSpottingAuditWriter audit = mock(AutoSpottingAuditWriter.class);
@@ -23,11 +23,18 @@ class AwsEventDlqServiceTest {
     @BeforeEach
     void setUp() {
         service = new AwsEventDlqService(sqs, new AwsEventProperties(false, true, FakeSqsClient.QUEUE_URL, true),
-                new ObjectMapper(), audit);
+                new ObjectMapper(), audit, txManager());
         sqs.dlq.add(msg("e1", "acct-111111111111-ap-south-1"));
         sqs.dlq.add(msg("e2", "acct-222222222222-ap-south-1"));
     }
 
+    /** A transaction manager that hands out a status, as a real one would; the audit row is not under test here. */
+    public static org.springframework.transaction.PlatformTransactionManager txManager() {
+        var tm = mock(org.springframework.transaction.PlatformTransactionManager.class);
+        org.mockito.Mockito.when(tm.getTransaction(any())).thenReturn(
+                new org.springframework.transaction.support.SimpleTransactionStatus());
+        return tm;
+    }
     private FakeSqsClient.Msg msg(String id, String group) {
         sqs.send(AwsEventEnvelopeTest.body(id, AwsEventEnvelope.INTERRUPTION, group.substring(5, 17), "{}"),
                 group, id, "AROAX:s");
@@ -79,7 +86,7 @@ class AwsEventDlqServiceTest {
     @Test
     void aRefusedQueueIsNeverListedOrReplayed() {
         AwsEventDlqService prodInUat = new AwsEventDlqService(sqs, new AwsEventProperties(false, true,
-                "https://sqs.ap-south-1.amazonaws.com/1/xamops-autospotting-events.fifo", true), new ObjectMapper(), audit);
+                "https://sqs.ap-south-1.amazonaws.com/1/xamops-autospotting-events.fifo", true), new ObjectMapper(), audit, txManager());
         assertThat(prodInUat.summary().configured()).isFalse();
         assertThatThrownBy(() -> prodInUat.redrive("x", Actor.system())).isInstanceOf(AutoSpottingApiException.class);
         assertThat(sqs.calls).isEmpty();

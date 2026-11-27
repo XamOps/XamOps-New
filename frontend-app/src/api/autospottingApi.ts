@@ -187,7 +187,7 @@ export interface PlanBodyDoc {
   revertPath: { program?: string; method?: string; exact?: boolean } | null;
   rollout: {
     method?: string;
-    instancesToReplace?: number;
+    instancesToReplace?: number | null;
     surge?: number;
     durationRange?: string;
     headroom?: string;

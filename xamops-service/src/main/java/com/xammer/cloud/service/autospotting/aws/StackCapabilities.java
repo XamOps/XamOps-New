@@ -23,7 +23,9 @@ public enum StackCapabilities {
     /** {@code iam:SimulatePrincipalPolicy} on the connection role itself. */
     AS_SIMULATE_SELF("rw-2026.10.1", true, "permission self-check", false),
     /** Service Quotas and CloudWatch reads for the Spot vCPU quota check. */
-    AS_QUOTA_READS("rw-2026.10.1", true, "Spot quota reads", true);
+    AS_QUOTA_READS("rw-2026.10.1", true, "Spot quota reads", true),
+    /** {@code ec2:DescribeTags}, so an event of an instance that already left its group still finds the group. */
+    AS_EVENTS_TAG_LOOKUP("rw-2026.11.2", false, "event lookup of terminated instances", false);
     private final String minimumVersion;
     private final boolean requiredForConversion;
     private final String label;
@@ -71,6 +73,20 @@ public enum StackCapabilities {
     }
     public static List<StackCapabilities> missingForConversion(String version) {
         return missingForConversion(version, EnumSet.noneOf(StackCapabilities.class));
+    }
+    /**
+     * Every capability a stack at {@code version} lacks, whether or not a conversion needs it: what the "Update
+     * stack" prompt lists. A capability that does not block conversion (for example {@link #AS_EVENTS_TAG_LOOKUP},
+     * which keeps events from dead-lettering) still has to be offered, or customers on an older stack are never told.
+     */
+    public static List<StackCapabilities> missingForUpdate(String version) {
+        List<StackCapabilities> missing = new ArrayList<>();
+        for (StackCapabilities c : values()) {
+            if (!c.presentAt(version)) {
+                missing.add(c);
+            }
+        }
+        return missing;
     }
     /** The newest minimum version in the table: the version "Update stack" brings an account to. */
     public static String latestVersion() {

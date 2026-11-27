@@ -15,8 +15,9 @@ import java.util.UUID;
 
 /**
  * What a group's last REVERT ended with, read from the operation and its plan body ({@code revertPath.reasons}).
- * Only GR-02 needs it: a REVERTED group may be reverted again only after a drain-only revert, one that ended
- * {@code EXACT_RESTORE_IMPOSSIBLE(PASSROLE_DENIED)} (design-aws.md §5.3, {@link PlanKinds}). No write, no cloud call.
+ * Only GR-02 needs it: a REVERTED group may be reverted again only after a drain-only revert that left XamOps'
+ * configuration on it: the last revert ended {@code EXACT_RESTORE_IMPOSSIBLE(PASSROLE_DENIED)}, or the row records
+ * {@code configOnGroup} (PASSROLE_DENIED or CHECK_FAILED; design-aws.md §5.3, {@link PlanKinds}). No write, no cloud call.
  */
 public final class RevertHistory {
     public static final String PASSROLE_DENIED = "PASSROLE_DENIED";
@@ -37,6 +38,21 @@ public final class RevertHistory {
                 .map(o -> o.getPlanId() == null ? null : plans.findById(o.getPlanId()).orElse(null))
                 .map(RevertHistory::drainOnlyForPassRole)
                 .orElse(false);
+    }
+
+    /**
+     * GR-02, widened by D-23b-03 option (b): a REVERTED group may be reverted again while XamOps' configuration is
+     * still on it, i.e. after any drain-only revert. That is the last revert being PASSROLE_DENIED, or the row's
+     * {@code desired_config} recording {@code configOnGroup} (which also covers a CHECK_FAILED drain). ENABLE and
+     * ADOPT are blocked in that situation, so without this the group would have no way back.
+     */
+    public static boolean revertAllowedAgain(SpotOperationRepository operations, SpotPlanRepository plans,
+                                             com.xammer.cloud.domain.autospotting.SpotGroup group) {
+        if (group == null || group.getState() != com.xammer.cloud.domain.autospotting.GroupState.REVERTED) {
+            return false;
+        }
+        return com.xammer.cloud.service.autospotting.spi.PlanOptions.forGroup(null, group).configOnGroup()
+                || lastRevertPassRoleDenied(operations, plans, group.getId());
     }
 
     private static boolean drainOnlyForPassRole(SpotPlan plan) {

@@ -175,7 +175,7 @@ class AwsSpotProviderPlanTest {
     void allowingBurstableAddsOnlyBurstableTypesThatPassTheOtherRulesAndWarnsAboutCpuCredits() throws IOException {
         setUp(FakeAws.asg("web-asg").build());
         aws.burstableWorld();
-        PlanBody body = plan("conservative", new PlanOptions(true, null));
+        PlanBody body = plan("conservative", new PlanOptions(true, null, true));
         assertThat(body.eligibility().blockers()).isEmpty();
         JsonNode target = JSON.readTree(body.targetJson());
         assertThat(target.path("overrides")).extracting(JsonNode::asText)
@@ -191,10 +191,10 @@ class AwsSpotProviderPlanTest {
     void theGroupsLastConfirmedBurstableChoiceStartsTheNextPlanAndTheRequestOverridesIt() throws IOException {
         setUp(FakeAws.asg("web-asg").build());
         aws.burstableWorld();
-        PlanBody inherited = plan("conservative", new PlanOptions(null, OPTION_ON_DESIRED));
+        PlanBody inherited = plan("conservative", new PlanOptions(null, OPTION_ON_DESIRED, true));
         assertThat(JSON.readTree(inherited.targetJson()).at("/options/allowBurstable").asBoolean()).isTrue();
         assertThat(inherited.eligibility().blockers()).isEmpty();
-        PlanBody off = plan("conservative", new PlanOptions(false, OPTION_ON_DESIRED));
+        PlanBody off = plan("conservative", new PlanOptions(false, OPTION_ON_DESIRED, true));
         assertThat(JSON.readTree(off.targetJson()).at("/options/allowBurstable").asBoolean()).isFalse();
         assertThat(off.eligibility().blockers()).extracting(c -> c.code()).contains("NO_COMPATIBLE_TYPES");
     }
@@ -204,7 +204,7 @@ class AwsSpotProviderPlanTest {
     void turningBurstableOffRemovesTheTypesXamOpsAddedAndKeepsTheCustomersOwn() throws IOException {
         setUp(FakeAws.asg("web-asg").build());
         aws.burstableWorld();
-        PlanBody on = plan("conservative", new PlanOptions(true, null));
+        PlanBody on = plan("conservative", new PlanOptions(true, null, true));
         JsonNode onTarget = JSON.readTree(on.targetJson());
         assertThat(onTarget.at("/options/burstableAdded")).extracting(JsonNode::asText)
                 .containsExactly("t3a.micro", "t3a.small");
@@ -219,7 +219,7 @@ class AwsSpotProviderPlanTest {
                                         .map(t -> software.amazon.awssdk.services.autoscaling.model.LaunchTemplateOverrides.builder().instanceType(t).build())
                                         .toList()).build()).build()).build());
         aws.burstableWorld();
-        PlanBody off = plan("conservative", new PlanOptions(false, remembered));
+        PlanBody off = plan("conservative", new PlanOptions(false, remembered, true));
         assertThat(JSON.readTree(off.targetJson()).path("overrides")).extracting(JsonNode::asText)
                 .contains("t3.micro", "t3.small").doesNotContain("t3a.micro", "t3a.small");
     }
@@ -231,25 +231,25 @@ class AwsSpotProviderPlanTest {
         String owned = "{\"instanceMaintenancePolicy\":{\"owned\":true,\"min\":100,\"max\":200}}";
         setUp(FakeAws.asg("web-asg").instanceMaintenancePolicy(edited).build());
         PlanBody fix = provider.createPlan(new PlanRequest(ref(), OperationKind.CONFIG_APPLY,
-                new Profile("conservative", null), new PlanOptions(null, owned)), aws.view());
+                new Profile("conservative", null), new PlanOptions(null, owned, true)), aws.view());
         assertThat(fix.eligibility().blockers()).extracting(c -> c.code()).doesNotContain("IMP_TERMINATE_FIRST");
         assertThat(JSON.readTree(fix.targetJson()).at("/instanceMaintenancePolicy/max").asInt()).isEqualTo(200);
         assertThat(provider.checkEligibility(ref(), aws.view(), new Profile("conservative", null), EvalMode.PLAN,
-                new PlanOptions(null, owned)).blockers()).extracting(c -> c.code()).doesNotContain("IMP_TERMINATE_FIRST");
+                new PlanOptions(null, owned, true)).blockers()).extracting(c -> c.code()).doesNotContain("IMP_TERMINATE_FIRST");
         PlanBody customer = provider.createPlan(new PlanRequest(ref(), OperationKind.CONFIG_APPLY,
-                new Profile("conservative", null), new PlanOptions(null, null)), aws.view());
+                new Profile("conservative", null), new PlanOptions(null, null, true)), aws.view());
         assertThat(customer.eligibility().blockers()).extracting(c -> c.code()).contains("IMP_TERMINATE_FIRST");
     }
     @Test
     void theBurstableOptionIsRefusedForAGroupThatIsNotBurstable() {
         setUp(FakeAws.asg("web-asg").build());
-        assertThatThrownBy(() -> plan("conservative", new PlanOptions(true, null)))
+        assertThatThrownBy(() -> plan("conservative", new PlanOptions(true, null, true)))
                 .isInstanceOfSatisfying(AutoSpottingApiException.class, e -> {
                     assertThat(e.getCode()).isEqualTo("BURSTABLE_NOT_APPLICABLE");
                     assertThat(e.getStatus().value()).isEqualTo(422);
                 });
         // A remembered choice on a group that is not burstable is simply not used.
-        PlanBody body = plan("conservative", new PlanOptions(null, OPTION_ON_DESIRED));
+        PlanBody body = plan("conservative", new PlanOptions(null, OPTION_ON_DESIRED, true));
         assertThat(body.eligibility().blockers()).isEmpty();
     }
 
@@ -306,11 +306,25 @@ class AwsSpotProviderPlanTest {
         setUp(FakeAws.asg("web-asg").instanceMaintenancePolicy(software.amazon.awssdk.services.autoscaling.model
                 .InstanceMaintenancePolicy.builder().minHealthyPercentage(100).maxHealthyPercentage(200).build()).build());
         String desired = "{\"instanceMaintenancePolicy\":{\"owned\":true,\"min\":100,\"max\":200}}";
-        PlanBody owned = plan("conservative", new PlanOptions(null, desired));
+        PlanBody owned = plan("conservative", new PlanOptions(null, desired, true));
         assertThat(JSON.readTree(owned.targetJson()).path("instanceMaintenancePolicy").path("owned").asBoolean()).isTrue();
         // The same live values with no ownership record are the customer's own.
         PlanBody theirs = plan("conservative");
         assertThat(JSON.readTree(theirs.targetJson()).has("instanceMaintenancePolicy")).isFalse();
+    }
+
+    /** Review round 3 #8: status of a group that no longer exists is "not found" (no fingerprint, no throw). */
+    @Test
+    void theStatusOfAGroupThatNoLongerExistsIsNotFound() {
+        setUp(FakeAws.asg("web-asg").build());
+        aws.groups(); // the group is gone
+        SpotGroup row = new SpotGroup();
+        row.setCloudAccountId(7L);
+        row.setGroupKey(FakeAws.REGION + "/web-asg");
+        row.setState(com.xammer.cloud.domain.autospotting.GroupState.ACTIVE);
+        var status = provider.getStatus(row, aws.view());
+        assertThat(status.found()).isFalse();
+        assertThat(status.liveFingerprint()).isNull();
     }
 
     /** AD-08: the live fingerprint carries the policy exactly when desired_config says XamOps owns it. */
@@ -324,8 +338,13 @@ class AwsSpotProviderPlanTest {
         row.setCloudAccountId(7L);
         row.setGroupKey(FakeAws.REGION + "/web-asg");
         assertThat(provider.getStatus(row, aws.view()).liveFingerprint()).isEqualTo(AwsFingerprint.of(facts, false));
+        row.setState(com.xammer.cloud.domain.autospotting.GroupState.ACTIVE);
         row.setDesiredConfig("{\"instanceMaintenancePolicy\":{\"owned\":true,\"min\":100,\"max\":200}}");
         assertThat(provider.getStatus(row, aws.view()).liveFingerprint()).isEqualTo(AwsFingerprint.of(facts, true));
+        // D-23b-01 review #8: status reads ownership through the planning gate, so a reverted row's stale marker
+        // (written before the fix) does not count.
+        row.setState(com.xammer.cloud.domain.autospotting.GroupState.REVERTED);
+        assertThat(provider.getStatus(row, aws.view()).liveFingerprint()).isEqualTo(AwsFingerprint.of(facts, false));
         // A conversion writes desired_config and the fingerprint together: ask with the NEW config, not the old row.
         row.setDesiredConfig(null);
         assertThat(provider.liveFingerprintFor(row, "{\"instanceMaintenancePolicy\":{\"owned\":true,\"min\":100,"

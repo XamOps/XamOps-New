@@ -500,6 +500,9 @@ public class OperationRunner {
      */
     private void compensateOrFail(LeaseHandle handle, SpotOperation op, SpotGroup group,
                                   StepOutcome.Failed failed) {
+        // D-23b-02: the caller may hold the op as loaded before this pass's steps ran; a mutation earlier in the same
+        // pass (or this step's own intent) is only in the stored row, so read it before deciding "before mutation".
+        op = operations.findById(op.getId()).orElse(op);
         boolean mutatedYet = op.getFirstMutationSeq() != null;
         boolean safety = CompensationTargets.actionClass(op.getKind()) == ActionClass.SAFETY;
 
@@ -525,7 +528,8 @@ public class OperationRunner {
             // SAFETY op after mutation: a terminal error ends it FAILED. A REVERT moves REVERTING -> FAILED
             // (§2.2.1); the other SAFETY ops leave the group where it is.
             if (op.getKind() == com.xammer.cloud.domain.autospotting.OperationKind.REVERT) {
-                transitionTo(handle, group, GroupState.FAILED, "REVERT_FAILED", op.getId());
+                transitionTo(handle, group, GroupState.FAILED, "REVERT_FAILED", op.getId(),
+                        configWriteAfterRestore(op, group));
             }
             store.finishFailed(op.getId(), failed.code(), failed.redactedMessage());
             audit(handle, op, group, "OP_FAILED", "FAILED", "SAFETY_TERMINAL_ERROR");
@@ -561,8 +565,15 @@ public class OperationRunner {
             fallbackEffects.exitSucceeded(handle, op, group, desiredConfigWrite(op, group));
             target = null;
         }
+        // D-23b-01: a restore program that ends (a REVERT, or an ENABLE compensated to its snapshot) rewrites
+        // desired_config from what it actually did; every other success writes the conversion target.
+        boolean restoreEnded = target == GroupState.REVERTED;
+        String[] configWrite = null;
+        if (target != null) {
+            configWrite = restoreEnded ? configWriteAfterRestore(op, group) : desiredConfigWrite(op, group);
+        }
         if (target != null
-                && !transitionTo(handle, group, target, successReason(op), op.getId(), desiredConfigWrite(op, group))) {
+                && !transitionTo(handle, group, target, successReason(op), op.getId(), configWrite)) {
             // The cloud work is done but the group's record could not follow (stale guard or forbidden edge).
             // Reporting SUCCEEDED here left a converted group UNMANAGED in XamOps (phase 23 defect D-23-08).
             String from = groups.findById(group.getId()).map(g -> String.valueOf(g.getState())).orElse("missing");
@@ -621,6 +632,46 @@ public class OperationRunner {
         return new String[] {op.getTargetConfig(), fingerprint};
     }
 
+    /**
+     * D-23b-01: after a restore program ends (REVERTED, or a REVERT that ended FAILED), {@code desired_config} keeps
+     * the customer's choices but the provider adjusts the markers of what XamOps owned from the steps that actually
+     * ran DONE (a drain-only revert or an early failure leaves XamOps' configuration on the group; a restore removes
+     * it). The fingerprint stays. Returns null when nothing changes.
+     */
+    private String[] configWriteAfterRestore(SpotOperation op, SpotGroup group) {
+        SpotGroup fresh = groups.findById(group.getId()).orElse(group);
+        String stored = fresh.getDesiredConfig();
+        // A first ENABLE that mutated the cloud but never succeeded left desired_config null. The conversion target it
+        // sent is then the only record of what XamOps put on the group, so the residual-configuration gate is built
+        // from it (review High #1); with no conversion target the gate alone is recorded.
+        String desired = stored != null ? stored : latestConversionTarget(fresh.getId());
+        if (desired == null) {
+            desired = "{}";
+        }
+        java.util.Set<String> done = store.doneStepNames(op.getId());
+        String base = desired;
+        String after = providers.find(fresh.getProvider())
+                .map(p -> p.desiredConfigAfterRestore(base, done, op.getTargetConfig())).orElse(desired);
+        if (stored == null && (after == null || !after.contains(com.xammer.cloud.service.autospotting.spi.PlanOptions
+                .CONFIG_ON_GROUP))) {
+            return null; // the restore removed XamOps' configuration: nothing to remember, nothing was written before
+        }
+        // The fingerprint is kept, not recomputed: once a restore releases the policy claim it differs from a fresh
+        // one by the ownership bit only. That is harmless because drift is classified only for ACTIVE, DEGRADED,
+        // FALLBACK and PAUSED rows (DriftClassifier.classifiable), and a restore ends REVERTED or FAILED; the next
+        // conversion's success writes both again. Widening drift classification must recompute it here.
+        if (after == null || after.equals(desired)) {
+            return null;
+        }
+        // With no conversion target the row never had a fingerprint; a gate row must not carry a desired_config
+        // without one (review Medium #11), so it is the hash of the gate itself.
+        return new String[] {after, fresh.getDesiredFingerprint() != null ? fresh.getDesiredFingerprint() : sha256(after)};
+    }
+
+    /** The target of the group's most recent conversion op (ENABLE, ADOPT, CONFIG_APPLY, PROFILE_CHANGE), or null. */
+    private String latestConversionTarget(java.util.UUID groupId) {
+        return OperationFacts.latestConversionTarget(operations.findByGroupId(groupId));
+    }
     private static String sha256(String text) {
         try {
             return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")

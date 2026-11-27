@@ -137,6 +137,12 @@ final class AwsConversionFixture {
     final List<String> log = new ArrayList<>();
     final List<UpdateAutoScalingGroupRequest> updates = new ArrayList<>();
     final Set<String> spotInstances = new HashSet<>();
+    /**
+     * Whether an update changed the group's purchase mix or shape, which is what makes Auto Scaling replace instances.
+     * An update that leaves the distribution as it was starts no activity, so Spot stays (review High #2): tests that
+     * model the replacement clear {@link #spotInstances} only when this is true.
+     */
+    boolean replacementStarted;
     final MovableClock clock = new MovableClock(Instant.parse("2026-11-17T10:00:00Z"));
     final MemorySnapshots snapshots = new MemorySnapshots();
     final AutoSpottingSwitchProperties switches = mock(AutoSpottingSwitchProperties.class);
@@ -225,7 +231,13 @@ final class AwsConversionFixture {
             UpdateAutoScalingGroupRequest r = inv.getArgument(0);
             log.add("update");
             updates.add(r);
+            var before = group();
             applyUpdate(r);
+            var after = group();
+            if (!java.util.Objects.equals(distribution(before), distribution(after))
+                    || !java.util.Objects.equals(before.launchTemplate(), after.launchTemplate())) {
+                replacementStarted = true;
+            }
             return UpdateAutoScalingGroupResponse.builder().build();
         }).when(write).updateAutoScalingGroup(any(UpdateAutoScalingGroupRequest.class));
         doAnswer(inv -> {
@@ -261,6 +273,11 @@ final class AwsConversionFixture {
         aws.groups(g);
     }
 
+    private static Object distribution(AutoScalingGroup g) {
+        return g.mixedInstancesPolicy() == null ? null : java.util.List.of(
+                String.valueOf(g.mixedInstancesPolicy().instancesDistribution()),
+                String.valueOf(g.mixedInstancesPolicy().launchTemplate()));
+    }
     void applyUpdate(UpdateAutoScalingGroupRequest r) {
         AutoScalingGroup.Builder b = group().toBuilder();
         if (r.capacityRebalance() != null) {
@@ -322,7 +339,7 @@ final class AwsConversionFixture {
         PlanBody body = provider.createPlan(new PlanRequest(new GroupRef(
                 com.xammer.cloud.domain.autospotting.Provider.AWS, 7L, FakeAws.REGION + "/web-asg", null),
                 kind, new Profile(profile, null),
-                new com.xammer.cloud.service.autospotting.spi.PlanOptions(null, desiredConfigJson)), aws.view());
+                new com.xammer.cloud.service.autospotting.spi.PlanOptions(null, desiredConfigJson, true)), aws.view());
         // The stored plan fingerprint carries the policy exactly when the plan's target owns it (AD-08).
         when(facts.planLiveFingerprint(planId)).thenReturn(Optional.of(AwsFingerprint.of(
                 AwsGroupFacts.from(FakeAws.REGION, group()), AwsMaintenancePolicy.owns(body.targetJson()))));

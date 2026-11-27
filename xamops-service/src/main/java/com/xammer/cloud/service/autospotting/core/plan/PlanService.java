@@ -177,7 +177,8 @@ public class PlanService {
         // A revert is never blocked by the conversion-only eligibility checks (DR-03): it takes the warnings of
         // its own plan, and the provider's restore-permission pre-check (design-core.md §7.4) is part of it.
         // AD-09: the customer's burstable choice for this plan, and the group's last confirmed one (desired_config).
-        PlanOptions options = new PlanOptions(cmd.allowBurstable(), group == null ? null : group.getDesiredConfig());
+        // D-23b-01: ownership markers in desired_config count only while XamOps' configuration is on the group.
+        PlanOptions options = PlanOptions.forGroup(cmd.allowBurstable(), group);
         EligibilityResult eligibility = cmd.kind() == OperationKind.REVERT || policyChange ? null
                 : spotProvider.checkEligibility(ref, view, profile, EvalMode.PLAN, options);
         com.xammer.cloud.service.autospotting.spi.PlanRequest planRequest =
@@ -249,8 +250,13 @@ public class PlanService {
         // ENABLE for a PLANNED group inherits the prior from_state (handled above) and stays PLANNED.
         // A dry-run ENABLE plan does NOT move the group to PLANNED (§7.2), so a dry-run never changes
         // state and the ledger never sees it (PO-04).
+        // D-23b-03 option (b): an ENABLE blocked because XamOps' configuration is still on the group (drain-only
+        // revert) leaves the group REVERTED, so the exact revert it asks for stays available (a PLANNED group has
+        // nothing to revert). The plan can never be confirmed; a later plan supersedes it and expiry is a no-op.
+        boolean configStillOnGroup = eligibility.blockers().stream()
+                .anyMatch(b -> PlanOptions.BLOCKER_CONFIG_STILL_ON_GROUP.equals(b.code()));
         if (cmd.kind() == OperationKind.ENABLE && !dryRun && group != null
-                && group.getState() != GroupState.PLANNED) {
+                && group.getState() != GroupState.PLANNED && !configStillOnGroup) {
             try {
                 moveToPlanned(group, user);
             } catch (DataIntegrityViolationException e) {
@@ -292,12 +298,15 @@ public class PlanService {
     private void checkKindState(OperationKind kind, SpotGroup group, GroupState state) {
         boolean regrant = false;
         if (kind == OperationKind.REVERT) {
-            // GR-02: a REVERTED group is revertible again only after a drain-only revert (PASSROLE_DENIED).
+            // GR-02: a REVERTED group is revertible again only after a drain-only revert that left XamOps'
+            // configuration on it (PASSROLE_DENIED or CHECK_FAILED; RevertHistory.revertAllowedAgain).
             regrant = group != null && state == GroupState.REVERTED
-                    && RevertHistory.lastRevertPassRoleDenied(operations, plans, group.getId());
-            // §7.4 REVERT exceptions, resolved before the general table.
+                    && RevertHistory.revertAllowedAgain(operations, plans, group);
+            // §7.4 REVERT exceptions, resolved before the general table. A PLANNED group is never revertible, also
+            // not with a confirmed ENABLE that hasn't started (design-core 7.4 as amended 2026-11-26, matrix Q-A):
+            // that op starts on the next dispatch, and the customer reverts once the group is APPLYING or ACTIVE.
             if (group == null || state == GroupState.UNMANAGED || state == GroupState.REVERTED && !regrant
-                    || state == GroupState.GONE || state == GroupState.PLANNED && !hasConfirmedEnable(group)) {
+                    || state == GroupState.GONE || state == GroupState.PLANNED) {
                 throw new AutoSpottingApiException(HttpStatus.CONFLICT, "NOT_MANAGED",
                         "XamOps does not manage this group, so there is nothing to revert.");
             }
@@ -309,13 +318,6 @@ public class PlanService {
         if (!PlanKinds.isAllowed(kind, state, regrant)) {
             throw AutoSpottingApiException.planKindNotAllowed(PlanKinds.notAllowedDetail(kind, state));
         }
-    }
-
-    /** A PLANNED group with a confirmed-but-unstarted ENABLE can be reverted (§7.4); dark until ops run. */
-    private boolean hasConfirmedEnable(SpotGroup group) {
-        // No confirmed ENABLE op exists in this phase (no op runs). The safe reading for a PLANNED
-        // group with only an OPEN plan is NOT_MANAGED (§7.4), so default false.
-        return false;
     }
 
     private GroupRef refFor(CloudAccount account, Provider provider, SpotGroup group, CreateCommand cmd) {

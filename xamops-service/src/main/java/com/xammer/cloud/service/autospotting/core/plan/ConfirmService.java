@@ -116,13 +116,34 @@ public class ConfirmService {
     /** The confirm command (controller-resolved; the account is already tenancy-authorized). */
     /** The marker stored in {@code confirm_acks} when the customer confirmed a 100% Spot plan (FR-PLN-04). */
     public static final String FULL_SPOT_OPTIN = "FULL_SPOT_OPTIN";
-    /** GR-03: the 409 code of a GCP revert plan that needs a permission XamOps does not have. */
+    /** GR-03: the code of a GCP revert plan blocker for a permission XamOps does not have (422 on confirm, retryable). */
     public static final String REVERT_NEEDS_PERMISSION = "REVERT_NEEDS_PERMISSION";
 
     public record ConfirmCommand(int planVersion, List<String> acknowledgedWarningIds, boolean fullSpotOptIn,
                                  String reason, boolean dryRunRequested, String idempotencyKey,
                                  String requestSha256) {
     }
+
+    /** 422 for a blocked REVERT plan; the confirm transaction commits (it only marks the plan STALE) when it is thrown. */
+    public static final class BlockedRevertException extends AutoSpottingApiException {
+        BlockedRevertException(String code, String text, boolean retryable) {
+            super(HttpStatus.UNPROCESSABLE_ENTITY, code, text, retryable, null, null);
+        }
+    }
+
+    /**
+     * 409 {@code PLAN_STALE}; like {@link BlockedRevertException} the confirm transaction commits when it is thrown,
+     * so the STALE mark written just before it is kept (review Medium #6).
+     */
+    public static final class StalePlanException extends AutoSpottingApiException {
+        public StalePlanException() {
+            super(HttpStatus.CONFLICT, "PLAN_STALE", "The group changed after the plan was created. Review a fresh plan.");
+        }
+    }
+
+    /** Blocker codes whose cause the customer cannot clear by waiting or granting a permission: a retry after re-planning can't help. */
+    private static final Set<String> NOT_RETRYABLE_BLOCKERS = Set.of("SNAPSHOT_MISSING", "GROUP_NOT_FOUND",
+            "REVERT_SNAPSHOT_MISSING", "GCP_MIG_NOT_FOUND");
 
     /** The 202 result: the operation id and its status. */
     public record ConfirmResult(UUID operationId, String status) {
@@ -133,7 +154,7 @@ public class ConfirmService {
      * UPDATE and the op insert commit together. A second confirm (any key, any instance) returns the
      * existing op id (§7.4 idempotent confirm, AC-SPN-01).
      */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = {ConfirmService.BlockedRevertException.class, ConfirmService.StalePlanException.class})
     public ConfirmResult confirm(CloudAccount account, ClientUserDetails user, UUID planId, ConfirmCommand cmd) {
         SpotPlan plan = plans.findById(planId)
                 .filter(p -> account.getId().equals(p.getCloudAccountId()))
@@ -164,15 +185,24 @@ public class ConfirmService {
         }
 
         // 3. Kind and state (the §7.4 table), repeated under the group's current state. GR-02: a REVERTED
-        // group is revertible only after a drain-only revert (PASSROLE_DENIED).
+        // group is revertible only after a drain-only revert that left XamOps' configuration on it (PASSROLE_DENIED
+        // or CHECK_FAILED; RevertHistory.revertAllowedAgain).
         boolean regrant = revert && group != null && state == GroupState.REVERTED
-                && RevertHistory.lastRevertPassRoleDenied(operations, plans, group.getId());
+                && RevertHistory.revertAllowedAgain(operations, plans, group);
         if (!PlanKinds.isAllowed(plan.getKind(), state, regrant)) {
             throw AutoSpottingApiException.planKindNotAllowed(PlanKinds.notAllowedDetail(plan.getKind(), state));
         }
 
         // 4. Plan OPEN and not expired; version matches.
         if (plan.getStatus() != SpotPlan.PlanStatus.OPEN) {
+            // A blocked revert plan is marked STALE by its first refusal; a repeat (double-click, a client retrying a
+            // response it never saw) gets the same blocker, not PLAN_EXPIRED (review Medium #4).
+            if (revert && plan.getStatus() == SpotPlan.PlanStatus.STALE) {
+                JsonNode blocker = revertBlocker(plan);
+                if (blocker != null) {
+                    throw blockedRevert(blocker);
+                }
+            }
             throw new AutoSpottingApiException(HttpStatus.CONFLICT, "PLAN_EXPIRED",
                     "This plan is no longer open. Review a fresh plan.");
         }
@@ -185,13 +215,18 @@ public class ConfirmService {
                     "The plan changed since you read it. Reload and try again.");
         }
 
-        // GR-03: a GCP revert has no partial safe target that needs fewer permissions than the PATCH itself, so a plan
-        // that carries REVERT_NEEDS_PERMISSION is refused here (retryable: re-plan after the grant). Nothing was
-        // enqueued, so the group keeps its state and fallback and billing carry on.
-        if (revert && provider == Provider.GCP && planNeedsPermission(plan)) {
-            throw new AutoSpottingApiException(HttpStatus.CONFLICT, REVERT_NEEDS_PERMISSION,
-                    "XamOps is missing a permission it needs to revert this group. Grant it, then plan the revert again.",
-                    true, null, null);
+        // 4b. A REVERT plan that carries any blocker can never run (it would fail in step 0): refuse it, on either
+        // provider, with the plan's own code and text (GR-03 for GCP's REVERT_NEEDS_PERMISSION), before the
+        // acknowledgement check, so the client is told why instead of being asked to tick a box that unblocks
+        // nothing, and before an operation, alert or audit row exists. The plan is marked STALE in the same
+        // commit (BlockedRevertException keeps the transaction), so a refused plan does not stay OPEN and
+        // unconfirmable; the customer plans again once the cause is fixed. An unreadable plan body fails closed.
+        if (revert) {
+            JsonNode blocker = revertBlocker(plan);
+            if (blocker != null) {
+                plans.markStaleIfOpen(plan.getId());
+                throw blockedRevert(blocker);
+            }
         }
         // 5. Every warning id acknowledged.
         Set<String> required = warningIds(plan);
@@ -249,8 +284,7 @@ public class ConfirmService {
         FingerprintOutcome fp = reReadFingerprint(provider, group, plan);
         if (fp == FingerprintOutcome.MISMATCH) {
             plans.markStaleIfOpen(plan.getId());
-            throw new AutoSpottingApiException(HttpStatus.CONFLICT, "PLAN_STALE",
-                    "The group changed after the plan was created. Review a fresh plan.");
+            throw new StalePlanException();
         }
 
         // 7. Busy and preemption (§4.7). The new op id is minted now so a preemption records it.
@@ -367,20 +401,25 @@ public class ConfirmService {
         return ids;
     }
 
-    /** True when the plan's eligibility carries a {@code REVERT_NEEDS_PERMISSION} blocker (GCP, GR-03). */
-    private boolean planNeedsPermission(SpotPlan plan) {
-        try {
-            JsonNode body = objectMapper.readTree(plan.getBody() == null ? "{}" : plan.getBody());
-            for (JsonNode blocker : body.path("eligibility").path("blockers")) {
-                if (REVERT_NEEDS_PERMISSION.equals(blocker.path("code").asText())) {
-                    return true;
-                }
-            }
-        } catch (Exception ignored) {
-            // an unreadable body carries no such blocker; step 0 of the revert checks the permissions again
-        }
-        return false;
+    /** The 422 for a blocked revert plan: retryable unless the cause (a missing snapshot, a vanished group) cannot clear. */
+    private static BlockedRevertException blockedRevert(JsonNode blocker) {
+        String code = blocker.path("code").asText("CHECK_FAILED");
+        return new BlockedRevertException(code, blocker.path("text").asText(
+                "This revert can't run yet. Review a fresh revert plan."), !NOT_RETRYABLE_BLOCKERS.contains(code));
     }
+
+    /** A REVERT plan's first blocker, a synthetic CHECK_FAILED when the body can't be read, or null. */
+    private JsonNode revertBlocker(SpotPlan plan) {
+        try {
+            JsonNode blockers = objectMapper.readTree(plan.getBody() == null ? "{}" : plan.getBody())
+                    .path("eligibility").path("blockers");
+            return blockers.isArray() && !blockers.isEmpty() ? blockers.get(0) : null;
+        } catch (Exception e) {
+            return objectMapper.createObjectNode().put("code", "CHECK_FAILED")
+                    .put("text", "This revert plan could not be read. Review a fresh revert plan.");
+        }
+    }
+
     /** The first definitive blocker the plan recorded, or null when it has none. */
     private JsonNode firstBlocker(SpotPlan plan) {
         try {

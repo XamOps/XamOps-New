@@ -168,7 +168,8 @@ public class AwsGroupLister {
         }
         boolean externalSpot = ev.result().blockers().stream().anyMatch(b -> "EXTERNAL_SPOT".equals(b.code()));
         String state = spineRow == null ? "UNMANAGED" : spineRow.getState().name();
-        EligibilityResult eligibility = ev.result();
+        // The row shows the same CONFIG_STILL_ON_GROUP rule as plans and confirm (D-23b-03 review #1).
+        EligibilityResult eligibility = provider.withRowBlockers(ev.result(), spineRow);
         return GroupRowDto.of(spineRow == null ? null : spineRow.getId(), "AWS", region + "/" + raw.autoScalingGroupName(),
                 region, raw.autoScalingGroupName(), state, spineRow != null, externalSpot,
                 g == null ? null : g.desired(), g == null ? null : g.min(), g == null ? null : g.max(),

@@ -139,9 +139,10 @@ public class AwsSpotProvider implements SpotProvider {
                     "The connected account could not be found.", ErrorKind.NOT_FOUND)), List.of(), List.of());
         }
         boolean allowBurstable = options != null && options.effectiveAllowBurstable();
-        EligibilityResult result = evaluator.evaluate(account.get(), ref.groupKey(), profile, mode, allowBurstable,
-                allowBurstable || options == null ? List.of() : options.storedBurstableAdded()).result();
-        return AwsMaintenancePolicy.withoutOwnedBlocker(result, options != null && AwsMaintenancePolicy.owns(options.desiredConfigJson()));
+        AwsEligibilityEvaluator.Evaluation ev = evaluator.evaluate(account.get(), ref.groupKey(), profile, mode,
+                allowBurstable, allowBurstable || options == null ? List.of() : options.storedBurstableAdded());
+        EligibilityResult result = withConfigStillOnGroup(ev.result(), options);
+        return AwsMaintenancePolicy.withoutOwnedBlocker(result, ownsPolicy(options, ev.group()));
     }
 
     // ---- plan ----
@@ -167,7 +168,7 @@ public class AwsSpotProvider implements SpotProvider {
                     "This group does not use a burstable instance type, so burstable alternatives do not apply.");
         }
         boolean allowBurstable = options.effectiveAllowBurstable() && originalBurstable;
-        boolean ownsPolicy = AwsMaintenancePolicy.owns(options.desiredConfigJson());
+        boolean ownsPolicy = ownsPolicy(options, g);
         if (g == null || ev.rawGroup() == null) {
             // Not found or unreadable: the eligibility already says why; the body carries no cloud facts.
             return new PlanBody(null, null, null, null, ev.result(), null, List.of(), null, null, null);
@@ -196,8 +197,71 @@ public class AwsSpotProvider implements SpotProvider {
                 .put("program", "REVERT")
                 .put("method", "RESTORE_SNAPSHOT")
                 .put("exact", snapshot.exact()));
-        return new PlanBody(current, write(target), diff, snapshot, AwsMaintenancePolicy.withoutOwnedBlocker(ev.result(), ownsPolicy), rollout, estimates, floor, null, revert,
+        EligibilityResult eligibility = req.kind() == OperationKind.ENABLE || req.kind() == OperationKind.ADOPT
+                ? withConfigStillOnGroup(ev.result(), options) : ev.result();
+        return new PlanBody(current, write(target), diff, snapshot, AwsMaintenancePolicy.withoutOwnedBlocker(eligibility, ownsPolicy), rollout, estimates, floor, null, revert,
                 g.arn()).withOptions(optionsJson(allowBurstable, ev));
+    }
+
+
+    /**
+     * Whether XamOps owns the live maintenance policy: the stored claim, only under management (D-23b-01). While a
+     * drain-only revert left the configuration on the group (configOnGroup), the live policy must also still be
+     * XamOps' 100/200: a policy the customer set since is theirs, in plans and status alike (review #5).
+     */
+    static boolean ownsPolicy(PlanOptions options, AwsGroupFacts g) {
+        if (options == null || !AwsMaintenancePolicy.owns(options.ownershipConfigJson())) {
+            return false;
+        }
+        if (!options.configOnGroup() || g == null) {
+            return true;
+        }
+        return java.util.Objects.equals(g.minHealthyPercentage(), AwsMaintenancePolicy.OWNED_MIN)
+                && java.util.Objects.equals(g.maxHealthyPercentage(), AwsMaintenancePolicy.OWNED_MAX);
+    }
+
+    /** Blocker code: XamOps' configuration is still on the group after a drain-only revert (D-23b-03, option b). */
+    public static final String CONFIG_STILL_ON_GROUP = PlanOptions.BLOCKER_CONFIG_STILL_ON_GROUP;
+
+    /**
+     * D-23b-03, option (b), the user's decision of 2026-11-25. After a drain-only revert XamOps' mixed policy, its
+     * types and its 100/200 are still on the group ({@code configOnGroup}), so a new ENABLE or ADOPT is blocked until
+     * the exact revert (GR-02) has restored the original saved before the first enable. The text names what the
+     * customer can do: for PASSROLE_DENIED, grant iam:PassRole; for CHECK_FAILED, nothing to grant, just revert;
+     * when the saved original cannot be read the revert is blocked too, so it says so and points to support.
+     * Applied by plans, by checkEligibility and by the group list and detail rows (one rule, review #1).
+     */
+    EligibilityResult withConfigStillOnGroup(EligibilityResult r, PlanOptions options) {
+        if (r == null || options == null || !options.configOnGroup()) {
+            return r;
+        }
+        String text = configStillOnGroupText(options.configOnGroupReason(),
+                options.originalLinked() && revertPrograms.originalReadable(options.groupId()));
+        // First, so the row's enableBlockedBy and a confirm refusal name it (review #4).
+        List<EligibilityResult.Check> blockers = new ArrayList<>(r.blockers());
+        blockers.add(0, EligibilityResult.Check.of("b-" + CONFIG_STILL_ON_GROUP, CONFIG_STILL_ON_GROUP, text));
+        return new EligibilityResult(blockers, r.warnings(), r.deferred());
+    }
+
+    static String configStillOnGroupText(String reason, boolean originalReadable) {
+        if (!originalReadable) {
+            return "XamOps' configuration is still on this group, and the original configuration XamOps saved before "
+                    + "it first enabled this group is missing or can't be read, so XamOps can't restore it. Contact support.";
+        }
+        if ("CHECK_FAILED".equals(reason)) {
+            return "XamOps' configuration is still on this group. The last revert couldn't check its permissions, so it "
+                    + "only moved the group to On-Demand. Run Revert first to restore the original.";
+        }
+        if ("PASSROLE_DENIED".equals(reason)) {
+            return "XamOps' configuration is still on this group. Grant iam:PassRole and run Revert first.";
+        }
+        return "XamOps' configuration is still on this group. Run Revert first to restore the original; if it asks "
+                + "for iam:PassRole, grant it to the connection role.";
+    }
+
+    /** The row-level blockers a group row shows (list and detail): the same CONFIG_STILL_ON_GROUP rule as plans. */
+    public EligibilityResult withRowBlockers(EligibilityResult r, SpotGroup row) {
+        return row == null ? r : withConfigStillOnGroup(r, PlanOptions.forGroup(null, row));
     }
 
     /** The customer choices and what they can still choose (AD-09): the dialog's burstable control reads it. */
@@ -453,6 +517,85 @@ public class AwsSpotProvider implements SpotProvider {
                 g.hasLegacyTag() && !g.hasMarker());
     }
 
+
+    /**
+     * D-23b-01. A restore program that ran {@link com.xammer.cloud.service.autospotting.aws.steps.RestoreShapeStep}
+     * to DONE removed XamOps' configuration (the shape, the types it added, and the maintenance policy it owned, which
+     * the restore clears or keeps as the customer's), so those markers go; the remembered {@code allowBurstable}
+     * choice stays. Without that step (a drain-only revert, or a failure before the restore) the configuration is still
+     * on the group: the markers stay and {@link PlanOptions#CONFIG_ON_GROUP} records it.
+     */
+    @Override
+    public String desiredConfigAfterRestore(String desiredConfigJson, java.util.Set<String> doneSteps) {
+        return desiredConfigAfterRestore(desiredConfigJson, doneSteps, null);
+    }
+
+    /** PASSROLE_DENIED or CHECK_FAILED from a drain-only revert's target ({@code reasons}), else null. */
+    static String drainReason(String restoreTargetJson) {
+        if (restoreTargetJson == null) {
+            return null;
+        }
+        try {
+            for (JsonNode r : JSON.readTree(restoreTargetJson).path("reasons")) {
+                if ("PASSROLE_DENIED".equals(r.asText()) || "CHECK_FAILED".equals(r.asText())
+                        || AwsRestoreProgram.ORIGINAL_UNAVAILABLE.equals(r.asText())) {
+                    return r.asText();
+                }
+            }
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            return null;
+        }
+        return null;
+    }
+
+    @Override
+    public String desiredConfigAfterRestore(String desiredConfigJson, java.util.Set<String> doneSteps,
+                                            String restoreTargetJson) {
+        if (desiredConfigJson == null || desiredConfigJson.isBlank()) {
+            return desiredConfigJson;
+        }
+        JsonNode parsed;
+        try {
+            parsed = JSON.readTree(desiredConfigJson);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            return desiredConfigJson;
+        }
+        if (!(parsed instanceof ObjectNode n)) {
+            return desiredConfigJson;
+        }
+        boolean restored = doneSteps != null
+                && doneSteps.contains(com.xammer.cloud.service.autospotting.aws.steps.RestoreShapeStep.NAME);
+        if (!restored) {
+            String reason = drainReason(restoreTargetJson);
+            boolean flagged = n.path(PlanOptions.CONFIG_ON_GROUP).asBoolean(false);
+            if (flagged && (reason == null || reason.equals(n.path(PlanOptions.CONFIG_ON_GROUP_REASON).asText(null)))) {
+                return desiredConfigJson;
+            }
+            n.put(PlanOptions.CONFIG_ON_GROUP, true);
+            if (reason != null) {
+                n.put(PlanOptions.CONFIG_ON_GROUP_REASON, reason);
+            }
+            return write(n);
+        }
+        boolean changed = n.remove(PlanOptions.CONFIG_ON_GROUP) != null;
+        if (n.remove(PlanOptions.CONFIG_ON_GROUP_REASON) != null) {
+            changed = true;
+        }
+        if (AwsMaintenancePolicy.owns(n)) {
+            n.remove(AwsMaintenancePolicy.KEY);
+            changed = true;
+        }
+        if (n.path("options") instanceof ObjectNode opts) {
+            if (opts.remove("burstableAdded") != null) {
+                changed = true;
+            }
+            if (opts.remove("burstableRemoved") != null) {
+                changed = true;
+            }
+        }
+        return changed ? write(n) : desiredConfigJson;
+    }
+
     // ---- status ----
 
     @Override
@@ -461,8 +604,14 @@ public class AwsSpotProvider implements SpotProvider {
                 new AwsReadException("account", ErrorKind.NOT_FOUND));
         String[] parts = AwsEligibilityEvaluator.split(group.getGroupKey());
         AwsReadOnlyView v = viewFor(account, parts[0], view);
-        return withFallbackSignals(group, statusReader.read(v, parts[1],
-                AwsMaintenancePolicy.owns(group.getDesiredConfig())), v, parts[1]);
+        // Ownership resolved exactly as planning does (D-23b-01, review #5): the state-aware gate and, while a
+        // drain-only revert left the configuration on the group, the live policy must still be XamOps' 100/200.
+        Optional<AutoScalingGroup> raw = statusReader.describeGroup(v, parts[1]);
+        if (raw.isEmpty()) {
+            return withFallbackSignals(group, GroupStatus.notFound(), v, parts[1]);
+        }
+        boolean owns = ownsPolicy(PlanOptions.forGroup(null, group), AwsGroupFacts.from(v.region(), raw.get()));
+        return withFallbackSignals(group, statusReader.read(v, raw.get(), owns), v, parts[1]);
     }
 
     @Override
@@ -471,6 +620,8 @@ public class AwsSpotProvider implements SpotProvider {
                 new AwsReadException("account", ErrorKind.NOT_FOUND));
         String[] parts = AwsEligibilityEvaluator.split(group.getGroupKey());
         AwsReadOnlyView v = viewFor(account, parts[0], view);
+        // desiredConfigJson is the config a succeeding conversion is about to write (its target), not the stored row,
+        // so it is read directly: that target is XamOps' configuration on the group by construction (D-23b-01).
         GroupStatus status = statusReader.read(v, parts[1], AwsMaintenancePolicy.owns(desiredConfigJson));
         return status == null || !status.found() ? null : status.liveFingerprint();
     }
