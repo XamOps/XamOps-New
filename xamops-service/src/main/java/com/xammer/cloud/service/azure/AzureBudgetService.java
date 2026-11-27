@@ -139,6 +139,9 @@ public class AzureBudgetService {
         budgets.removeIf(b -> name.equals(b.getBudgetName()));
 
         AzureBudgetDto budget = new AzureBudgetDto(name, request.getBudgetLimit(), unit, 0.0, 0.0);
+        // Kept so a service budget is compared with that service's spend, not the subscription's.
+        String service = request.getServiceName();
+        budget.setServiceName(service == null || service.isBlank() ? null : service.trim());
         // Stored locally, so there is no Azure notification behind it. False rather than null makes
         // that explicit; the cost page reads spend from its own data and does not depend on this.
         budget.setAlertsEnabled(false);

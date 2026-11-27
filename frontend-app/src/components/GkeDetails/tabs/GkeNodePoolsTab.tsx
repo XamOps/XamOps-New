@@ -19,6 +19,12 @@ const GkeNodePoolsTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
     if (s === 'PROVISIONING') return 'bg-blue-100 text-blue-700';
     if (s === 'RECONCILING') return 'bg-amber-100 text-amber-700';
     if (s === 'STOPPING') return 'bg-red-100 text-red-700';
+    // AKS agent pool states. GKE never sends these, so its chips are unchanged.
+    if (s === 'SUCCEEDED') return 'bg-green-100 text-green-700';
+    if (s === 'FAILED' || s === 'DELETING') return 'bg-red-100 text-red-700';
+    if (s === 'CREATING' || s === 'UPDATING' || s === 'SCALING' || s === 'UPGRADING' || s === 'STARTING') {
+      return 'bg-blue-100 text-blue-700';
+    }
     return 'bg-gray-100 text-gray-600';
   };
 

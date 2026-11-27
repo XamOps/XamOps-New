@@ -296,10 +296,11 @@ public class AzureBillingDataIngestionService {
             return;
         }
 
-        Map<String, Double> serviceMapForBilling = data.currentMonthCostByService.isEmpty()
-                ? data.costByService : data.currentMonthCostByService;
-        Map<String, Double> regionMapForBilling = data.currentMonthCostByRegion.isEmpty()
-                ? data.costByRegion : data.currentMonthCostByRegion;
+        // The current month only, even when it has no rows yet. This fell back to the whole
+        // look-back window when the month was empty, so on the 1st of every month month-to-date
+        // spend, the budget "actual" and the region chart showed about six months of spend.
+        Map<String, Double> serviceMapForBilling = data.currentMonthCostByService;
+        Map<String, Double> regionMapForBilling = data.currentMonthCostByRegion;
         processAndCacheData(subscriptionId, serviceMapForBilling, data.costByDate, regionMapForBilling,
                 new HashMap<>(), data.costByServiceByDate, data.costByServiceByDay);
 
@@ -569,10 +570,9 @@ public class AzureBillingDataIngestionService {
             csvParser.close();
             reader.close();
 
-            Map<String, Double> serviceMapForBilling = currentMonthCostByService.isEmpty()
-                    ? costByService : currentMonthCostByService;
-            Map<String, Double> regionMapForBilling = currentMonthCostByRegion.isEmpty()
-                    ? costByRegion : currentMonthCostByRegion;
+            // Current month only, as on the API path: an empty month must not become the whole export.
+            Map<String, Double> serviceMapForBilling = currentMonthCostByService;
+            Map<String, Double> regionMapForBilling = currentMonthCostByRegion;
             processAndCacheData(subscriptionId, serviceMapForBilling, costByDate, regionMapForBilling,
                     forecastByDate, costByServiceByDate, costByServiceByDay);
 

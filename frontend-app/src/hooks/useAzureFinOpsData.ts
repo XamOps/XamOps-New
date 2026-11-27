@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   AzureFinOpsReportData,
   AzureReportSchedule,
@@ -49,7 +49,20 @@ export const useAzureFinOpsData = (subscriptionId: string | null): UseAzureFinOp
   /**
    * Load Azure FinOps report data
    */
+  // Only the latest request may write state. Without this, after switching subscription a slower
+  // response for the previous one landed afterwards and showed its spend and schedules.
+  const reportSeq = useRef(0);
+  const scheduleSeq = useRef(0);
+
+  // A new subscription starts empty rather than showing the previous one's report.
+  useEffect(() => {
+    setReportData(null);
+    setSchedules([]);
+    setError(null);
+  }, [subscriptionId]);
+
   const loadReport = useCallback(async (forceRefresh: boolean = false) => {
+    const requestId = ++reportSeq.current;
     if (!subscriptionId) {
       console.log('No subscription ID provided, skipping report load');
       setIsLoading(false);
@@ -65,14 +78,18 @@ export const useAzureFinOpsData = (subscriptionId: string | null): UseAzureFinOp
       setError(null);
 
       const data = await fetchAzureFinOpsReport(subscriptionId, forceRefresh);
+      if (requestId !== reportSeq.current) return;
       setReportData(data);
     } catch (err) {
+      if (requestId !== reportSeq.current) return;
       const errorMessage = err instanceof Error ? err.message : 'Failed to load Azure FinOps report';
       setError(errorMessage);
       console.error('Error loading Azure FinOps report:', err);
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      if (requestId === reportSeq.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, [subscriptionId]);
 
@@ -85,8 +102,10 @@ export const useAzureFinOpsData = (subscriptionId: string | null): UseAzureFinOp
       return;
     }
 
+    const requestId = ++scheduleSeq.current;
     try {
       const data = await fetchAzureFinOpsSchedules(subscriptionId);
+      if (requestId !== scheduleSeq.current) return;
       setSchedules(data.map(s => ({
         ...s,
         subscriptionName: s.accountName || subscriptionId

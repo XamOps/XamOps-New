@@ -15,6 +15,14 @@ public class AzureBudgetCreateRequestDto {
     private String budgetUnit;
 
     /**
+     * The service the budget tracks (a Cost Management service name, e.g. "Virtual Machines"), or
+     * null for the whole subscription. The budget modal offered a service picker but the choice was
+     * never sent, so every service budget was stored as an account budget and compared with total
+     * spend.
+     */
+    private String serviceName;
+
+    /**
      * Addresses to alert when the budget is exceeded. Optional.
      *
      * <p>

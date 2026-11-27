@@ -12,6 +12,10 @@ export interface EC2Resource {
   state: string;
   policyName?: string | null;
   savings: number;
+  /** 24/7 monthly list price from the server (Azure only), in `currency`. */
+  monthlyCost?: number | null;
+  /** ISO code of monthlyCost, e.g. "INR". */
+  currency?: string;
   // undefined = still loading from CloudWatch, null = no off-hours recommended, number = computed savings
   recommendedSavings?: number | null;
   recommendedOffHoursPerWeek?: number | null;

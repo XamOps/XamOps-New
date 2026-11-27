@@ -83,6 +83,56 @@ public class AzureRetailPricingService {
     }
 
     /**
+     * Monthly list price of one instance of an App Service plan SKU.
+     *
+     * <p>App Service publishes a Windows and a Linux row per SKU ({@code productName} "Azure App
+     * Service Standard Plan" and "... - Linux"); the row for the plan's OS is the one billed.
+     *
+     * @param skuName plan SKU, e.g. {@code S1}, {@code P1v3}
+     * @param linux   whether the plan hosts Linux apps ({@code reserved=true} on the plan)
+     * @param region  ARM region name, e.g. {@code jioindiawest}
+     * @return monthly USD price per instance, or empty when it cannot be determined
+     */
+    public Optional<Double> getAppServicePlanMonthlyPriceUsd(String skuName, boolean linux, String region) {
+        if (skuName == null || skuName.isBlank() || region == null || region.isBlank()) {
+            return Optional.empty();
+        }
+        // The catalog spells versioned SKUs with a space ("P1 v3") where the plan says "P1v3".
+        skuName = skuName.trim().replaceFirst("^([A-Za-z]+\\d+)(v\\d+)$", "$1 $2");
+        String cacheKey = "asp:" + skuName + ":" + linux + ":" + region;
+        CachedPrice cached = cache.get(cacheKey);
+        if (cached != null && !cached.isExpired()) {
+            return cached.price().map(hourly -> hourly * HOURS_PER_MONTH);
+        }
+        String filter = String.format(
+                "serviceName eq 'Azure App Service' and skuName eq '%s' and armRegionName eq '%s' "
+                        + "and priceType eq 'Consumption'",
+                escape(skuName), escape(region));
+        PriceLookup lookup;
+        try {
+            JsonNode items = fetchItems(filter);
+            if (items == null) {
+                lookup = PriceLookup.failed();
+            } else {
+                OptionalDouble hourly = java.util.stream.StreamSupport.stream(items.spliterator(), false)
+                        .filter(item -> "1 Hour".equals(item.path("unitOfMeasure").asText("")))
+                        .filter(item -> item.path("productName").asText("").endsWith("Linux") == linux)
+                        .mapToDouble(item -> item.path("retailPrice").asDouble(0.0))
+                        .filter(price -> price > 0)
+                        .min();
+                lookup = PriceLookup.answered(hourly.isPresent() ? Optional.of(hourly.getAsDouble()) : Optional.empty());
+            }
+        } catch (Exception e) {
+            logger.warn("Azure Retail Prices App Service lookup failed for {} in {}: {}", skuName, region, e.getMessage());
+            lookup = PriceLookup.failed();
+        }
+        if (lookup.succeeded()) {
+            cache.put(cacheKey, new CachedPrice(lookup.price(), Instant.now()));
+        }
+        return lookup.price().map(hourly -> hourly * HOURS_PER_MONTH);
+    }
+
+    /**
      * Monthly list price for a managed disk SKU of a given size.
      *
      * <p>Managed disks are billed per provisioned tier (P10, E20, S30...), not per GB, so

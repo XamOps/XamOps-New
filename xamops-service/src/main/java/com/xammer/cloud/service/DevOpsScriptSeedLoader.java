@@ -124,7 +124,15 @@ public class DevOpsScriptSeedLoader implements CommandLineRunner {
     // ------------------------------------------------------------------
 
     private int loadTerraform() {
-        ensureTerraformScriptsSeeded();
+        try {
+            ensureTerraformScriptsSeeded();
+        } catch (IllegalStateException e) {
+            // The SQL seed runs on its own connection, so its failure leaves the import transaction
+            // usable. It used to propagate and abort seedAll, so none of the Bash, Python or other
+            // manifests loaded either.
+            logger.error("Terraform SQL seed failed; continuing with the other manifests.", e);
+            return 0;
+        }
         return applyParameterOnlyManifest(TERRAFORM_MANIFEST);
     }
 

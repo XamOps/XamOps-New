@@ -33,8 +33,10 @@ public class AzureReservationController {
             AzureReservationData data = azureReservationService.getReservationData(accountId, forceRefresh);
             return ResponseEntity.ok(data);
         } catch (Exception e) {
+            // 200 with an empty object read as "no reservations, nothing to save" on both tabs.
+            // An error status lets the page show its error state instead.
             log.error("Failed to fetch Azure reservations for {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.ok(new AzureReservationData());
+            return ResponseEntity.status(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE).build();
         }
     }
 }

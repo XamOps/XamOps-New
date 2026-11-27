@@ -9,6 +9,18 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import apiClient from '../utils/apiClient';
 import { AksDashboard } from '../types/aksTypes';
 import { GkeTabType } from '../types/gkeTypes';
+import { classifyApiError } from '../utils/k8sApiError';
+
+/** The server's `{"error": "...", "code": "..."}` body, out of apiClient's `HTTP <code>: <body>` message. */
+const serverError = (err: unknown): { error?: string; code?: string } => {
+  const message = err instanceof Error ? err.message : '';
+  try {
+    const parsed = JSON.parse(message.replace(/^HTTP \d{3}:\s*/, ''));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
 
 interface UseAksDashboardParams {
   clusterName: string | null;
@@ -21,9 +33,13 @@ interface UseAksDashboardReturn {
   loading: boolean;
   isRefreshing: boolean;
   error: string | null;
+  /** The cluster no longer exists in Azure (the server answered 404). */
+  notFound: boolean;
   activeTab: GkeTabType;
   setActiveTab: (tab: GkeTabType) => void;
   refresh: () => Promise<void>;
+  /** Loads again without forcing a refresh, for Retry after a failed load. */
+  reload: () => Promise<void>;
   totalPodsCount: number;
   getPodsCountByPhase: (phase: string) => number;
   getTimeSince: (timestamp: number) => string;
@@ -44,6 +60,7 @@ export const useAksDashboard = ({
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [activeTab, setActiveTab] = useState<GkeTabType>('overview');
 
   const fetchDashboard = useCallback(async (forceRefresh = false) => {
@@ -58,6 +75,7 @@ export const useAksDashboard = ({
       setLoading(true);
     }
     setError(null);
+    setNotFound(false);
 
     try {
       const data = await apiClient.get<AksDashboard>(
@@ -66,7 +84,17 @@ export const useAksDashboard = ({
       setDashboard(data);
     } catch (err: any) {
       console.error('Failed to fetch AKS dashboard', err);
-      setError(err.message || 'Failed to load cluster dashboard');
+      const body = serverError(err);
+      if (classifyApiError(err).kind === 'notFound' && body.code === 'CLUSTER_NOT_FOUND') {
+        // Deleted in Azure. The server dropped its cached copy and cluster list; drop the
+        // page's list copy too so going back does not show the cluster again.
+        sessionStorage.removeItem(`aksClusters-${accountId}`);
+        setDashboard(null);
+        setNotFound(true);
+        setError(body.error || 'This cluster no longer exists in Azure');
+      } else {
+        setError(body.error || err.message || 'Failed to load cluster dashboard');
+      }
     } finally {
       setLoading(false);
       setIsRefreshing(false);
@@ -78,6 +106,7 @@ export const useAksDashboard = ({
   }, [fetchDashboard]);
 
   const refresh = useCallback(() => fetchDashboard(true), [fetchDashboard]);
+  const reload = useCallback(() => fetchDashboard(false), [fetchDashboard]);
 
   const totalPodsCount = dashboard?.workloadHealth?.pods?.length ?? 0;
 
@@ -124,9 +153,11 @@ export const useAksDashboard = ({
     loading,
     isRefreshing,
     error,
+    notFound,
     activeTab,
     setActiveTab,
     refresh,
+    reload,
     totalPodsCount,
     getPodsCountByPhase,
     getTimeSince,

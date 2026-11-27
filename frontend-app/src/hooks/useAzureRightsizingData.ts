@@ -10,10 +10,15 @@ interface UseAzureRightsizingDataReturn {
   status: RightsizingStatus | null;
   isLoading: boolean;
   isRefreshing: boolean;
+  /** Set when a Refresh failed while earlier results stay on screen. */
+  refreshError: string | null;
   loadRecommendations: (forceRefresh?: boolean) => Promise<void>;
 }
 
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+
+/** Only real answers go in the browser cache; an error stored for 24 hours outlived the outage. */
+const isCacheable = (status: RightsizingStatus) => status === 'OK' || status === 'NO_DATA';
 
 export const useAzureRightsizingData = ({
   selectedAccountId,
@@ -22,10 +27,13 @@ export const useAzureRightsizingData = ({
   const [status, setStatus] = useState<RightsizingStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
 
-  const isFetchingRef = useRef(false);
   const previousAccountRef = useRef<string | null>(null);
   const initializedRef = useRef(false);
+  // Only the latest request may write state. A load in flight used to block the load for a newly
+  // selected subscription, and then the old subscription's response filled the page.
+  const requestSeq = useRef(0);
 
   const loadFromCache = useCallback((): AzureRightsizingResponse | null => {
     if (!selectedAccountId) return null;
@@ -34,7 +42,7 @@ export const useAzureRightsizingData = ({
       const expiry = localStorage.getItem(`azure_rightsizing_${selectedAccountId}_expiry`);
       if (cached && expiry && Date.now() <= parseInt(expiry)) {
         const data = JSON.parse(cached) as AzureRightsizingResponse;
-        if (!data.status) return null; // stale pre-wrapper cache — re-fetch
+        if (!data.status || !isCacheable(data.status)) return null; // stale or error entry — re-fetch
         console.log('[Azure Rightsizing] Loaded from cache:', data.recommendations?.length, 'items, status:', data.status);
         return data;
       }
@@ -65,15 +73,13 @@ export const useAzureRightsizingData = ({
 
   const loadRecommendations = useCallback(
     async (forceRefresh = false) => {
+      const requestId = ++requestSeq.current;
       if (!selectedAccountId) {
         setRecommendations([]);
         setStatus(null);
         setIsLoading(false);
         return;
       }
-
-      if (isFetchingRef.current && !forceRefresh) return;
-      isFetchingRef.current = true;
 
       if (forceRefresh) {
         setIsRefreshing(true);
@@ -85,7 +91,6 @@ export const useAzureRightsizingData = ({
           setRecommendations(cached.recommendations ?? []);
           setStatus(cached.status ?? null);
           setIsLoading(false);
-          isFetchingRef.current = false;
           return;
         }
         setIsLoading(true);
@@ -103,6 +108,7 @@ export const useAzureRightsizingData = ({
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
         const data: AzureRightsizingResponse = await res.json();
+        if (requestId !== requestSeq.current) return;
         const recs = Array.isArray(data.recommendations) ? data.recommendations : [];
         const responseStatus: RightsizingStatus = data.status ?? 'API_ERROR';
 
@@ -110,17 +116,25 @@ export const useAzureRightsizingData = ({
 
         setRecommendations(recs);
         setStatus(responseStatus);
-        saveToCache({ status: responseStatus, recommendations: recs });
+        setRefreshError(null);
+        if (isCacheable(responseStatus)) {
+          saveToCache({ status: responseStatus, recommendations: recs });
+        }
       } catch (err) {
+        if (requestId !== requestSeq.current) return;
         console.error('[Azure Rightsizing] Fetch failed:', err);
-        if (!forceRefresh) {
+        if (forceRefresh) {
+          // The earlier rows stay, but say the refresh failed instead of looking refreshed.
+          setRefreshError(err instanceof Error ? err.message : 'Refresh failed');
+        } else {
           setRecommendations([]);
           setStatus('API_ERROR');
         }
       } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-        isFetchingRef.current = false;
+        if (requestId === requestSeq.current) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     },
     [selectedAccountId, loadFromCache, saveToCache, clearCache]
@@ -132,6 +146,11 @@ export const useAzureRightsizingData = ({
       if (isDifferent || !initializedRef.current) {
         previousAccountRef.current = selectedAccountId;
         initializedRef.current = true;
+        if (isDifferent) {
+          setRecommendations([]);
+          setStatus(null);
+          setRefreshError(null);
+        }
         loadRecommendations(false);
       }
     } else {
@@ -141,5 +160,5 @@ export const useAzureRightsizingData = ({
     }
   }, [selectedAccountId, loadRecommendations]);
 
-  return { recommendations, status, isLoading, isRefreshing, loadRecommendations };
+  return { recommendations, status, isLoading, isRefreshing, refreshError, loadRecommendations };
 };

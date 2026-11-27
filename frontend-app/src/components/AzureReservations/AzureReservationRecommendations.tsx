@@ -141,6 +141,15 @@ const AzureReservationRecommendations: React.FC<AzureReservationRecommendationsP
         </div>
       )}
 
+      {/* With rows present, a reason means the read was partial (a service type could not be
+          checked, or Azure returned more pages than one pass reads). It was only ever shown on the
+          empty state, so a partial list looked complete. */}
+      {unavailableReason && (
+        <div className="rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+          {unavailableReason}
+        </div>
+      )}
+
       {/* The backend splits unpriced recommendations out of the headline total on purpose. Saying so
           is the other half of that: otherwise the count silently goes missing from the figure. */}
       {unpricedCount > 0 && (

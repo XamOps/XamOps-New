@@ -5,27 +5,59 @@
  */
 
 import React, { useState } from 'react';
+import { currencyMeta } from '../../../utils/currency';
 
 const ITEMS_PER_PAGE = 10;
 
-const DisconnectedPlaceholder: React.FC = () => (
+const DisconnectedPlaceholder: React.FC<{ cloud: 'gcp' | 'azure' }> = ({ cloud }) => (
   <div className="bg-white rounded-xl border border-amber-200 p-12 flex flex-col items-center text-center">
     <i className="fas fa-robot text-amber-300 text-5xl mb-4"></i>
     <h3 className="text-lg font-bold text-gray-700 mb-2">XamOps Agent Not Deployed</h3>
     <p className="text-gray-400 text-sm max-w-md">
-      Deploy the XamOps agent on this cluster to see cost estimates. Click the <strong>?</strong> button on the cluster list page for the full setup guide.
+      {cloud === 'azure' ? (
+        <>Deploy the XamOps agent on this cluster to see cost estimates. Open the <strong>Guide</strong> at the top of this page for the setup steps.</>
+      ) : (
+        <>Deploy the XamOps agent on this cluster to see cost estimates. Click the <strong>?</strong> button on the cluster list page for the full setup guide.</>
+      )}
     </p>
   </div>
 );
 
-const GkeCostTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
+// The agent is reporting but sent no OpenCost allocation, so "Agent Not Deployed" would be wrong.
+const NoCostDataPlaceholder: React.FC = () => (
+  <div className="bg-white rounded-xl border border-blue-200 p-12 flex flex-col items-center text-center">
+    <i className="fas fa-coins text-blue-300 text-5xl mb-4"></i>
+    <h3 className="text-lg font-bold text-gray-700 mb-2">No OpenCost Data Received</h3>
+    <p className="text-gray-400 text-sm max-w-md">
+      The agent is reporting, but OpenCost has not returned a cost allocation for this cluster yet.
+      Cost data can take 15–20 minutes after install. If it stays empty, check the OpenCost pods:{' '}
+      <code className="bg-gray-100 px-1 rounded text-xs">kubectl -n opencost get pods</code>
+    </p>
+  </div>
+);
+
+const GkeCostTab: React.FC<{ gkeData: any; cloud?: 'gcp' | 'azure' }> = ({ gkeData, cloud = 'gcp' }) => {
   const { dashboard } = gkeData;
   const [nsPage, setNsPage] = useState(0);
   const [wlPage, setWlPage] = useState(0);
 
-  if (!dashboard?.connected || !dashboard?.costMetrics) {
-    return <DisconnectedPlaceholder />;
+  if (!dashboard?.connected) {
+    return <DisconnectedPlaceholder cloud={cloud} />;
   }
+  if (!dashboard?.costMetrics) {
+    return cloud === 'azure' ? <NoCostDataPlaceholder /> : <DisconnectedPlaceholder cloud={cloud} />;
+  }
+
+  // AKS figures come in the subscription's billing currency and say which. Without a code (GKE,
+  // or an AKS copy cached before the code existed) the figures are USD, shown as before.
+  const money = (value: number, digits: number): string => {
+    const n = Number.isFinite(value) ? value : 0;
+    if (!dashboard.currency) return `$${n.toFixed(digits)}`;
+    const { symbol, locale } = currencyMeta('Azure', dashboard.currency);
+    return `${symbol}${n.toLocaleString(locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+  };
+  // The agent's per-workload rows carry no CPU or memory figure; 0 there means "not reported".
+  const usage = (value: number) => (value ? Math.round(value) : '—');
 
   const { dailyCost, namespaceCosts = [], workloadCosts = [] } = dashboard.costMetrics;
   const monthlyCost = dailyCost * 30;
@@ -40,8 +72,8 @@ const GkeCostTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Daily Cost', value: `$${dailyCost.toFixed(2)}`, icon: 'fa-calendar-day', color: 'bg-green-50 text-green-600' },
-          { label: 'Monthly Est.', value: `$${monthlyCost.toFixed(2)}`, icon: 'fa-calendar', color: 'bg-blue-50 text-blue-600' },
+          { label: 'Daily Cost', value: money(dailyCost, 2), icon: 'fa-calendar-day', color: 'bg-green-50 text-green-600' },
+          { label: 'Monthly Est.', value: money(monthlyCost, 2), icon: 'fa-calendar', color: 'bg-blue-50 text-blue-600' },
           { label: 'Namespaces', value: namespaceCosts.length, icon: 'fa-folder', color: 'bg-purple-50 text-purple-600' },
           { label: 'Workloads', value: workloadCosts.length, icon: 'fa-cubes', color: 'bg-indigo-50 text-indigo-600' },
         ].map(({ label, value, icon, color }) => (
@@ -83,8 +115,8 @@ const GkeCostTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
                   <td className="px-6 py-3 text-right text-sm text-gray-700">{Math.round(ns.cpuUsageMillicores)}</td>
                   <td className="px-6 py-3 text-right text-sm text-gray-700">{Math.round(ns.memoryUsageMb)}</td>
                   <td className="px-6 py-3 text-center text-sm text-gray-700">{ns.podCount}</td>
-                  <td className="px-6 py-3 text-right text-sm font-bold text-gray-900">${ns.dailyCost.toFixed(3)}</td>
-                  <td className="px-6 py-3 text-right text-sm font-bold text-green-700">${ns.monthlyCost.toFixed(2)}</td>
+                  <td className="px-6 py-3 text-right text-sm font-bold text-gray-900">{money(ns.dailyCost, 3)}</td>
+                  <td className="px-6 py-3 text-right text-sm font-bold text-green-700">{money(ns.monthlyCost, 2)}</td>
                 </tr>
               ))}
               {paginatedNs.length === 0 && (
@@ -134,10 +166,10 @@ const GkeCostTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
                   <td className="px-6 py-3">
                     <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-full">{wl.kind}</span>
                   </td>
-                  <td className="px-6 py-3 text-right text-sm text-gray-700">{Math.round(wl.cpuUsageMillicores)}</td>
-                  <td className="px-6 py-3 text-right text-sm text-gray-700">{Math.round(wl.memoryUsageMb)}</td>
-                  <td className="px-6 py-3 text-right text-sm font-bold text-gray-900">${wl.dailyCost.toFixed(3)}</td>
-                  <td className="px-6 py-3 text-right text-sm font-bold text-green-700">${wl.monthlyCost.toFixed(2)}</td>
+                  <td className="px-6 py-3 text-right text-sm text-gray-700">{cloud === 'azure' ? usage(wl.cpuUsageMillicores) : Math.round(wl.cpuUsageMillicores)}</td>
+                  <td className="px-6 py-3 text-right text-sm text-gray-700">{cloud === 'azure' ? usage(wl.memoryUsageMb) : Math.round(wl.memoryUsageMb)}</td>
+                  <td className="px-6 py-3 text-right text-sm font-bold text-gray-900">{money(wl.dailyCost, 3)}</td>
+                  <td className="px-6 py-3 text-right text-sm font-bold text-green-700">{money(wl.monthlyCost, 2)}</td>
                 </tr>
               ))}
               {paginatedWl.length === 0 && (

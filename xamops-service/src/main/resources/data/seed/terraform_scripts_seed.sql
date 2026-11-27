@@ -29,9 +29,9 @@
 
 -- 1. AWS EC2 instance with best practices
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('AWS EC2 Instance with Best Practices',
+(now(), now(), 'AWS EC2 Instance with Best Practices',
  'Launch a hardened EC2 instance with EBS encryption, IMDSv2, detailed monitoring, and a least-privilege instance profile.',
  'terraform', '1.0.0', 'intermediate', 'XamOps Team', 15,
  'AWS account with EC2 permissions, an existing VPC subnet, and a configured AWS provider/credentials.',
@@ -99,9 +99,9 @@ $usage$<ol>
 
 -- 2. AWS VPC with subnets and routing
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('AWS VPC with Public/Private Subnets and Routing',
+(now(), now(), 'AWS VPC with Public/Private Subnets and Routing',
  'A production VPC with public and private subnets across two AZs, an Internet Gateway, a NAT Gateway, and route tables.',
  'terraform', '1.0.0', 'intermediate', 'XamOps Team', 20,
  'AWS account with VPC/EC2 networking permissions and a configured AWS provider.',
@@ -192,9 +192,9 @@ $usage$<ol>
 
 -- 3. AWS S3 bucket with versioning
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('AWS S3 Bucket with Versioning and Encryption',
+(now(), now(), 'AWS S3 Bucket with Versioning and Encryption',
  'A secure S3 bucket with versioning, SSE-KMS/AES256 encryption, public access fully blocked, and a lifecycle policy.',
  'terraform', '1.0.0', 'beginner', 'XamOps Team', 10,
  'AWS account with S3 permissions and a configured AWS provider.',
@@ -255,9 +255,9 @@ $usage$<ol>
 
 -- 4. AWS RDS PostgreSQL with automated backup
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('AWS RDS PostgreSQL with Automated Backups',
+(now(), now(), 'AWS RDS PostgreSQL with Automated Backups',
  'A multi-AZ-ready PostgreSQL RDS instance with automated backups, encryption at rest, and a parameterized retention window.',
  'terraform', '1.0.0', 'intermediate', 'XamOps Team', 20,
  'AWS account with RDS permissions, a DB subnet group, and a VPC security group allowing port 5432.',
@@ -302,9 +302,9 @@ $usage$<ol>
 
 -- 5. AWS RDS MySQL with automated backup
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('AWS RDS MySQL with Automated Backups',
+(now(), now(), 'AWS RDS MySQL with Automated Backups',
  'A MySQL RDS instance with encryption at rest, automated backups, performance insights, and configurable retention.',
  'terraform', '1.0.0', 'intermediate', 'XamOps Team', 20,
  'AWS account with RDS permissions, a DB subnet group, and a VPC security group allowing port 3306.',
@@ -348,9 +348,9 @@ $usage$<ol>
 
 -- 6. AWS Lambda function with IAM role
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('AWS Lambda Function with IAM Execution Role',
+(now(), now(), 'AWS Lambda Function with IAM Execution Role',
  'Deploy a Lambda function from a zip package with a dedicated least-privilege execution role and CloudWatch Logs access.',
  'terraform', '1.0.0', 'intermediate', 'XamOps Team', 15,
  'AWS account with Lambda/IAM permissions and a deployment package (zip) for the function code.',
@@ -404,9 +404,9 @@ $usage$<ol>
 
 -- 7. AWS ECS Fargate cluster
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('AWS ECS Fargate Cluster and Service',
+(now(), now(), 'AWS ECS Fargate Cluster and Service',
  'A serverless ECS Fargate cluster with a task definition and service running a containerized application.',
  'terraform', '1.0.0', 'advanced', 'XamOps Team', 30,
  'AWS account with ECS/IAM permissions, private subnets, and a container image in ECR or a public registry.',
@@ -482,9 +482,9 @@ $usage$<ol>
 
 -- 8. AWS EKS cluster
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('AWS EKS Cluster with Managed Node Group',
+(now(), now(), 'AWS EKS Cluster with Managed Node Group',
  'A production EKS control plane with a managed node group, IAM roles, and configurable Kubernetes version and scaling.',
  'terraform', '1.0.0', 'advanced', 'XamOps Team', 40,
  'AWS account with EKS/IAM/VPC permissions and at least two subnets in different AZs.',
@@ -576,9 +576,9 @@ $usage$<ol>
 
 -- 9. AWS CloudFront CDN with S3 origin
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('AWS CloudFront CDN with S3 Origin',
+(now(), now(), 'AWS CloudFront CDN with S3 Origin',
  'A CloudFront distribution fronting a private S3 bucket using Origin Access Control, HTTPS redirect, and caching.',
  'terraform', '1.0.0', 'intermediate', 'XamOps Team', 25,
  'AWS account with CloudFront/S3 permissions and a configured AWS provider.',
@@ -641,9 +641,9 @@ $usage$<ol>
 
 -- 10. AWS Route53 DNS zone
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('AWS Route53 Hosted Zone with Records',
+(now(), now(), 'AWS Route53 Hosted Zone with Records',
  'Create a Route53 public hosted zone with A and CNAME records for a domain.',
  'terraform', '1.0.0', 'beginner', 'XamOps Team', 10,
  'AWS account with Route53 permissions and a registered domain name.',
@@ -685,9 +685,9 @@ $usage$<ol>
 
 -- 11. AWS Auto Scaling group with launch template
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('AWS Auto Scaling Group with Launch Template',
+(now(), now(), 'AWS Auto Scaling Group with Launch Template',
  'An Auto Scaling Group backed by a launch template with encrypted volumes, IMDSv2, and target tracking scaling.',
  'terraform', '1.0.0', 'advanced', 'XamOps Team', 30,
  'AWS account with EC2/Auto Scaling permissions, a VPC with subnets, and a security group.',
@@ -769,9 +769,9 @@ $usage$<ol>
 
 -- 12. AWS Security group with least privilege
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('AWS Security Group with Least Privilege',
+(now(), now(), 'AWS Security Group with Least Privilege',
  'A security group that allows HTTPS from anywhere and SSH only from a trusted CIDR, with explicit egress.',
  'terraform', '1.0.0', 'beginner', 'XamOps Team', 10,
  'AWS account with EC2 permissions and an existing VPC.',
@@ -823,9 +823,9 @@ $usage$<ol>
 
 -- 13. AWS IAM roles and policies
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('AWS IAM Role and Scoped Policy',
+(now(), now(), 'AWS IAM Role and Scoped Policy',
  'Create an IAM role assumable by a service with a customer-managed, scoped policy attached.',
  'terraform', '1.0.0', 'intermediate', 'XamOps Team', 15,
  'AWS account with IAM permissions.',
@@ -874,9 +874,9 @@ $usage$<ol>
 
 -- 14. AWS KMS encryption key
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('AWS KMS Encryption Key with Rotation',
+(now(), now(), 'AWS KMS Encryption Key with Rotation',
  'A customer-managed KMS key with automatic annual rotation and a friendly alias.',
  'terraform', '1.0.0', 'intermediate', 'XamOps Team', 10,
  'AWS account with KMS permissions.',
@@ -911,15 +911,25 @@ $usage$<ol>
 
 -- 15. Azure Virtual Machine with managed disks
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('Azure Linux VM with Managed Disk',
+(now(), now(), 'Azure Linux VM with Managed Disk',
  'A Linux virtual machine with a managed OS disk, SSH key authentication, and a network interface in an existing subnet.',
  'terraform', '1.0.0', 'intermediate', 'XamOps Team', 20,
  'Azure subscription, the azurerm provider configured (az login), and an existing resource group and subnet.',
  'published', 0, '2025-06-09',
-$tf$provider "azurerm" {
+$tf$terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 4.0"
+    }
+  }
+}
+
+provider "azurerm" {
   features {}
+  subscription_id = "{{SUBSCRIPTION_ID}}"
 }
 
 resource "azurerm_network_interface" "this" {
@@ -970,15 +980,25 @@ $usage$<ol>
 
 -- 16. Azure VNet with subnets
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('Azure Virtual Network with Subnets',
+(now(), now(), 'Azure Virtual Network with Subnets',
  'A virtual network with separate application and database subnets and an associated network security group.',
  'terraform', '1.0.0', 'intermediate', 'XamOps Team', 15,
  'Azure subscription and the azurerm provider configured (az login).',
  'published', 0, '2025-06-09',
-$tf$provider "azurerm" {
+$tf$terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 4.0"
+    }
+  }
+}
+
+provider "azurerm" {
   features {}
+  subscription_id = "{{SUBSCRIPTION_ID}}"
 }
 
 resource "azurerm_resource_group" "this" {
@@ -1013,6 +1033,16 @@ resource "azurerm_network_security_group" "this" {
   location            = azurerm_resource_group.this.location
   resource_group_name = azurerm_resource_group.this.name
 }
+
+resource "azurerm_subnet_network_security_group_association" "app" {
+  subnet_id                 = azurerm_subnet.app.id
+  network_security_group_id = azurerm_network_security_group.this.id
+}
+
+resource "azurerm_subnet_network_security_group_association" "db" {
+  subnet_id                 = azurerm_subnet.db.id
+  network_security_group_id = azurerm_network_security_group.this.id
+}
 $tf$,
 $usage$<ol>
   <li>Set the resource group, VNet name, and CIDR ranges.</li>
@@ -1021,15 +1051,25 @@ $usage$<ol>
 
 -- 17. Azure Storage account with blob containers
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('Azure Storage Account with Blob Container',
+(now(), now(), 'Azure Storage Account with Blob Container',
  'A storage account with a private blob container, TLS 1.2 minimum, and public network access disabled.',
  'terraform', '1.0.0', 'beginner', 'XamOps Team', 10,
  'Azure subscription, the azurerm provider configured, and an existing resource group.',
  'published', 0, '2025-06-09',
-$tf$provider "azurerm" {
+$tf$terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 4.0"
+    }
+  }
+}
+
+provider "azurerm" {
   features {}
+  subscription_id = "{{SUBSCRIPTION_ID}}"
 }
 
 resource "azurerm_storage_account" "this" {
@@ -1045,7 +1085,7 @@ resource "azurerm_storage_account" "this" {
 
 resource "azurerm_storage_container" "this" {
   name                  = "{{CONTAINER_NAME}}"
-  storage_account_name  = azurerm_storage_account.this.name
+  storage_account_id    = azurerm_storage_account.this.id
   container_access_type = "private"
 }
 $tf$,
@@ -1056,15 +1096,25 @@ $usage$<ol>
 
 -- 18. Azure SQL Database with failover
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('Azure SQL Database with Failover Group',
+(now(), now(), 'Azure SQL Database with Failover Group',
  'A primary and secondary Azure SQL Server pair with a database and an auto-failover group for high availability.',
  'terraform', '1.0.0', 'advanced', 'XamOps Team', 30,
  'Azure subscription, the azurerm provider configured, and an existing resource group.',
  'published', 0, '2025-06-09',
-$tf$provider "azurerm" {
+$tf$terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 4.0"
+    }
+  }
+}
+
+provider "azurerm" {
   features {}
+  subscription_id = "{{SUBSCRIPTION_ID}}"
 }
 
 resource "azurerm_mssql_server" "primary" {
@@ -1115,15 +1165,25 @@ $usage$<ol>
 
 -- 19. Azure App Service with deployment slots
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('Azure App Service with Staging Slot',
+(now(), now(), 'Azure App Service with Staging Slot',
  'A Linux App Service plan and web app with a staging deployment slot for blue-green style releases.',
  'terraform', '1.0.0', 'intermediate', 'XamOps Team', 20,
  'Azure subscription, the azurerm provider configured, and an existing resource group.',
  'published', 0, '2025-06-09',
-$tf$provider "azurerm" {
+$tf$terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 4.0"
+    }
+  }
+}
+
+provider "azurerm" {
   features {}
+  subscription_id = "{{SUBSCRIPTION_ID}}"
 }
 
 resource "azurerm_service_plan" "this" {
@@ -1169,15 +1229,25 @@ $usage$<ol>
 
 -- 20. Azure AKS cluster
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('Azure AKS Cluster with System Node Pool',
+(now(), now(), 'Azure AKS Cluster with System Node Pool',
  'A managed Kubernetes (AKS) cluster with a system-assigned identity, default node pool, and Azure CNI networking.',
  'terraform', '1.0.0', 'advanced', 'XamOps Team', 35,
  'Azure subscription, the azurerm provider configured, and an existing resource group.',
  'published', 0, '2025-06-09',
-$tf$provider "azurerm" {
+$tf$terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 4.0"
+    }
+  }
+}
+
+provider "azurerm" {
   features {}
+  subscription_id = "{{SUBSCRIPTION_ID}}"
 }
 
 resource "azurerm_kubernetes_cluster" "this" {
@@ -1219,9 +1289,9 @@ $usage$<ol>
 
 -- 21. GCP Compute Engine instance
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('GCP Compute Engine Instance',
+(now(), now(), 'GCP Compute Engine Instance',
  'A Compute Engine VM with a Debian boot disk, Shielded VM features, and a configurable machine type and zone.',
  'terraform', '1.0.0', 'beginner', 'XamOps Team', 15,
  'GCP project, the google provider configured (gcloud auth application-default login), and Compute Engine API enabled.',
@@ -1268,9 +1338,9 @@ $usage$<ol>
 
 -- 22. GCP VPC network with firewall rules
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('GCP VPC Network with Firewall Rules',
+(now(), now(), 'GCP VPC Network with Firewall Rules',
  'A custom-mode VPC network with a subnet and firewall rules allowing internal traffic and SSH from a trusted range.',
  'terraform', '1.0.0', 'intermediate', 'XamOps Team', 15,
  'GCP project, the google provider configured, and Compute Engine API enabled.',
@@ -1324,9 +1394,9 @@ $usage$<ol>
 
 -- 23. GCP Cloud Storage bucket
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('GCP Cloud Storage Bucket with Lifecycle',
+(now(), now(), 'GCP Cloud Storage Bucket with Lifecycle',
  'A Cloud Storage bucket with uniform bucket-level access, versioning, and a lifecycle rule to delete old versions.',
  'terraform', '1.0.0', 'beginner', 'XamOps Team', 10,
  'GCP project, the google provider configured, and Cloud Storage API enabled.',
@@ -1365,9 +1435,9 @@ $usage$<ol>
 
 -- 24. GCP Cloud SQL instance
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('GCP Cloud SQL PostgreSQL Instance',
+(now(), now(), 'GCP Cloud SQL PostgreSQL Instance',
  'A Cloud SQL for PostgreSQL instance with automated backups, point-in-time recovery, and a configurable tier.',
  'terraform', '1.0.0', 'intermediate', 'XamOps Team', 20,
  'GCP project, the google provider configured, and the Cloud SQL Admin API enabled.',
@@ -1416,9 +1486,9 @@ $usage$<ol>
 
 -- 25. GCP Cloud Function
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('GCP Cloud Function (2nd Gen) HTTP Trigger',
+(now(), now(), 'GCP Cloud Function (2nd Gen) HTTP Trigger',
  'A 2nd-generation HTTP-triggered Cloud Function deployed from a source zip stored in a Cloud Storage bucket.',
  'terraform', '1.0.0', 'intermediate', 'XamOps Team', 20,
  'GCP project, the google provider configured, Cloud Functions and Cloud Build APIs enabled, and a source zip in GCS.',
@@ -1458,9 +1528,9 @@ $usage$<ol>
 
 -- 26. GCP GKE cluster
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('GCP GKE Cluster with Node Pool',
+(now(), now(), 'GCP GKE Cluster with Node Pool',
  'A GKE cluster with a separately managed node pool, workload identity, and a configurable node count and machine type.',
  'terraform', '1.0.0', 'advanced', 'XamOps Team', 35,
  'GCP project, the google provider configured, and the Kubernetes Engine API enabled.',
@@ -1508,9 +1578,9 @@ $usage$<ol>
 
 -- 27. Multi-cloud generic load balancer setup
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('Multi-Cloud HTTP Load Balancer Setup',
+(now(), now(), 'Multi-Cloud HTTP Load Balancer Setup',
  'A reusable pattern that provisions an external HTTP load balancer on either AWS or GCP, selected by a provider variable.',
  'terraform', '1.0.0', 'advanced', 'XamOps Team', 30,
  'Credentials for the target cloud (AWS or GCP), and existing network/instance resources to attach as backends.',
@@ -1555,9 +1625,9 @@ $usage$<ol>
 
 -- 28. Cross-cloud VPN
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('Cross-Cloud VPN (AWS to GCP)',
+(now(), now(), 'Cross-Cloud VPN (AWS to GCP)',
  'A site-to-site IPsec VPN connecting an AWS VPC to a GCP VPC for secure cross-cloud connectivity.',
  'terraform', '1.0.0', 'advanced', 'XamOps Team', 45,
  'AWS and GCP credentials, existing VPCs on both clouds, and non-overlapping CIDR ranges.',
@@ -1607,9 +1677,9 @@ $usage$<ol>
 
 -- 29. Multi-cloud disaster recovery setup
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('Multi-Cloud Disaster Recovery Storage',
+(now(), now(), 'Multi-Cloud Disaster Recovery Storage',
  'Cross-region replicated object storage on AWS S3 with a GCP Cloud Storage standby bucket for DR backups.',
  'terraform', '1.0.0', 'advanced', 'XamOps Team', 30,
  'AWS and GCP credentials, and an IAM role permitting S3 cross-region replication.',
@@ -1679,9 +1749,9 @@ $usage$<ol>
 
 -- 30. AWS Application Load Balancer with target group
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('AWS Application Load Balancer with Target Group',
+(now(), now(), 'AWS Application Load Balancer with Target Group',
  'An internet-facing ALB with an HTTP listener, a target group, and health checks across multiple subnets.',
  'terraform', '1.0.0', 'intermediate', 'XamOps Team', 20,
  'AWS account with ELB/EC2 permissions, a VPC with at least two public subnets, and a security group.',
@@ -1732,15 +1802,25 @@ $usage$<ol>
 
 -- 31. Azure Load Balancer
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('Azure Public Load Balancer',
+(now(), now(), 'Azure Public Load Balancer',
  'A standard SKU public load balancer with a frontend public IP, backend pool, health probe, and load balancing rule.',
  'terraform', '1.0.0', 'intermediate', 'XamOps Team', 20,
  'Azure subscription, the azurerm provider configured, and an existing resource group.',
  'published', 0, '2025-06-09',
-$tf$provider "azurerm" {
+$tf$terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 4.0"
+    }
+  }
+}
+
+provider "azurerm" {
   features {}
+  subscription_id = "{{SUBSCRIPTION_ID}}"
 }
 
 resource "azurerm_public_ip" "this" {
@@ -1795,9 +1875,9 @@ $usage$<ol>
 
 -- 32. GCP Cloud DNS managed zone
 INSERT INTO devops_script
-  (name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
+  (created_at, updated_at, name, description, category, version, difficulty, author, estimated_time_minutes, prerequisites, status, downloads, last_updated, code, usage_instructions)
 VALUES
-('GCP Cloud DNS Managed Zone',
+(now(), now(), 'GCP Cloud DNS Managed Zone',
  'A public Cloud DNS managed zone with an A record and a www CNAME for a domain.',
  'terraform', '1.0.0', 'beginner', 'XamOps Team', 10,
  'GCP project, the google provider configured, and the Cloud DNS API enabled.',

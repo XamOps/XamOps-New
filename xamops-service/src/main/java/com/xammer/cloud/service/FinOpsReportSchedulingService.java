@@ -372,7 +372,8 @@ public class FinOpsReportSchedulingService {
 
             mobileNotificationDispatcher.dispatchAll(
                     contacts,
-                    textBuilder.buildReportVariables(reportData, account.getAccountName(), frequency, dateRange),
+                    textBuilder.buildReportVariables(reportData, account.getAccountName(), frequency, dateRange,
+                            account.getProvider()),
                     MessageKind.REPORT,
                     frequency + " report for " + account.getProviderAccountId(),
                     entitled);

@@ -2,19 +2,33 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { resolveDemoResponse } from './demoRouter';
 import { DEMO_MODE_KEY, DEMO_ROLE_KEY } from './demoConfig';
 import { demoAccounts } from './xamopsMockData';
+import { matchesProvider } from '../utils/devOpsScriptProvider';
 
 // Guards the DevOps-in-the-Box catalogue's provider scoping: each cloud's shelf shows its own
-// tooling (and the multi-cloud script), never another cloud's. The `matchesProvider` helper here
-// is a copy of the predicate in useDevOpsScripts, so the fixture is checked against the exact
-// filter the page applies. Regression cover for the all-AWS catalogue that showed EC2/S3/RDS
+// tooling (and the multi-cloud script), never another cloud's. `matchesProvider` is the predicate
+// useDevOpsScripts applies (it used to be copied here), so the fixture is checked against the
+// exact filter the page uses. Regression cover for the all-AWS catalogue that showed EC2/S3/RDS
 // scripts under GCP and Azure accounts.
-const matchesProvider = (script: any, provider?: string): boolean => {
-  if (!provider) return true;
-  const providers = script.cloudProviders ?? [];
-  if (providers.length === 0) return true;
-  if (providers.some((p: string) => p?.toLowerCase() === 'multi-cloud')) return true;
-  return providers.some((p: string) => p?.toLowerCase() === provider.toLowerCase());
-};
+
+describe('matchesProvider rules', () => {
+  it('a multi-cloud script that names clouds stays off the clouds it does not name', () => {
+    const vpn = { cloudProviders: ['multi-cloud', 'aws', 'gcp'] };
+    expect(matchesProvider(vpn, 'AWS')).toBe(true);
+    expect(matchesProvider(vpn, 'GCP')).toBe(true);
+    expect(matchesProvider(vpn, 'Azure')).toBe(false);
+  });
+  it('a script tagged only multi-cloud shows everywhere', () => {
+    expect(matchesProvider({ cloudProviders: ['multi-cloud'] }, 'Azure')).toBe(true);
+  });
+  it('an untagged script is placed by its code', () => {
+    expect(matchesProvider({ cloudProviders: [], code: 'import boto3\nec2 = boto3.client("ec2")' }, 'Azure')).toBe(false);
+    expect(matchesProvider({ cloudProviders: [], code: 'resource "azurerm_resource_group" "rg" {}' }, 'Azure')).toBe(true);
+    expect(matchesProvider({ cloudProviders: [], code: 'gcloud compute instances list' }, 'AWS')).toBe(false);
+  });
+  it('an untagged script with no recognisable cloud shows everywhere', () => {
+    expect(matchesProvider({ cloudProviders: [], code: 'kubectl get pods -A' }, 'GCP')).toBe(true);
+  });
+});
 
 const read = async (url: string) => {
   const r = resolveDemoResponse(url);

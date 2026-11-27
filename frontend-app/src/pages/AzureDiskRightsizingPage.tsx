@@ -5,6 +5,7 @@ import { useAzureDiskRightsizingData, AzureDisk } from '../hooks/useAzureDiskRig
 import { useAgentInstallConfig } from '../hooks/useAgentInstallConfig';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import { useTabState } from '../hooks/useTabState';
+import { currencyMeta } from '../utils/currency';
 
 const PAGE_SIZE = 20;
 
@@ -157,8 +158,9 @@ const AzureDiskRightsizingPage: React.FC = () => {
   const [actionMsg, setActionMsg]                       = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [confirmAction, setConfirmAction]               = useState<{ disk: AzureDisk; actionType: string; targetSizeGb?: number } | null>(null);
   const [showInstallGuide, setShowInstallGuide]         = useState(false);
+  const [actionBusy, setActionBusy]                     = useState(false);
 
-  const { disks, actionHistory, isLoading, isRefreshing, error, applyAction, refreshAll } =
+  const { disks, actionHistory, isLoading, isRefreshing, error, historyError, applyAction, refreshAll } =
     useAzureDiskRightsizingData(selectedAccountId);
 
   useEffect(() => {
@@ -214,26 +216,49 @@ const AzureDiskRightsizingPage: React.FC = () => {
   const totalPages = Math.ceil(filteredDisks.length / PAGE_SIZE);
   const paginated  = filteredDisks.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const totalWasted   = disks.reduce((s, d) => s + d.estimatedSavings, 0);
+  // EXPAND rows carry their cost increase as a negative saving. Summing every row netted those
+  // in, so the KPI read lower than the Savings column (which hides negatives) and could go
+  // below zero. AWS counts an expansion as zero saving; so does this.
+  const totalWasted   = disks.reduce((s, d) => s + Math.max(0, d.estimatedSavings || 0), 0);
+  // Prices arrive in the subscription's billing currency (the server converts them from USD).
+  const { symbol: moneySymbol, locale: moneyLocale } = currencyMeta('Azure', disks.find(d => d.currency)?.currency);
+  const money = (v: number) =>
+    moneySymbol + v.toLocaleString(moneyLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const unattachedCnt = disks.filter(d => d.recommendation === 'DELETE_UNATTACHED').length;
   const shrinkCnt     = disks.filter(d => d.recommendation === 'SHRINK').length;
   const expandCnt     = disks.filter(d => d.recommendation === 'EXPAND').length;
 
   const handleAction = async () => {
-    if (!confirmAction) return;
+    if (!confirmAction || actionBusy) return;
+    // Disables the dialog while the request runs: a second click used to send the action again
+    // and record a FAILED row.
+    setActionBusy(true);
+    let keepOpen = false;
     try {
-      await applyAction(
+      const result = await applyAction(
         confirmAction.disk.diskName,
         confirmAction.disk.resourceGroup,
         confirmAction.actionType,
         confirmAction.targetSizeGb
       );
-      setActionMsg({ type: 'success', text: `${confirmAction.actionType} applied to ${confirmAction.disk.diskName}` });
+      if (result?.followUpRequired && result.followUpAction) {
+        // After an EXPAND the guest filesystem still has to be grown. Kept until closed, like the
+        // AWS page's result banner; it used to vanish after four seconds with a generic message.
+        keepOpen = true;
+        setActionMsg({
+          type: 'success',
+          text: `${result.message ?? `${confirmAction.actionType} applied to ${confirmAction.disk.diskName}`}. Next step: ${result.followUpAction}`,
+        });
+      } else {
+        setActionMsg({ type: 'success', text: result?.message ?? `${confirmAction.actionType} applied to ${confirmAction.disk.diskName}` });
+      }
     } catch (e: any) {
+      keepOpen = true; // errors stay until dismissed
       setActionMsg({ type: 'error', text: e?.message ?? 'Action failed' });
     } finally {
+      setActionBusy(false);
       setConfirmAction(null);
-      setTimeout(() => setActionMsg(null), 4000);
+      if (!keepOpen) setTimeout(() => setActionMsg(null), 4000);
     }
   };
 
@@ -256,19 +281,22 @@ const AzureDiskRightsizingPage: React.FC = () => {
 
       {/* Action message */}
       {actionMsg && (
-        <div className={`rounded-lg px-4 py-3 text-[13px] font-medium border ${
+        <div className={`rounded-lg px-4 py-3 text-[13px] font-medium border flex items-start justify-between gap-3 ${
           actionMsg.type === 'success'
             ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
             : 'bg-rose-50 text-rose-700 border-rose-100'
         }`}>
-          {actionMsg.text}
+          <span>{actionMsg.text}</span>
+          <button onClick={() => setActionMsg(null)} aria-label="Dismiss" className="opacity-60 hover:opacity-100 flex-shrink-0">
+            <Icon icon="mdi:close" width={16} />
+          </button>
         </div>
       )}
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Potential Savings',   value: `₹${totalWasted.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: 'mdi:piggy-bank',          iconColor: '#16A34A', iconBg: '#16A34A14' },
+          { label: 'Potential Savings',   value: money(totalWasted), icon: 'mdi:piggy-bank',          iconColor: '#16A34A', iconBg: '#16A34A14' },
           { label: 'Unattached Disks',    value: String(unattachedCnt), icon: 'mdi:harddisk-remove',     iconColor: '#DC2626', iconBg: '#DC262614' },
           { label: 'Oversized (Shrink)',  value: String(shrinkCnt),     icon: 'mdi:arrow-collapse-down', iconColor: '#D97706', iconBg: '#D9770614' },
           { label: 'Undersized (Expand)', value: String(expandCnt),     icon: 'mdi:arrow-expand-up',     iconColor: '#3B82F6', iconBg: '#3B82F614' },
@@ -439,13 +467,13 @@ const AzureDiskRightsizingPage: React.FC = () => {
 
                   {/* Monthly Cost */}
                   <div className="col-span-1">
-                    <p className="font-semibold text-[rgba(0,0,0,0.88)]">₹{disk.monthlyCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                    <p className="font-semibold text-[rgba(0,0,0,0.88)]">{money(disk.monthlyCost)}</p>
                   </div>
 
                   {/* Savings */}
                   <div className="col-span-1">
                     {disk.estimatedSavings > 0 ? (
-                      <p className="font-semibold text-emerald-600">₹{disk.estimatedSavings.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo</p>
+                      <p className="font-semibold text-emerald-600">{money(disk.estimatedSavings)}/mo</p>
                     ) : (
                       <span className="text-[rgba(0,0,0,0.3)]">—</span>
                     )}
@@ -475,13 +503,24 @@ const AzureDiskRightsizingPage: React.FC = () => {
                         Delete
                       </button>
                     )}
-                    {(disk.recommendation === 'SHRINK' || disk.recommendation === 'EXPAND') && (
+                    {disk.recommendation === 'EXPAND' && (
                       <button
                         onClick={() => setConfirmAction({ disk, actionType: disk.recommendation, targetSizeGb: disk.recommendedSizeGb })}
                         className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-colors"
                       >
-                        {disk.recommendation === 'SHRINK' ? `→ ${disk.recommendedSizeGb} GB` : `→ ${disk.recommendedSizeGb} GB`}
+                        {`→ ${disk.recommendedSizeGb} GB`}
                       </button>
+                    )}
+                    {/* Azure managed disks cannot shrink in place, and the server refuses every
+                        SHRINK (actionable=false), so a button only produced a failed action. Say
+                        what shrinking takes instead. */}
+                    {disk.recommendation === 'SHRINK' && (
+                      <span
+                        className="px-2 py-1 text-[11px] font-medium rounded-lg border border-slate-200 text-slate-600 cursor-help"
+                        title={`Azure disks cannot be shrunk in place. Create a ${disk.recommendedSizeGb} GB disk, copy the data, swap it in, then delete the original.`}
+                      >
+                        Manual
+                      </span>
                     )}
                   </div>
                 </div>
@@ -525,10 +564,15 @@ const AzureDiskRightsizingPage: React.FC = () => {
           {actionHistory.length === 0 ? (
             <div className="p-10 text-center">
               <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-3">
-                <Icon icon="mdi:history" width={22} color="rgba(0,0,0,0.3)" />
+                <Icon icon={historyError ? 'mdi:alert-circle-outline' : 'mdi:history'} width={22} color={historyError ? '#DC2626' : 'rgba(0,0,0,0.3)'} />
               </div>
-              <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Actions Yet</p>
-              <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Actions you apply will appear here.</p>
+              {/* A failed load showed "No Actions Yet". */}
+              <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">
+                {historyError ? 'History Unavailable' : 'No Actions Yet'}
+              </p>
+              <p className="text-[13px] text-[rgba(0,0,0,0.45)]">
+                {historyError ?? 'Actions you apply will appear here.'}
+              </p>
             </div>
           ) : actionHistory.map(a => (
             <div key={a.id} className="grid grid-cols-12 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[13px]">
@@ -570,17 +614,18 @@ const AzureDiskRightsizingPage: React.FC = () => {
                 : `Resize disk "${confirmAction.disk.diskName}" from ${confirmAction.disk.sizeGb} GB to ${confirmAction.targetSizeGb} GB?`}
             </p>
             <div className="flex gap-3 justify-end">
-              <button onClick={() => setConfirmAction(null)}
-                className="px-4 py-2 text-[13px] text-[rgba(0,0,0,0.55)] border border-[rgba(0,0,0,0.1)] rounded-lg hover:bg-[rgba(0,0,0,0.02)] transition-colors">
+              <button onClick={() => setConfirmAction(null)} disabled={actionBusy}
+                className="px-4 py-2 text-[13px] text-[rgba(0,0,0,0.55)] border border-[rgba(0,0,0,0.1)] rounded-lg hover:bg-[rgba(0,0,0,0.02)] transition-colors disabled:opacity-40">
                 Cancel
               </button>
-              <button onClick={handleAction}
-                className={`px-4 py-2 text-[13px] font-semibold text-white rounded-lg transition-colors ${
+              <button onClick={handleAction} disabled={actionBusy}
+                className={`px-4 py-2 text-[13px] font-semibold text-white rounded-lg transition-colors disabled:opacity-60 inline-flex items-center gap-2 ${
                   confirmAction.actionType === 'DELETE_UNATTACHED'
                     ? 'bg-rose-600 hover:bg-rose-700'
                     : 'bg-indigo-600 hover:bg-indigo-700'
                 }`}>
-                Confirm
+                {actionBusy && <Icon icon="mdi:loading" width={14} className="animate-spin" />}
+                {actionBusy ? 'Working…' : 'Confirm'}
               </button>
             </div>
           </div>

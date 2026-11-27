@@ -39,6 +39,13 @@ const AzureCloudSitterPage: React.FC = () => {
         onNavigateToDashboard={() => cs.setCurrentView('dashboard')}
       />
 
+      {cs.loadError && cs.currentView === 'dashboard' && (
+        <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+          <Icon icon="mdi:alert-circle-outline" width={16} color="#DC2626" className="mt-0.5 flex-shrink-0" />
+          <p className="text-[12px] text-red-700">{cs.loadError}</p>
+        </div>
+      )}
+
       <div className="flex-1">
         <AnimatePresence mode="wait">
           {cs.currentView === 'dashboard' && (
@@ -82,9 +89,9 @@ const AzureCloudSitterPage: React.FC = () => {
                 onCancel={cs.closeCreatePolicy}
                 instanceId={cs.formInstanceTarget?.id}
                 instanceName={cs.formInstanceTarget?.name}
-                instanceRegion={cs.formInstanceTarget?.region}
-                accountId={subscriptionId}
-                onApplyRecommendation={cs.applyRecommendationToGrid}
+                // No instanceRegion / accountId / onApplyRecommendation: they switch on the
+                // schedule-suggestion panel, which reads EC2 CloudWatch data from the AWS endpoint.
+                // Given an Azure VM it always failed with an HTTP error box.
               />
             </motion.div>
           )}

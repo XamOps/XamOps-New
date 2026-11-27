@@ -7,24 +7,9 @@ import { useState, useEffect, useMemo } from 'react';
 import { DevOpsScript, DevOpsFilters } from '../types/devopsInTheBox';
 import apiClient from '../utils/apiClient';
 import { useAccounts } from '../contexts/AccountContext';
-
-/**
- * True when a script belongs on the shelf for `provider`.
- *
- * A script with no provider tag, or one tagged `multi-cloud`, is cloud-agnostic and shows
- * everywhere; otherwise it must name the selected provider. With no account selected (or an
- * unknown provider) the whole catalogue is shown, so the page is never empty on first load.
- */
-const matchesProvider = (script: DevOpsScript, provider?: string): boolean => {
-  if (!provider) return true;
-  const providers = script.cloudProviders ?? [];
-  if (providers.length === 0) return true;
-  const wanted = provider.toLowerCase();
-  return providers.some((p) => {
-    const tag = p?.toLowerCase();
-    return tag === 'multi-cloud' || tag === wanted;
-  });
-};
+// The shelf rule lives in a pure module so the tests check the exact filter the page applies.
+// Untagged scripts are placed by their code, and multi-cloud scripts only on the clouds they name.
+import { matchesProvider } from '../utils/devOpsScriptProvider';
 
 interface UseDevOpsScriptsReturn {
   scripts: DevOpsScript[];

@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, Link, Navigate } from 'react-router-dom';
 import { useAksDashboard } from '../hooks/useAksDashboard';
 import { useTopbar } from '../contexts/TopbarContext';
 import clsx from 'clsx';
@@ -34,7 +34,16 @@ const AksDetailsPage: React.FC = () => {
   const [showGuide, setShowGuide] = useState(false);
 
   const aksData = useAksDashboard({ clusterName, resourceGroup, accountId });
-  const { dashboard, loading, error, activeTab, setActiveTab, isRefreshing, refresh } = aksData;
+  const { dashboard, loading, error, notFound, activeTab, setActiveTab, isRefreshing, refresh, reload, getTimeSince } = aksData;
+
+  // Zone-less server date-times, read in browser-local time as elsewhere in the app.
+  const timeSince = (value?: string | null): string | null => {
+    if (!value) return null;
+    const ms = new Date(value).getTime();
+    return Number.isNaN(ms) ? null : getTimeSince(ms);
+  };
+  const syncedAgo = timeSince(dashboard?.lastSyncedAt);
+  const agentSeenAgo = timeSince(dashboard?.agentLastSeenAt);
 
   useEffect(() => {
     if (!clusterName) return;
@@ -58,6 +67,12 @@ const AksDetailsPage: React.FC = () => {
           {dashboard?.version && (
             <div className="text-[10px] text-gray-600 font-semibold">
               v{dashboard.version}
+            </div>
+          )}
+          {/* The copy can be up to a day old (nightly sync), so say how old it is. */}
+          {syncedAgo && (
+            <div className="text-[10px] text-gray-400 font-medium whitespace-nowrap" title={dashboard?.lastSyncedAt}>
+              Synced {syncedAgo}
             </div>
           )}
         </div>
@@ -85,22 +100,11 @@ const AksDetailsPage: React.FC = () => {
       clearActions();
       setTitle(null);
     };
-  }, [setTitle, setActions, clearActions, clusterName, accountId, resourceGroup, dashboard, isRefreshing, refresh, showGuide, setShowGuide]);
+  }, [setTitle, setActions, clearActions, clusterName, accountId, resourceGroup, dashboard, isRefreshing, refresh, showGuide, setShowGuide, syncedAgo]);
 
+  // A link without a cluster or subscription has nothing to show; the cluster list does.
   if (!clusterName || !accountId) {
-    return (
-      <main className="flex-1 flex items-center justify-center min-h-screen">
-        <div className="text-center p-8">
-          <div className="w-20 h-20 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-red-200">
-            <i className="fas fa-exclamation-triangle text-red-400 text-3xl"></i>
-          </div>
-          <h3 className="text-xl font-bold text-gray-800 mb-2">Missing Parameters</h3>
-          <p className="text-gray-500">
-            Required URL parameters missing: {!clusterName && 'name'} {!accountId && 'accountIds'}
-          </p>
-        </div>
-      </main>
-    );
+    return <Navigate to="/azure-cloudk8s" replace />;
   }
 
   return (
@@ -124,10 +128,28 @@ const AksDetailsPage: React.FC = () => {
           <div className="bg-red-50 border-l-4 border-red-400 p-6 rounded-lg shadow-sm">
             <div className="flex items-center">
               <i className="fas fa-exclamation-circle text-red-400 text-2xl mr-4"></i>
-              <div>
-                <h3 className="text-lg font-bold text-red-700">Error Loading Dashboard</h3>
-                <p className="text-sm text-red-600 mt-1">{error}</p>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-lg font-bold text-red-700">
+                  {notFound ? 'Cluster Not Found' : 'Error Loading Dashboard'}
+                </h3>
+                <p className="text-sm text-red-600 mt-1 break-words">{error}</p>
               </div>
+              {notFound ? (
+                <Link
+                  to={`/azure-cloudk8s?accountIds=${accountId}`}
+                  className="ml-4 flex-shrink-0 px-4 py-2 bg-white text-red-700 text-xs font-bold rounded-xl border border-red-200 hover:bg-red-50 transition-all"
+                >
+                  Back to AKS clusters
+                </Link>
+              ) : (
+                <button
+                  onClick={reload}
+                  className="ml-4 flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-white text-red-700 text-xs font-bold rounded-xl border border-red-200 hover:bg-red-50 transition-all"
+                >
+                  <i className="fas fa-redo"></i>
+                  <span>Retry</span>
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -149,6 +171,30 @@ const AksDetailsPage: React.FC = () => {
               </div>
             )}
 
+            {/* A refresh Azure or the agent store could only partly answer: the copy below is the last complete one. */}
+            {dashboard?.refreshError && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
+                <i className="fas fa-exclamation-triangle text-amber-500 text-lg"></i>
+                <div>
+                  <p className="font-semibold text-amber-800 text-sm">Refresh incomplete</p>
+                  <p className="text-amber-700 text-xs mt-0.5 break-words">{dashboard.refreshError}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Agent data exists but the agent has stopped checking in. */}
+            {dashboard?.connected && dashboard?.agentStale && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
+                <i className="fas fa-plug text-amber-500 text-lg"></i>
+                <div>
+                  <p className="font-semibold text-amber-800 text-sm">Agent Not Reporting</p>
+                  <p className="text-amber-700 text-xs mt-0.5">
+                    The XamOps agent last checked in {agentSeenAgo ?? 'over 15 minutes ago'}. The figures below are from its last push.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Summary Cards */}
             <AksSummaryCards aksData={aksData} />
 
@@ -158,13 +204,13 @@ const AksDetailsPage: React.FC = () => {
             {/* Tab Content — reuse all GKE tab components, pass aksData as gkeData */}
             <div>
               {activeTab === 'overview'     && <GkeOverviewTab gkeData={aksData} />}
-              {activeTab === 'cost'         && <GkeCostTab gkeData={aksData} />}
+              {activeTab === 'cost'         && <GkeCostTab gkeData={aksData} cloud="azure" />}
               {activeTab === 'performance'  && <GkePerformanceTab gkeData={aksData} />}
-              {activeTab === 'security'     && <GkeSecurityTab gkeData={aksData} />}
-              {activeTab === 'workloads'    && <GkeWorkloadsTab gkeData={aksData} />}
+              {activeTab === 'security'     && <GkeSecurityTab gkeData={aksData} cloud="azure" />}
+              {activeTab === 'workloads'    && <GkeWorkloadsTab gkeData={aksData} cloud="azure" />}
               {activeTab === 'pods'         && <GkePodsTab gkeData={aksData} />}
               {activeTab === 'containers'   && <GkeContainersTab gkeData={aksData} />}
-              {activeTab === 'nodes'        && <GkeNodesTab gkeData={aksData} />}
+              {activeTab === 'nodes'        && <GkeNodesTab gkeData={aksData} cloud="azure" />}
               {activeTab === 'nodepools'    && <GkeNodePoolsTab gkeData={aksData} />}
             </div>
           </>

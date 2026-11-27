@@ -231,13 +231,17 @@ export function useAzureDbOpsData(subscriptionId: string | null) {
     ).then(r => r ?? []).catch(() => []);
   }, [subscriptionId]);
 
-  // Azure SQL / PostgreSQL / MySQL does not expose per-instance CloudWatch-style timeseries yet;
-  // returns null to indicate unavailable (detail drawer will hide timeseries tab)
+  // Azure Monitor series for one instance. The id goes in the query string: Azure ids contain a
+  // "/" ("server/db", "pg/name"), which the path-variable endpoint could not carry, so this used
+  // to return null and the drawer hid the charts.
   const fetchInstanceTimeseries = useCallback(async (
-    _instanceId: string, _hours = 24
+    instanceId: string, hours = 24
   ): Promise<DbInstanceTimeseries | null> => {
-    return null;
-  }, []);
+    if (!subscriptionId || !instanceId) return null;
+    return fetchJson<DbInstanceTimeseries>(
+      `/api/dbops/azure/${subscriptionId}/instance-timeseries?instanceId=${encodeURIComponent(instanceId)}&hours=${hours}`
+    ).catch(() => null);
+  }, [subscriptionId]);
 
   return {
     summary, inventory, metrics, costs, idle, rightsizing, snapshots, security, slowQueries,

@@ -82,6 +82,44 @@ class DevOpsScriptSeedLoaderTest {
     }
 
     @Test
+    void seedAll_loadsTheOtherManifestsWhenTheTerraformSqlFails() throws Exception {
+        // Terraform not seeded yet, and running its SQL fails (it did, on the NOT NULL timestamps).
+        // That failure used to abort seedAll, so no Bash/Python/... script was imported either.
+        when(scriptRepository.existsByName(anyString())).thenReturn(false);
+        when(dataSource.getConnection()).thenThrow(new java.sql.SQLException("null value in column \"created_at\""));
+        when(parameterRepository.findByScriptIdOrderByDisplayOrderAsc(anyLong()))
+                .thenReturn(Collections.emptyList());
+        AtomicLong ids = new AtomicLong(0);
+        when(scriptRepository.save(any(DevOpsScript.class))).thenAnswer(inv -> {
+            DevOpsScript s = inv.getArgument(0);
+            s.setId(ids.incrementAndGet());
+            return s;
+        });
+
+        assertDoesNotThrow(() -> loader.seedAll());
+
+        verify(scriptRepository, atLeastOnce()).save(any(DevOpsScript.class));
+    }
+
+    @Test
+    void terraformSeedSql_setsTimestampsAndTheAzureSubscription() throws Exception {
+        String sql = new String(new org.springframework.core.io.ClassPathResource("data/seed/terraform_scripts_seed.sql")
+                .getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+
+        // created_at / updated_at are NOT NULL with no database default: every INSERT must set them.
+        int inserts = sql.split("INSERT INTO devops_script\\R", -1).length - 1;
+        int withTimestamps = sql.split("\\(created_at, updated_at, name,", -1).length - 1;
+        assertEquals(32, inserts);
+        assertEquals(inserts, withTimestamps, "every script INSERT sets created_at and updated_at");
+
+        // azurerm 4.x requires subscription_id on the provider block.
+        int azureProviders = sql.split("provider \"azurerm\" \\{", -1).length - 1;
+        int withSubscription = sql.split("subscription_id = \"\\{\\{SUBSCRIPTION_ID}}\"", -1).length - 1;
+        assertEquals(7, azureProviders);
+        assertEquals(azureProviders, withSubscription, "every azurerm provider block sets subscription_id");
+    }
+
+    @Test
     void loadFullManifest_isIdempotent_skipsExistingScripts() {
         // Every script already exists -> nothing imported.
         when(scriptRepository.existsByName(anyString())).thenReturn(true);
@@ -108,8 +146,9 @@ class DevOpsScriptSeedLoaderTest {
 
         int upserted = loader.applyParameterOnlyManifest(TERRAFORM_MANIFEST);
 
-        // The terraform manifest defines 221 parameters across 32 scripts.
-        assertEquals(221, upserted, "All Terraform parameters should be upserted");
+        // The terraform manifest defines 228 parameters across 32 scripts (221, plus SUBSCRIPTION_ID
+        // on the seven Azure templates, which the azurerm 4.x provider requires).
+        assertEquals(228, upserted, "All Terraform parameters should be upserted");
         verify(parameterRepository, times(32)).saveAll(any());
     }
 

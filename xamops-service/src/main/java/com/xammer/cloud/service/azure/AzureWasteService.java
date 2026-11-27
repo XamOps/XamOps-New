@@ -85,12 +85,6 @@ public class AzureWasteService {
     private static final double FALLBACK_VM_COMPUTE_USD = 7.59;
     /** Standard static public IPv4, billed whether associated or not since Feb 2024. */
     private static final double FALLBACK_PUBLIC_IP_USD = 3.65;
-    /** Standard Load Balancer base rule charge. */
-    private static final double FALLBACK_LOAD_BALANCER_USD = 18.25;
-    /** Basic-tier single database (S0-equivalent) list price. */
-    private static final double FALLBACK_SQL_DB_USD = 15.00;
-    /** Basic B1 App Service plan list price. */
-    private static final double FALLBACK_APP_SERVICE_PLAN_USD = 13.14;
     /** Cosmos DB minimum provisioned throughput, 400 RU/s. */
     private static final double FALLBACK_COSMOS_DB_USD = 23.36;
 
@@ -174,10 +168,64 @@ public class AzureWasteService {
         }
 
         // 3. Fetch from Azure API
-        List<AzureWasteItem> items = detectWaste(subscriptionId);
+        ScanResult scan = detectWaste(subscriptionId);
+        List<AzureWasteItem> items = scan.items();
+        if (scan.failedDetectors().size() >= DETECTOR_COUNT) {
+            // Not one check could run (usually a missing Reader role). This used to be cached as
+            // "No Waste Detected"; it is an error, and the controller answers 503.
+            throw new IllegalStateException("No Azure waste check could run for " + subscriptionId
+                    + "; the service principal may lack the Reader role on the subscription.");
+        }
+        if (!scan.failedDetectors().isEmpty()) {
+            // Some checks failed: keep the partial list briefly, name the gaps, and do not let it
+            // replace the last complete snapshot.
+            log.warn("Azure waste scan for {} was partial; checks that failed: {}",
+                    subscriptionId, scan.failedDetectors());
+            redisCache.put(cacheKey, items, PARTIAL_CACHE_TTL_MINUTES);
+            redisCache.put(PARTIAL_PREFIX + subscriptionId, scan.failedDetectors(), PARTIAL_CACHE_TTL_MINUTES);
+            return items;
+        }
         redisCache.put(cacheKey, items, CACHE_TTL_MINUTES);
+        redisCache.evict(PARTIAL_PREFIX + subscriptionId);
         saveToDb(dbKey, items);
         return items;
+    }
+
+    /** A scan's findings and the checks that could not run. */
+    private record ScanResult(List<AzureWasteItem> items, List<String> failedDetectors) {}
+
+    /**
+     * Detectors that could not run in the scan on this thread. Each detector catches its own errors,
+     * so a missing role made every one of them fail quietly and the scan reported "No Waste
+     * Detected", cached for an hour and snapshotted for two days. Recording the failures lets the
+     * scan tell "nothing found" from "could not look".
+     */
+    private static final ThreadLocal<List<String>> FAILED_DETECTORS = new ThreadLocal<>();
+
+    /** How many detectors a scan runs; when all of them fail the scan as a whole has failed. */
+    private static final int DETECTOR_COUNT = 15;
+
+    /** Redis key prefix naming the checks that failed in the cached (partial) scan. */
+    public static final String PARTIAL_PREFIX = "azure:waste-partial:";
+
+    /** TTL for a partial scan, matching the AWS waste scan's partial-result TTL. */
+    private static final int PARTIAL_CACHE_TTL_MINUTES = 10;
+
+    private static void recordFailure(String detector) {
+        List<String> failures = FAILED_DETECTORS.get();
+        if (failures != null) {
+            failures.add(detector);
+        }
+    }
+
+    /** The checks that could not run in the cached scan, or an empty list when it was complete. */
+    public List<String> partialScanFailures(String subscriptionId) {
+        try {
+            return redisCache.get(PARTIAL_PREFIX + subscriptionId, new TypeReference<List<String>>() {})
+                    .orElse(List.of());
+        } catch (Exception e) {
+            return List.of();
+        }
     }
 
     private void saveToDb(String dbKey, List<AzureWasteItem> items) {
@@ -194,7 +242,7 @@ public class AzureWasteService {
         }
     }
 
-    private List<AzureWasteItem> detectWaste(String subscriptionId) {
+    private ScanResult detectWaste(String subscriptionId) {
         // Sign in first and let a failure propagate. Every detector below swallows its own
         // errors, so with an expired secret or a wrong tenant each one failed quietly, the empty
         // result was cached, and the page reported "No Waste Detected" for a subscription it could
@@ -202,6 +250,8 @@ public class AzureWasteService {
         armClient.getToken(subscriptionId);
 
         List<AzureWasteItem> result = new ArrayList<>();
+        List<String> failed = new ArrayList<>();
+        FAILED_DETECTORS.set(failed);
         try {
             AzureResourceManager azure = clientProvider.getAzureClient(subscriptionId);
 
@@ -217,15 +267,20 @@ public class AzureWasteService {
             detectIdleRunningVms(azure, subscriptionId, result);
             detectIdleSqlDatabases(azure, subscriptionId, result);
 
-            // REST-based detectors over free ARM APIs (no extra SDK deps)
+            // REST-based detectors over free ARM APIs (no extra SDK deps). Each in its own try: one
+            // shared try meant a failure in the first silently skipped the other three.
+            String token = null;
             try {
-                String token = getBearerToken(subscriptionId);
-                detectEmptyAppServicePlans(subscriptionId, token, result);
-                detectIdleStorageAccounts(subscriptionId, token, result);
-                detectIdleCosmosDb(subscriptionId, token, result);
-                detectEmptyResourceGroups(subscriptionId, token, result);
+                token = getBearerToken(subscriptionId);
             } catch (Exception e) {
                 log.warn("Could not run REST-based waste detectors for {}: {}", subscriptionId, e.getMessage());
+                failed.addAll(List.of("App Service plans", "storage accounts", "Cosmos DB", "resource groups"));
+            }
+            if (token != null) {
+                runRestDetector("App Service plans", subscriptionId, token, result, this::detectEmptyAppServicePlans);
+                runRestDetector("storage accounts", subscriptionId, token, result, this::detectIdleStorageAccounts);
+                runRestDetector("Cosmos DB", subscriptionId, token, result, this::detectIdleCosmosDb);
+                runRestDetector("resource groups", subscriptionId, token, result, this::detectEmptyResourceGroups);
             }
 
         } catch (Exception e) {
@@ -233,12 +288,31 @@ public class AzureWasteService {
             // errors). Returning the empty list cached it as "no waste".
             log.error("Failed to detect waste for subscription {}: {}", subscriptionId, e.getMessage(), e);
             throw new IllegalStateException("Azure waste scan failed for " + subscriptionId + ": " + e.getMessage(), e);
+        } finally {
+            FAILED_DETECTORS.remove();
         }
 
         // Sort by monthly savings descending (highest potential savings first)
         result.sort(Comparator.comparingDouble(AzureWasteItem::getMonthlySavings).reversed());
         log.info("Waste detection complete for {}: {} items found", subscriptionId, result.size());
-        return result;
+        // "idle VMs" and "idle SQL databases" can be recorded twice (token and listing); count each once.
+        return new ScanResult(result, failed.stream().distinct().collect(java.util.stream.Collectors.toList()));
+    }
+
+    /** The REST detectors' shape: subscription, bearer token, findings list. */
+    @FunctionalInterface
+    private interface RestDetector {
+        void detect(String subscriptionId, String token, List<AzureWasteItem> result) throws Exception;
+    }
+
+    private void runRestDetector(String name, String subscriptionId, String token,
+                                 List<AzureWasteItem> result, RestDetector detector) {
+        try {
+            detector.detect(subscriptionId, token, result);
+        } catch (Exception e) {
+            log.warn("Azure waste check '{}' failed for {}: {}", name, subscriptionId, e.getMessage());
+            recordFailure(name);
+        }
     }
 
     private void detectUnattachedDisks(AzureResourceManager azure, List<AzureWasteItem> result) {
@@ -287,6 +361,7 @@ public class AzureWasteService {
             }
         } catch (Exception e) {
             log.warn("Failed to list disks for waste detection: {}", e.getMessage());
+            recordFailure("unattached disks");
         }
     }
 
@@ -467,6 +542,7 @@ public class AzureWasteService {
             }
         } catch (Exception e) {
             log.warn("Failed to list VMs for waste detection: {}", e.getMessage());
+            recordFailure("stopped and deallocated VMs");
         }
     }
 
@@ -504,6 +580,7 @@ public class AzureWasteService {
             }
         } catch (Exception e) {
             log.warn("Failed to list public IPs for waste detection: {}", e.getMessage());
+            recordFailure("public IPs");
         }
     }
 
@@ -527,6 +604,7 @@ public class AzureWasteService {
             }
         } catch (Exception e) {
             log.warn("Failed to list NICs for waste detection: {}", e.getMessage());
+            recordFailure("network interfaces");
         }
     }
 
@@ -578,6 +656,7 @@ public class AzureWasteService {
             }
         } catch (Exception e) {
             log.warn("Failed to list snapshots for waste detection: {}", e.getMessage());
+            recordFailure("snapshots");
         }
     }
 
@@ -639,14 +718,18 @@ public class AzureWasteService {
                                 lb.name());
                         continue;
                     }
-                    result.add(new AzureWasteItem(
+                    // Only load balancers with no rules of any kind reach here, and Azure does not
+                    // charge a Standard load balancer by the hour when no rules are configured
+                    // (Load Balancer pricing FAQ). It was booked at a flat $18.25/month; it is a
+                    // clean-up item, not a saving.
+                    result.add(AzureWasteItem.withNoCostImpact(
                             lb.id(),
                             lb.name(),
                             "Empty Load Balancer",
                             lb.regionName() != null ? lb.regionName() : "",
-                            "Load balancer has no backend pool members and no load-balancing rules "
-                                    + "— idle resource incurring cost",
-                            FALLBACK_LOAD_BALANCER_USD
+                            "Load balancer has no backend pool members and no rules. Azure does not bill "
+                                    + "a Standard load balancer hourly with no rules configured, so removing it "
+                                    + "is clean-up rather than a saving."
                     ));
                 } catch (Exception e) {
                     log.warn("Error processing load balancer {}: {}", lb.name(), e.getMessage());
@@ -654,6 +737,7 @@ public class AzureWasteService {
             }
         } catch (Exception e) {
             log.warn("Failed to list load balancers for waste detection: {}", e.getMessage());
+            recordFailure("load balancers");
         }
     }
 
@@ -730,6 +814,7 @@ public class AzureWasteService {
             }
         } catch (Exception e) {
             log.warn("Failed to list NSGs for waste detection: {}", e.getMessage());
+            recordFailure("network security groups");
         }
     }
 
@@ -754,6 +839,7 @@ public class AzureWasteService {
             }
         } catch (Exception e) {
             log.warn("Failed to list availability sets for waste detection: {}", e.getMessage());
+            recordFailure("availability sets");
         }
     }
 
@@ -778,6 +864,7 @@ public class AzureWasteService {
             }
         } catch (Exception e) {
             log.warn("Failed to list route tables for waste detection: {}", e.getMessage());
+            recordFailure("route tables");
         }
     }
 
@@ -792,6 +879,7 @@ public class AzureWasteService {
             token = getBearerToken(subscriptionId);
         } catch (Exception e) {
             log.warn("Could not obtain ARM token for idle VM detection: {}", e.getMessage());
+            recordFailure("idle VMs");
             return;
         }
 
@@ -813,6 +901,27 @@ public class AzureWasteService {
                     if (avgCpu != null && avgCpu < IDLE_VM_CPU_THRESHOLD) {
                         String region = vm.regionName() != null ? vm.regionName() : "";
                         String size = vmSize(vm);
+                        // Burstable sizes and sizes with no smaller step get no rightsizing row (the
+                        // rightsizing service skips them), so leaving them unpriced here meant an
+                        // idle VM was priced nowhere. For these the only action is deallocating, which
+                        // frees the whole compute charge, so that is the saving.
+                        Optional<Double> listPrice = size == null || "unknown".equals(size)
+                                ? Optional.empty() : retailPricingService.getVmMonthlyPriceUsd(size, region);
+                        boolean noDownsizeStep = size != null && (size.startsWith("Standard_B")
+                                || AzureRightsizingService.nextSmallerSku(size).isEmpty());
+                        if (noDownsizeStep && listPrice.isPresent()) {
+                            result.add(new AzureWasteItem(
+                                    vm.id(),
+                                    vm.name(),
+                                    "Idle Running VM",
+                                    region,
+                                    String.format("VM (%s) is running but averaged only %.1f%% CPU over the last 7 days. "
+                                            + "There is no smaller size to move to, so deallocate it when it is not "
+                                            + "needed (CloudSitter can schedule this) to save about $%.2f/month.",
+                                            size, avgCpu, listPrice.get()),
+                                    Math.round(listPrice.get() * 100.0) / 100.0));
+                            continue;
+                        }
                         // The recommendation offers two mutually exclusive actions with very
                         // different value: deallocating frees the whole compute charge, while
                         // downsizing frees a fraction of it. Booking the full price for a
@@ -838,6 +947,7 @@ public class AzureWasteService {
             }
         } catch (Exception e) {
             log.warn("Failed to list VMs for idle detection: {}", e.getMessage());
+            recordFailure("idle VMs");
         }
     }
 
@@ -894,6 +1004,7 @@ public class AzureWasteService {
             token = getBearerToken(subscriptionId);
         } catch (Exception e) {
             log.warn("Could not obtain ARM token for idle SQL detection: {}", e.getMessage());
+            recordFailure("idle SQL databases");
             return;
         }
 
@@ -942,7 +1053,10 @@ public class AzureWasteService {
                             }
 
                             if (avgUtilisation != null && avgUtilisation < IDLE_SQL_CPU_THRESHOLD) {
-                                result.add(new AzureWasteItem(
+                                // Unpriced: the advice is to scale the tier down, and what that saves
+                                // depends on the tier chosen. A flat $15 was shown for every database
+                                // whatever it cost, as if it were the measured saving.
+                                result.add(AzureWasteItem.withUnknownSavings(
                                         db.id(),
                                         server.name() + "/" + db.name(),
                                         "Idle SQL Database",
@@ -950,8 +1064,7 @@ public class AzureWasteService {
                                         String.format("SQL database (%s) averaged only %.1f%% %s over the last "
                                                         + "7 days — consider scaling down the service tier",
                                                 edition.isBlank() ? "unknown tier" : edition,
-                                                avgUtilisation, metricName),
-                                        FALLBACK_SQL_DB_USD
+                                                avgUtilisation, metricName)
                                 ));
                             }
                         } catch (Exception e) {
@@ -964,6 +1077,7 @@ public class AzureWasteService {
             }
         } catch (Exception e) {
             log.warn("Failed to list SQL servers for idle detection: {}", e.getMessage());
+            recordFailure("idle SQL databases");
         }
     }
 
@@ -1047,14 +1161,26 @@ public class AzureWasteService {
                         && !"Free".equalsIgnoreCase(tier) && !"Shared".equalsIgnoreCase(tier)
                         && !"Dynamic".equalsIgnoreCase(tier);
                 if (sites == 0 && paidTier) {
-                    result.add(new AzureWasteItem(
-                            plan.path("id").asText(""),
-                            plan.path("name").asText(""),
-                            "Empty App Service Plan",
-                            plan.path("location").asText(""),
-                            "App Service Plan (" + tier + " tier) is hosting no apps — billing for unused compute",
-                            FALLBACK_APP_SERVICE_PLAN_USD
-                    ));
+                    // Priced from the plan's own SKU, OS, instance count and region. Every plan was
+                    // given the Basic B1 price ($13.14), so a Standard or Premium plan's saving was
+                    // understated several times over and shown as exact.
+                    String sku = plan.path("sku").path("name").asText("");
+                    int instances = Math.max(1, plan.path("sku").path("capacity").asInt(1));
+                    boolean linux = plan.path("properties").path("reserved").asBoolean(false);
+                    String location = plan.path("location").asText("");
+                    String armRegion = location.toLowerCase(java.util.Locale.ROOT).replace(" ", "");
+                    Optional<Double> perInstance = retailPricingService.getAppServicePlanMonthlyPriceUsd(sku, linux, armRegion);
+                    String reason = "App Service Plan (" + tier + " tier" + (sku.isBlank() ? "" : ", " + sku)
+                            + (instances > 1 ? ", " + instances + " instances" : "")
+                            + ") is hosting no apps — billing for unused compute";
+                    if (perInstance.isPresent()) {
+                        result.add(new AzureWasteItem(plan.path("id").asText(""), plan.path("name").asText(""),
+                                "Empty App Service Plan", armRegion, reason,
+                                Math.round(perInstance.get() * instances * 100.0) / 100.0));
+                    } else {
+                        result.add(AzureWasteItem.withUnknownSavings(plan.path("id").asText(""),
+                                plan.path("name").asText(""), "Empty App Service Plan", armRegion, reason));
+                    }
                 }
             } catch (Exception e) {
                 log.warn("Error processing App Service Plan: {}", e.getMessage());

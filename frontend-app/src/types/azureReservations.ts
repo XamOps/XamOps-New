@@ -111,6 +111,8 @@ export interface AzureReservationData {
   recommendationsUnavailableReason?: string | null;
   /** ISO currency of the recommendation figures, when Azure stated exactly one. */
   recommendationCurrency?: string | null;
+  /** Why the reservation / savings-plan inventory could not be read, or null when Azure answered. */
+  inventoryUnavailableReason?: string | null;
   /** True when Azure reported more than one currency, so no total is published. */
   mixedCurrencies?: boolean;
   /**

@@ -234,19 +234,64 @@ public class AzureDiskRightsizingService {
         EffectiveDiskPolicy policy = resolveEffectivePolicy(account);
         try {
             AzureResourceManager azure = azureClientProvider.getAzureClient(subscriptionId);
+            Map<String, String> attachmentByDiskId = diskAttachments(azure, subscriptionId);
             StreamSupport.stream(azure.disks().list().spliterator(), false)
                     .forEach(disk -> {
-                        Map<String, Object> dto = buildDiskDto(disk);
-                        enrichFromAgent(account, disk, dto);
-                        applyRecommendation(dto, policy);
-                        result.add(dto);
+                        try {
+                            Map<String, Object> dto = buildDiskDto(disk);
+                            String attachment = disk.id() == null ? null
+                                    : attachmentByDiskId.get(disk.id().toLowerCase(Locale.ROOT));
+                            if (attachment != null) {
+                                dto.put("azureDisk", attachment);
+                            }
+                            enrichFromAgent(account, disk, dto);
+                            applyRecommendation(dto, policy);
+                            result.add(dto);
+                        } catch (Exception e) {
+                            // One unreadable disk is skipped rather than ending the listing.
+                            logger.warn("[azure-disk] skipped disk {}: {}", disk.name(), e.getMessage());
+                        }
                     });
         } catch (Exception e) {
+            // Swallowed before, so an empty or partial list was cached for two hours (for every user,
+            // and for the dashboard's savings total) and shown as "No Disks Found". Propagate it:
+            // the controller answers 500, the page shows its error panel, and nothing is cached.
             logger.error("[azure-disk] failed to list disks for subscription {}: {}",
                     subscriptionId, e.getMessage(), e);
+            throw new IllegalStateException("Could not list the subscription's managed disks: " + e.getMessage(), e);
         }
         logger.info("[azure-disk] listed {} disks for subscription {}", result.size(), subscriptionId);
         return result;
+    }
+
+    /**
+     * Where each attached managed disk sits on its VM: {@code "os"} for the OS disk, or
+     * {@code "lun<N>"} for a data disk, keyed by lower-case disk resource id.
+     *
+     * <p>The disk agent reports each filesystem with the same label (from the guest's
+     * /dev/disk/azure links), which is how a mount is attributed to an Azure disk. Matching the df
+     * device name ("sda1") against the disk name ("vm_OsDisk_1_…") never succeeded, so no attached
+     * disk ever got a utilisation figure. A failed VM listing leaves the map empty and the old
+     * name match as the only fallback.
+     */
+    private Map<String, String> diskAttachments(AzureResourceManager azure, String subscriptionId) {
+        Map<String, String> byDiskId = new HashMap<>();
+        try {
+            for (com.azure.resourcemanager.compute.models.VirtualMachine vm : azure.virtualMachines().list()) {
+                if (vm.osDiskId() != null) {
+                    byDiskId.put(vm.osDiskId().toLowerCase(Locale.ROOT), "os");
+                }
+                for (com.azure.resourcemanager.compute.models.VirtualMachineDataDisk data : vm.dataDisks().values()) {
+                    if (data.id() != null) {
+                        byDiskId.put(data.id().toLowerCase(Locale.ROOT), "lun" + data.lun());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("[azure-disk] could not list VMs for subscription {} to map disk LUNs: {}",
+                    subscriptionId, e.getMessage());
+        }
+        return byDiskId;
     }
 
     /** Grace period before an unattached disk may be recommended for deletion. */
@@ -330,10 +375,16 @@ public class AzureDiskRightsizingService {
         if (diskState == null) {
             return false;
         }
-        String state = diskState.toLowerCase();
-        return state.contains("activesas") || state.contains("activeupload")
-                || state.contains("attached") || state.contains("reserved");
+        // Whole state names. This used contains("attached"), which also matches "Unattached", so
+        // every unattached disk was treated as mid-export: never recommended for deletion, and
+        // refused if a delete was attempted. Azure's DiskState values are Unattached, Attached,
+        // Reserved, Frozen, ActiveSAS, ActiveSASFrozen, ReadyToUpload and ActiveUpload.
+        return BLOCKING_DISK_STATES.contains(diskState.trim().toLowerCase(Locale.ROOT));
     }
+
+    /** Disk states in which a delete would fail or interrupt an operation (lower-case). */
+    private static final Set<String> BLOCKING_DISK_STATES = Set.of(
+            "attached", "reserved", "frozen", "activesas", "activesasfrozen", "readytoupload", "activeupload");
 
     private Map<String, Object> buildDiskDto(Disk disk) {
         // accountType() yields the catalog name ("Premium_LRS"); DiskSkuTypes.toString() does
@@ -457,8 +508,11 @@ public class AzureDiskRightsizingService {
         // disk's usedPercent produced confident-looking SHRINK/EXPAND sizing for the wrong
         // volume. If no device matches, utilization stays unknown.
         String diskName = disk.name();
-        Map<String, Object> bestMount = null;
-        for (Map<String, Object> mount : agentData.get()) {
+        // First by the Azure position both sides now report ("os" or "lun<N>"). A disk can hold
+        // several filesystems (the OS disk carries /boot and /boot/efi beside /), so take "/" on
+        // the OS disk, otherwise the largest filesystem on that disk.
+        Map<String, Object> bestMount = mountOnAzureDisk(agentData.get(), (String) dto.get("azureDisk"));
+        for (Map<String, Object> mount : bestMount != null ? List.<Map<String, Object>>of() : agentData.get()) {
             String device = (String) mount.get("device");
             String baseDevice = device != null
                     ? device.replaceAll("^/dev/", "").replaceAll("[0-9]+$", "")
@@ -467,6 +521,11 @@ public class AzureDiskRightsizingService {
                 bestMount = mount;
                 break;
             }
+        }
+        if (bestMount != null && bestMount.get("sizeGb") instanceof Number fsSize) {
+            // The filesystem's own size. After an EXPAND the block device is larger, but the
+            // filesystem stays at its old size until it is grown in the guest.
+            dto.put("filesystemSizeGb", Math.round(fsSize.doubleValue() * 100.0) / 100.0);
         }
 
         if (bestMount == null) {
@@ -503,6 +562,30 @@ public class AzureDiskRightsizingService {
                 }
             }
         }
+    }
+
+    /** The agent mount on the disk labelled {@code azureDisk}; null when none is labelled so. */
+    private static Map<String, Object> mountOnAzureDisk(List<Map<String, Object>> mounts, String azureDisk) {
+        if (azureDisk == null) {
+            return null;
+        }
+        Map<String, Object> best = null;
+        for (Map<String, Object> mount : mounts) {
+            if (!azureDisk.equalsIgnoreCase(String.valueOf(mount.get("azureDisk")))) {
+                continue;
+            }
+            if ("os".equals(azureDisk) && "/".equals(mount.get("mountPoint"))) {
+                return mount;
+            }
+            if (best == null || sizeOf(mount) > sizeOf(best)) {
+                best = mount;
+            }
+        }
+        return best;
+    }
+
+    private static double sizeOf(Map<String, Object> mount) {
+        return mount.get("sizeGb") instanceof Number n ? n.doubleValue() : 0.0;
     }
 
     // ── Recommendation engine ─────────────────────────────────────────────────
@@ -563,6 +646,18 @@ public class AzureDiskRightsizingService {
         double usedPct = ((Number) dto.get("usedPercent")).doubleValue();
 
         String region = (String) dto.get("region");
+
+        if (usedPct > policy.expandThresholdPct()
+                && dto.get("filesystemSizeGb") instanceof Number fsGb && fsGb.doubleValue() < sizeGb * 0.9 - 1) {
+            // The disk was already expanded but the guest filesystem was not grown into it, so it
+            // still reads full. Recommending another expand would grow the disk again for nothing.
+            dto.put("recommendation",       "NONE");
+            dto.put("recommendationReason", String.format(Locale.ROOT,
+                    "Filesystem is %.0f GB on this %d GB disk — grow the partition and filesystem inside "
+                            + "the VM (growpart, then resize2fs or xfs_growfs) to use the added space",
+                    fsGb.doubleValue(), sizeGb));
+            return;
+        }
 
         if (usedPct > policy.expandThresholdPct()) {
             int targetSize = policy.targetSizeGb(sizeGb, usedPct);

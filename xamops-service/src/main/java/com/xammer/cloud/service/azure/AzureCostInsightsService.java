@@ -278,17 +278,20 @@ public class AzureCostInsightsService {
             return null;
         }
 
-        // Folded again in Java: one resource appears once per meter category, and the section shows
-        // a resource's total. Costs are summed, and the first non-blank service and region win —
-        // a VM's compute and its bandwidth are the same resource in the same place.
+        // One row per resource and service, as on the AWS page. This folded every row into one per
+        // resource and kept the first meter category, so a VM with compute and bandwidth charges was
+        // listed under one service with both costs and was missing from the other service's drawer.
+        // Where the scope gave no MeterCategory the key is the resource alone, as before.
         Map<String, double[]> costs = new LinkedHashMap<>();
         Map<String, String[]> labels = new LinkedHashMap<>();
         for (Row row : result.rows()) {
             String resourceId = row.dimension("ResourceId");
-            costs.computeIfAbsent(resourceId, k -> new double[1])[0] += row.measure(AzureCostQuery.COST);
-            String[] label = labels.computeIfAbsent(resourceId, k -> new String[2]);
+            String category = row.dimension("MeterCategory");
+            String key = resourceId + '\u0000' + (category == null ? "" : category);
+            costs.computeIfAbsent(key, k -> new double[1])[0] += row.measure(AzureCostQuery.COST);
+            String[] label = labels.computeIfAbsent(key, k -> new String[] {null, null, resourceId});
             if (label[0] == null || label[0].isBlank()) {
-                label[0] = row.dimension("MeterCategory");
+                label[0] = category;
             }
             if (label[1] == null || label[1].isBlank()) {
                 label[1] = row.dimension("ResourceLocation");
@@ -301,8 +304,8 @@ public class AzureCostInsightsService {
             if (Math.abs(cost) < MIN_COST) {
                 continue;
             }
-            String resourceId = entry.getKey();
-            String[] label = labels.getOrDefault(resourceId, new String[2]);
+            String[] label = labels.getOrDefault(entry.getKey(), new String[3]);
+            String resourceId = label[2];
             AzureResourceId parsed = AzureResourceId.parse(resourceId);
             all.add(new ResourceCost(
                     resourceId,

@@ -164,8 +164,10 @@ class AzureDbOpsServiceMetricsTest {
         AzureResourceManager azure = mock(AzureResourceManager.class);
         when(azureClientProvider.getAzureClient(SUB)).thenReturn(azure);
         when(azure.sqlServers()).thenThrow(new RuntimeException("SQL list failed"));
-        // Every REST list endpoint fails (null body).
+        // Every REST list endpoint fails. The collectors page through AzureArmClient.list, which
+        // throws when the first page fails.
         when(armClient.getQuietly(anyString(), any())).thenReturn(Optional.empty());
+        when(armClient.list(anyString(), any())).thenThrow(new AzureArmClient.AzureArmException("HTTP 403"));
 
         ExecutionException ex = assertThrows(ExecutionException.class,
                 () -> service.getDbInventory(SUB, true).get());
@@ -185,6 +187,7 @@ class AzureDbOpsServiceMetricsTest {
         // at least one source succeeded, so an empty result is a valid (cacheable) answer.
         when(azure.sqlServers()).thenThrow(new RuntimeException("SQL list failed"));
         when(armClient.getQuietly(anyString(), any())).thenReturn(Optional.of("{\"value\":[]}"));
+        when(armClient.list(anyString(), any())).thenReturn(Collections.emptyList());
 
         List<DbInstanceDto> result = service.getDbInventory(SUB, true).get();
         assertTrue(result.isEmpty(), "a succeeded scan with no servers yields an empty list");

@@ -54,7 +54,7 @@ const SEVERITY_CONFIG: Record<string, { color: string; bg: string }> = {
 const getSeverityStyle = (s: string) =>
   SEVERITY_CONFIG[s] ?? { color: 'text-gray-600', bg: 'bg-gray-100' };
 
-const GkeSecurityTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
+const GkeSecurityTab: React.FC<{ gkeData: any; cloud?: 'gcp' | 'azure' }> = ({ gkeData, cloud = 'gcp' }) => {
   const { dashboard } = gkeData;
 
   if (!dashboard?.connected) {
@@ -159,6 +159,19 @@ const GkeSecurityTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
                 </div>
               </div>
             )}
+          </div>
+        ) : falcoRunning && cloud === 'azure' ? (
+          /* AKS: the agent reads FalcoSidekick's counters over the last hour, and the installer
+             already enables its metrics, so a quiet hour is just that. */
+          <div className="bg-white rounded-xl border border-green-200 p-8 flex flex-col items-center text-center">
+            <div className="w-14 h-14 bg-green-50 rounded-2xl flex items-center justify-center mb-4 border border-green-200">
+              <i className="fas fa-shield-alt text-green-500 text-2xl"></i>
+            </div>
+            <h4 className="font-bold text-gray-700 mb-1">No Falco Events in the Last Hour</h4>
+            <p className="text-gray-500 text-sm max-w-md">
+              Falco is running in the <code className="bg-gray-100 px-1 rounded text-xs">falco</code> namespace
+              and reported no rule matches in the last hour.
+            </p>
           </div>
         ) : falcoRunning ? (
           /* Falco pods are running but Prometheus isn't scraping yet */

@@ -37,6 +37,8 @@ public class AzureReservationService {
     private static final Logger log = LoggerFactory.getLogger(AzureReservationService.class);
     private static final String RESERVATION_CACHE_PREFIX = "azure:reservations:";
     private static final int CACHE_TTL_MINUTES = 60;
+    /** TTL for a result where part of the read failed, so a recovery is picked up soon. */
+    private static final int PARTIAL_CACHE_TTL_MINUTES = 5;
 
     private static final String ARM_BASE = "https://management.azure.com";
 
@@ -120,14 +122,19 @@ public class AzureReservationService {
      */
     private final HttpClient recommendationsHttpClient;
 
+    /** Billing summary, to learn which reservable services this subscription spends on. */
+    private final AzureBillingDataIngestionService billingIngestionService;
+
     public AzureReservationService(AzureClientProvider clientProvider,
                                    RedisCacheService redisCache,
                                    CachedDataRepository cachedDataRepository,
-                                   AzureArmClient armClient) {
+                                   AzureArmClient armClient,
+                                   AzureBillingDataIngestionService billingIngestionService) {
         this.clientProvider = clientProvider;
         this.redisCache = redisCache;
         this.cachedDataRepository = cachedDataRepository;
         this.armClient = armClient;
+        this.billingIngestionService = billingIngestionService;
         this.recommendationsHttpClient = HttpClient.newBuilder()
                 .connectTimeout(CONNECT_TIMEOUT)
                 .followRedirects(HttpClient.Redirect.NORMAL)
@@ -153,10 +160,16 @@ public class AzureReservationService {
         AzureReservationData data = fetchLiveData(subscriptionId, failed);
         // A failed read returns an empty object, which reads as "no reservations". Caching it kept
         // showing that for the full TTL after Azure recovered.
-        if (!failed.get()) {
-            redisCache.put(cacheKey, data, CACHE_TTL_MINUTES);
-        } else {
+        if (failed.get()) {
             log.warn("Azure reservation fetch for {} failed — not caching the empty result", subscriptionId);
+        } else if (data.getInventoryUnavailableReason() != null
+                || data.getRecommendationsUnavailableReason() != null) {
+            // Part of the read failed (a denied inventory list, a throttled recommendations call).
+            // Holding that for the full hour kept showing the gap after Azure recovered; keep it
+            // briefly, as the AWS page does for partial results.
+            redisCache.put(cacheKey, data, PARTIAL_CACHE_TTL_MINUTES);
+        } else {
+            redisCache.put(cacheKey, data, CACHE_TTL_MINUTES);
         }
         return data;
     }
@@ -173,12 +186,12 @@ public class AzureReservationService {
 
             // --- Reservations (Microsoft.Capacity) ---
             List<AzureReservationData.ReservationItem> reservations =
-                    fetchReservations(bearerToken, subscriptionId);
+                    fetchReservations(bearerToken, subscriptionId, data);
             data.setReservations(reservations);
 
             // --- Savings Plans (Microsoft.BillingBenefits) ---
             List<AzureReservationData.SavingsPlanItem> savingsPlans =
-                    fetchSavingsPlans(bearerToken, subscriptionId);
+                    fetchSavingsPlans(bearerToken, subscriptionId, data);
             data.setSavingsPlans(savingsPlans);
 
             // --- Metrics ---
@@ -187,10 +200,19 @@ public class AzureReservationService {
             // --- Purchase recommendations (Microsoft.Consumption) ---
             buildRecommendations(bearerToken, subscriptionId, data);
             summariseSavings(data, data.getRecommendations());
-            saveReservationPageSnapshot(subscriptionId, data);
+            // The snapshot feeds the BillOps savings total. A failed recommendations read would
+            // overwrite a good snapshot with zero savings, so only a complete read is published.
+            if (data.getRecommendationsUnavailableReason() == null) {
+                saveReservationPageSnapshot(subscriptionId, data);
+            }
 
         } catch (Exception e) {
             failed.set(true);
+            // Said nothing before, so the page read the empty object as "Azure answered: you own no
+            // reservations and have nothing to save".
+            String reason = "Could not read reservation data from Azure: " + e.getMessage();
+            data.setInventoryUnavailableReason(reason);
+            data.setRecommendationsUnavailableReason(reason);
             log.error("Failed to fetch reservation data for {}: {}", subscriptionId, e.getMessage(), e);
         }
 
@@ -239,18 +261,10 @@ public class AzureReservationService {
         data.setTotalMonthlySavings(Math.round(priced * 100.0) / 100.0);
         data.setIndicativeMonthlySavings(Math.round(indicative * 100.0) / 100.0);
 
-        // The cross-provider savings dashboard adds this to AWS and GCP figures, which are USD. Azure
-        // reports in the enrollment's billing currency, and no exchange rate is applied anywhere — so
-        // a non-USD enrollment contributes a number in the wrong unit. Flagged rather than silently
-        // converted with an invented rate.
-        String currency = data.getRecommendationCurrency();
-        if (priced > 0 && currency != null && !"USD".equalsIgnoreCase(currency)) {
-            data.setSavingsUnavailableReason("These savings are in " + currency
-                    + ". Cross-provider savings totals are reported in USD and no conversion is applied, "
-                    + "so this subscription's contribution to the group total is not comparable.");
-            log.warn("Azure reservation savings for this subscription are in {} but the cross-provider "
-                    + "savings total is USD; no conversion is applied", currency);
-        }
+        // A single non-USD currency is not a reason to withhold the total. This used to set
+        // savingsUnavailableReason for any currency other than USD, which hid the "Up to ₹X per
+        // month" headline on every INR subscription. The total is in recommendationCurrency; the
+        // BillOps cross-provider sum converts it to USD itself (ClientSavingsService).
     }
 
     /**
@@ -281,46 +295,112 @@ public class AzureReservationService {
     }
 
     private List<AzureReservationData.ReservationItem> fetchReservations(
-            String bearerToken, String subscriptionId) {
-
-        String uri = "https://management.azure.com/subscriptions/" + subscriptionId
-                + "/providers/Microsoft.Capacity/reservations?api-version=2022-11-01";
-
+            String bearerToken, String subscriptionId, AzureReservationData data) {
         try {
-            // Shared pooled client. A 403 surfaces as an AzureArmException and a 404/other
-            // non-200 as an empty Optional — both map to the empty-list outcome, with the same
-            // 'Reservation Reader' guidance the per-call client logged.
-            Optional<String> body = armClient.get(uri, bearerToken);
-            if (body.isEmpty()) {
-                log.warn("Reservations API returned no data for {}", subscriptionId);
-                return new ArrayList<>();
+            // list() follows nextLink and throws on a failed first page, so a missing role is
+            // reported below instead of reading as "no reservations".
+            List<AzureReservationData.ReservationItem> items = new ArrayList<>();
+            for (JsonNode node : armClient.list(RESERVATIONS_LIST_URL, bearerToken)) {
+                if (appliesToSubscription(node.path("properties"), subscriptionId)) {
+                    items.add(parseReservation(node));
+                }
             }
-            return parseReservations(body.get());
-
+            log.info("Read {} reservations that apply to {}", items.size(), subscriptionId);
+            return items;
         } catch (AzureArmClient.AzureArmException e) {
-            String message = e.getMessage() == null ? "" : e.getMessage();
-            if (message.contains("HTTP 401") || message.contains("HTTP 403")
-                    || message.contains("denied access")) {
-                log.warn("SP lacks 'Reservation Reader' role on subscription {}. " +
-                        "Grant 'Reservation Reader' to enable reservation data.", subscriptionId);
-            } else {
-                log.warn("Reservations API error for {}: {}", subscriptionId, message);
-            }
+            addInventoryProblem(data, describeInventoryFailure("reservations", e));
+            log.warn("Reservations could not be read for {}: {}", subscriptionId, e.getMessage());
             return new ArrayList<>();
         } catch (Exception e) {
+            addInventoryProblem(data, "Reservations could not be read: " + e.getMessage());
             log.error("Error calling Reservations API for {}: {}", subscriptionId, e.getMessage());
             return new ArrayList<>();
         }
     }
 
-    private List<AzureReservationData.ReservationItem> parseReservations(String json) throws Exception {
-        List<AzureReservationData.ReservationItem> items = new ArrayList<>();
-        JsonNode root = objectMapper.readTree(json);
-        JsonNode value = root.path("value");
+    /**
+     * Tenant-level list of reservations the service principal can read, excluding archived ones.
+     *
+     * <p>Reservations are billing objects, not subscription resources: Azure has no
+     * subscription-scoped list operation. The previous
+     * {@code /subscriptions/{id}/providers/Microsoft.Capacity/reservations} URL is not one Azure
+     * serves, and its failure became an empty list, so every subscription showed "No Reservation
+     * Data Available" whatever it owned.
+     */
+    private static final String RESERVATIONS_LIST_URL = ARM_BASE
+            + "/providers/Microsoft.Capacity/reservations?api-version=2022-11-01&$filter="
+            + encodeQueryValue("(properties/archived eq false)");
 
-        if (value.isMissingNode() || !value.isArray()) return items;
+    /** Tenant-level list of savings plans, for the same reason as {@link #RESERVATIONS_LIST_URL}. */
+    private static final String SAVINGS_PLANS_LIST_URL = ARM_BASE
+            + "/providers/Microsoft.BillingBenefits/savingsPlans?api-version=2022-11-01&$filter="
+            + encodeQueryValue("(properties/archived eq false)");
 
-        for (JsonNode node : value) {
+    /**
+     * Whether a reservation or savings plan can apply to this subscription.
+     *
+     * <p>A Single-scoped benefit applies only to the subscription (or resource group) it names, so
+     * one bought for another subscription is left out. Shared and management-group scopes may cover
+     * this subscription — Azure does not list their members — so they are kept, with their scope
+     * shown in the inventory.
+     */
+    static boolean appliesToSubscription(JsonNode props, String subscriptionId) {
+        if (!"Single".equalsIgnoreCase(props.path("appliedScopeType").asText(""))) {
+            return true;
+        }
+        String prefix = "/subscriptions/" + subscriptionId.toLowerCase(java.util.Locale.ROOT);
+        for (JsonNode scope : props.path("appliedScopes")) {
+            if (scope.asText("").toLowerCase(java.util.Locale.ROOT).startsWith(prefix)) {
+                return true;
+            }
+        }
+        JsonNode applied = props.path("appliedScopeProperties");
+        return applied.path("subscriptionId").asText("").toLowerCase(java.util.Locale.ROOT).startsWith(prefix)
+                || applied.path("resourceGroupId").asText("").toLowerCase(java.util.Locale.ROOT).startsWith(prefix);
+    }
+
+    /**
+     * Utilisation from the List All response's {@code utilization.aggregates}: the 30-day figure,
+     * else the 7-day, else the 1-day. Null when Azure sent none.
+     */
+    static Double utilizationPercent(JsonNode utilization) {
+        Double best = null;
+        double bestGrain = -1;
+        for (JsonNode aggregate : utilization.path("aggregates")) {
+            if (!aggregate.path("value").isNumber()) {
+                continue;
+            }
+            double grain = aggregate.path("grain").asDouble(0);
+            if (grain <= 30 && grain > bestGrain) {
+                bestGrain = grain;
+                best = Math.round(aggregate.path("value").asDouble() * 10.0) / 10.0;
+            }
+        }
+        return best;
+    }
+
+    /** Explains a failed inventory read in terms of the role Azure wants. */
+    private static String describeInventoryFailure(String kind, AzureArmClient.AzureArmException e) {
+        String message = e.getMessage() == null ? "" : e.getMessage();
+        if (message.contains("HTTP 401") || message.contains("HTTP 403") || message.contains("denied access")) {
+            return "Azure denied access to " + kind + ". Reservations and savings plans are read at "
+                    + "tenant level: assign 'Reservations Reader' (on /providers/Microsoft.Capacity) and "
+                    + "'Savings plan Reader' (on /providers/Microsoft.BillingBenefits), or a reader role on "
+                    + "the reservation or savings plan orders, to the XamOps service principal.";
+        }
+        if (message.contains("HTTP 429")) {
+            return "Azure rate-limited the " + kind + " request; it will be retried on the next refresh.";
+        }
+        return "Azure returned an error for " + kind + ": " + message;
+    }
+
+    private static void addInventoryProblem(AzureReservationData data, String problem) {
+        String existing = data.getInventoryUnavailableReason();
+        data.setInventoryUnavailableReason(existing == null ? problem : existing + " " + problem);
+    }
+
+    private AzureReservationData.ReservationItem parseReservation(JsonNode node) {
+        {
             AzureReservationData.ReservationItem item = new AzureReservationData.ReservationItem();
 
             item.setReservationId(node.path("id").asText(""));
@@ -346,57 +426,41 @@ public class AzureReservationService {
             // reads as a completely unused reservation — an expensive, urgent finding — when the
             // truth is only that this endpoint does not report consumption. Utilization needs the
             // Consumption reservation-summaries API at a billing scope.
-            item.setUtilizationPercentage(null);
-            item.setUtilizationUnavailableReason("Azure's reservation list endpoint does not report "
-                    + "consumption. Utilization requires the Consumption reservation-summaries API at a "
-                    + "billing scope, which is not available for every subscription type.");
+            //
+            // List All does report it, as utilization.aggregates; use that when it is there.
+            Double utilization = utilizationPercent(props.path("utilization"));
+            item.setUtilizationPercentage(utilization);
+            item.setUtilizationUnavailableReason(utilization != null ? null
+                    : "Azure did not report utilization for this reservation.");
 
-            items.add(item);
+            return item;
         }
-
-        log.info("Parsed {} reservations", items.size());
-        return items;
     }
 
     private List<AzureReservationData.SavingsPlanItem> fetchSavingsPlans(
-            String bearerToken, String subscriptionId) {
-
-        String uri = "https://management.azure.com/subscriptions/" + subscriptionId
-                + "/providers/Microsoft.BillingBenefits/savingsPlans?api-version=2022-11-01";
-
+            String bearerToken, String subscriptionId, AzureReservationData data) {
         try {
-            // Shared pooled client; 403 -> empty list, other non-200 -> empty list, as before.
-            Optional<String> body = armClient.get(uri, bearerToken);
-            if (body.isEmpty()) {
-                log.warn("Savings Plans API returned no data for {}", subscriptionId);
-                return new ArrayList<>();
+            List<AzureReservationData.SavingsPlanItem> items = new ArrayList<>();
+            for (JsonNode node : armClient.list(SAVINGS_PLANS_LIST_URL, bearerToken)) {
+                if (appliesToSubscription(node.path("properties"), subscriptionId)) {
+                    items.add(parseSavingsPlan(node));
+                }
             }
-            return parseSavingsPlans(body.get());
-
+            log.info("Read {} savings plans that apply to {}", items.size(), subscriptionId);
+            return items;
         } catch (AzureArmClient.AzureArmException e) {
-            String message = e.getMessage() == null ? "" : e.getMessage();
-            if (message.contains("HTTP 401") || message.contains("HTTP 403")
-                    || message.contains("denied access")) {
-                log.warn("SP lacks 'Reservation Reader' role on subscription {}. " +
-                        "Savings Plans data unavailable.", subscriptionId);
-            } else {
-                log.warn("Savings Plans API error for {}: {}", subscriptionId, message);
-            }
+            addInventoryProblem(data, describeInventoryFailure("savings plans", e));
+            log.warn("Savings plans could not be read for {}: {}", subscriptionId, e.getMessage());
             return new ArrayList<>();
         } catch (Exception e) {
+            addInventoryProblem(data, "Savings plans could not be read: " + e.getMessage());
             log.error("Error calling Savings Plans API for {}: {}", subscriptionId, e.getMessage());
             return new ArrayList<>();
         }
     }
 
-    private List<AzureReservationData.SavingsPlanItem> parseSavingsPlans(String json) throws Exception {
-        List<AzureReservationData.SavingsPlanItem> items = new ArrayList<>();
-        JsonNode root = objectMapper.readTree(json);
-        JsonNode value = root.path("value");
-
-        if (value.isMissingNode() || !value.isArray()) return items;
-
-        for (JsonNode node : value) {
+    private AzureReservationData.SavingsPlanItem parseSavingsPlan(JsonNode node) {
+        {
             AzureReservationData.SavingsPlanItem item = new AzureReservationData.SavingsPlanItem();
 
             item.setSavingsPlanId(node.path("id").asText(""));
@@ -412,15 +476,13 @@ public class AzureReservationService {
             // Commitment: hourly amount
             JsonNode commitment = props.path("commitment");
             String amount = commitment.path("amount").asText("0");
-            String currency = commitment.path("currencyCode").asText("INR");
-            item.setCommitment(amount + " " + currency + "/hr");
+            // Defaulted to "INR" when Azure sent no code, inventing a currency for the figure.
+            String currency = commitment.path("currencyCode").asText("");
+            item.setCommitment(amount + " " + (currency.isBlank() ? "(currency not reported)" : currency) + "/hr");
             item.setPaymentOption(props.path("billingPlan").asText("Upfront"));
 
-            items.add(item);
+            return item;
         }
-
-        log.info("Parsed {} savings plans", items.size());
-        return items;
     }
 
     private AzureReservationData.ReservationMetrics buildMetrics(
@@ -474,104 +536,31 @@ public class AzureReservationService {
             String subscriptionId, AzureReservationData data) {
 
         List<RawRecommendation> raw = new ArrayList<>();
+        List<String> unchecked = new ArrayList<>();
 
-        String uri = ARM_BASE + "/subscriptions/" + subscriptionId
-                + "/providers/Microsoft.Consumption/reservationRecommendations"
-                + "?api-version=" + RECOMMENDATIONS_API_VERSION
-                + "&$filter=" + encodeQueryValue("properties/lookBackPeriod eq '" + REQUESTED_LOOKBACK + "'");
-
-        boolean filtered = true;
-        int page = 0;
-        boolean truncated = false;
-
-        try {
-            while (uri != null) {
-                if (page >= MAX_RECOMMENDATION_PAGES) {
-                    truncated = true;
-                    break;
-                }
-                page++;
-                // Reused, timeout-configured client (see recommendationsHttpClient). The 400
-                // (retry unfiltered) / 204 (stop) / other-non-200 (report reason) branches below
-                // all depend on reading the exact status, which the shared armClient collapses —
-                // so this one loop keeps direct access to the HttpResponse.
-                HttpResponse<String> response = recommendationsHttpClient.send(
-                        HttpRequest.newBuilder()
-                                .uri(URI.create(uri))
-                                .header("Authorization", "Bearer " + bearerToken)
-                                .header("Content-Type", "application/json")
-                                .GET()
-                                .build(),
-                        HttpResponse.BodyHandlers.ofString());
-
-                int status = response.statusCode();
-                log.info("Reservation recommendations API status: {} for {} (page {})",
-                        status, subscriptionId, page);
-
-                if (status == 400 && filtered) {
-                    // Not every subscription offer supports the lookBackPeriod filter. Retry
-                    // unfiltered rather than reporting nothing; every row carries its own window,
-                    // so normalisation below still produces a correct monthly figure.
-                    //
-                    // Rows from the filtered attempt are discarded and the page counter is left
-                    // alone: keeping them fed duplicates into the term-collapse (skewing
-                    // termsConsidered), and resetting the counter doubled the request budget to 39
-                    // sequential ARM calls.
-                    log.info("Look-back filter rejected for {} — retrying unfiltered", subscriptionId);
-                    filtered = false;
-                    raw.clear();
-                    uri = ARM_BASE + "/subscriptions/" + subscriptionId
-                            + "/providers/Microsoft.Consumption/reservationRecommendations"
-                            + "?api-version=" + RECOMMENDATIONS_API_VERSION;
-                    continue;
-                }
-
-                if (status == 204) {
-                    break;
-                }
-
-                if (status != 200) {
-                    data.setRecommendationsUnavailableReason(
-                            describeRecommendationFailure(status, response.body()));
-                    log.warn("Reservation recommendations unavailable for {}: {} — {}",
-                            subscriptionId, status, data.getRecommendationsUnavailableReason());
-                    return;
-                }
-
-                JsonNode root = objectMapper.readTree(response.body());
-                JsonNode value = root.path("value");
-                if (value.isArray()) {
-                    for (JsonNode node : value) {
-                        RawRecommendation parsed = parseRecommendation(node);
-                        if (parsed != null) {
-                            raw.add(parsed);
-                        }
-                    }
-                }
-
-                String next = root.path("nextLink").asText("");
-                uri = next.isBlank() ? null : next;
+        // Azure answers for one resource type per request and defaults to virtual machines, so a
+        // single request returned VM reservations only: on a subscription whose largest line is
+        // PostgreSQL the tab still said nothing qualified. Ask for VMs, then for every reservable
+        // type the subscription actually spends on.
+        for (String resourceType : reservableResourceTypes(subscriptionId)) {
+            boolean primary = PRIMARY_RESOURCE_TYPE.equals(resourceType);
+            RecommendationFetch fetch = fetchRecommendationRows(bearerToken, subscriptionId, resourceType, primary);
+            raw.addAll(fetch.rows());
+            if (fetch.problem() == null) {
+                continue;
             }
-
-            if (truncated) {
-                // The savings total computed below reaches the cross-provider savings dashboard, so a
-                // partial read has to be declared. Reporting it silently published a floor as though
-                // it were the whole figure. (This is only reached on a real page-cap; a 204 exits the
-                // loop with `uri` still set, which is why the flag exists rather than an `uri != null`
-                // check.)
-                log.warn("Stopped following reservation recommendation pages for {} after {} pages",
-                        subscriptionId, MAX_RECOMMENDATION_PAGES);
-                data.setRecommendationsUnavailableReason("Azure returned more reservation recommendations "
-                        + "than XamOps reads in one pass (" + MAX_RECOMMENDATION_PAGES + " pages). The "
-                        + "recommendations and savings shown are a partial view.");
+            if (primary && fetch.rows().isEmpty()) {
+                // As before: when the first request fails (missing role, unsupported offer, throttled)
+                // that is the answer for the whole tab.
+                data.setRecommendationsUnavailableReason(fetch.problem());
+                log.warn("Reservation recommendations unavailable for {}: {}", subscriptionId, fetch.problem());
+                return;
             }
-
-        } catch (Exception e) {
-            data.setRecommendationsUnavailableReason(
-                    "Could not reach Azure's reservation recommendations API: " + e.getMessage());
-            log.error("Error calling reservation recommendations API for {}: {}",
-                    subscriptionId, e.getMessage());
-            return;
+            unchecked.add(resourceTypeLabel(resourceType) + ": " + fetch.problem());
+        }
+        if (!unchecked.isEmpty()) {
+            data.setRecommendationsUnavailableReason("Some services could not be fully checked, so the "
+                    + "recommendations and savings shown are a partial view. " + String.join(" ", unchecked));
         }
 
         List<AzureReservationData.ReservationRecommendation> recommendations = collapse(raw);
@@ -601,6 +590,185 @@ public class AzureReservationService {
             log.info("Parsed {} Azure reservation recommendations for {} from {} rows",
                     recommendations.size(), subscriptionId, raw.size());
         }
+    }
+
+    /** The resource type Azure defaults to; always requested, and requested first. */
+    private static final String PRIMARY_RESOURCE_TYPE = "VirtualMachines";
+
+    /** Per-request timeout. The client had only a connect timeout, so a stalled response could hang. */
+    private static final java.time.Duration REQUEST_TIMEOUT = java.time.Duration.ofSeconds(60);
+
+    /** Attempts per request when Azure answers 429 or 5xx. */
+    private static final int MAX_ATTEMPTS = 3;
+
+    /**
+     * Cost Management service names (billing summary) mapped to the reservation resource types Azure
+     * accepts in {@code properties/resourceType}.
+     */
+    private static final java.util.Map<String, List<String>> RESERVABLE_TYPES_BY_SERVICE = java.util.Map.ofEntries(
+            java.util.Map.entry("sql database", List.of("SQLDatabases")),
+            java.util.Map.entry("sql managed instance", List.of("SQLDatabases")),
+            java.util.Map.entry("azure database for postgresql", List.of("PostgreSQL")),
+            java.util.Map.entry("azure database for mysql", List.of("MySQL")),
+            java.util.Map.entry("azure database for mariadb", List.of("MariaDB")),
+            java.util.Map.entry("azure cosmos db", List.of("CosmosDB")),
+            java.util.Map.entry("redis cache", List.of("RedisCache")),
+            java.util.Map.entry("azure cache for redis", List.of("RedisCache")),
+            java.util.Map.entry("azure app service", List.of("AppService")),
+            java.util.Map.entry("storage", List.of("BlockBlob", "ManagedDisk")),
+            java.util.Map.entry("azure synapse analytics", List.of("SqlDataWarehouse")),
+            java.util.Map.entry("sql data warehouse", List.of("SqlDataWarehouse")),
+            java.util.Map.entry("azure data explorer", List.of("AzureDataExplorer")));
+
+    /** Virtual machines first, then the reservable types matching services this subscription pays for. */
+    private List<String> reservableResourceTypes(String subscriptionId) {
+        java.util.LinkedHashSet<String> types = new java.util.LinkedHashSet<>();
+        types.add(PRIMARY_RESOURCE_TYPE);
+        try {
+            billingIngestionService.readBillingSummary(subscriptionId).ifPresent(summary -> summary.stream()
+                    .filter(s -> s.getCost() > 0 && s.getService() != null)
+                    .map(s -> RESERVABLE_TYPES_BY_SERVICE.get(s.getService().trim().toLowerCase(java.util.Locale.ROOT)))
+                    .filter(java.util.Objects::nonNull)
+                    .forEach(types::addAll));
+        } catch (Exception e) {
+            log.debug("No billing summary for {}; asking for VM reservations only: {}", subscriptionId, e.getMessage());
+        }
+        return new ArrayList<>(types);
+    }
+
+    private static String resourceTypeLabel(String resourceType) {
+        return RESOURCE_TYPE_LABELS.getOrDefault(resourceType.toLowerCase(java.util.Locale.ROOT), resourceType);
+    }
+
+    /** Rows read for one resource type, and why the read stopped short (null when it did not). */
+    private record RecommendationFetch(List<RawRecommendation> rows, String problem) {}
+
+    /**
+     * Reads every page of recommendations for one resource type.
+     *
+     * <p>The 400 (retry without the look-back filter) / 204 (stop) / other-non-200 (report the
+     * reason) branches need the exact status, which the shared armClient collapses, so this keeps
+     * direct access to the HttpResponse. For a type other than virtual machines, a 400 or 404 means
+     * Azure does not offer that reservation for this subscription and is skipped quietly.
+     */
+    private RecommendationFetch fetchRecommendationRows(String bearerToken, String subscriptionId,
+            String resourceType, boolean primary) {
+        String base = ARM_BASE + "/subscriptions/" + subscriptionId
+                + "/providers/Microsoft.Consumption/reservationRecommendations"
+                + "?api-version=" + RECOMMENDATIONS_API_VERSION;
+        String typeFilter = "properties/resourceType eq '" + resourceType + "'";
+        String uri = base + "&$filter=" + encodeQueryValue(
+                "properties/lookBackPeriod eq '" + REQUESTED_LOOKBACK + "' AND " + typeFilter);
+
+        List<RawRecommendation> rows = new ArrayList<>();
+        boolean filtered = true;
+        int page = 0;
+        try {
+            while (uri != null) {
+                if (page >= MAX_RECOMMENDATION_PAGES) {
+                    // The savings total reaches the cross-provider savings dashboard, so a partial read
+                    // has to be declared rather than published as though it were the whole figure.
+                    log.warn("Stopped following {} reservation recommendation pages for {} after {} pages",
+                            resourceType, subscriptionId, MAX_RECOMMENDATION_PAGES);
+                    return new RecommendationFetch(rows, "Azure returned more recommendations than XamOps "
+                            + "reads in one pass (" + MAX_RECOMMENDATION_PAGES + " pages).");
+                }
+                page++;
+                HttpResponse<String> response = sendRecommendationsRequest(uri, bearerToken);
+                int status = response.statusCode();
+                log.info("Reservation recommendations API status: {} for {} {} (page {})",
+                        status, subscriptionId, resourceType, page);
+
+                if (status == 400 && filtered) {
+                    // Not every subscription offer supports the look-back filter. Retry with the type
+                    // alone (Azure's default window); every row carries its own window, so the
+                    // normalisation below still produces a correct monthly figure. Rows from the
+                    // filtered attempt are discarded so the term-collapse sees no duplicates.
+                    log.info("Look-back filter rejected for {} {} — retrying without it", subscriptionId, resourceType);
+                    filtered = false;
+                    rows.clear();
+                    uri = base + "&$filter=" + encodeQueryValue(typeFilter);
+                    continue;
+                }
+                if (status == 204) {
+                    break;
+                }
+                if (!primary && (status == 400 || status == 404)) {
+                    log.info("Azure offers no {} reservation recommendations for {} (HTTP {})",
+                            resourceType, subscriptionId, status);
+                    return new RecommendationFetch(rows, null);
+                }
+                if (status != 200) {
+                    return new RecommendationFetch(rows, describeRecommendationFailure(status, response.body()));
+                }
+
+                JsonNode root = objectMapper.readTree(response.body());
+                JsonNode value = root.path("value");
+                if (value.isArray()) {
+                    for (JsonNode node : value) {
+                        RawRecommendation parsed = parseRecommendation(node);
+                        if (parsed != null) {
+                            rows.add(parsed);
+                        }
+                    }
+                }
+                String next = root.path("nextLink").asText("");
+                uri = next.isBlank() ? null : next;
+            }
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            log.error("Error calling reservation recommendations API for {} {}: {}",
+                    subscriptionId, resourceType, e.getMessage());
+            return new RecommendationFetch(rows,
+                    "Could not reach Azure's reservation recommendations API: " + e.getMessage());
+        }
+        return new RecommendationFetch(rows, null);
+    }
+
+    /**
+     * One recommendations request, retried on 429 and 5xx honouring Azure's retry-after.
+     *
+     * <p>A single 429 used to become "rate-limited" on the tab, and that result was cached for an
+     * hour.
+     */
+    private HttpResponse<String> sendRecommendationsRequest(String uri, String bearerToken) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(uri))
+                .timeout(REQUEST_TIMEOUT)
+                .header("Authorization", "Bearer " + bearerToken)
+                .header("Content-Type", "application/json")
+                .GET()
+                .build();
+        HttpResponse<String> response = recommendationsHttpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        for (int attempt = 2; attempt <= MAX_ATTEMPTS
+                && (response.statusCode() == 429 || response.statusCode() >= 500); attempt++) {
+            long waitSeconds = Math.min(30L, retryAfterSeconds(response).orElse(2L * attempt));
+            log.info("Reservation recommendations returned HTTP {}; retrying in {}s (attempt {}/{})",
+                    response.statusCode(), waitSeconds, attempt, MAX_ATTEMPTS);
+            Thread.sleep(waitSeconds * 1000L);
+            response = recommendationsHttpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        }
+        return response;
+    }
+
+    /** Seconds from a Retry-After header, including Azure's x-ms-ratelimit-…-retry-after variants. */
+    private static java.util.OptionalLong retryAfterSeconds(HttpResponse<?> response) {
+        for (java.util.Map.Entry<String, List<String>> header : response.headers().map().entrySet()) {
+            String name = header.getKey() == null ? "" : header.getKey().toLowerCase(java.util.Locale.ROOT);
+            if (!name.endsWith("retry-after")) {
+                continue;
+            }
+            for (String value : header.getValue()) {
+                try {
+                    return java.util.OptionalLong.of(Math.max(1L, Long.parseLong(value.trim())));
+                } catch (NumberFormatException ignored) {
+                    // An HTTP-date form; fall back to the default backoff.
+                }
+            }
+        }
+        return java.util.OptionalLong.empty();
     }
 
     /** One row of the API response, before alternative terms and scopes are collapsed. */

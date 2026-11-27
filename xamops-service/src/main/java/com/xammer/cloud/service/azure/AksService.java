@@ -13,7 +13,7 @@ import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -71,10 +71,10 @@ public class AksService {
 
         log.info("Fetching AKS clusters from Azure API for subscription: {}", subscriptionId);
 
-        try {
-            CloudAccount account = cloudAccountRepository.findByAzureSubscriptionId(subscriptionId)
-                    .orElseThrow(() -> new RuntimeException("Azure account not found: " + subscriptionId));
+        CloudAccount account = cloudAccountRepository.findByAzureSubscriptionId(subscriptionId)
+                .orElseThrow(() -> new IllegalStateException("Azure account not found: " + subscriptionId));
 
+        try {
             AzureResourceManager azure = azureClientProvider.getAzureClient(subscriptionId);
 
             // A cluster counts as connected if EITHER data source is live.
@@ -91,13 +91,21 @@ public class AksService {
                     .stream()
                     .filter(c -> c.getPrometheusUrl() != null && !c.getPrometheusUrl().isBlank())
                     .map(KubernetesCluster::getClusterName)
-                    .collect(Collectors.toSet());
+                    .collect(Collectors.toCollection(HashSet::new));
 
+            // Agent data rows are kept for 14 days, so their mere existence said "Connected" for two
+            // weeks after an agent stopped. Connected now also needs a check-in within 15 minutes,
+            // the same liveness rule the EKS side uses (KubernetesClusterConfig.isAgentActive).
+            Set<String> staleNames = new HashSet<>();
             kubernetesClusterConfigRepository.findByCloudAccountId(account.getId())
                     .forEach(cfg -> {
                         try {
                             if (agentDataTransformerService.hasAgentData(cfg.getId())) {
-                                connectedNames.add(cfg.getClusterName());
+                                if (cfg.isAgentActive()) {
+                                    connectedNames.add(cfg.getClusterName());
+                                } else {
+                                    staleNames.add(cfg.getClusterName());
+                                }
                             }
                         } catch (Exception e) {
                             log.warn("Could not check agent data for cluster {}: {}",
@@ -120,14 +128,22 @@ public class AksService {
                                 }
                             } catch (Exception ignored) {}
 
+                            String power = null;
+                            try {
+                                power = AksDashboardService.powerStateCode(aks.powerState());
+                            } catch (Exception ignored) {}
+
+                            boolean connected = connectedNames.contains(aks.name());
                             return AksClusterDto.builder()
                                     .name(aks.name())
                                     .resourceGroup(aks.resourceGroupName())
                                     .location(aks.regionName())
                                     .kubernetesVersion(aks.version())
                                     .provisioningState(state)
+                                    .powerState(power)
                                     .nodeCount(nodeCount)
-                                    .connected(connectedNames.contains(aks.name()))
+                                    .connected(connected)
+                                    .agentStale(!connected && staleNames.contains(aks.name()))
                                     .build();
                         } catch (Exception e) {
                             log.warn("Failed to map AKS cluster {}: {}", aks.name(), e.getMessage());
@@ -147,9 +163,16 @@ public class AksService {
             return result;
 
         } catch (Exception e) {
+            // Returning an empty list here made a permissions or network failure read as
+            // "No AKS clusters found". Fail instead, so the page can say the list could not be read.
             log.error("Failed to fetch AKS clusters for subscription {}: {}", subscriptionId, e.getMessage());
-            return Collections.emptyList();
+            throw new IllegalStateException("Could not list AKS clusters from Azure: " + e.getMessage(), e);
         }
+    }
+
+    /** Drops the cached cluster list, e.g. after a cluster turned out to be deleted in Azure. */
+    public void evictClusters(String subscriptionId) {
+        redisCacheService.evict(CACHE_PREFIX + subscriptionId);
     }
 
     public void savePrometheusUrl(String subscriptionId, String clusterName, String prometheusUrl) {

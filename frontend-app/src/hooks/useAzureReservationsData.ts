@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { AzureReservationData } from '../types/azureReservations';
 
 const EMPTY_DATA: AzureReservationData = {
@@ -18,6 +18,7 @@ const EMPTY_DATA: AzureReservationData = {
   recommendationCurrency: null,
   mixedCurrencies: false,
   savingsUnavailableReason: null,
+  inventoryUnavailableReason: null,
 };
 
 interface UseAzureReservationsDataReturn {
@@ -31,13 +32,21 @@ export const useAzureReservationsData = (
   selectedAccountId: string | null
 ): UseAzureReservationsDataReturn => {
   const [data, setData] = useState<AzureReservationData>(EMPTY_DATA);
-  const [isLoading, setIsLoading] = useState(false);
+  // Starts true when a subscription is selected, so the first frame is the skeleton rather than
+  // a flash of "No Reservation Data Available".
+  const [isLoading, setIsLoading] = useState(Boolean(selectedAccountId));
   const [error, setError] = useState<Error | null>(null);
+  // Each request gets a number; only the latest one may write state. Without this a slow response
+  // for the previous subscription could land after a switch and show its reservations under the
+  // new one.
+  const requestSeq = useRef(0);
 
   const fetchData = useCallback(
     async (forceRefresh = false) => {
+      const requestId = ++requestSeq.current;
       if (!selectedAccountId) {
         setData(EMPTY_DATA);
+        setIsLoading(false);
         return;
       }
 
@@ -58,6 +67,7 @@ export const useAzureReservationsData = (
         }
 
         const json: AzureReservationData = await response.json();
+        if (requestId !== requestSeq.current) return;
         setData({
           reservations: json.reservations ?? [],
           savingsPlans: json.savingsPlans ?? [],
@@ -72,19 +82,23 @@ export const useAzureReservationsData = (
           recommendationCurrency: json.recommendationCurrency ?? null,
           mixedCurrencies: json.mixedCurrencies ?? false,
           savingsUnavailableReason: json.savingsUnavailableReason ?? null,
+          inventoryUnavailableReason: json.inventoryUnavailableReason ?? null,
         });
       } catch (err) {
+        if (requestId !== requestSeq.current) return;
         console.error('[AzureReservations] Failed to load data:', err);
         setError(err instanceof Error ? err : new Error('Failed to load reservation data'));
         setData(EMPTY_DATA);
       } finally {
-        setIsLoading(false);
+        if (requestId === requestSeq.current) setIsLoading(false);
       }
     },
     [selectedAccountId]
   );
 
   useEffect(() => {
+    // A new subscription starts from nothing rather than showing the previous one's data.
+    setData(EMPTY_DATA);
     fetchData(false);
   }, [fetchData]);
 

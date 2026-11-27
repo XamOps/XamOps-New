@@ -101,6 +101,18 @@ public class AzureFinOpsService {
     public AzureFinOpsReportDto getFinOpsReport(String subscriptionId, boolean forceRefresh) {
         logger.info("Generating Azure FinOps report for subscription: {} (forceRefresh={})", subscriptionId, forceRefresh);
 
+        if (forceRefresh) {
+            // Refresh reached rightsizing, waste and anomalies but not spend: the KPIs and charts
+            // below read the daily ingestion cache, so they stayed up to a day old. Re-ingest first,
+            // as the dashboard's refresh does. A failed ingestion leaves the cache as it was.
+            try {
+                cloudAccountRepository.findByAzureSubscriptionId(subscriptionId)
+                        .ifPresent(billingIngestionService::ingestDataForAccount);
+            } catch (Exception e) {
+                logger.warn("Billing re-ingestion failed for {} during FinOps refresh: {}", subscriptionId, e.getMessage());
+            }
+        }
+
         AzureFinOpsReportDto report = new AzureFinOpsReportDto();
         AzureFinOpsReportDto.Kpis kpis = new AzureFinOpsReportDto.Kpis();
 
@@ -151,13 +163,21 @@ public class AzureFinOpsService {
                 if (labels != null && costs != null && forecastFlags != null && labels.size() == costs.size()) {
 
                     // Calculate Forecasted Spend (where anomaly is true)
+                    boolean hasForecastPoint = IntStream.range(0, labels.size())
+                        .anyMatch(i -> Boolean.TRUE.equals(forecastFlags.get(i)));
                     double totalForecast = IntStream.range(0, labels.size())
                         .filter(i -> Boolean.TRUE.equals(forecastFlags.get(i))) // Filter FOR forecast data
                         .mapToDouble(costs::get)
                         .sum();
-                    
-                    kpis.setForecastedSpend(totalForecast);
-                    logger.info("Extracted forecast from cached cost history for {}: ${}", subscriptionId, totalForecast);
+
+                    if (hasForecastPoint) {
+                        kpis.setForecastedSpend(totalForecast);
+                        logger.info("Extracted forecast from cached cost history for {}: {}", subscriptionId, totalForecast);
+                    } else {
+                        // No projected point (e.g. on the 1st, before the month has any spend). Summing
+                        // nothing reported a measured ₹0.00 forecast; leave it unset and say why.
+                        kpiGaps.add("forecast (no projection for the current month yet)");
+                    }
 
                     // Calculate MoM/YoY (where anomaly is false)
                     Map<String, Double> historyMap = IntStream.range(0, labels.size())
@@ -252,8 +272,10 @@ public class AzureFinOpsService {
 
         // --- STEP 3: Get Cost by Region ---
         try {
-            Optional<Map<String, Double>> costByRegionOpt = 
-                redisCacheService.get(regionCacheKey, new TypeReference<Map<String, Double>>() {});
+            // Redis, then the database mirror, like every other cost read in this report. A cold
+            // Redis key left the region chart empty while the totals still showed.
+            Optional<Map<String, Double>> costByRegionOpt =
+                billingIngestionService.readCostByRegion(subscriptionId);
 
             if (costByRegionOpt.isPresent()) {
                 Map<String, Double> costByRegion = costByRegionOpt.get();

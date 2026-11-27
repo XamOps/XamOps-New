@@ -103,16 +103,21 @@ export const AzureReservationsPage: React.FC = () => {
                       <div className="w-20 h-20 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center mb-5 shadow-sm">
                         <i className="fas fa-inbox text-gray-400 text-3xl"></i>
                       </div>
+                      {/* A failed or denied read now says so instead of claiming there is nothing. */}
                       <h3 className="text-xl font-black text-gray-800 mb-2">
-                        No Reservation Data Available
+                        {data.inventoryUnavailableReason ? 'Reservation Data Unavailable' : 'No Reservation Data Available'}
                       </h3>
                       <p className="text-gray-500 text-sm mb-2 max-w-md">
-                        No Reserved Instances or Savings Plans were found for this subscription.
+                        {data.inventoryUnavailableReason
+                          ?? 'No Reserved Instances or Savings Plans apply to this subscription.'}
                       </p>
-                      <p className="text-gray-400 text-xs mb-6">
-                        If you have reservations, ensure the service principal has the{' '}
-                        <strong>"Reservation Reader"</strong> role on the subscription.
-                      </p>
+                      {!data.inventoryUnavailableReason && (
+                        <p className="text-gray-400 text-xs mb-6">
+                          Reservations and savings plans are read at tenant level. If you have some, ensure the
+                          service principal has <strong>"Reservations Reader"</strong> and{' '}
+                          <strong>"Savings plan Reader"</strong> (or a reader role on the orders).
+                        </p>
+                      )}
                       <button
                         onClick={refresh}
                         className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white text-sm font-semibold rounded-lg shadow-md hover:shadow-lg transition-all active:scale-95 transform"

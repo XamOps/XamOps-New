@@ -140,7 +140,7 @@ const Sidebar: React.FC = () => {
       '/finops', '/gcp-finops', '/azure-finops', '/waste', '/gcp-waste', '/azure-waste',
       '/rightsizing', '/gcp-rightsizing', '/azure-rightsizing', '/ebs-rightsizing', '/gcp-disk-rightsizing',
       '/cloudsitter', '/gcp-cloudsitter', '/azure-cloudsitter', '/flex-compute', '/autospotting', '/gcp-autospotting'];
-    const cloudopsRoutes = ['/cloudk8s', '/gcp-cloudk8s', '/azure-cloudk8s', '/eks-details',
+    const cloudopsRoutes = ['/cloudk8s', '/gcp-cloudk8s', '/azure-cloudk8s', '/eks-details', '/aks-details',
       '/sonarqube', '/cicd-pipelines', '/devops-in-the-box', '/aiops', '/dataops', '/gcp-dataops', '/azure-dataops', '/ebs-rightsizing'];
     const ticketsRoutes = ['/tickets', '/billops-tickets'];
     const secopsRoutes = ['/xamsecure', '/xamlens', '/security', '/gcp-security', '/azure-security', '/war', '/gcp-war', '/azure-war', '/complianceops', '/soc2-program',
@@ -400,7 +400,7 @@ const Sidebar: React.FC = () => {
                     like XamSecure below. */}
                 {isXamTabAllowed('cloudops-cloudk8s') && (
                   <>
-                    <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cloudk8s' : selectedAccountDisplay.provider === 'Azure' ? '/azure-cloudk8s' : '/cloudk8s'} icon="fas fa-dharmachakra" label="CloudK8s" isActive={isActive('/cloudk8s') || isActive('/eks-details')} />
+                    <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cloudk8s' : selectedAccountDisplay.provider === 'Azure' ? '/azure-cloudk8s' : '/cloudk8s'} icon="fas fa-dharmachakra" label="CloudK8s" isActive={isActive('/cloudk8s') || isActive('/eks-details') || isActive('/azure-cloudk8s') || isActive('/aks-details')} />
                     <ClusterSectionsNav dark={theme === 'dark'} />
                   </>
                 )}

@@ -50,6 +50,29 @@ public class AzureCloudsitterService {
     @Lazy
     private AzureCloudsitterService self;
 
+    /** DB lease so only one instance runs each enforcement cycle. */
+    @Autowired(required = false)
+    private com.xammer.cloud.service.upwind.UpwindSyncLease schedulerLease;
+
+    /** Azure list prices (USD), for each VM's 24/7 run cost on the page. */
+    @Autowired(required = false)
+    private AzureRetailPricingService retailPricingService;
+
+    /** Converts those USD prices into the subscription's billing currency. */
+    @Autowired(required = false)
+    private AzureBillingCurrencyService billingCurrencyService;
+
+    /**
+     * AWS and GCP assignments. Policies live in one table shared by all three clouds, so these are
+     * read to keep the Azure page from listing, editing or deleting a policy that schedules EC2 or
+     * GCE instances.
+     */
+    @Autowired(required = false)
+    private CloudsitterAssignmentRepository awsAssignmentRepo;
+
+    @Autowired(required = false)
+    private GcpCloudsitterAssignmentRepository gcpAssignmentRepo;
+
     public AzureCloudsitterService(AzureCloudsitterAssignmentRepository assignmentRepo,
                                     CloudsitterPolicyRepository policyRepo,
                                     CloudAccountRepository accountRepo,
@@ -68,9 +91,55 @@ public class AzureCloudsitterService {
 
     // --- UI METHODS ---
 
+    /**
+     * Policies the Azure page can use: every policy except those scheduling AWS or GCP instances and
+     * no Azure VM. The table is shared by the three clouds, so this listed EC2 and GCE policies too,
+     * and assigning or editing one from here changed those instances' schedules.
+     */
     @Transactional(readOnly = true)
     public List<CloudsitterPolicy> getAllPolicies() {
-        return policyRepo.findAll();
+        Set<Long> otherClouds = policyIdsUsedByOtherClouds();
+        if (otherClouds.isEmpty()) {
+            return policyRepo.findAll();
+        }
+        Set<Long> azureUsed = assignmentRepo.findAllByActiveTrue().stream()
+                .map(AzureCloudsitterAssignment::getPolicy)
+                .filter(Objects::nonNull)
+                .map(CloudsitterPolicy::getId)
+                .collect(Collectors.toSet());
+        return policyRepo.findAll().stream()
+                .filter(p -> !otherClouds.contains(p.getId()) || azureUsed.contains(p.getId()))
+                .collect(Collectors.toList());
+    }
+
+    /** Ids of policies that active AWS or GCP assignments use. */
+    private Set<Long> policyIdsUsedByOtherClouds() {
+        Set<Long> ids = new HashSet<>();
+        if (awsAssignmentRepo != null) {
+            awsAssignmentRepo.findAllByActiveTrue().stream()
+                    .map(CloudsitterAssignment::getPolicy)
+                    .filter(Objects::nonNull)
+                    .forEach(p -> ids.add(p.getId()));
+        }
+        if (gcpAssignmentRepo != null) {
+            gcpAssignmentRepo.findAllByActiveTrue().stream()
+                    .map(GcpCloudsitterAssignment::getPolicy)
+                    .filter(Objects::nonNull)
+                    .forEach(p -> ids.add(p.getId()));
+        }
+        return ids;
+    }
+
+    /**
+     * Refuses a change to a policy that AWS or GCP instances also run on: from the Azure page it
+     * would silently move their start and stop times, or delete a policy they depend on.
+     */
+    private void requireNotUsedByOtherClouds(Long policyId, String action) {
+        if (policyIdsUsedByOtherClouds().contains(policyId)) {
+            throw new IllegalStateException("This policy also schedules AWS or GCP instances, so it "
+                    + "cannot be " + action + " from the Azure page. Change it from that cloud's "
+                    + "CloudSitter page, or create a separate policy for Azure.");
+        }
     }
 
     @Transactional(readOnly = true)
@@ -114,6 +183,7 @@ public class AzureCloudsitterService {
         OidShapeGuard.requireNotOidShaped("scheduleConfig", dto.getScheduleConfig());
         CloudsitterPolicy policy = policyRepo.findById(id)
                 .orElseThrow(() -> new RuntimeException("Policy not found: " + id));
+        requireNotUsedByOtherClouds(id, "edited");
         policy.setName(dto.getName());
         policy.setTimeZone(dto.getTimeZone());
         policy.setScheduleJson(dto.getScheduleConfig());
@@ -126,6 +196,9 @@ public class AzureCloudsitterService {
     public void deletePolicy(Long id) {
         CloudsitterPolicy policy = policyRepo.findById(id)
                 .orElseThrow(() -> new RuntimeException("Policy not found: " + id));
+        // Only Azure assignments are removed below, so deleting a policy EC2 or GCE instances use
+        // either failed on their foreign key or left them pointing at a deleted policy.
+        requireNotUsedByOtherClouds(id, "deleted");
         for (AzureCloudsitterAssignment a : assignmentRepo.findAll()) {
             if (a.getPolicy() != null && a.getPolicy().getId().equals(id)) {
                 assignmentRepo.delete(a);
@@ -164,12 +237,24 @@ public class AzureCloudsitterService {
     // --- CACHED VM LISTING ---
 
     public List<Map<String, String>> listVmsForSubscription(String subscriptionId) {
+        return listVmsForSubscription(subscriptionId, false);
+    }
+
+    /**
+     * @param refresh skip the 60-minute list cache. The list carries each VM's power state, so the
+     *                page's Refresh button showed states up to an hour old without this.
+     */
+    public List<Map<String, String>> listVmsForSubscription(String subscriptionId, boolean refresh) {
         String cacheKey = "azure-cloudsitter-vms:" + subscriptionId;
 
-        Optional<List<Map<String, String>>> cached = cacheService.get(
-                cacheKey, new TypeReference<List<Map<String, String>>>() {});
-        if (cached.isPresent()) {
-            return cached.get();
+        if (refresh) {
+            cacheService.evict(cacheKey);
+        } else {
+            Optional<List<Map<String, String>>> cached = cacheService.get(
+                    cacheKey, new TypeReference<List<Map<String, String>>>() {});
+            if (cached.isPresent()) {
+                return cached.get();
+            }
         }
 
         List<Map<String, String>> vms = fetchVmsFromAzure(subscriptionId);
@@ -179,23 +264,62 @@ public class AzureCloudsitterService {
         return vms;
     }
 
+    /**
+     * Lists the subscription's VMs, or throws when Azure cannot be read. This returned an empty list
+     * on any failure, which the page showed as "No instances matched your search criteria".
+     */
     private List<Map<String, String>> fetchVmsFromAzure(String subscriptionId) {
         try {
             AzureResourceManager azure = azureClientProvider.getAzureClient(subscriptionId);
+            AzureBillingCurrencyService.BillingCurrency billing = billingCurrencyService != null
+                    ? billingCurrencyService.forSubscription(subscriptionId)
+                    : AzureBillingCurrencyService.BillingCurrency.USD;
             List<Map<String, String>> result = new ArrayList<>();
             for (VirtualMachine vm : azure.virtualMachines().list()) {
                 Map<String, String> entry = new HashMap<>();
                 entry.put("name", vm.name());
                 entry.put("resourceGroup", vm.resourceGroupName());
                 entry.put("region", vm.regionName());
-                entry.put("size", vm.size() != null ? vm.size().toString() : "Unknown");
-                entry.put("state", vm.powerState() != null ? vm.powerState().toString() : "Unknown");
+                String size = vm.size() != null ? vm.size().toString() : "Unknown";
+                entry.put("size", size);
+                // powerState() reads the instance view, one call per VM. One failure used to abort the
+                // whole listing; now that VM is listed with an unknown state.
+                String state;
+                try {
+                    state = vm.powerState() != null ? vm.powerState().toString() : "Unknown";
+                } catch (Exception e) {
+                    logger.warn("Azure CloudSitter: could not read power state of VM {}: {}", vm.name(), e.getMessage());
+                    state = "Unknown";
+                }
+                entry.put("state", state);
+                // The page priced every Azure VM from an EC2 price table, which has no Azure sizes,
+                // so each one got the same made-up $0.05/hour. This is Azure's list price for the
+                // size in its region, 730 hours a month, in the billing currency.
+                monthlyRunCost(size, vm.regionName(), billing).ifPresent(cost -> {
+                    entry.put("monthlyCost", String.valueOf(cost));
+                    entry.put("currency", billing.code());
+                });
                 result.add(entry);
             }
             return result;
         } catch (Exception e) {
             logger.error("Azure CloudSitter: Failed to list VMs for subscription {}", subscriptionId, e);
-            return Collections.emptyList();
+            throw new IllegalStateException("Could not list the subscription's virtual machines: " + e.getMessage(), e);
+        }
+    }
+
+    /** A VM size's 24/7 monthly list price in the billing currency; empty when it cannot be priced. */
+    private Optional<Double> monthlyRunCost(String size, String region,
+                                            AzureBillingCurrencyService.BillingCurrency billing) {
+        if (retailPricingService == null || size == null || "Unknown".equals(size) || region == null) {
+            return Optional.empty();
+        }
+        try {
+            return retailPricingService.getVmMonthlyPriceUsd(size, region)
+                    .map(usd -> Math.round(billing.fromUsd(usd) * 100.0) / 100.0);
+        } catch (Exception e) {
+            logger.debug("Azure CloudSitter: no list price for {} in {}: {}", size, region, e.getMessage());
+            return Optional.empty();
         }
     }
 
@@ -205,6 +329,15 @@ public class AzureCloudsitterService {
     // five minutes, so every scheduled start and stop happened at :05 rather than on the hour.
     @Scheduled(cron = "5 0/10 * * * *")
     public void enforcePolicies() {
+        // One cycle per deployment, not per instance (see CloudsitterService#enforcePolicies).
+        if (schedulerLease == null) {
+            runEnforcementCycle();
+            return;
+        }
+        schedulerLease.runIfLeader("CLOUDSITTER_AZURE", java.time.Duration.ofMinutes(9), this::runEnforcementCycle);
+    }
+
+    private void runEnforcementCycle() {
         long start = System.currentTimeMillis();
         logger.info("Azure CloudSitter: Starting policy enforcement cycle at {}", ZonedDateTime.now());
         try {
@@ -356,6 +489,8 @@ public class AzureCloudsitterService {
 
     private void evictStateCache(String subscriptionId, String resourceGroup, String vmName) {
         cacheService.evict("azure-cloudsitter-state:" + subscriptionId + ":" + resourceGroup + ":" + vmName);
+        // The page's VM list carries power state too; drop it so the change shows on the next load.
+        cacheService.evict("azure-cloudsitter-vms:" + subscriptionId);
     }
 
     private boolean checkScheduleState(CloudsitterPolicy policy, ZonedDateTime now) {

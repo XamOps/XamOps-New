@@ -1,13 +1,18 @@
 package com.xammer.cloud.controller.azure;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.xammer.cloud.config.DbOpsFeatureFlags;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.dbops.*;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CloudAccountAccessService;
+import com.xammer.cloud.service.azure.AzureBillingCurrencyService;
 import com.xammer.cloud.service.azure.AzureDbOpsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -36,6 +41,12 @@ public class AzureDbOpsController {
     private final CloudAccountAccessService accountAccessService;
     private final DbOpsFeatureFlags dbOpsFeatureFlags;
 
+    /** Optional, so a context without Azure billing data still answers, in USD. */
+    @Autowired(required = false)
+    private AzureBillingCurrencyService billingCurrencyService;
+
+    private static final ObjectMapper COPIER = new ObjectMapper().registerModule(new JavaTimeModule());
+
     public AzureDbOpsController(AzureDbOpsService azureDbOpsService,
             CloudAccountAccessService accountAccessService,
             DbOpsFeatureFlags dbOpsFeatureFlags) {
@@ -60,6 +71,98 @@ public class AzureDbOpsController {
         }
     }
 
+    // ── Billing currency ──────────────────────────────────────────────────────
+    //
+    // Every DbOps figure is computed and cached in USD (SKU estimates, and the billed spend stored
+    // back in USD). The page showed them with "$" beside a subscription billed in INR. Responses are
+    // restated in the billing currency here, on copies, so neither the caches nor a concurrent
+    // caller sharing the same scan result ever sees a converted figure. The summary carries the code.
+
+    private AzureBillingCurrencyService.BillingCurrency billing(String subscriptionId) {
+        if (billingCurrencyService == null) {
+            return AzureBillingCurrencyService.BillingCurrency.USD;
+        }
+        try {
+            return billingCurrencyService.forSubscription(subscriptionId);
+        } catch (Exception e) {
+            logger.warn("[AzureDbOps] Billing currency unavailable for {}: {}", subscriptionId, e.getMessage());
+            return AzureBillingCurrencyService.BillingCurrency.USD;
+        }
+    }
+
+    private static <T> T copy(T value, TypeReference<T> type) {
+        try {
+            return COPIER.readValue(COPIER.writeValueAsBytes(value), type);
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not copy a DbOps response", e);
+        }
+    }
+
+    private static double money(AzureBillingCurrencyService.BillingCurrency billing, double usd) {
+        return Math.round(billing.fromUsd(usd) * 100.0) / 100.0;
+    }
+
+    private List<DbInstanceDto> inBillingCurrency(List<DbInstanceDto> data, String subscriptionId) {
+        AzureBillingCurrencyService.BillingCurrency b = billing(subscriptionId);
+        if (b.unitsPerUsd() == 1.0 || data == null) return data;
+        List<DbInstanceDto> out = copy(data, new TypeReference<List<DbInstanceDto>>() {});
+        out.forEach(d -> d.setEstimatedMonthlyCost(money(b, d.getEstimatedMonthlyCost())));
+        return out;
+    }
+
+    private List<DbIdleInstanceDto> idleInBillingCurrency(List<DbIdleInstanceDto> data, String subscriptionId) {
+        AzureBillingCurrencyService.BillingCurrency b = billing(subscriptionId);
+        if (b.unitsPerUsd() == 1.0 || data == null) return data;
+        List<DbIdleInstanceDto> out = copy(data, new TypeReference<List<DbIdleInstanceDto>>() {});
+        out.forEach(d -> {
+            d.setEstimatedMonthlyCost(money(b, d.getEstimatedMonthlyCost()));
+            d.setPotentialSavings(money(b, d.getPotentialSavings()));
+        });
+        return out;
+    }
+
+    private List<DbRightsizingDto> rightsizingInBillingCurrency(List<DbRightsizingDto> data, String subscriptionId) {
+        AzureBillingCurrencyService.BillingCurrency b = billing(subscriptionId);
+        if (b.unitsPerUsd() == 1.0 || data == null) return data;
+        List<DbRightsizingDto> out = copy(data, new TypeReference<List<DbRightsizingDto>>() {});
+        out.forEach(d -> {
+            d.setCurrentMonthlyCost(money(b, d.getCurrentMonthlyCost()));
+            d.setRecommendedMonthlyCost(money(b, d.getRecommendedMonthlyCost()));
+            d.setEstimatedSavings(money(b, d.getEstimatedSavings()));
+        });
+        return out;
+    }
+
+    private List<DbCostDto> costsInBillingCurrency(List<DbCostDto> data, String subscriptionId) {
+        AzureBillingCurrencyService.BillingCurrency b = billing(subscriptionId);
+        if (b.unitsPerUsd() == 1.0 || data == null) return data;
+        List<DbCostDto> out = copy(data, new TypeReference<List<DbCostDto>>() {});
+        out.forEach(d -> d.setCost(money(b, d.getCost())));
+        return out;
+    }
+
+    private List<DbSnapshotWasteDto> snapshotsInBillingCurrency(List<DbSnapshotWasteDto> data, String subscriptionId) {
+        AzureBillingCurrencyService.BillingCurrency b = billing(subscriptionId);
+        if (b.unitsPerUsd() == 1.0 || data == null) return data;
+        List<DbSnapshotWasteDto> out = copy(data, new TypeReference<List<DbSnapshotWasteDto>>() {});
+        out.forEach(d -> d.setEstimatedMonthlyCost(money(b, d.getEstimatedMonthlyCost())));
+        return out;
+    }
+
+    /** The summary is built fresh per request, so it is converted in place. */
+    private DbSavingsSummaryDto summaryInBillingCurrency(DbSavingsSummaryDto s, String subscriptionId) {
+        AzureBillingCurrencyService.BillingCurrency b = billing(subscriptionId);
+        if (s == null) return null;
+        s.setCurrency(b.code());
+        if (b.unitsPerUsd() == 1.0) return s;
+        s.setTotalDbMonthlyCost(money(b, s.getTotalDbMonthlyCost()));
+        s.setTotalPotentialSavings(money(b, s.getTotalPotentialSavings()));
+        s.setIdleSavingsPotential(money(b, s.getIdleSavingsPotential()));
+        s.setRightsizingSavingsPotential(money(b, s.getRightsizingSavingsPotential()));
+        s.setSnapshotWasteCost(money(b, s.getSnapshotWasteCost()));
+        return s;
+    }
+
     // ── Inventory ─────────────────────────────────────────────────────────────
 
     @GetMapping("/{subscriptionId}/inventory")
@@ -73,7 +176,7 @@ public class AzureDbOpsController {
         return azureDbOpsService.getDbInventory(subscriptionId, forceRefresh)
                 .thenApply(data -> {
                     logger.info("✅ [AzureDbOps] Inventory returned {} instances", data.size());
-                    return ResponseEntity.ok(data);
+                    return ResponseEntity.ok(inBillingCurrency(data, subscriptionId));
                 })
                 .exceptionally(ex -> {
                     logger.error("❌ [AzureDbOps] Inventory error for {}: {}", subscriptionId, ex.getMessage());
@@ -98,7 +201,7 @@ public class AzureDbOpsController {
         return azureDbOpsService.getIdleInstances(subscriptionId, forceRefresh)
                 .thenApply(data -> {
                     logger.info("✅ [AzureDbOps] Idle returned {} candidates", data.size());
-                    return ResponseEntity.ok(data);
+                    return ResponseEntity.ok(idleInBillingCurrency(data, subscriptionId));
                 })
                 .exceptionally(ex -> {
                     logger.error("❌ [AzureDbOps] Idle error for {}: {}", subscriptionId, ex.getMessage());
@@ -123,7 +226,7 @@ public class AzureDbOpsController {
         return azureDbOpsService.getRightsizingRecommendations(subscriptionId, forceRefresh)
                 .thenApply(data -> {
                     logger.info("✅ [AzureDbOps] Right-sizing returned {} recommendations", data.size());
-                    return ResponseEntity.ok(data);
+                    return ResponseEntity.ok(rightsizingInBillingCurrency(data, subscriptionId));
                 })
                 .exceptionally(ex -> {
                     logger.error("❌ [AzureDbOps] Right-sizing error for {}: {}", subscriptionId, ex.getMessage());
@@ -144,7 +247,7 @@ public class AzureDbOpsController {
         return azureDbOpsService.getDbCosts(subscriptionId, forceRefresh)
                 .thenApply(data -> {
                     logger.info("✅ [AzureDbOps] Costs returned {} line items", data.size());
-                    return ResponseEntity.ok(data);
+                    return ResponseEntity.ok(costsInBillingCurrency(data, subscriptionId));
                 })
                 .exceptionally(ex -> {
                     logger.error("❌ [AzureDbOps] Costs error for {}: {}", subscriptionId, ex.getMessage());
@@ -165,7 +268,7 @@ public class AzureDbOpsController {
         return azureDbOpsService.getDbSnapshots(subscriptionId, forceRefresh)
                 .thenApply(data -> {
                     logger.info("✅ [AzureDbOps] Snapshots returned {} waste entries", data.size());
-                    return ResponseEntity.ok(data);
+                    return ResponseEntity.ok(snapshotsInBillingCurrency(data, subscriptionId));
                 })
                 .exceptionally(ex -> {
                     logger.error("❌ [AzureDbOps] Snapshots error for {}: {}", subscriptionId, ex.getMessage());
@@ -208,7 +311,7 @@ public class AzureDbOpsController {
                 .thenApply(data -> {
                     logger.info("✅ [AzureDbOps] Summary: total cost ${}, savings potential ${}",
                             data.getTotalDbMonthlyCost(), data.getTotalPotentialSavings());
-                    return ResponseEntity.ok(data);
+                    return ResponseEntity.ok(summaryInBillingCurrency(data, subscriptionId));
                 })
                 .exceptionally(ex -> {
                     logger.error("❌ [AzureDbOps] Summary error for {}: {}", subscriptionId, ex.getMessage());
@@ -349,6 +452,20 @@ public class AzureDbOpsController {
                 .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
     }
 
+    /**
+     * Per-instance series with the instance as a query parameter. Azure ids carry a "/"
+     * ("server/db", "pg/name"), which the path-variable form below cannot hold: a raw "/" splits the
+     * path and an encoded one is rejected by the firewall, so that endpoint was unreachable.
+     */
+    @GetMapping("/{subscriptionId}/instance-timeseries")
+    public CompletableFuture<ResponseEntity<DbInstanceTimeseriesDto>> getInstanceTimeseriesByQuery(
+            @PathVariable String subscriptionId,
+            @RequestParam String instanceId,
+            @RequestParam(defaultValue = "24") int hours,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        return getInstanceTimeseries(subscriptionId, instanceId, hours, userDetails);
+    }
+
     @GetMapping("/{subscriptionId}/instance/{instanceId}/timeseries")
     public CompletableFuture<ResponseEntity<DbInstanceTimeseriesDto>> getInstanceTimeseries(
             @PathVariable String subscriptionId,
@@ -357,8 +474,8 @@ public class AzureDbOpsController {
             @AuthenticationPrincipal ClientUserDetails userDetails) {
 
         requireAzureAccount(userDetails, subscriptionId); // SEC-1 (synchronous-first)
-        logger.info("🔍 [AzureDbOps] Timeseries request — subscription: {}, instance: {}", subscriptionId, instanceId);
-        return azureDbOpsService.getInstanceTimeseries(subscriptionId, instanceId)
+        logger.info("🔍 [AzureDbOps] Timeseries request — subscription: {}, instance: {}, hours: {}", subscriptionId, instanceId, hours);
+        return azureDbOpsService.getInstanceTimeseries(subscriptionId, instanceId, hours)
                 .thenApply(data -> {
                     logger.info("✅ [AzureDbOps] Timeseries returned for {}", instanceId);
                     return ResponseEntity.ok(data);

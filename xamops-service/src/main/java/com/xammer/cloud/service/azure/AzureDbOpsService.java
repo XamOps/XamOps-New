@@ -3,8 +3,12 @@ package com.xammer.cloud.service.azure;
 import com.azure.core.credential.TokenCredential;
 import com.azure.core.credential.TokenRequestContext;
 import com.azure.resourcemanager.AzureResourceManager;
+import com.azure.resourcemanager.sql.models.RestorePointType;
+import com.azure.resourcemanager.sql.models.ServerNetworkAccessFlag;
 import com.azure.resourcemanager.sql.models.SqlDatabase;
 import com.azure.resourcemanager.sql.models.SqlServer;
+import com.azure.resourcemanager.sql.models.TransparentDataEncryptionState;
+import com.xammer.cloud.dto.azure.AzureDashboardData;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,6 +25,7 @@ import com.xammer.cloud.repository.DbAgentDataCacheRepository;
 import com.xammer.cloud.repository.DbAgentMetricsHistoryRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -54,6 +59,8 @@ public class AzureDbOpsService {
     private static final int METRICS_TTL   = 12 * 60;
     private static final int COSTS_TTL     =  6 * 60;
     private static final int BACKUPS_TTL   = 24 * 60;
+    /** A scan where some sources failed is kept only briefly, and never in the DB fallback. */
+    private static final int PARTIAL_TTL   = 15;
 
     // ── Detection thresholds ─────────────────────────────────────────────────
     private static final double IDLE_CPU_THRESHOLD        = 5.0;
@@ -104,6 +111,13 @@ public class AzureDbOpsService {
 
     /** PERF-2: per-cache-key in-flight scan registry; concurrent cold-cache callers share one scan. */
     private final ConcurrentHashMap<String, CompletableFuture<?>> inFlightScans = new ConcurrentHashMap<>();
+
+    /** Optional, so tests that build the service without billing data still work (estimates only). */
+    @Autowired(required = false)
+    private AzureBillingDataIngestionService billingIngestionService;
+
+    @Autowired(required = false)
+    private AzureBillingCurrencyService billingCurrencyService;
 
     public AzureDbOpsService(
             AzureClientProvider azureClientProvider,
@@ -180,7 +194,7 @@ public class AzureDbOpsService {
                 log.info("[AzureDbOps] Redis hit — inventory for subscription {}", subscriptionId);
                 return CompletableFuture.completedFuture(redis.get());
             }
-            Optional<List<DbInstanceDto>> db = getFromDb(cacheKey, new TypeReference<>() {});
+            Optional<List<DbInstanceDto>> db = getFromDb(cacheKey, new TypeReference<>() {}, INVENTORY_TTL);
             if (db.isPresent()) {
                 log.info("[AzureDbOps] DB cache hit — inventory for subscription {}", subscriptionId);
                 redisCache.put(cacheKey, db.get(), INVENTORY_TTL);
@@ -208,14 +222,15 @@ public class AzureDbOpsService {
             }
 
             int sourceSuccesses = 0;
+            int sourceFailures = 0;
             // 1. Azure SQL Databases (via SDK)
-            if (collectSqlDatabases(azure, instances)) sourceSuccesses++;
+            if (collectSqlDatabases(azure, token, instances)) sourceSuccesses++; else sourceFailures++;
             // 2. Azure SQL Managed Instances (via REST API)
-            if (collectSqlManagedInstances(subscriptionId, token, instances)) sourceSuccesses++;
+            if (collectSqlManagedInstances(subscriptionId, token, instances)) sourceSuccesses++; else sourceFailures++;
             // 3. PostgreSQL Flexible Servers (via REST API)
-            if (collectPostgresFlexibleServers(subscriptionId, token, instances)) sourceSuccesses++;
+            if (collectPostgresFlexibleServers(subscriptionId, token, instances)) sourceSuccesses++; else sourceFailures++;
             // 4. MySQL Flexible Servers (via REST API)
-            if (collectMysqlFlexibleServers(subscriptionId, token, instances)) sourceSuccesses++;
+            if (collectMysqlFlexibleServers(subscriptionId, token, instances)) sourceSuccesses++; else sourceFailures++;
 
             if (sourceSuccesses == 0) {
                 // Every source errored — treat as a failed scan, not an empty one; do NOT cache.
@@ -224,8 +239,16 @@ public class AzureDbOpsService {
                         "Azure DB inventory scan failed for subscription " + subscriptionId + " — every source errored");
             }
 
-            redisCache.put(cacheKey, instances, INVENTORY_TTL);
-            saveToDb(cacheKey, instances);
+            if (sourceFailures > 0) {
+                // Some sources errored (a throttle, a missing permission). Caching this for a day hid
+                // those databases for a day; keep it briefly so the next load retries.
+                log.warn("[AzureDbOps] Inventory for subscription {} is partial ({} of 4 sources failed); caching for {} min only",
+                        subscriptionId, sourceFailures, PARTIAL_TTL);
+                redisCache.put(cacheKey, instances, PARTIAL_TTL);
+            } else {
+                redisCache.put(cacheKey, instances, INVENTORY_TTL);
+                saveToDb(cacheKey, instances);
+            }
             log.info("[AzureDbOps] Inventory fetched: {} instances for subscription {}", instances.size(), subscriptionId);
             return instances;
         }));
@@ -249,7 +272,7 @@ public class AzureDbOpsService {
                 log.info("[AzureDbOps] Redis hit — metrics for subscription {}", subscriptionId);
                 return CompletableFuture.completedFuture(redis.get());
             }
-            Optional<Map<String, DbMetricsDto>> db = getFromDb(cacheKey, new TypeReference<>() {});
+            Optional<Map<String, DbMetricsDto>> db = getFromDb(cacheKey, new TypeReference<>() {}, METRICS_TTL);
             if (db.isPresent()) {
                 log.info("[AzureDbOps] DB cache hit — metrics for subscription {}", subscriptionId);
                 redisCache.put(cacheKey, db.get(), METRICS_TTL);
@@ -260,35 +283,52 @@ public class AzureDbOpsService {
         return getDbInventory(subscriptionId, false).thenApply(instances -> {
             if (instances.isEmpty()) return Collections.<String, DbMetricsDto>emptyMap();
             Map<String, DbMetricsDto> metricsMap = new HashMap<>();
+            int failures = 0;
             try {
                 String token = getBearerToken(subscriptionId);
                 AzureResourceManager azure = azureClientProvider.getAzureClient(subscriptionId);
+                List<SqlServer> sqlServers = listSqlServers(azure);
 
-                // Pre-populate empty DTOs
-                for (DbInstanceDto inst : instances) {
-                    DbMetricsDto dto = new DbMetricsDto();
-                    dto.setInstanceId(inst.getInstanceId());
-                    dto.setRegion(inst.getRegion());
-                    metricsMap.put(inst.getInstanceId(), dto);
-                }
-
-                // Fetch metrics per instance via Azure Monitor REST API
+                // An instance gets an entry only when Azure Monitor returned data for it. Every
+                // instance used to get a zero-filled entry up front, so one whose metrics failed
+                // read as 0% CPU and 0 connections, and idle detection flagged it.
                 for (DbInstanceDto inst : instances) {
                     try {
-                        String resourceId = resolveResourceId(inst, subscriptionId, azure, token);
-                        if (resourceId == null) continue;
-                        fetchAzureMonitorMetrics(resourceId, token, metricsMap.get(inst.getInstanceId()),
-                                inst.getEngine(), inst.getAllocatedStorage());
+                        String resourceId = resolveResourceIdWithServers(inst, subscriptionId, sqlServers, token);
+                        if (resourceId == null) {
+                            failures++;
+                            continue;
+                        }
+                        DbMetricsDto dto = new DbMetricsDto();
+                        dto.setInstanceId(inst.getInstanceId());
+                        dto.setRegion(inst.getRegion());
+                        if (fetchAzureMonitorMetrics(resourceId, token, dto, inst.getEngine(), inst.getAllocatedStorage())) {
+                            metricsMap.put(inst.getInstanceId(), dto);
+                        } else {
+                            failures++;
+                        }
                     } catch (Exception ex) {
+                        failures++;
                         log.debug("[AzureDbOps] Metrics fetch skipped for {}: {}", inst.getInstanceId(), ex.getMessage());
                     }
                 }
+            } catch (Exception e) {
+                log.error("[AzureDbOps] Metrics error for subscription {}: {}", subscriptionId, e.getMessage());
+                return metricsMap;
+            }
 
+            if (metricsMap.isEmpty()) {
+                // Nothing came back: a failure, not a result. Caching it hid metrics for 12 hours.
+                log.warn("[AzureDbOps] No metrics returned for any of {} instances, subscription {}; not caching",
+                        instances.size(), subscriptionId);
+            } else if (failures > 0) {
+                redisCache.put(cacheKey, metricsMap, PARTIAL_TTL);
+                log.info("[AzureDbOps] Metrics fetched for {} of {} instances, subscription {}; partial, cached {} min",
+                        metricsMap.size(), instances.size(), subscriptionId, PARTIAL_TTL);
+            } else {
                 redisCache.put(cacheKey, metricsMap, METRICS_TTL);
                 saveToDb(cacheKey, metricsMap);
                 log.info("[AzureDbOps] Metrics fetched for {} instances, subscription {}", metricsMap.size(), subscriptionId);
-            } catch (Exception e) {
-                log.error("[AzureDbOps] Metrics error for subscription {}: {}", subscriptionId, e.getMessage());
             }
             return metricsMap;
         });
@@ -312,7 +352,7 @@ public class AzureDbOpsService {
                 log.info("[AzureDbOps] Redis hit — costs for subscription {}", subscriptionId);
                 return CompletableFuture.completedFuture(redis.get());
             }
-            Optional<List<DbCostDto>> db = getFromDb(cacheKey, new TypeReference<>() {});
+            Optional<List<DbCostDto>> db = getFromDb(cacheKey, new TypeReference<>() {}, COSTS_TTL);
             if (db.isPresent()) {
                 log.info("[AzureDbOps] DB cache hit — costs for subscription {}", subscriptionId);
                 redisCache.put(cacheKey, db.get(), COSTS_TTL);
@@ -321,6 +361,15 @@ public class AzureDbOpsService {
         }
 
         return getDbInventory(subscriptionId, false).thenApply(instances -> {
+            // Actual month-to-date spend from Cost Management first, as AWS uses Cost Explorer; the
+            // SKU estimates below only when no database service appears in the billing data.
+            List<DbCostDto> billed = billedDbCosts(subscriptionId);
+            if (!billed.isEmpty()) {
+                redisCache.put(cacheKey, billed, COSTS_TTL);
+                saveToDb(cacheKey, billed);
+                log.info("[AzureDbOps] Costs from Cost Management: {} services for subscription {}", billed.size(), subscriptionId);
+                return billed;
+            }
             try {
                 // Group by region + service, summing estimated monthly costs
                 Map<String, Double> regionServiceCostMap = new LinkedHashMap<>();
@@ -375,7 +424,7 @@ public class AzureDbOpsService {
                 log.info("[AzureDbOps] Redis hit — backups for subscription {}", subscriptionId);
                 return CompletableFuture.completedFuture(redis.get());
             }
-            Optional<List<DbSnapshotWasteDto>> db = getFromDb(cacheKey, new TypeReference<>() {});
+            Optional<List<DbSnapshotWasteDto>> db = getFromDb(cacheKey, new TypeReference<>() {}, BACKUPS_TTL);
             if (db.isPresent()) {
                 log.info("[AzureDbOps] DB cache hit — backups for subscription {}", subscriptionId);
                 redisCache.put(cacheKey, db.get(), BACKUPS_TTL);
@@ -385,9 +434,12 @@ public class AzureDbOpsService {
 
         return getDbInventory(subscriptionId, false).thenApply(instances -> {
             List<DbSnapshotWasteDto> wasteList = new ArrayList<>();
+            int[] scanErrors = {0};
             try {
                 AzureResourceManager azure = azureClientProvider.getAzureClient(subscriptionId);
                 Instant cutoff = Instant.now().minus(BACKUP_WASTE_AGE_DAYS, ChronoUnit.DAYS);
+                // Listed once for the whole scan (was re-listed for every database).
+                List<SqlServer> sqlServers = listSqlServers(azure);
 
                 for (DbInstanceDto inst : instances) {
                     // Only Azure SQL Database has SDK-accessible restore points
@@ -402,15 +454,22 @@ public class AzureDbOpsService {
                         String dbName = idParts[1];
 
                         // List restore points via Azure SDK
-                        azure.sqlServers().list().forEach(server -> {
+                        sqlServers.forEach(server -> {
                             if (!server.name().equalsIgnoreCase(serverName)) return;
                             server.databases().list().forEach(database -> {
                                 if (!database.name().equalsIgnoreCase(dbName)) return;
                                 try {
                                     database.listRestorePoints().forEach(rp -> {
                                         try {
-                                            Instant rpTime = rp.earliestRestoreDate() != null
-                                                    ? rp.earliestRestoreDate().toInstant() : null;
+                                            // A CONTINUOUS point is the start of the point-in-time
+                                            // restore window: automated backups Azure keeps and
+                                            // bills as part of the database. Nothing to delete,
+                                            // so it is not backup waste. Only DISCRETE points are.
+                                            if (RestorePointType.CONTINUOUS.equals(rp.restorePointType())) return;
+                                            Instant rpTime = rp.restorePointCreationDate() != null
+                                                    ? rp.restorePointCreationDate().toInstant()
+                                                    : rp.earliestRestoreDate() != null
+                                                        ? rp.earliestRestoreDate().toInstant() : null;
                                             if (rpTime == null || rpTime.isAfter(cutoff)) return;
                                             long ageDays = ChronoUnit.DAYS.between(rpTime, Instant.now());
                                             int sizeGb = inst.getAllocatedStorage() > 0 ? inst.getAllocatedStorage() : 32;
@@ -431,20 +490,30 @@ public class AzureDbOpsService {
                                         }
                                     });
                                 } catch (Exception ex) {
+                                    scanErrors[0]++;
                                     log.debug("[AzureDbOps] Restore points list error for {}/{}: {}", serverName, dbName, ex.getMessage());
                                 }
                             });
                         });
                     } catch (Exception ex) {
+                        scanErrors[0]++;
                         log.debug("[AzureDbOps] Backup scan error for {}: {}", inst.getInstanceId(), ex.getMessage());
                     }
                 }
 
                 wasteList.sort(Comparator.comparingDouble(DbSnapshotWasteDto::getEstimatedMonthlyCost).reversed());
-                redisCache.put(cacheKey, wasteList, BACKUPS_TTL);
-                saveToDb(cacheKey, wasteList);
+                if (scanErrors[0] > 0) {
+                    // Part of the scan failed; a day-long cache would hide that. Retry on the next load.
+                    redisCache.put(cacheKey, wasteList, PARTIAL_TTL);
+                    log.warn("[AzureDbOps] Backup scan for subscription {} had {} errors; cached {} min only",
+                            subscriptionId, scanErrors[0], PARTIAL_TTL);
+                } else {
+                    redisCache.put(cacheKey, wasteList, BACKUPS_TTL);
+                    saveToDb(cacheKey, wasteList);
+                }
                 log.info("[AzureDbOps] Backups fetched: {} waste entries for subscription {}", wasteList.size(), subscriptionId);
             } catch (Exception e) {
+                // Not cached: a failed scan is not "no backup waste".
                 log.error("[AzureDbOps] Backups error for subscription {}: {}", subscriptionId, e.getMessage());
             }
             return wasteList;
@@ -568,13 +637,17 @@ public class AzureDbOpsService {
                         ha ? "Zone redundancy is enabled (high availability)"
                            : "Not zone-redundant — consider enabling for production workloads"));
 
-                // TLS minimum version (stored in storageType field repurposed as tlsMinVersion for Azure)
-                boolean tlsOk = inst.getStorageType() != null && inst.getStorageType().contains("TLS1_2");
+                // TLS floor as the server reports it. This used to read a hardcoded "TLS1_2", so the
+                // check passed for every server whatever its policy.
+                String minTls = inst.getMinTlsVersion();
+                boolean tlsOk = tlsAtLeast12(minTls);
                 checks.add(makeCheck(inst, "Minimum TLS Version",
                         tlsOk ? "PASS" : "WARN",
                         tlsOk ? "INFO" : "MEDIUM",
-                        tlsOk ? "Minimum TLS 1.2 is enforced"
-                               : "Minimum TLS version may not be set to 1.2 — verify server TLS policy"));
+                        tlsOk ? "Minimum TLS 1.2 is enforced (" + minTls + ")"
+                               : minTls == null
+                                   ? "Minimum TLS version could not be read — verify the server's TLS policy"
+                                   : "Minimum TLS version is " + minTls + " — set it to 1.2 or higher"));
             }
             return checks;
         });
@@ -595,15 +668,23 @@ public class AzureDbOpsService {
         CompletableFuture<List<DbRightsizingDto>>  rightFuture = dbOpsFeatureFlags.isRightsizingEnabled()
                 ? getRightsizingRecommendations(subscriptionId, forceRefresh)
                 : CompletableFuture.completedFuture(Collections.emptyList());
-        CompletableFuture<List<DbSnapshotWasteDto>> snapFuture = getDbSnapshots(subscriptionId, false);
+        // Refresh has to reach the backup scan too; it was always read from its 24-hour cache.
+        CompletableFuture<List<DbSnapshotWasteDto>> snapFuture = getDbSnapshots(subscriptionId, forceRefresh);
+        CompletableFuture<List<DbCostDto>>         costFuture  = getDbCosts(subscriptionId, forceRefresh);
 
-        return CompletableFuture.allOf(invFuture, idleFuture, rightFuture, snapFuture).thenApply(v -> {
+        return CompletableFuture.allOf(invFuture, idleFuture, rightFuture, snapFuture, costFuture).thenApply(v -> {
             List<DbInstanceDto>     inventory = invFuture.join();
             List<DbIdleInstanceDto> idle      = idleFuture.join();
             List<DbRightsizingDto>  right     = rightFuture.join();
             List<DbSnapshotWasteDto> snaps    = snapFuture.join();
+            List<DbCostDto>         costs     = costFuture.join();
 
-            double totalCost        = inventory.stream().mapToDouble(DbInstanceDto::getEstimatedMonthlyCost).sum();
+            // "Monthly DB Spend" is the billed month-to-date spend, as on AWS; the SKU estimates
+            // only when there is no billing data for the database services.
+            double totalCost        = costs.stream().mapToDouble(DbCostDto::getCost).sum();
+            if (totalCost == 0.0 && !inventory.isEmpty()) {
+                totalCost = inventory.stream().mapToDouble(DbInstanceDto::getEstimatedMonthlyCost).sum();
+            }
             double idleSavings      = idle.stream().mapToDouble(DbIdleInstanceDto::getPotentialSavings).sum();
             double rightsizeSavings = right.stream().mapToDouble(DbRightsizingDto::getEstimatedSavings).sum();
             double snapshotWaste    = snaps.stream().mapToDouble(DbSnapshotWasteDto::getEstimatedMonthlyCost).sum();
@@ -643,15 +724,23 @@ public class AzureDbOpsService {
     @Async("awsTaskExecutor")
     public CompletableFuture<DbInstanceTimeseriesDto> getInstanceTimeseries(
             String subscriptionId, String instanceId) {
+        return getInstanceTimeseries(subscriptionId, instanceId, 24);
+    }
+
+    /** Per-instance Azure Monitor series over the last {@code hours} (1–720; it was fixed at 24). */
+    @Async("awsTaskExecutor")
+    public CompletableFuture<DbInstanceTimeseriesDto> getInstanceTimeseries(
+            String subscriptionId, String instanceId, int hours) {
         DbInstanceTimeseriesDto dto = new DbInstanceTimeseriesDto();
         dto.setInstanceId(instanceId);
+        int window = Math.max(1, Math.min(hours, 720));
         try {
             String token = getBearerToken(subscriptionId);
             AzureResourceManager azure = azureClientProvider.getAzureClient(subscriptionId);
             String resourceId = resolveFullResourceId(subscriptionId, instanceId, azure, token);
             if (resourceId != null) {
                 int allocatedGb = resolveAllocatedStorageGb(subscriptionId, instanceId);
-                fetchTimeseriesFromMonitor(resourceId, token, dto, engineFromInstanceId(instanceId), allocatedGb);
+                fetchTimeseriesFromMonitor(resourceId, token, dto, engineFromInstanceId(instanceId), allocatedGb, window);
             }
         } catch (Exception e) {
             log.warn("[AzureDbOps] Timeseries failed for {}: {}", instanceId, e.getMessage());
@@ -768,14 +857,16 @@ public class AzureDbOpsService {
     }
 
     private void fetchTimeseriesFromMonitor(String resourceId, String token,
-                                             DbInstanceTimeseriesDto dto, String engine, int allocatedGb) {
+                                             DbInstanceTimeseriesDto dto, String engine, int allocatedGb, int hours) {
         try {
             String metricNames = resolveMetricNames(engine);
+            // Grain sized to the window so a chart has tens of points, not 1 or 700.
+            String interval = hours <= 6 ? "PT5M" : hours <= 24 ? "PT15M" : hours <= 72 ? "PT1H" : "PT6H";
             String url = ARM_BASE + resourceId
                     + "/providers/Microsoft.Insights/metrics"
                     + "?metricnames=" + metricNames
-                    + "&timespan=PT24H"
-                    + "&interval=PT1H"
+                    + "&timespan=PT" + hours + "H"
+                    + "&interval=" + interval
                     + "&aggregation=Average"
                     + "&api-version=2018-01-01";
 
@@ -899,12 +990,19 @@ public class AzureDbOpsService {
                                 try {
                                     List<AgentQueryStatDto> stats = objectMapper.readValue(
                                             cache.getDataJson(), new TypeReference<>() {});
+                                    // When the batch was collected, as AWS stamps it; the tab shows it.
+                                    String ts = cache.getCollectedAt() != null
+                                            ? cache.getCollectedAt().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"))
+                                            : null;
+                                    stats.forEach(s -> s.setCollectedAt(ts));
                                     result.addAll(stats);
                                 } catch (Exception ex) {
                                     log.warn("[AzureDbOps] Failed to parse agent query stats: {}", ex.getMessage());
                                 }
                             });
                 }
+                // Slowest first, the order the AWS endpoint returns.
+                result.sort(Comparator.comparingDouble(AgentQueryStatDto::getTotalTimeSeconds).reversed());
                 return result;
             } catch (Exception e) {
                 log.error("[AzureDbOps] Agent query stats error for {}: {}", subscriptionId, e.getMessage());
@@ -1014,15 +1112,22 @@ public class AzureDbOpsService {
     // PRIVATE — AZURE SDK COLLECTION HELPERS
     // =========================================================================
 
-    private boolean collectSqlDatabases(AzureResourceManager azure, List<DbInstanceDto> instances) {
+    private boolean collectSqlDatabases(AzureResourceManager azure, String token, List<DbInstanceDto> instances) {
         try {
             azure.sqlServers().list().forEach(server -> {
                 try {
+                    // Server-level settings, read once per server rather than once per database.
+                    boolean serverPublic = serverHasPublicAccess(server);
+                    String minTls = null;
+                    try {
+                        minTls = server.innerModel().minimalTlsVersion();
+                    } catch (Exception ignored) {}
+                    final String serverTls = minTls;
                     server.databases().list().forEach(db -> {
                         try {
                             // Skip master/system databases
                             if ("master".equalsIgnoreCase(db.name())) return;
-                            instances.add(toSqlDatabaseDto(server, db));
+                            instances.add(toSqlDatabaseDto(server, db, serverPublic, serverTls, token));
                         } catch (Exception ex) {
                             log.debug("[AzureDbOps] SQL DB dto error for {}/{}: {}", server.name(), db.name(), ex.getMessage());
                         }
@@ -1038,7 +1143,8 @@ public class AzureDbOpsService {
         }
     }
 
-    private DbInstanceDto toSqlDatabaseDto(SqlServer server, SqlDatabase db) {
+    private DbInstanceDto toSqlDatabaseDto(SqlServer server, SqlDatabase db, boolean serverPublic,
+                                           String serverTls, String token) {
         DbInstanceDto dto = new DbInstanceDto();
         dto.setInstanceId(server.name() + "/" + db.name());
         String skuName = db.currentServiceObjectiveName() != null ? db.currentServiceObjectiveName() : "GP_Gen5_2";
@@ -1047,14 +1153,20 @@ public class AzureDbOpsService {
         dto.setEngineVersion("SQL Server"); // Azure SQL Database doesn't expose a specific version string via SDK
         dto.setStatus(db.status() != null ? db.status().toString().toLowerCase() : "unknown");
         dto.setRegion(server.regionName() != null ? server.regionName() : "unknown");
-        dto.setMultiAz("None");
-        // TLS min version stored in storageType field for security checks
-        dto.setStorageType("TLS1_2"); // Azure SQL enforces TLS 1.2 by default
+        // Read from the database instead of the hardcoded "None" (a zone-redundant DB showed as zonal).
+        boolean zoneRedundant = false;
+        try {
+            zoneRedundant = Boolean.TRUE.equals(db.innerModel().zoneRedundant());
+        } catch (Exception ignored) {}
+        dto.setMultiAz(zoneRedundant ? "ZoneRedundant" : "None");
+        // storageType held a hardcoded "TLS1_2", which the TLS check then always passed and the
+        // drawer showed as the storage type. TLS now has its own field, read from the server.
+        dto.setMinTlsVersion(serverTls);
         dto.setAllocatedStorage(db.maxSizeBytes() > 0 ? (int) (db.maxSizeBytes() / (1024L * 1024L * 1024L)) : 32);
-        dto.setPubliclyAccessible(server.getActiveDirectoryAdministrator() != null
-                || serverHasPublicAccess(server));
-        dto.setStorageEncrypted(true); // Azure TDE is on by default
-        int retentionDays = 7; // Azure SQL default backup retention
+        // An Entra (AD) admin is an identity setting, not network exposure; it used to count as public.
+        dto.setPubliclyAccessible(serverPublic);
+        dto.setStorageEncrypted(tdeEnabled(db));
+        int retentionDays = sqlBackupRetentionDays(db, token);
         dto.setBackupEnabled(retentionDays > 0);
         dto.setBackupRetentionDays(String.valueOf(retentionDays));
         dto.setEndpoint(server.fullyQualifiedDomainName() != null ? server.fullyQualifiedDomainName() : "");
@@ -1063,25 +1175,98 @@ public class AzureDbOpsService {
         return dto;
     }
 
+    /**
+     * Reachable from the internet: public network access is not Disabled and at least one firewall
+     * rule admits traffic. With no rules the public endpoint exists but refuses every connection.
+     */
     private boolean serverHasPublicAccess(SqlServer server) {
         try {
-            // If a server has any firewall rules including AllowAllAzureIPs, treat as public
+            ServerNetworkAccessFlag access = server.innerModel().publicNetworkAccess();
+            if (ServerNetworkAccessFlag.DISABLED.equals(access)) {
+                return false;
+            }
             return server.firewallRules().list().iterator().hasNext();
         } catch (Exception e) {
             return false;
         }
     }
 
+    /** Transparent Data Encryption state of the database; Azure's default (on) if it cannot be read. */
+    private boolean tdeEnabled(SqlDatabase db) {
+        try {
+            return !TransparentDataEncryptionState.DISABLED.equals(db.getTransparentDataEncryption().status());
+        } catch (Exception e) {
+            log.debug("[AzureDbOps] TDE state unreadable for {}: {}", db.name(), e.getMessage());
+            return true;
+        }
+    }
+
+    /** Point-in-time restore retention from the short-term retention policy; Azure's default (7) if unreadable. */
+    private int sqlBackupRetentionDays(SqlDatabase db, String token) {
+        try {
+            String body = armGet(ARM_BASE + db.id()
+                    + "/backupShortTermRetentionPolicies/default?api-version=2021-11-01", token);
+            if (body != null) {
+                int days = objectMapper.readTree(body).path("properties").path("retentionDays").asInt(0);
+                if (days > 0) {
+                    return days;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[AzureDbOps] Backup retention unreadable for {}: {}", db.name(), e.getMessage());
+        }
+        return 7;
+    }
+
+    /**
+     * Reads one server parameter of a Flexible server (e.g. the TLS floor). Null when unreadable,
+     * which the security check reports as unverified rather than as a pass.
+     */
+    private String flexibleServerParameter(String serverId, String parameter, String apiVersion, String token) {
+        if (serverId == null || serverId.isBlank()) {
+            return null;
+        }
+        try {
+            String body = armGet(ARM_BASE + serverId + "/configurations/" + parameter + "?api-version=" + apiVersion, token);
+            if (body == null) {
+                return null;
+            }
+            String value = objectMapper.readTree(body).path("properties").path("value").asText(null);
+            return value == null || value.isBlank() ? null : value;
+        } catch (Exception e) {
+            log.debug("[AzureDbOps] Parameter {} unreadable for {}: {}", parameter, serverId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * True when the TLS floor is 1.2 or higher. Accepts Azure's spellings: "1.2" (SQL), "TLSv1.2"
+     * (PostgreSQL) and "TLSv1.2,TLSv1.3" (MySQL lists every allowed version).
+     */
+    static boolean tlsAtLeast12(String minTls) {
+        if (minTls == null || minTls.isBlank()) {
+            return false;
+        }
+        boolean modern = false;
+        for (String token : minTls.split(",")) {
+            String v = token.trim().toUpperCase(Locale.ROOT).replace("TLSV", "").replace("TLS", "").replace("_", ".");
+            if (v.equals("1") || v.equals("1.0") || v.equals("1.1") || v.equals("NONE")) {
+                return false;
+            }
+            if (v.equals("1.2") || v.equals("1.3")) {
+                modern = true;
+            }
+        }
+        return modern;
+    }
+
     private boolean collectSqlManagedInstances(String subscriptionId, String token, List<DbInstanceDto> instances) {
         try {
             String url = ARM_BASE + "/subscriptions/" + subscriptionId
                     + "/providers/Microsoft.Sql/managedInstances?api-version=2021-11-01-preview";
-            String body = armGet(url, token);
-            // A list endpoint answers 200 with {"value":[]} even when empty, so a null body
-            // means the call failed (auth/throttle/server) — report that as a source failure.
-            if (body == null) return false;
-            JsonNode root = objectMapper.readTree(body);
-            for (JsonNode node : root.path("value")) {
+            // list() follows nextLink (only the first page was read before) and throws when the
+            // first page fails, which the catch below reports as a source failure.
+            for (JsonNode node : armClient.list(url, token)) {
                 try {
                     JsonNode props = node.path("properties");
                     String name = node.path("name").asText("unknown");
@@ -1098,8 +1283,8 @@ public class AzureDbOpsService {
                     dto.setEngineVersion("SQL Managed Instance");
                     dto.setStatus(props.path("state").asText("unknown").toLowerCase());
                     dto.setRegion(node.path("location").asText("unknown"));
-                    dto.setMultiAz("None");
-                    dto.setStorageType("TLS1_2");
+                    dto.setMultiAz(props.path("zoneRedundant").asBoolean(false) ? "ZoneRedundant" : "None");
+                    dto.setMinTlsVersion(props.path("minimalTlsVersion").asText(null));
                     dto.setAllocatedStorage(props.path("storageSizeInGB").asInt(0));
                     dto.setPubliclyAccessible(props.path("publicDataEndpointEnabled").asBoolean(false));
                     dto.setStorageEncrypted(true);
@@ -1125,15 +1310,8 @@ public class AzureDbOpsService {
         try {
             String url = ARM_BASE + "/subscriptions/" + subscriptionId
                     + "/providers/Microsoft.DBforPostgreSQL/flexibleServers?api-version=2023-06-01-preview";
-            String responseBody = armGet(url, token);
-            // null body on a list endpoint => the call failed, not "no servers".
-            if (responseBody == null) return false;
-
-            JsonNode root = objectMapper.readTree(responseBody);
-            JsonNode valueArr = root.path("value");
-            if (!valueArr.isArray()) return true;
-
-            for (JsonNode node : valueArr) {
+            // list() follows nextLink and throws on a failed first page (a source failure below).
+            for (JsonNode node : armClient.list(url, token)) {
                 try {
                     DbInstanceDto dto = new DbInstanceDto();
                     String name = node.path("name").asText("unknown");
@@ -1148,11 +1326,14 @@ public class AzureDbOpsService {
                     dto.setRegion(node.path("location").asText("unknown"));
                     String haMode = props.path("highAvailability").path("mode").asText("Disabled");
                     dto.setMultiAz("ZoneRedundant".equalsIgnoreCase(haMode) ? "ZoneRedundant" : "None");
-                    String minTls = props.path("network").path("publicNetworkAccess").asText("Enabled");
-                    dto.setStorageType("TLS1_2"); // PostgreSQL flexible enforces TLS by default
+                    String publicNetworkAccess = props.path("network").path("publicNetworkAccess").asText("Enabled");
+                    dto.setStorageType(props.path("storage").path("type").asText(null));
+                    // The TLS floor is a server parameter, not a property; it was hardcoded as passing.
+                    dto.setMinTlsVersion(flexibleServerParameter(node.path("id").asText(null),
+                            "ssl_min_protocol_version", "2023-06-01-preview", token));
                     int storageGb = props.path("storage").path("storageSizeGB").asInt(32);
                     dto.setAllocatedStorage(storageGb);
-                    boolean publicAccess = "Enabled".equalsIgnoreCase(minTls);
+                    boolean publicAccess = "Enabled".equalsIgnoreCase(publicNetworkAccess);
                     dto.setPubliclyAccessible(publicAccess);
                     dto.setStorageEncrypted(true);
                     int backupDays = props.path("backup").path("backupRetentionDays").asInt(7);
@@ -1178,15 +1359,8 @@ public class AzureDbOpsService {
         try {
             String url = ARM_BASE + "/subscriptions/" + subscriptionId
                     + "/providers/Microsoft.DBforMySQL/flexibleServers?api-version=2023-06-30";
-            String responseBody = armGet(url, token);
-            // null body on a list endpoint => the call failed, not "no servers".
-            if (responseBody == null) return false;
-
-            JsonNode root = objectMapper.readTree(responseBody);
-            JsonNode valueArr = root.path("value");
-            if (!valueArr.isArray()) return true;
-
-            for (JsonNode node : valueArr) {
+            // list() follows nextLink and throws on a failed first page (a source failure below).
+            for (JsonNode node : armClient.list(url, token)) {
                 try {
                     DbInstanceDto dto = new DbInstanceDto();
                     String name = node.path("name").asText("unknown");
@@ -1201,7 +1375,10 @@ public class AzureDbOpsService {
                     dto.setRegion(node.path("location").asText("unknown"));
                     String haMode = props.path("highAvailability").path("mode").asText("Disabled");
                     dto.setMultiAz("ZoneRedundant".equalsIgnoreCase(haMode) ? "ZoneRedundant" : "None");
-                    dto.setStorageType("TLS1_2");
+                    dto.setStorageType(props.path("storage").path("storageSku").asText(null));
+                    // tls_version lists every allowed version, e.g. "TLSv1.2,TLSv1.3".
+                    dto.setMinTlsVersion(flexibleServerParameter(node.path("id").asText(null),
+                            "tls_version", "2023-06-30", token));
                     int storageGb = props.path("storage").path("storageSizeGB").asInt(20);
                     dto.setAllocatedStorage(storageGb);
                     String publicAccess = props.path("network").path("publicNetworkAccess").asText("Enabled");
@@ -1229,8 +1406,10 @@ public class AzureDbOpsService {
     // PRIVATE — AZURE MONITOR METRICS
     // =========================================================================
 
-    private void fetchAzureMonitorMetrics(String resourceId, String token, DbMetricsDto dto,
-                                          String engine, int allocatedGb) {
+    /** @return true when Azure Monitor returned a CPU series, the metric every check depends on */
+    private boolean fetchAzureMonitorMetrics(String resourceId, String token, DbMetricsDto dto,
+                                             String engine, int allocatedGb) {
+        boolean gotCpu = false;
         try {
             String metricNames = resolveMetricNames(engine);
             String timespan = "P7D";
@@ -1244,11 +1423,11 @@ public class AzureDbOpsService {
                     + "&api-version=2018-01-01";
 
             String responseBody = armGet(url, token);
-            if (responseBody == null) return;
+            if (responseBody == null) return false;
 
             JsonNode root = objectMapper.readTree(responseBody);
             JsonNode valueArr = root.path("value");
-            if (!valueArr.isArray()) return;
+            if (!valueArr.isArray()) return false;
 
             for (JsonNode metricNode : valueArr) {
                 String metricName = metricNode.path("name").path("value").asText("");
@@ -1267,12 +1446,17 @@ public class AzureDbOpsService {
                         count++;
                     }
                 }
-                double avgValue = count > 0 ? sum / count : 0.0;
-                applyAzureMetric(dto, metricName, avgValue, allocatedGb);
+                // A series with no data points is "no data", not an average of zero.
+                if (count == 0) continue;
+                applyAzureMetric(dto, metricName, sum / count, allocatedGb);
+                if ("cpu_percent".equals(metricName)) {
+                    gotCpu = true;
+                }
             }
         } catch (Exception e) {
             log.debug("[AzureDbOps] Azure Monitor metrics error for resource {}: {}", resourceId, e.getMessage());
         }
+        return gotCpu;
     }
 
     private String resolveMetricNames(String engine) {
@@ -1344,22 +1528,51 @@ public class AzureDbOpsService {
         }
 
         // Azure SQL Database: serverName/dbName
+        try {
+            return resolveResourceIdWithServers(inst, subscriptionId, listSqlServers(azure), token);
+        } catch (Exception e) {
+            log.debug("[AzureDbOps] Could not resolve SQL DB resource ID for {}: {}", id, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Same as above with the subscription's SQL servers already listed, so a scan over many
+     * databases lists the servers once instead of once per database.
+     */
+    String resolveResourceIdWithServers(DbInstanceDto inst, String subscriptionId, List<SqlServer> sqlServers,
+                                        String token) {
+        String id = inst.getInstanceId();
+        if (id == null) return null;
+        if (id.startsWith("mi/") || id.startsWith("pg/") || id.startsWith("mysql/")) {
+            return resolveResourceId(inst, subscriptionId, (AzureResourceManager) null, token);
+        }
         String[] parts = id.split("/", 2);
         if (parts.length < 2) return null;
         String serverName = parts[0];
         String dbName = parts[1];
-        try {
-            for (SqlServer server : azure.sqlServers().list()) {
-                if (server.name().equalsIgnoreCase(serverName)) {
-                    return "/subscriptions/" + subscriptionId + "/resourceGroups/"
-                            + server.resourceGroupName() + "/providers/Microsoft.Sql/servers/"
-                            + serverName + "/databases/" + dbName;
-                }
+        for (SqlServer server : sqlServers) {
+            if (server.name().equalsIgnoreCase(serverName)) {
+                return "/subscriptions/" + subscriptionId + "/resourceGroups/"
+                        + server.resourceGroupName() + "/providers/Microsoft.Sql/servers/"
+                        + serverName + "/databases/" + dbName;
             }
-        } catch (Exception e) {
-            log.debug("[AzureDbOps] Could not resolve SQL DB resource ID for {}: {}", id, e.getMessage());
         }
         return null;
+    }
+
+    /** The subscription's SQL servers; empty when they cannot be listed (SQL DBs then get no metrics). */
+    private List<SqlServer> listSqlServers(AzureResourceManager azure) {
+        List<SqlServer> servers = new ArrayList<>();
+        if (azure == null) {
+            return servers;
+        }
+        try {
+            azure.sqlServers().list().forEach(servers::add);
+        } catch (Exception e) {
+            log.debug("[AzureDbOps] Could not list SQL servers: {}", e.getMessage());
+        }
+        return servers;
     }
 
     // =========================================================================
@@ -1389,6 +1602,52 @@ public class AzureDbOpsService {
     // =========================================================================
     // PRIVATE — HELPERS
     // =========================================================================
+
+    /**
+     * Month-to-date spend on the database services, from the ingested Cost Management summary.
+     * The summary is in the billing currency; it is stored here in USD like every other DbOps
+     * figure, and the controller converts the response back. Empty when there is no billing data.
+     */
+    List<DbCostDto> billedDbCosts(String subscriptionId) {
+        if (billingIngestionService == null) {
+            return Collections.emptyList();
+        }
+        try {
+            List<AzureDashboardData.BillingSummary> lines =
+                    billingIngestionService.readBillingSummary(subscriptionId).orElse(Collections.emptyList());
+            AzureBillingCurrencyService.BillingCurrency billing = billingCurrencyService != null
+                    ? billingCurrencyService.forSubscription(subscriptionId)
+                    : AzureBillingCurrencyService.BillingCurrency.USD;
+            Map<String, Double> byService = new LinkedHashMap<>();
+            for (AzureDashboardData.BillingSummary line : lines) {
+                if (line == null || !isDatabaseService(line.getService()) || line.getCost() <= 0) continue;
+                byService.merge(line.getService(), billing.toUsd(line.getCost()), Double::sum);
+            }
+            double total = byService.values().stream().mapToDouble(Double::doubleValue).sum();
+            List<DbCostDto> costs = new ArrayList<>();
+            for (Map.Entry<String, Double> e : byService.entrySet()) {
+                DbCostDto dto = new DbCostDto();
+                dto.setService(e.getKey());
+                dto.setRegion("");   // the summary is per service, not per region
+                dto.setCost(round2(e.getValue()));
+                dto.setPercentOfTotal(total > 0 ? round2(e.getValue() / total * 100.0) : 0.0);
+                costs.add(dto);
+            }
+            costs.sort(Comparator.comparingDouble(DbCostDto::getCost).reversed());
+            return costs;
+        } catch (Exception e) {
+            log.warn("[AzureDbOps] Billing summary unreadable for subscription {}: {}", subscriptionId, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /** Cost Management service names of the relational database services this page covers. */
+    static boolean isDatabaseService(String service) {
+        if (service == null) return false;
+        return service.equalsIgnoreCase("SQL Database")
+                || service.equalsIgnoreCase("SQL Managed Instance")
+                || service.toLowerCase(Locale.ROOT).startsWith("azure database for");
+    }
 
     private String engineToServiceName(String engine) {
         if (engine == null) return "Azure SQL";
@@ -1462,8 +1721,16 @@ public class AzureDbOpsService {
         return cloudAccountRepository.findByAzureSubscriptionId(subscriptionId).orElse(null);
     }
 
-    private <T> Optional<T> getFromDb(String cacheKey, TypeReference<T> typeRef) {
-        return cachedDataRepository.findById(cacheKey).map(cached -> {
+    /**
+     * The DB snapshot, if it is younger than the cache's TTL. The fallback used to return a copy of
+     * any age, so after a Redis flush a weeks-old inventory or metric set came back as current.
+     */
+    private <T> Optional<T> getFromDb(String cacheKey, TypeReference<T> typeRef, int ttlMinutes) {
+        // saveToDb stamps lastUpdated in IST, so the cutoff is computed in IST too.
+        LocalDateTime cutoff = LocalDateTime.now(ZoneId.of("Asia/Kolkata")).minusMinutes(ttlMinutes);
+        return cachedDataRepository.findById(cacheKey)
+                .filter(cached -> cached.getLastUpdated() != null && cached.getLastUpdated().isAfter(cutoff))
+                .map(cached -> {
             try {
                 return objectMapper.<T>readValue(cached.getJsonData(), typeRef);
             } catch (Exception e) {

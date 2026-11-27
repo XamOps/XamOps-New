@@ -29,7 +29,7 @@ const AzureRightsizingPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
-  const { recommendations, status, isLoading, isRefreshing, loadRecommendations } =
+  const { recommendations, status, isLoading, isRefreshing, refreshError, loadRecommendations } =
     useAzureRightsizingData({ selectedAccountId });
 
   const handleRefresh = () => loadRecommendations(true);
@@ -51,8 +51,14 @@ const AzureRightsizingPage: React.FC = () => {
 
       {selectedAccountId && (
         <>
+          {refreshError && (
+            <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+              <Icon icon="mdi:alert-circle-outline" width={16} color="#DC2626" className="mt-0.5 flex-shrink-0" />
+              <p className="text-[12px] text-red-700">Refresh failed ({refreshError}). Showing the previous results.</p>
+            </div>
+          )}
           <RevealSection>
-            <AzureRightsizingKPICards recommendations={recommendations} isLoading={isLoading} />
+            <AzureRightsizingKPICards recommendations={recommendations} isLoading={isLoading} status={status} />
           </RevealSection>
           <RevealSection delay={0.05}>
             <AzureRightsizingTable recommendations={recommendations} status={status} isLoading={isLoading} />

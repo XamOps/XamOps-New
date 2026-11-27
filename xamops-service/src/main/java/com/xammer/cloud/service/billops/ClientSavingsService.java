@@ -68,6 +68,8 @@ public class ClientSavingsService {
     @Autowired EbsVolumeActionRepository ebsVolumeActionRepository;
     @Autowired CachedDataRepository cachedDataRepository;
     @Autowired ObjectMapper objectMapper;
+    /** Converts Azure savings stated in the billing currency (INR) into USD for the group totals. */
+    @Autowired(required = false) com.xammer.cloud.service.azure.AzureBillingCurrencyService azureBillingCurrency;
 
     /** Savings for every account of the client. */
     public ClientSavingsDashboardDto getSavings(Long clientId, LocalDate startDate, LocalDate endDate) {
@@ -327,7 +329,7 @@ public class ClientSavingsService {
                     .collect(Collectors.toSet());
             double rightsizing = advice.map(r -> positive(azureRightsizingAmounts(r, idleNames))).orElse(0.0);
             double reservations = read(snapshots, AZURE_RESERVATIONS + id, new TypeReference<AzureReservationData>() {})
-                    .map(r -> Math.max(0, r.getTotalMonthlySavings())).orElse(0.0);
+                    .map(r -> Math.max(0, azureReservationSavingsUsd(id, r))).orElse(0.0);
             double idle = positive(waste.stream()
                     .filter(DashboardData.WastedResource::isBillableWaste)
                     .mapToDouble(DashboardData.WastedResource::getMonthlySavings));
@@ -486,4 +488,22 @@ public class ClientSavingsService {
     private static boolean isAws(CloudAccount a)   { return "AWS".equals(a.getProvider()); }
     private static boolean isGcp(CloudAccount a)   { return "GCP".equals(a.getProvider()); }
     private static boolean isAzure(CloudAccount a) { return "Azure".equals(a.getProvider()); }
+
+    /**
+     * An Azure reservation snapshot's savings in USD, the unit these totals are summed in.
+     *
+     * <p>Azure states reservation savings in the subscription's billing currency. They were added
+     * here as-is, so an INR subscription put rupees into a dollar total. Converted with Azure's own
+     * rate for the subscription; a currency that cannot be converted is left out rather than mixed in.
+     */
+    private double azureReservationSavingsUsd(String subscriptionId, AzureReservationData snapshot) {
+        double amount = snapshot.getTotalMonthlySavings();
+        String currency = snapshot.getRecommendationCurrency();
+        if (amount == 0.0 || currency == null || "USD".equalsIgnoreCase(currency) || azureBillingCurrency == null) {
+            return amount;
+        }
+        com.xammer.cloud.service.azure.AzureBillingCurrencyService.BillingCurrency billing =
+                azureBillingCurrency.forSubscription(subscriptionId);
+        return billing.is(currency) ? billing.toUsd(amount) : 0.0;
+    }
 }

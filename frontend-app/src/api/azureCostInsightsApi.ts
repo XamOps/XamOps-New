@@ -28,9 +28,22 @@ import type {
 
 const BASE = '/api/xamops/azure/cost-insights';
 
+/**
+ * After the user presses Refresh, insight requests for the next minute carry forceRefresh=true so
+ * the server skips its six-hour cache. Refresh cleared only the browser's copy before, so the
+ * charges, network, resource and breakdown sections came straight back from the server cache,
+ * hours older than the KPI cards beside them.
+ */
+let forceRefreshUntil = 0;
+export const markAzureInsightsForRefresh = (): void => {
+  forceRefreshUntil = Date.now() + 60_000;
+};
+const withForceRefresh = (path: string): string =>
+  Date.now() > forceRefreshUntil ? path : `${path}${path.includes('?') ? '&' : '?'}forceRefresh=true`;
+
 /** Shared guard: a non-2xx is "not applicable here", and a malformed body is not data. */
 const read = async <T>(path: string, isValid: (body: unknown) => boolean): Promise<T | null> => {
-  const res = await apiFetch(path);
+  const res = await apiFetch(withForceRefresh(path));
   // 409 = this scope cannot be asked, 502 = Cost Management could not be read. Neither is worth
   // interrupting the page for: the rest of the cost page is unaffected.
   if (!res.ok) return null;

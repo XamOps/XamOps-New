@@ -48,6 +48,8 @@ public class AzureRightsizingService {
     private static final String CACHE_PREFIX = "azure:rightsizing:";
     private static final String DB_CACHE_PREFIX = "AZURE_RIGHTSIZING::";
     private static final int CACHE_TTL_MINUTES = 60;
+    /** An error result is kept only briefly, so the next visit after Azure recovers asks again. */
+    private static final int ERROR_CACHE_TTL_MINUTES = 5;
     private static final String ARM_BASE = "https://management.azure.com";
 
     // Metric-based VM rightsizing (free Azure Monitor). A VM whose CPU peaked below
@@ -234,6 +236,13 @@ public class AzureRightsizingService {
         }
 
         AzureRightsizingResponse response = fetchFromAdvisor(subscriptionId);
+        if (response.getStatus() == AzureRightsizingResponse.Status.API_ERROR
+                || response.getStatus() == AzureRightsizingResponse.Status.PERMISSION_ERROR) {
+            // An error was cached for an hour and written over the last good snapshot (which the
+            // 04:55 refresh also did nightly), so one failed call hid real recommendations for days.
+            redisCache.put(cacheKey, response, ERROR_CACHE_TTL_MINUTES);
+            return response;
+        }
         redisCache.put(cacheKey, response, CACHE_TTL_MINUTES);
         saveToDb(dbKey, response);
         return response;
@@ -267,6 +276,10 @@ public class AzureRightsizingService {
 
         List<AzureRightsizingRecommendation> recommendations = new ArrayList<>();
         boolean advisorPermissionError = false;
+        // A throttled or failing Advisor call, or a failed VM scan, is not "no recommendations".
+        // Both ended as NO_DATA, which the page shows as "well-optimized".
+        boolean advisorFailed = false;
+        boolean metricsFailed = false;
 
         // 1. Azure Advisor Cost recommendations (provider-native)
         try {
@@ -296,9 +309,11 @@ public class AzureRightsizingService {
             } else {
                 log.error("Failed to fetch Azure Advisor recommendations for {}: {}",
                         subscriptionId, message);
+                advisorFailed = true;
             }
         } catch (Exception e) {
             log.error("Failed to fetch Azure Advisor recommendations for {}: {}", subscriptionId, e.getMessage(), e);
+            advisorFailed = true;
         }
 
         // 2. Metric-based VM rightsizing (free Azure Monitor) — finds over-provisioned
@@ -307,6 +322,7 @@ public class AzureRightsizingService {
             addMetricBasedVmRecommendations(subscriptionId, bearerToken, recommendations);
         } catch (Exception e) {
             log.warn("Metric-based VM rightsizing failed for {}: {}", subscriptionId, e.getMessage());
+            metricsFailed = true;
         }
 
         recommendations.sort(Comparator.comparingDouble(AzureRightsizingRecommendation::getMonthlySavings).reversed());
@@ -323,6 +339,8 @@ public class AzureRightsizingService {
             status = AzureRightsizingResponse.Status.OK;
         } else if (advisorPermissionError) {
             status = AzureRightsizingResponse.Status.PERMISSION_ERROR;
+        } else if (advisorFailed || metricsFailed) {
+            status = AzureRightsizingResponse.Status.API_ERROR;
         } else {
             status = AzureRightsizingResponse.Status.NO_DATA;
         }

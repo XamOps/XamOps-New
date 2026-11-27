@@ -20,6 +20,8 @@ export interface DbInstance {
   endpoint: string;
   estimatedMonthlyCost: number;
   maxConnections: number;
+  /** Minimum TLS version the server accepts (Azure only). */
+  minTlsVersion?: string | null;
 }
 
 export interface DbMetrics {
@@ -104,6 +106,8 @@ export interface DbSavingsSummary {
   snapshotWasteCost: number;
   totalPotentialSavings: number;
   savingsPercentage: number;
+  /** ISO code of every DbOps money figure (Azure only: the billing currency). Absent means USD. */
+  currency?: string | null;
 }
 
 export interface SlowQuery {

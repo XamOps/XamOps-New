@@ -116,6 +116,9 @@ public class AksDashboardSyncService {
             try {
                 syncClusterDashboard(entry.getSubscriptionId(), entry.getClusterName(), entry.getResourceGroup());
                 success++;
+            } catch (AksDashboardService.ClusterNotFoundException e) {
+                // Deleted between the existence check and the build; syncClusterDashboard dropped the row.
+                removed++;
             } catch (Exception e) {
                 fail++;
                 logger.error("Failed to sync AKS cluster: {}/{} — {}",
@@ -128,25 +131,66 @@ public class AksDashboardSyncService {
     /**
      * Fetches a fresh dashboard for the given cluster and saves it to the DB cache.
      *
-     * @return the freshly fetched dashboard, or null on error
+     * <p>A build that Azure or the agent store could only partly answer is not saved: it would
+     * replace a good copy with an empty one until the next nightly run. The previous copy is
+     * returned instead, with {@code refreshError} saying why. With no previous copy the partial
+     * build is returned unsaved, so the next request tries again.
+     *
+     * @return the dashboard to show
+     * @throws AksDashboardService.ClusterNotFoundException when the cluster no longer exists in
+     *         Azure; its cached copy has been removed
      */
     public AksDashboardDto syncClusterDashboard(String subscriptionId, String clusterName, String resourceGroup) {
         logger.info("Syncing AKS dashboard for cluster {} in resource group {} (subscription {})",
                 clusterName, resourceGroup, subscriptionId);
+        AksDashboardDto dashboard;
         try {
-            AksDashboardDto dashboard = aksDashboardService.getDashboard(subscriptionId, clusterName, resourceGroup);
-            if (dashboard != null) {
-                boolean saved = self.saveDashboardToCache(clusterName, subscriptionId, resourceGroup, dashboard);
-                if (saved) {
-                    logger.info("AKS dashboard synced and saved for cluster: {}", clusterName);
-                } else {
-                    logger.warn("AKS dashboard synced but DB save failed for cluster: {}", clusterName);
-                }
-            }
-            return dashboard;
+            dashboard = aksDashboardService.getDashboard(subscriptionId, clusterName, resourceGroup);
+        } catch (AksDashboardService.ClusterNotFoundException e) {
+            logger.info("AKS cluster {}/{} (resource group {}) no longer exists in Azure — removing its cached dashboard",
+                    subscriptionId, clusterName, resourceGroup);
+            removeCachedDashboard(clusterName, subscriptionId, resourceGroup);
+            throw e;
         } catch (Exception e) {
             logger.error("Error fetching AKS dashboard for cluster: {}/{}", subscriptionId, clusterName, e);
             throw new RuntimeException("Failed to fetch AKS dashboard for cluster: " + clusterName, e);
+        }
+        if (dashboard == null) {
+            return null;
+        }
+
+        if (dashboard.getPartialReason() != null) {
+            AksDashboardDto previous = getCachedDashboard(clusterName, subscriptionId, resourceGroup);
+            if (previous != null) {
+                previous.setLastSyncedAt(getLastSyncedAt(clusterName, subscriptionId, resourceGroup));
+                previous.setRefreshError(dashboard.getPartialReason() + ". Showing the last complete copy.");
+                aksDashboardService.refreshAgentLiveness(previous, subscriptionId);
+                logger.warn("AKS dashboard refresh for cluster {} was incomplete ({}); kept the cached copy",
+                        clusterName, dashboard.getPartialReason());
+                return previous;
+            }
+            dashboard.setRefreshError(dashboard.getPartialReason() + ".");
+            logger.warn("AKS dashboard refresh for cluster {} was incomplete ({}); not cached, so the next request retries",
+                    clusterName, dashboard.getPartialReason());
+            return dashboard;
+        }
+
+        boolean saved = self.saveDashboardToCache(clusterName, subscriptionId, resourceGroup, dashboard);
+        if (saved) {
+            logger.info("AKS dashboard synced and saved for cluster: {}", clusterName);
+        } else {
+            logger.warn("AKS dashboard synced but DB save failed for cluster: {}", clusterName);
+        }
+        return dashboard;
+    }
+
+    /** Deletes the cached dashboard for a cluster, if there is one. Never throws. */
+    public void removeCachedDashboard(String clusterName, String subscriptionId, String resourceGroup) {
+        try {
+            cacheRepository.findByClusterNameAndSubscriptionIdAndResourceGroup(clusterName, subscriptionId, resourceGroup)
+                    .ifPresent(cacheRepository::delete);
+        } catch (Exception e) {
+            logger.warn("Could not remove cached AKS dashboard for cluster {}: {}", clusterName, e.getMessage());
         }
     }
 

@@ -15,6 +15,12 @@ const getPoolStatusChip = (status: string) => {
   if (s === 'PROVISIONING') return 'bg-blue-100 text-blue-700';
   if (s === 'RECONCILING') return 'bg-amber-100 text-amber-700';
   if (s === 'STOPPING') return 'bg-red-100 text-red-700';
+  // AKS agent pool states. GKE never sends these, so its chips are unchanged.
+  if (s === 'SUCCEEDED') return 'bg-green-100 text-green-700';
+  if (s === 'FAILED' || s === 'DELETING') return 'bg-red-100 text-red-700';
+  if (s === 'CREATING' || s === 'UPDATING' || s === 'SCALING' || s === 'UPGRADING' || s === 'STARTING') {
+    return 'bg-blue-100 text-blue-700';
+  }
   return 'bg-gray-100 text-gray-600';
 };
 
@@ -31,7 +37,7 @@ const UtilBar: React.FC<{ value: number }> = ({ value }) => {
   );
 };
 
-const GkeNodesTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
+const GkeNodesTab: React.FC<{ gkeData: any; cloud?: 'gcp' | 'azure' }> = ({ gkeData, cloud = 'gcp' }) => {
   const { dashboard, sortedNodesByPressure, getNodeConditionCount } = gkeData;
   const [nodePage, setNodePage] = useState(0);
 
@@ -48,7 +54,7 @@ const GkeNodesTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
         <h2 className="text-base font-bold text-gray-700 mb-4 flex items-center gap-2">
           <i className="fas fa-layer-group text-indigo-500"></i>
           Node Pools
-          <span className="text-xs font-normal text-gray-400 ml-1">(from GCP API)</span>
+          <span className="text-xs font-normal text-gray-400 ml-1">{cloud === 'azure' ? '(from Azure API)' : '(from GCP API)'}</span>
         </h2>
 
         {/* Summary Cards */}

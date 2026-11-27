@@ -18,19 +18,9 @@ const GkePodsTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
   const [phaseFilter, setPhaseFilter] = useState<'all' | 'Running' | 'Pending' | 'Failed'>('all');
   const [currentPage, setCurrentPage] = useState(0);
 
-  if (!dashboard?.connected || !dashboard?.workloadHealth) {
-    return (
-      <div className="bg-white rounded-xl border border-amber-200 p-12 flex flex-col items-center text-center">
-        <i className="fas fa-plug text-amber-300 text-5xl mb-4"></i>
-        <h3 className="text-lg font-bold text-gray-700 mb-2">Monitoring Not Connected</h3>
-        <p className="text-gray-400 text-sm max-w-md">
-          Enable monitoring on this cluster to see pod metrics and status.
-        </p>
-      </div>
-    );
-  }
-
-  const pods: GkePodInfo[] = dashboard.workloadHealth?.pods ?? [];
+  // The memos run before the early return below: hooks called after a conditional return change
+  // in number between renders, and React throws when the dashboard goes from loading to connected.
+  const pods: GkePodInfo[] = useMemo(() => dashboard?.workloadHealth?.pods ?? [], [dashboard]);
 
   const namespaces = useMemo(() => {
     const ns = new Set<string>();
@@ -53,6 +43,18 @@ const GkePodsTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
     return result;
   }, [pods, phaseFilter, selectedNamespace, searchQuery]);
 
+  if (!dashboard?.connected || !dashboard?.workloadHealth) {
+    return (
+      <div className="bg-white rounded-xl border border-amber-200 p-12 flex flex-col items-center text-center">
+        <i className="fas fa-plug text-amber-300 text-5xl mb-4"></i>
+        <h3 className="text-lg font-bold text-gray-700 mb-2">Monitoring Not Connected</h3>
+        <p className="text-gray-400 text-sm max-w-md">
+          Enable monitoring on this cluster to see pod metrics and status.
+        </p>
+      </div>
+    );
+  }
+
   const paginatedPods = processedPods.slice(currentPage * ITEMS_PER_PAGE, (currentPage + 1) * ITEMS_PER_PAGE);
   const totalPages = Math.ceil(processedPods.length / ITEMS_PER_PAGE);
 
@@ -72,10 +74,12 @@ const GkePodsTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
     return `${(bytes / 1048576).toFixed(0)}Mi`;
   };
 
-  const formatCpu = (cores: number) => {
-    if (!cores) return '—';
-    if (cores < 1) return `${(cores * 1000).toFixed(0)}m`;
-    return `${cores.toFixed(2)}`;
+  // cpuUsage arrives in millicores from every source (the agent mapper and PrometheusService's
+  // "* 1000" queries). Treating it as cores showed a 250m pod as "250.00".
+  const formatCpu = (millicores: number) => {
+    if (!millicores) return '—';
+    if (millicores < 1000) return `${millicores.toFixed(0)}m`;
+    return `${(millicores / 1000).toFixed(2)}`;
   };
 
   return (

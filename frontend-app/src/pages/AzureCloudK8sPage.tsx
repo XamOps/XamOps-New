@@ -9,6 +9,24 @@ import AzureCloudK8sClusterTable from '../components/AzureCloudK8s/AzureCloudK8s
 import AzureCloudK8sIntegrations from '../components/AzureCloudK8s/AzureCloudK8sIntegrations';
 import AzureCloudK8sHelpModal from '../components/AzureCloudK8s/AzureCloudK8sHelpModal';
 import { AKSCluster } from '../types/aksTypes';
+import { classifyApiError } from '../utils/k8sApiError';
+
+/**
+ * The reason to show when the list cannot be read. The server answers a failed Azure call with
+ * `{"error": "..."}`, which apiClient wraps as `HTTP 502: {...}`.
+ */
+const listErrorMessage = (err: unknown): string => {
+  const message = err instanceof Error ? err.message : '';
+  try {
+    const parsed = JSON.parse(message.replace(/^HTTP \d{3}:\s*/, ''));
+    if (parsed && typeof parsed.error === 'string' && parsed.error.trim()) return parsed.error;
+  } catch {
+    // Not a JSON body; fall through to a generic reason.
+  }
+  return classifyApiError(err).kind === 'network'
+    ? 'The XamOps server could not be reached.'
+    : 'The AKS cluster list could not be loaded.';
+};
 
 // The list is cached per tab so navigating back is instant. Without an expiry a
 // long-lived tab never sees a cluster added or removed in Azure, so entries older
@@ -49,11 +67,13 @@ const AzureCloudK8sPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchClusters = useCallback(async (forceRefresh = false) => {
     if (!selectedAccountId) {
       setIsLoading(false);
       setClusters([]);
+      setLoadError(null);
       return;
     }
 
@@ -65,6 +85,7 @@ const AzureCloudK8sPage: React.FC = () => {
       const cachedData = readCachedClusters(cacheKey);
       if (cachedData) {
         setClusters(cachedData);
+        setLoadError(null);
         setIsLoading(false);
         return;
       }
@@ -82,10 +103,17 @@ const AzureCloudK8sPage: React.FC = () => {
       );
 
       setClusters(data);
-      sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data }));
+      setLoadError(null);
+      // Never cache an empty list (as the EKS page does): an empty read must not stand in for
+      // "no clusters" for the next five minutes.
+      if (Array.isArray(data) && data.length > 0) {
+        sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data }));
+      }
     } catch (err: any) {
+      // A failed read used to land here as an empty list, shown as "No AKS clusters found".
       console.error('Failed to fetch AKS clusters', err);
       setClusters([]);
+      setLoadError(listErrorMessage(err));
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -144,11 +172,28 @@ const AzureCloudK8sPage: React.FC = () => {
   return (
     <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }} className="space-y-5">
-        <AzureCloudK8sClusterTable
-          clusters={clusters}
-          isLoading={isLoading}
-          onViewDetails={navigateToDetails}
-        />
+        {loadError && !isLoading ? (
+          <div className="bg-white border border-red-200 rounded-xl shadow-sm p-5 flex items-start gap-3" role="alert">
+            <Icon icon="mdi:alert-circle-outline" width={20} className="text-red-500 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-semibold text-red-700">Could not load AKS clusters</p>
+              <p className="text-[12px] text-[rgba(0,0,0,0.55)] mt-1 break-words">{loadError}</p>
+            </div>
+            <button
+              onClick={() => fetchClusters(false)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-red-700 border border-red-200 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+            >
+              <Icon icon="mdi:refresh" width={13} />
+              Retry
+            </button>
+          </div>
+        ) : (
+          <AzureCloudK8sClusterTable
+            clusters={clusters}
+            isLoading={isLoading}
+            onViewDetails={navigateToDetails}
+          />
+        )}
         <AzureCloudK8sIntegrations />
       </motion.div>
       {/* No cluster is selected here, so offer a picker. Choosing one fills the resource

@@ -24,4 +24,9 @@ public class DbInstanceDto {
     private String endpoint;
     private double estimatedMonthlyCost;
     private int maxConnections;
+    /**
+     * Minimum TLS version the server accepts, as the cloud reports it (Azure only: e.g. "1.2",
+     * "TLSv1.2"). Null when not read. Azure used to put a hardcoded "TLS1_2" into storageType.
+     */
+    private String minTlsVersion;
 }

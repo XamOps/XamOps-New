@@ -29,6 +29,12 @@ public class AzureBudgetDto {
     private String warning;
 
     /**
+     * The service this budget tracks, or null for the whole subscription. The cost page matches it
+     * against the billing summary's service names to show that service's spend, as it does for AWS.
+     */
+    private String serviceName;
+
+    /**
      * Five-argument form kept because it is how the parser builds a budget read from Azure, where
      * neither of the fields above is known.
      */

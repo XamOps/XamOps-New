@@ -14,8 +14,15 @@ const COL  = 'px-5 py-4 text-[13px]';
 const statusStyle = (state?: string) => {
   if (state === 'Succeeded') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
   if (state === 'Failed')    return 'bg-red-50 text-red-700 border-red-100';
+  if (state === 'Stopped')   return 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.55)] border-[rgba(0,0,0,0.08)]';
   return 'bg-amber-50 text-amber-700 border-amber-100';
 };
+
+// A stopped cluster keeps provisioningState "Succeeded", which showed it as healthy.
+const displayState = (cluster: AKSCluster) =>
+  cluster.powerState === 'Stopped' && (!cluster.provisioningState || cluster.provisioningState === 'Succeeded')
+    ? 'Stopped'
+    : cluster.provisioningState;
 
 const AzureCloudK8sClusterTable: React.FC<AzureCloudK8sClusterTableProps> = ({ clusters, isLoading, onViewDetails }) => {
   return (
@@ -97,8 +104,8 @@ const AzureCloudK8sClusterTable: React.FC<AzureCloudK8sClusterTableProps> = ({ c
                       )}
                     </td>
                     <td className={`${COL} hidden lg:table-cell`}>
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 border rounded-full text-[11px] font-semibold ${statusStyle(cluster.provisioningState)}`}>
-                        {cluster.provisioningState || 'Unknown'}
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 border rounded-full text-[11px] font-semibold ${statusStyle(displayState(cluster))}`}>
+                        {displayState(cluster) || 'Unknown'}
                       </span>
                     </td>
                     <td className={COL}>
@@ -106,6 +113,14 @@ const AzureCloudK8sClusterTable: React.FC<AzureCloudK8sClusterTableProps> = ({ c
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full text-[11px] font-semibold">
                           <Icon icon="mdi:check-circle-outline" width={12} />
                           Connected
+                        </span>
+                      ) : cluster.agentStale ? (
+                        <span
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)] border border-[rgba(0,0,0,0.08)] rounded-full text-[11px] font-semibold"
+                          title="The agent has sent data before but has not checked in for over 15 minutes"
+                        >
+                          <Icon icon="mdi:lan-disconnect" width={12} />
+                          Agent Offline
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-100 rounded-full text-[11px] font-semibold">

@@ -19,7 +19,7 @@ const AzureReservationHeader: React.FC<AzureReservationHeaderProps> = ({
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold px-3 py-1.5 rounded-full">
           <i className="fas fa-shield-alt text-xs"></i>
-          <span>Requires Reservation Reader role</span>
+          <span>Requires Reservations Reader (tenant)</span>
         </div>
         {selectedAccountId && (
           <button

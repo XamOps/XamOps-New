@@ -9,29 +9,19 @@ import React, { useState, useMemo } from 'react';
 
 const ITEMS_PER_PAGE = 5;
 
-const GkeWorkloadsTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
+const GkeWorkloadsTab: React.FC<{ gkeData: any; cloud?: 'gcp' | 'azure' }> = ({ gkeData, cloud = 'gcp' }) => {
   const { dashboard } = gkeData;
   const [selectedType, setSelectedType] = useState<'deployments' | 'statefulsets' | 'daemonsets'>('deployments');
   const [currentPage, setCurrentPage] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'healthy' | 'degraded'>('all');
 
-  if (!dashboard?.connected || !dashboard?.workloadHealth) {
-    return (
-      <div className="bg-white rounded-xl border border-amber-200 p-12 flex flex-col items-center text-center">
-        <i className="fas fa-robot text-amber-300 text-5xl mb-4"></i>
-        <h3 className="text-lg font-bold text-gray-700 mb-2">XamOps Agent Not Deployed</h3>
-        <p className="text-gray-400 text-sm max-w-md">
-          Deploy the XamOps agent on this cluster to see workload data. Click the <strong>?</strong> button on the cluster list page for the full setup guide.
-        </p>
-      </div>
-    );
-  }
+  const deployments = dashboard?.workloadHealth?.deployments || [];
+  const statefulSets = dashboard?.workloadHealth?.statefulsets || [];
+  const daemonSets = dashboard?.workloadHealth?.daemonsets || [];
 
-  const deployments = dashboard.workloadHealth?.deployments || [];
-  const statefulSets = dashboard.workloadHealth?.statefulsets || [];
-  const daemonSets = dashboard.workloadHealth?.daemonsets || [];
-
+  // Before the early return below: a hook after a conditional return throws when the
+  // dashboard goes from loading to connected.
   const filteredWorkloads = useMemo(() => {
     let workloads: any[] = [];
     switch (selectedType) {
@@ -55,6 +45,22 @@ const GkeWorkloadsTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
       return matchesSearch && matchesStatus;
     });
   }, [selectedType, deployments, statefulSets, daemonSets, searchTerm, statusFilter]);
+
+  if (!dashboard?.connected || !dashboard?.workloadHealth) {
+    return (
+      <div className="bg-white rounded-xl border border-amber-200 p-12 flex flex-col items-center text-center">
+        <i className="fas fa-robot text-amber-300 text-5xl mb-4"></i>
+        <h3 className="text-lg font-bold text-gray-700 mb-2">XamOps Agent Not Deployed</h3>
+        <p className="text-gray-400 text-sm max-w-md">
+          {cloud === 'azure' ? (
+            <>Deploy the XamOps agent on this cluster to see workload data. Open the <strong>Guide</strong> at the top of this page for the setup steps.</>
+          ) : (
+            <>Deploy the XamOps agent on this cluster to see workload data. Click the <strong>?</strong> button on the cluster list page for the full setup guide.</>
+          )}
+        </p>
+      </div>
+    );
+  }
 
   const paginatedWorkloads = filteredWorkloads.slice(currentPage * ITEMS_PER_PAGE, (currentPage + 1) * ITEMS_PER_PAGE);
   const totalPages = Math.ceil(filteredWorkloads.length / ITEMS_PER_PAGE);

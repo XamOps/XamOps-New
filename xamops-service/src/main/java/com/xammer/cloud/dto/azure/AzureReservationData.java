@@ -72,7 +72,20 @@ public class AzureReservationData {
      */
     private String savingsUnavailableReason;
 
+    /**
+     * Why the reservation or savings-plan inventory could not be read, or null when Azure answered.
+     *
+     * <p>
+     * Without it a denied or failed inventory call rendered as "No Reservation Data Available" and
+     * four zero counts, which reads as "this subscription owns nothing" rather than "we could not
+     * look".
+     */
+    private String inventoryUnavailableReason;
+
     // --- Getters and Setters ---
+
+    public String getInventoryUnavailableReason() { return inventoryUnavailableReason; }
+    public void setInventoryUnavailableReason(String reason) { this.inventoryUnavailableReason = reason; }
 
     public List<ReservationItem> getReservations() { return reservations; }
     public void setReservations(List<ReservationItem> reservations) { this.reservations = reservations; }

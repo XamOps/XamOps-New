@@ -33,8 +33,15 @@ public class AzureCloudsitterController {
     }
 
     @GetMapping("/vms")
-    public ResponseEntity<List<Map<String, String>>> listVms(@RequestParam String subscriptionId) {
-        return ResponseEntity.ok(azureCloudsitterService.listVmsForSubscription(subscriptionId));
+    public ResponseEntity<?> listVms(@RequestParam String subscriptionId,
+            @RequestParam(defaultValue = "false") boolean refresh) {
+        try {
+            return ResponseEntity.ok(azureCloudsitterService.listVmsForSubscription(subscriptionId, refresh));
+        } catch (IllegalStateException e) {
+            // A failed listing is an error, not an empty subscription.
+            return ResponseEntity.status(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(Map.of("error", e.getMessage()));
+        }
     }
 
     @PostMapping("/policies")
@@ -43,15 +50,26 @@ public class AzureCloudsitterController {
     }
 
     @PutMapping("/policies/{id}")
-    public ResponseEntity<CloudsitterPolicy> updatePolicy(@PathVariable Long id,
+    public ResponseEntity<?> updatePolicy(@PathVariable Long id,
             @RequestBody CloudsitterPolicyDto dto) {
-        return ResponseEntity.ok(azureCloudsitterService.updatePolicy(id, dto));
+        try {
+            return ResponseEntity.ok(azureCloudsitterService.updatePolicy(id, dto));
+        } catch (IllegalStateException e) {
+            // A policy AWS or GCP instances also use: say why instead of a bare 500.
+            return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT)
+                    .body(Map.of("error", e.getMessage()));
+        }
     }
 
     @DeleteMapping("/policies/{id}")
-    public ResponseEntity<Void> deletePolicy(@PathVariable Long id) {
-        azureCloudsitterService.deletePolicy(id);
-        return ResponseEntity.noContent().build();
+    public ResponseEntity<?> deletePolicy(@PathVariable Long id) {
+        try {
+            azureCloudsitterService.deletePolicy(id);
+            return ResponseEntity.noContent().build();
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT)
+                    .body(Map.of("error", e.getMessage()));
+        }
     }
 
     @PostMapping("/assign")

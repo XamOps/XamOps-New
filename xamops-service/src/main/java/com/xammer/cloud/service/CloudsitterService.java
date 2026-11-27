@@ -77,6 +77,10 @@ public class CloudsitterService {
     @Lazy
     private CloudsitterService self;
 
+    /** DB lease so only one instance runs each enforcement cycle. */
+    @Autowired(required = false)
+    private com.xammer.cloud.service.upwind.UpwindSyncLease schedulerLease;
+
     @Autowired
     private CloudsitterAuditLogRepository auditLogRepo;
 
@@ -1065,6 +1069,18 @@ public class CloudsitterService {
     // (Existing scheduling logic remains unchanged)
     @Scheduled(cron = "0 0/10 * * * *")
     public void enforcePolicies() {
+        // One cycle per deployment, not per instance: every instance runs this scheduler, so
+        // without the lease each one would start and stop the same EC2 instances, write
+        // duplicate audit rows and send duplicate emails. No lease bean (or no lease table)
+        // means a single instance, which runs the cycle directly.
+        if (schedulerLease == null) {
+            runEnforcementCycle();
+            return;
+        }
+        schedulerLease.runIfLeader("CLOUDSITTER_AWS", java.time.Duration.ofMinutes(9), this::runEnforcementCycle);
+    }
+
+    private void runEnforcementCycle() {
         long startTime = System.currentTimeMillis();
         logger.info("========================================");
         logger.info("CloudSitter: Starting policy enforcement cycle at {}", ZonedDateTime.now());
@@ -1076,6 +1092,24 @@ public class CloudsitterService {
 
             int totalAssignmentsProcessed = 0;
             int totalActionsPerformed = 0;
+
+            if (tenants.isEmpty()) {
+                // Single-tenant mode: getAllActiveTenants() always returns an empty list, so the
+                // tenant loop below never ran and no EC2 schedule was ever enforced. Run once
+                // against the "system" tenant, the one TenantFilter assigns to every request.
+                TenantContext.setCurrentTenant("system");
+                try {
+                    int[] results = self.enforcePoliciesForCurrentTenant();
+                    totalAssignmentsProcessed += results[0];
+                    totalActionsPerformed += results[1];
+                    logger.info("CloudSitter: {} assignments checked, {} actions performed",
+                            results[0], results[1]);
+                } catch (Exception e) {
+                    logger.error("CloudSitter: Failed to enforce policies", e);
+                } finally {
+                    TenantContext.clear();
+                }
+            }
 
             for (TenantDto tenant : tenants) {
                 String tenantId = tenant.getTenantId();

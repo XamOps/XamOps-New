@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import apiClient from '../../utils/apiClient';
+import { currencyMeta } from '../../utils/currency';
+import { isAzureHa } from './multiAz';
 import { useAccounts } from '../../contexts/AccountContext';
 import { useAgentInstallConfig } from '../../hooks/useAgentInstallConfig';
 import { QueryPlanViewer } from './QueryPlanViewer';
@@ -36,6 +38,16 @@ import { computeQueryStatsKpis } from './queryStatsKpis';
 
 const fmt$ = (n: number) =>
   `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/**
+ * The money formatter for a currency code. Without a code (AWS, GCP) it is fmt$ unchanged; Azure
+ * passes its billing currency, whose figures were shown with "$".
+ */
+const moneyFormatter = (code?: string) => {
+  if (!code) return fmt$;
+  const { symbol, locale } = currencyMeta('Azure', code);
+  return (n: number) => `${symbol}${n.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
 
 function fmtTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -410,7 +422,9 @@ export function buildAgentRunCmd(opts: {
   ].join('\n');
 }
 
-function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engine: string; instanceId: string; endpoint?: string; onConnected?: (inst: DrawerInstance) => void }) {
+function AgentSetupWizard({ engine, instanceId, endpoint, onConnected, cloudProvider = 'aws' }: { engine: string; instanceId: string; endpoint?: string; onConnected?: (inst: DrawerInstance) => void; cloudProvider?: 'aws' | 'gcp' | 'azure' }) {
+  // Azure managed servers set these in "Server parameters", not in an RDS parameter group.
+  const azure = cloudProvider === 'azure';
   const { selectedAccountIds } = useAccounts();
   const [step, setStep] = useState(1);
   const [copied, setCopied] = useState('');
@@ -721,7 +735,7 @@ db.grantRolesToUser("xamops_reader", [
           </div>
         </div>
         <p className="text-xs text-[rgba(0,0,0,0.5)]">
-          The agent hasn't checked in. Make sure the Docker container is running on your EC2 instance.
+          The agent hasn't checked in. Make sure the Docker container is running on your {azure ? 'VM' : 'EC2 instance'}.
         </p>
         <button
           onClick={() => { setViewMode('wizard'); setStep(3); }}
@@ -860,17 +874,17 @@ db.grantRolesToUser("xamops_reader", [
           /* ── RDS: use Parameter Group ── */
           <>
             <p className="text-xs font-semibold text-amber-800 flex items-center gap-2">
-              <Icon icon="mdi:cog-outline" width={14} /> AWS RDS — Required Parameter Group Settings
+              <Icon icon="mdi:cog-outline" width={14} /> {azure ? 'Azure — Required Server Parameter Settings' : 'AWS RDS — Required Parameter Group Settings'}
             </p>
             {isPostgres ? (
               <div className="space-y-2">
                 <p className="text-xs text-amber-700">
-                  To enable slow query analysis, add <code className="bg-amber-100 px-1 rounded font-mono">pg_stat_statements</code> to your RDS parameter group:
+                  To enable slow query analysis, add <code className="bg-amber-100 px-1 rounded font-mono">pg_stat_statements</code> to your {azure ? 'server parameters' : 'RDS parameter group'}:
                 </p>
                 <ol className="text-xs text-amber-700 space-y-1 list-decimal pl-4">
-                  <li>AWS Console → RDS → Parameter Groups → create or edit a group</li>
+                  <li>{azure ? 'Azure portal → your PostgreSQL flexible server → Server parameters' : 'AWS Console → RDS → Parameter Groups → create or edit a group'}</li>
                   <li>Set <code className="bg-amber-100 px-1 rounded font-mono">shared_preload_libraries</code> = <code className="bg-amber-100 px-1 rounded font-mono">pg_stat_statements</code></li>
-                  <li>Assign the parameter group to your instance → <strong>Reboot</strong></li>
+                  <li>{azure ? <>Save, then <strong>Restart</strong> the server</> : <>Assign the parameter group to your instance → <strong>Reboot</strong></>}</li>
                   <li>Run once on your DB: <code className="bg-amber-100 px-1 rounded font-mono">CREATE EXTENSION IF NOT EXISTS pg_stat_statements;</code></li>
                 </ol>
                 <p className="text-[11px] text-amber-600">
@@ -880,12 +894,12 @@ db.grantRolesToUser("xamops_reader", [
             ) : (
               <div className="space-y-2">
                 <p className="text-xs text-amber-700">
-                  Enable <code className="bg-amber-100 px-1 rounded font-mono">performance_schema</code> in your RDS parameter group:
+                  Enable <code className="bg-amber-100 px-1 rounded font-mono">performance_schema</code> in your {azure ? 'server parameters' : 'RDS parameter group'}:
                 </p>
                 <ol className="text-xs text-amber-700 space-y-1 list-decimal pl-4">
-                  <li>AWS Console → RDS → Parameter Groups → create or edit a group</li>
-                  <li>Set <code className="bg-amber-100 px-1 rounded font-mono">performance_schema</code> = <code className="bg-amber-100 px-1 rounded font-mono">1</code></li>
-                  <li>Assign the parameter group to your instance → <strong>Reboot</strong></li>
+                  <li>{azure ? 'Azure portal → your MySQL flexible server → Server parameters' : 'AWS Console → RDS → Parameter Groups → create or edit a group'}</li>
+                  <li>Set <code className="bg-amber-100 px-1 rounded font-mono">performance_schema</code> = <code className="bg-amber-100 px-1 rounded font-mono">{azure ? 'ON' : '1'}</code></li>
+                  <li>{azure ? <>Save, then <strong>Restart</strong> the server</> : <>Assign the parameter group to your instance → <strong>Reboot</strong></>}</li>
                 </ol>
                 <p className="text-[11px] text-amber-600">
                   Without this, instance metrics (connections, table sizes, lock waits) still work — only slow query analysis is disabled.
@@ -1045,7 +1059,7 @@ db.grantRolesToUser("xamops_reader", [
       <div className="grid grid-cols-2 gap-3">
         {[
           { label: 'XamOps Server URL', val: serverUrl, setter: setServerUrl, placeholder: 'https://your-tunnel-or-public-url' },
-          { label: 'Cloud Account ID', val: cloudAccountId, setter: setCloudAccountId, placeholder: '015764906357' },
+          { label: azure ? 'Subscription ID' : 'Cloud Account ID', val: cloudAccountId, setter: setCloudAccountId, placeholder: azure ? '00000000-0000-0000-0000-000000000000' : '015764906357' },
           { label: 'Cluster / Agent Name', val: clusterName, setter: setClusterName, placeholder: instanceId },
         ].map(f => (
           <div key={f.label}>
@@ -1255,6 +1269,10 @@ interface Props {
   allSnapshots: DbSnapshot[];
   costs: DbCost[];
   cloudProvider?: 'aws' | 'gcp' | 'azure';
+  /** ISO code of the money figures (Azure: the billing currency). Absent keeps the "$" formatting. */
+  currency?: string;
+  /** Why the cloud's own slow-query source is unavailable (Azure sends a reason instead of rows). */
+  slowQueriesMessage?: string;
   fetchTimeseries: (id: string, hours: number) => Promise<DbInstanceTimeseries | null>;
   fetchAgentTimeseries: (hours: number) => Promise<AgentTimeseries[]>;
   fetchAgentTableSizes: () => Promise<AgentTableSize[]>;
@@ -1306,11 +1324,17 @@ interface NormSQ {
 }
 
 // ── Slow Queries Tab (sub-component, owns its own UI state) ────────────────────
-function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
+function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres, cloudProvider = 'aws', unavailableReason }: {
   cloudwatchQueries: SlowQuery[];
   agentQueries: AgentQueryStat[];
   isPostgres: boolean;
+  cloudProvider?: 'aws' | 'gcp' | 'azure';
+  /** The backend's reason the cloud log source is unavailable; Azure sends one, and it was dropped. */
+  unavailableReason?: string;
 }) {
+  const logSourceHint = cloudProvider === 'azure'
+    ? 'send the server\'s slow query log to a Log Analytics workspace with an Azure Monitor diagnostic setting'
+    : 'enable slow query log on RDS and publish to CloudWatch Logs';
   const [search, setSearch] = useState('');
   const [sevFilter, setSevFilter] = useState<'all' | 'critical' | 'warning' | 'info'>('all');
   const [minAvgMs, setMinAvgMs] = useState('');
@@ -1406,7 +1430,7 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
         </svg>
         <p className="text-sm font-medium text-[rgba(0,0,0,0.4)]">No slow queries detected</p>
         <p className="text-[11px] text-[rgba(0,0,0,0.4)] text-center max-w-xs leading-relaxed">
-          Deploy the XamOps DB agent to collect performance_schema data, or enable slow query log on RDS and publish to CloudWatch Logs.
+          {unavailableReason ?? `Deploy the XamOps DB agent to collect performance_schema data, or ${logSourceHint}.`}
         </p>
       </div>
     );
@@ -1523,7 +1547,7 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
             <p className="text-[11px] text-[rgba(0,0,0,0.55)] leading-relaxed">
               Showing queries with avg execution &gt;10ms from{' '}
               <strong>{isPostgres ? 'pg_stat_statements' : 'performance_schema'}</strong>.{' '}
-              Counters accumulate since last restart — not a real-time window. For per-query timestamps enable slow query log on RDS and publish to CloudWatch Logs.
+              Counters accumulate since last restart — not a real-time window. For per-query timestamps {logSourceHint}.
             </p>
           </div>
           <button
@@ -2663,12 +2687,14 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, rds
 }
 
 // ── Snapshots Tab ─────────────────────────────────────────────────────────────
-function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
+function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws', currency }: {
   snapshots: DbSnapshot[];
   rd: DbInstance | undefined;
   instanceId: string;
   cloudProvider?: 'aws' | 'gcp' | 'azure';
+  currency?: string;
 }) {
+  const fmt$ = moneyFormatter(currency);
   const [sortKey, setSortKey] = useState<'age' | 'size' | 'cost'>('age');
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
   const [compareMode, setCompareMode] = useState(false);
@@ -2695,10 +2721,38 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
     });
   };
 
-  const restoreCmd = (s: DbSnapshot) =>
+  // Azure ids: "server/db" (SQL Database), "mi/<name>", "pg/<name>", "mysql/<name>". The Azure
+  // page used to hand out `aws rds` commands; these are the az CLI equivalents.
+  const azureTarget = (() => {
+    const [head, ...rest] = instanceId.split('/');
+    const name = rest.join('/');
+    if (head === 'pg') return { kind: 'postgres' as const, server: name, db: '' };
+    if (head === 'mysql') return { kind: 'mysql' as const, server: name, db: '' };
+    if (head === 'mi') return { kind: 'mi' as const, server: name, db: '' };
+    return { kind: 'sqldb' as const, server: head, db: name };
+  })();
+
+  const azureRestoreCmd = () => {
+    const t = azureTarget;
+    if (t.kind === 'sqldb') return `az sql db restore \\\n  --resource-group <RESOURCE_GROUP> \\\n  --server ${t.server} \\\n  --name ${t.db} \\\n  --dest-name ${t.db}-restored \\\n  --time "<RESTORE_TIME_UTC>"`;
+    if (t.kind === 'mi') return `az sql midb restore \\\n  --resource-group <RESOURCE_GROUP> \\\n  --managed-instance ${t.server} \\\n  --name <DATABASE> \\\n  --dest-name <DATABASE>-restored \\\n  --time "<RESTORE_TIME_UTC>"`;
+    return `az ${t.kind} flexible-server restore \\\n  --resource-group <RESOURCE_GROUP> \\\n  --name ${t.server}-restored \\\n  --source-server ${t.server} \\\n  --restore-time "<RESTORE_TIME_UTC>"`;
+  };
+
+  const azureTakeBackupCmd = () => {
+    const t = azureTarget;
+    if (t.kind === 'sqldb') return `# Azure SQL Database has no manual snapshot; a database copy is the equivalent.\naz sql db copy \\\n  --resource-group <RESOURCE_GROUP> \\\n  --server ${t.server} \\\n  --name ${t.db} \\\n  --dest-name ${t.db}-copy-$(date +%Y%m%d%H%M%S)`;
+    if (t.kind === 'mi') return `# SQL Managed Instance takes automated backups only. For a manual one, run a\n# COPY_ONLY backup to URL from T-SQL:\n#   BACKUP DATABASE [<DATABASE>] TO URL = '<STORAGE_URL>' WITH COPY_ONLY`;
+    return `az ${t.kind} flexible-server backup create \\\n  --resource-group <RESOURCE_GROUP> \\\n  --name ${t.server} \\\n  --backup-name manual-$(date +%Y%m%d%H%M%S)`;
+  };
+
+  const restoreCmd = (s: DbSnapshot) => cloudProvider === 'azure' ? azureRestoreCmd() :
     `aws rds restore-db-instance-from-db-snapshot \\\n  --db-instance-identifier ${instanceId}-restored \\\n  --db-snapshot-identifier ${s.snapshotId} \\\n  --region ${s.region}`;
 
-  const takeSnapshotCmd =
+  // Azure reports 'ZoneRedundant' / 'None', which the 'true' / 'Yes' test always read as "No".
+  const haEnabled = (v?: string) => cloudProvider === 'azure' ? isAzureHa(v) : (v === 'true' || v === 'Yes');
+
+  const takeSnapshotCmd = cloudProvider === 'azure' ? azureTakeBackupCmd() :
     `aws rds create-db-snapshot \\\n  --db-instance-identifier ${instanceId} \\\n  --db-snapshot-identifier ${instanceId}-manual-$(date +%Y%m%d%H%M%S) \\\n  --region ${rd?.region ?? 'us-east-1'}`;
 
   // ── Sort ──────────────────────────────────────────────────────────────────
@@ -2760,7 +2814,9 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
                 This view shows <strong>manual snapshots older than 30 days</strong> that may be accumulating storage costs.
                 {cloudProvider === 'gcp'
                   ? 'Automated backups (configured via Cloud SQL) are separate and managed by GCP.'
-                  : 'Automated daily backups (configured via RDS) are separate and managed by AWS.'}
+                  : cloudProvider === 'azure'
+                    ? 'Automated backups and the point-in-time restore window are managed by Azure and are not counted here.'
+                    : 'Automated daily backups (configured via RDS) are separate and managed by AWS.'}
               </p>
               <div className="flex items-center gap-2 flex-wrap">
                 <button
@@ -2785,7 +2841,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
           {[
             { icon: 'mdi:database-outline', color: 'text-[rgba(0,0,0,0.55)]', bg: 'bg-[rgba(0,0,0,0.03)]', title: 'Full DB state', desc: 'All tables, indexes, stored procedures, and data at the moment of capture.' },
             { icon: 'mdi:history', color: 'text-sky-500', bg: 'bg-sky-50', title: 'Point-in-time restore', desc: 'Restore to any second within your retention window (5 min granularity).' },
-            { icon: 'mdi:content-copy', color: 'text-[rgba(0,0,0,0.45)]', bg: 'bg-[rgba(0,0,0,0.03)]', title: 'Cross-region copy', desc: cloudProvider === 'gcp' ? 'Copy a snapshot to another region for DR. Share with another GCP project.' : 'Copy a snapshot to another region for DR. Share with another AWS account.' },
+            { icon: 'mdi:content-copy', color: 'text-[rgba(0,0,0,0.45)]', bg: 'bg-[rgba(0,0,0,0.03)]', title: 'Cross-region copy', desc: cloudProvider === 'gcp' ? 'Copy a snapshot to another region for DR. Share with another GCP project.' : cloudProvider === 'azure' ? 'Geo-redundant backup storage lets you restore into another region for DR.' : 'Copy a snapshot to another region for DR. Share with another AWS account.' },
             { icon: 'mdi:shield-half-full', color: 'text-emerald-500', bg: 'bg-emerald-50', title: 'Encrypted by default', desc: 'Snapshots inherit the instance encryption key. Cannot be disabled after creation.' },
           ].map(c => (
             <div key={c.title} className={`flex items-start gap-2.5 p-3 rounded-xl border border-[rgba(0,0,0,0.06)] ${c.bg}`}>
@@ -2809,7 +2865,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
               {[
                 { label: 'Automated Backups', value: rd.backupEnabled ? 'Enabled' : 'Disabled', ok: rd.backupEnabled },
                 { label: 'Retention', value: rd.backupRetentionDays ? `${rd.backupRetentionDays} days` : '—', ok: Number(rd.backupRetentionDays) >= 7 },
-                { label: 'Multi-AZ', value: rd.multiAz === 'true' || rd.multiAz === 'Yes' ? 'Yes' : 'No', ok: rd.multiAz === 'true' || rd.multiAz === 'Yes' },
+                { label: cloudProvider === 'azure' ? 'Zone redundant' : 'Multi-AZ', value: haEnabled(rd.multiAz) ? 'Yes' : 'No', ok: haEnabled(rd.multiAz) },
               ].map(r => (
                 <div key={r.label} className="px-4 py-3 text-center">
                   <div className="text-[9px] text-[rgba(0,0,0,0.4)] uppercase tracking-wider mb-1">{r.label}</div>
@@ -3049,7 +3105,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
 
                 {/* Actions */}
                 <div className="flex items-center gap-1 shrink-0">
-                  <Tip text={`Copy: aws rds restore-db-instance-from-db-snapshot`} wide>
+                  <Tip text={cloudProvider === 'azure' ? 'Copy the az CLI restore command' : `Copy: aws rds restore-db-instance-from-db-snapshot`} wide>
                     <button
                       onClick={() => copyCmd(restoreCmd(s), copyKey('restore'))}
                       className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-medium border transition-all duration-200 ${copied === copyKey('restore') ? 'bg-emerald-100 text-emerald-700 border-emerald-300/50' : 'bg-sky-50 text-sky-600 border-sky-200/50 hover:bg-sky-100'}`}
@@ -3108,7 +3164,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
               {[
                 { label: 'Automated Backups', value: rd.backupEnabled ? 'Enabled' : 'Disabled', ok: rd.backupEnabled, icon: 'mdi:check-circle-outline', tip: 'RDS automated backups create daily snapshots during the backup window. Required for point-in-time recovery.' },
                 { label: 'Retention Period', value: rd.backupRetentionDays ? `${rd.backupRetentionDays} days` : '—', ok: Number(rd.backupRetentionDays) >= 7, icon: 'mdi:clock-outline', tip: 'How long automated backups are kept before deletion. AWS recommends at least 7 days. 0 = backups disabled.' },
-                { label: 'Multi-AZ', value: rd.multiAz === 'true' || rd.multiAz === 'Yes' ? 'Yes' : 'No', ok: rd.multiAz === 'true' || rd.multiAz === 'Yes', icon: 'mdi:layers-outline', tip: 'Multi-AZ keeps a synchronous standby replica in another Availability Zone. Provides automatic failover — highly recommended for production.' },
+                { label: cloudProvider === 'azure' ? 'Zone redundant' : 'Multi-AZ', value: haEnabled(rd.multiAz) ? 'Yes' : 'No', ok: haEnabled(rd.multiAz), icon: 'mdi:layers-outline', tip: 'Multi-AZ keeps a synchronous standby replica in another Availability Zone. Provides automatic failover — highly recommended for production.' },
               ].map(r => (
                 <div key={r.label} className="px-4 py-3 text-center bg-[rgba(0,0,0,0.02)]">
                   <Icon icon={r.icon} width={13} className={`${r.ok ? 'text-emerald-500' : 'text-amber-400'} mb-1 inline-block`} />
@@ -3191,6 +3247,48 @@ export const SECURITY_CATALOGUE_GCP = [
   },
 ];
 
+// The five checks AzureDbOpsService.getSecurityChecks evaluates. Azure used to be shown the AWS
+// catalogue (KMS, Multi-AZ) and RDS console fixes.
+export const SECURITY_CATALOGUE_AZURE = [
+  {
+    category: 'Access Control',
+    icon: 'mdi:key-outline',
+    color: 'text-rose-500',
+    bg: 'bg-rose-50',
+    checks: [
+      { name: 'Public Network Access', desc: 'Public access on and a firewall rule admitting clients.' },
+    ],
+  },
+  {
+    category: 'Encryption',
+    icon: 'mdi:lock-outline',
+    color: 'text-[rgba(0,0,0,0.45)]',
+    bg: 'bg-[rgba(0,0,0,0.03)]',
+    checks: [
+      { name: 'Data Encryption at Rest', desc: 'Transparent Data Encryption (SQL) or storage encryption (flexible servers).' },
+      { name: 'Minimum TLS Version', desc: 'Connections must use TLS 1.2 or higher.' },
+    ],
+  },
+  {
+    category: 'Availability',
+    icon: 'mdi:shield-half-full',
+    color: 'text-sky-500',
+    bg: 'bg-sky-50',
+    checks: [
+      { name: 'Automated Backups', desc: 'Point-in-time restore retention of 7 days or more.' },
+      { name: 'Zone Redundancy (HA)', desc: 'A replica in another availability zone for failover.' },
+    ],
+  },
+];
+
+const REMEDIATION_AZURE: { pattern: RegExp; fix: string }[] = [
+  { pattern: /public/i, fix: 'On the server\'s Networking page set Public network access to Disabled and connect through a private endpoint, or remove the firewall rules that admit internet clients.' },
+  { pattern: /tls/i, fix: 'Azure SQL: az sql server update --minimal-tls-version 1.2. PostgreSQL flexible server: set the ssl_min_protocol_version parameter to TLSv1.2. MySQL flexible server: set tls_version to TLSv1.2,TLSv1.3.' },
+  { pattern: /encrypt/i, fix: 'Turn Transparent Data Encryption on for the database: az sql db tde set --status Enabled. Flexible servers always encrypt storage at rest.' },
+  { pattern: /backup/i, fix: 'Set point-in-time restore retention to 7 days or more: az sql db str-policy set --retention-days 7, or --backup-retention 7 on a flexible server.' },
+  { pattern: /zone|redundan/i, fix: 'Azure SQL: enable zone redundancy on the database. Flexible servers: az postgres|mysql flexible-server update --high-availability ZoneRedundant.' },
+];
+
 // Remediation hints keyed by lowercase keyword patterns in checkName
 const REMEDIATION: { pattern: RegExp; fix: string }[] = [
   { pattern: /public/i, fix: 'In the RDS console → Connectivity & security → set "Publicly accessible" to No. Ensure your app can still reach the DB via VPC/private subnet.' },
@@ -3207,8 +3305,8 @@ const REMEDIATION: { pattern: RegExp; fix: string }[] = [
   { pattern: /password|credential/i, fix: 'Rotate credentials and store them in AWS Secrets Manager. Enable automatic rotation with the built-in RDS rotation Lambda function.' },
 ];
 
-function getRemediation(checkName: string): string | null {
-  const hit = REMEDIATION.find(r => r.pattern.test(checkName));
+function getRemediation(checkName: string, cloudProvider?: 'aws' | 'gcp' | 'azure'): string | null {
+  const hit = (cloudProvider === 'azure' ? REMEDIATION_AZURE : REMEDIATION).find(r => r.pattern.test(checkName));
   return hit?.fix ?? null;
 }
 
@@ -3217,7 +3315,8 @@ export function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
   instanceSource: 'rds' | 'agent';
   cloudProvider?: 'aws' | 'gcp' | 'azure';
 }) {
-  const SECURITY_CATALOGUE = cloudProvider === 'gcp' ? SECURITY_CATALOGUE_GCP : SECURITY_CATALOGUE_AWS;
+  const SECURITY_CATALOGUE = cloudProvider === 'gcp' ? SECURITY_CATALOGUE_GCP
+    : cloudProvider === 'azure' ? SECURITY_CATALOGUE_AZURE : SECURITY_CATALOGUE_AWS;
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'FAIL' | 'WARN' | 'PASS'>('ALL');
   const [expandedIdx, setExpandedIdx] = useState<Set<number>>(new Set());
 
@@ -3281,6 +3380,10 @@ export function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
                   instanceSource === 'agent'
                     ? <>Security checks run automatically for <strong>Cloud SQL instances</strong> connected to your GCP project. This is an agent-monitored VM instance — GCP-level security checks (IAM auth, encryption, public access) are not available for it.</>
                     : <>Security checks run automatically for <strong>Cloud SQL instances</strong> connected to your GCP project. Checks may take a few minutes to populate after initial connection.</>
+                ) : cloudProvider === 'azure' ? (
+                  instanceSource === 'agent'
+                    ? <>Security checks run automatically for <strong>Azure SQL, PostgreSQL and MySQL servers</strong> in this subscription. This is an agent-monitored database, so the Azure-level checks (network access, TLS, encryption, backups) do not apply to it.</>
+                    : <>Security checks run automatically for <strong>Azure SQL, PostgreSQL and MySQL servers</strong> in this subscription. Checks may take a few minutes to populate after the first scan.</>
                 ) : (
                   instanceSource === 'agent'
                     ? <>Security checks run automatically for <strong>RDS instances</strong> connected to your AWS account. This is an agent-monitored instance — AWS-level security checks (IAM auth, encryption, public access) are not available for it.</>
@@ -3410,7 +3513,7 @@ export function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
           <div className="text-center py-8 text-xs text-[rgba(0,0,0,0.4)]">No checks match the current filter.</div>
         ) : filtered.map((c, i) => {
           const isExpanded = expandedIdx.has(i);
-          const remediation = getRemediation(c.checkName);
+          const remediation = getRemediation(c.checkName, cloudProvider);
 
           const statusCfg =
             c.status === 'FAIL' ? { icon: 'mdi:close-circle-outline', iconCls: 'text-red-500', rowCls: 'border-red-200 bg-red-50', badge: 'bg-red-100 text-red-700 border-red-200', glow: 'shadow-none' }
@@ -3523,7 +3626,7 @@ export function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
 }
 
 // ── Cost Tab ──────────────────────────────────────────────────────────────────
-function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, instanceSource, cloudProvider = 'aws' }: {
+function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, instanceSource, cloudProvider = 'aws', currency }: {
   rd: DbInstance | undefined;
   instanceIdle: DbIdleInstance | undefined;
   instanceRightsizing: DbRightsizing | undefined;
@@ -3531,7 +3634,9 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
   agentMetrics: AgentInstanceMetrics | undefined;
   instanceSource: 'rds' | 'agent';
   cloudProvider?: 'aws' | 'gcp' | 'azure';
+  currency?: string;
 }) {
+  const fmt$ = moneyFormatter(currency);
   const [riYears, setRiYears] = useState<1 | 3>(1);
 
   // ── Cost figures ──────────────────────────────────────────────────────────
@@ -3605,7 +3710,7 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
                 <span className="text-[10px] text-[rgba(0,0,0,0.4)] uppercase tracking-wider">Instance</span>
                 <code className="text-xs font-semibold text-[rgba(0,0,0,0.88)]">{rd.instanceClass}</code>
                 <span className="text-[10px] text-[rgba(0,0,0,0.4)]">{rd.engine} {rd.engineVersion}</span>
-                <span className="text-[10px] text-[rgba(0,0,0,0.4)]">{rd.allocatedStorage} GB · {rd.storageType}</span>
+                <span className="text-[10px] text-[rgba(0,0,0,0.4)]">{rd.allocatedStorage} GB{rd.storageType ? ` · ${rd.storageType}` : ''}</span>
               </div>
             )}
             {hasEc2Cost && agentMetrics && (
@@ -3656,6 +3761,12 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
                   This is an <strong>agent-monitored</strong> GCP VM instance. Cost estimates require the agent to report the VM instance type and pricing.
                   Ensure the agent is running with GCP metadata access so it can detect the Compute Engine machine type and hourly price.
                 </p>
+              ) : cloudProvider === 'azure' ? (
+                <p className="text-xs text-[rgba(0,0,0,0.5)] leading-relaxed">
+                  This is an <strong>agent-monitored</strong> database. Costs on this page come from Azure Cost Management for the
+                  managed database services (Azure SQL, PostgreSQL and MySQL flexible servers). A database the agent reaches on a VM or
+                  on-premises has no database cost line of its own.
+                </p>
               ) : (
                 <p className="text-xs text-[rgba(0,0,0,0.5)] leading-relaxed">
                   This is an <strong>agent-monitored</strong> instance. Cost estimates come from the AWS RDS Pricing API and require an active RDS connection in XamOps.
@@ -3668,6 +3779,9 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
             {(cloudProvider === 'gcp' ? [
               { icon: 'mdi:cloud-outline', label: 'Connect GCP Billing', desc: 'Link a GCP project with Billing Export enabled to pull Compute Engine pricing automatically.' },
               { icon: 'mdi:tag-outline', label: 'Tag your resources', desc: 'Add GCP labels to your VM instances so XamOps can attribute costs per service.' },
+            ] : cloudProvider === 'azure' ? [
+              { icon: 'mdi:cloud-outline', label: 'Use a managed service', desc: 'Azure SQL and PostgreSQL / MySQL flexible servers are billed per server and appear in Cost Management.' },
+              { icon: 'mdi:tag-outline', label: 'Tag your resources', desc: 'Add Azure tags to the VM hosting the database so its cost can be attributed in Cost Management.' },
             ] : [
               { icon: 'mdi:cloud-outline', label: 'Connect AWS account', desc: 'Link an AWS account with Cost Explorer enabled to pull RDS pricing automatically.' },
               { icon: 'mdi:tag-outline', label: 'Tag your resources', desc: 'Add aws:cost-center tags to your instances so XamOps can attribute costs per service.' },
@@ -3874,16 +3988,20 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
               <thead className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.12)]">
                 <tr>
                   <th className="px-3 py-2 text-left text-[11px] font-semibold text-[rgba(0,0,0,0.4)]">
-                    <Tip text="AWS service name (e.g. Amazon RDS, Amazon EC2, Data Transfer). Sourced from AWS Cost Explorer.">Service</Tip>
+                    <Tip text={cloudProvider === 'azure'
+                      ? 'Azure service name (e.g. SQL Database, Azure Database for PostgreSQL). Sourced from Azure Cost Management.'
+                      : 'AWS service name (e.g. Amazon RDS, Amazon EC2, Data Transfer). Sourced from AWS Cost Explorer.'}>Service</Tip>
                   </th>
                   <th className="px-3 py-2 text-left text-[11px] font-semibold text-[rgba(0,0,0,0.4)]">
-                    <Tip text="AWS region where this cost was incurred (e.g. us-east-1). Multi-region accounts will show multiple rows per service.">Region</Tip>
+                    <Tip text={cloudProvider === 'azure'
+                      ? 'Azure region of the cost. Cost Management figures are per service across all regions, shown as —.'
+                      : 'AWS region where this cost was incurred (e.g. us-east-1). Multi-region accounts will show multiple rows per service.'}>Region</Tip>
                   </th>
                   <th className="px-3 py-2 text-right text-[11px] font-semibold text-[rgba(0,0,0,0.4)]">
                     <Tip text="Month-to-date cost for this service in this region. Refreshed daily from AWS Cost Explorer.">Cost</Tip>
                   </th>
                   <th className="px-3 py-2 text-right text-[11px] font-semibold text-[rgba(0,0,0,0.4)]">
-                    <Tip text="This service's share of your total AWS spend shown here. Helps identify which service is driving the most cost.">Share</Tip>
+                    <Tip text={`This service's share of your total ${cloudProvider === 'azure' ? 'Azure' : 'AWS'} spend shown here. Helps identify which service is driving the most cost.`}>Share</Tip>
                   </th>
                 </tr>
               </thead>
@@ -3916,7 +4034,9 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
             <div className="px-3 py-2 bg-[rgba(0,0,0,0.02)] border-t border-[rgba(0,0,0,0.06)]">
               <p className="text-[10px] text-[rgba(0,0,0,0.4)] flex items-center gap-1.5">
                 <Icon icon="mdi:information-outline" width={11} className="inline shrink-0" />
-                Sourced from AWS Cost Explorer — all DB-related services for this account, month-to-date.
+                {cloudProvider === 'azure'
+                  ? 'Sourced from Azure Cost Management — the database services for this subscription, month-to-date. Without billing data these rows are SKU estimates.'
+                  : 'Sourced from AWS Cost Explorer — all DB-related services for this account, month-to-date.'}
               </p>
             </div>
           </div>
@@ -3930,7 +4050,9 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
           <p className="text-xs text-[rgba(0,0,0,0.5)] leading-relaxed">
             {cloudProvider === 'gcp'
               ? 'No cost estimate available. Ensure the DB agent reports the GCP VM machine type and pricing to surface cost data here.'
-              : 'No cost estimate available. Connect an AWS account or ensure the DB agent reports EC2 pricing to surface cost data here.'}
+              : cloudProvider === 'azure'
+                ? 'No cost data available. Azure Cost Management reports cost for managed database services; a database on a VM has no separate cost line.'
+                : 'No cost estimate available. Connect an AWS account or ensure the DB agent reports EC2 pricing to surface cost data here.'}
           </p>
         </div>
       )}
@@ -4303,11 +4425,16 @@ function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function DbInstanceDetailDrawer({
   instance, metrics, agentStats, agentInstanceMetrics, slowQueries,
-  idle, rightsizing, security, allSnapshots, costs, cloudProvider = 'aws',
+  idle, rightsizing, security, allSnapshots, costs, cloudProvider = 'aws', currency, slowQueriesMessage,
   fetchTimeseries, fetchAgentTimeseries, fetchAgentTableSizes,
   fetchAgentVacuumStats, fetchAgentUserActivity,
   fetchAgentIndexUsage, fetchAgentTableActivity, onConnected, onHealthChange,
 }: Props) {
+  const fmt$ = moneyFormatter(currency);
+  const isAzure = cloudProvider === 'azure';
+  const azureFlex = isAzure && (instance?.rdsData?.engine === 'postgres' || instance?.rdsData?.engine === 'mysql');
+  // GCP keeps the existing label; only Azure's metrics come from Azure Monitor.
+  const metricSource = isAzure ? 'Azure Monitor' : 'CloudWatch';
   const [tab, setTab] = useState<DetailTab>('overview');
 
   // Reset content scroll when switching tabs so each tab opens at its top
@@ -4413,6 +4540,7 @@ export default function DbInstanceDetailDrawer({
             </p>
           </div>
           <AgentSetupWizard
+            cloudProvider={cloudProvider}
             engine={instance.engine ?? 'mysql'}
             instanceId=""
             onConnected={onConnected}
@@ -4602,6 +4730,7 @@ export default function DbInstanceDetailDrawer({
             {/* New / empty agent instance — show wizard directly */}
             {instance.source === 'agent' && !agentMetrics && instanceAgentStats.length === 0 && (
               <AgentSetupWizard
+                cloudProvider={cloudProvider}
                 engine={instance.engine ?? 'mysql'}
                 instanceId={instance.instanceId}
                 endpoint={instance.rdsData?.endpoint}
@@ -4618,6 +4747,7 @@ export default function DbInstanceDetailDrawer({
                   <i className="fas fa-arrow-left text-[10px]" /> Back to overview
                 </button>
                 <AgentSetupWizard
+                  cloudProvider={cloudProvider}
                   engine={instance.engine ?? 'postgres'}
                   instanceId={instance.instanceId}
                   endpoint={instance.rdsData?.endpoint}
@@ -4800,25 +4930,41 @@ export default function DbInstanceDetailDrawer({
                 <div className="grid grid-cols-3 gap-2">
                   <StatCard label="CPU" value={`${metrics.avgCpuPercent}%`}
                     color={metrics.avgCpuPercent > 80 ? 'text-red-600' : metrics.avgCpuPercent > 60 ? 'text-yellow-600' : 'text-[rgba(0,0,0,0.88)]'}
-                    tooltip="7-day average CPU utilization from CloudWatch. Above 80% is critical — consider scaling up or optimizing queries. Above 60% is elevated." />
+                    tooltip={`7-day average CPU utilization from ${metricSource}. Above 80% is critical — consider scaling up or optimizing queries. Above 60% is elevated.`} />
                   <StatCard label="Connections" value={metrics.avgConnections}
                     tooltip="7-day average number of database connections. High values relative to max_connections (RDS) may indicate connection pool exhaustion." />
-                  <StatCard label="Free Memory" value={round2(metrics.avgFreeableMemoryMb)} unit="MB"
-                    tooltip="Average freeable RAM over 7 days (CloudWatch FreeableMemory). Low values cause the OS to swap memory to disk, degrading query performance." />
-                  <StatCard label="Read IOPS" value={metrics.avgReadIops}
-                    tooltip="Average read I/O operations per second over 7 days. High read IOPS on gp2 volumes may exhaust burst credits — consider switching to gp3 for predictable performance." />
-                  <StatCard label="Write IOPS" value={metrics.avgWriteIops}
-                    tooltip="Average write I/O operations per second over 7 days. High write IOPS combined with high latency may indicate write contention or insufficient provisioned IOPS." />
-                  <StatCard label="Read Latency" value={metrics.avgReadLatencyMs} unit="ms"
-                    tooltip="Average read I/O latency in milliseconds over 7 days. Above 1ms may indicate disk I/O saturation or insufficient IOPS for your workload." />
-                  <StatCard label="Write Latency" value={metrics.avgWriteLatencyMs} unit="ms"
-                    tooltip="Average write I/O latency in milliseconds over 7 days. High write latency may indicate I/O saturation, slow commit flush, or storage bottleneck." />
+                  {/* Azure Monitor is not asked for memory, write IOPS or latency (and SQL has no IOPS or
+                      network metric), so those cards read 0 for every Azure database. They are hidden there. */}
+                  {!isAzure && (
+                    <StatCard label="Free Memory" value={round2(metrics.avgFreeableMemoryMb)} unit="MB"
+                      tooltip="Average freeable RAM over 7 days (CloudWatch FreeableMemory). Low values cause the OS to swap memory to disk, degrading query performance." />
+                  )}
+                  {(!isAzure || azureFlex) && (
+                    <StatCard label={isAzure ? 'IOPS' : 'Read IOPS'} value={metrics.avgReadIops}
+                      tooltip={isAzure
+                        ? 'Average I/O operations per second over 7 days (Azure Monitor iops).'
+                        : 'Average read I/O operations per second over 7 days. High read IOPS on gp2 volumes may exhaust burst credits — consider switching to gp3 for predictable performance.'} />
+                  )}
+                  {!isAzure && (
+                    <>
+                      <StatCard label="Write IOPS" value={metrics.avgWriteIops}
+                        tooltip="Average write I/O operations per second over 7 days. High write IOPS combined with high latency may indicate write contention or insufficient provisioned IOPS." />
+                      <StatCard label="Read Latency" value={metrics.avgReadLatencyMs} unit="ms"
+                        tooltip="Average read I/O latency in milliseconds over 7 days. Above 1ms may indicate disk I/O saturation or insufficient IOPS for your workload." />
+                      <StatCard label="Write Latency" value={metrics.avgWriteLatencyMs} unit="ms"
+                        tooltip="Average write I/O latency in milliseconds over 7 days. High write latency may indicate I/O saturation, slow commit flush, or storage bottleneck." />
+                    </>
+                  )}
                   <StatCard label="Free Storage" value={metrics.freeStorageSpaceGb} unit="GB"
-                    tooltip="Remaining free storage space. Below 10% of total storage triggers a CloudWatch alarm. Running out of storage will cause the instance to become read-only." />
-                  <StatCard label="Network In" value={metrics.avgNetworkReceiveMbps} unit="MB/s"
-                    tooltip="Average inbound network throughput over 7 days. High inbound traffic may indicate large bulk imports or heavy replication." />
-                  <StatCard label="Network Out" value={metrics.avgNetworkTransmitMbps} unit="MB/s"
-                    tooltip="Average outbound network throughput over 7 days. High outbound traffic may indicate large result sets being returned to clients — consider pagination or projection." />
+                    tooltip={`Remaining free storage space. Below 10% of total storage triggers a ${isAzure ? 'storage' : 'CloudWatch'} alarm. Running out of storage will cause the instance to become read-only.`} />
+                  {(!isAzure || azureFlex) && (
+                    <>
+                      <StatCard label="Network In" value={metrics.avgNetworkReceiveMbps} unit="MB/s"
+                        tooltip="Average inbound network throughput over 7 days. High inbound traffic may indicate large bulk imports or heavy replication." />
+                      <StatCard label="Network Out" value={metrics.avgNetworkTransmitMbps} unit="MB/s"
+                        tooltip="Average outbound network throughput over 7 days. High outbound traffic may indicate large result sets being returned to clients — consider pagination or projection." />
+                    </>
+                  )}
                   {metrics.avgSwapUsageMb > 0 && (
                     <StatCard label="Swap Usage" value={`${round2(metrics.avgSwapUsageMb)} MB`}
                       color={metrics.avgSwapUsageMb > 100 ? 'text-orange-600' : 'text-yellow-600'}
@@ -4838,7 +4984,7 @@ export default function DbInstanceDetailDrawer({
               </div>
             )}
             {!metrics && instance.source === 'rds' && (
-              <div className="text-sm text-[rgba(0,0,0,0.4)] py-4 text-center">No CloudWatch metrics available</div>
+              <div className="text-sm text-[rgba(0,0,0,0.4)] py-4 text-center">No {metricSource} metrics available</div>
             )}
 
             {rd && (
@@ -4848,8 +4994,10 @@ export default function DbInstanceDetailDrawer({
                   {[
                     ['Engine Version', rd.engineVersion],
                     ['Endpoint', rd.endpoint],
-                    ['Storage', `${rd.allocatedStorage} GB (${rd.storageType})`],
-                    ['Multi-AZ', rd.multiAz],
+                    // Azure's TLS floor used to sit in storageType and read as "32 GB (TLS1_2)".
+                    ['Storage', rd.storageType ? `${rd.allocatedStorage} GB (${rd.storageType})` : `${rd.allocatedStorage} GB`],
+                    ...(cloudProvider === 'azure' ? [['Minimum TLS', rd.minTlsVersion ?? 'Not read']] : []),
+                    [cloudProvider === 'azure' ? 'Zone redundant' : 'Multi-AZ', rd.multiAz],
                     ['Encrypted', rd.storageEncrypted ? '✓ Yes' : '✗ No'],
                     ['Backups', rd.backupEnabled ? `${rd.backupRetentionDays}d retention` : 'Disabled'],
                     ['Publicly Accessible', rd.publiclyAccessible ? '⚠ Yes' : 'No'],
@@ -5200,7 +5348,7 @@ export default function DbInstanceDetailDrawer({
               <div>
                 <p className="text-sm font-semibold text-[rgba(0,0,0,0.88)] leading-tight">Performance Metrics</p>
                 <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">
-                  {instance.source === 'rds' && timeseries !== null ? 'CloudWatch' : 'DB Agent'} telemetry
+                  {instance.source === 'rds' && timeseries !== null ? metricSource : 'DB Agent'} telemetry
                   {instance.source === 'rds' && timeseries !== null && instanceAgentTs ? ' · agent overlay' : ''}
                 </p>
               </div>
@@ -5285,8 +5433,8 @@ export default function DbInstanceDetailDrawer({
               );
             })()}
 
-            {/* ── IOPS Analysis (RDS) ── */}
-            {instance.source === 'rds' && rd && metrics && (() => {
+            {/* ── IOPS Analysis (RDS) ── EBS gp2/gp3 analysis; it has no meaning for Azure storage. */}
+            {instance.source === 'rds' && !isAzure && rd && metrics && (() => {
               const storType = (rd.storageType ?? '').toLowerCase();
               const allocGb = rd.allocatedStorage ?? 0;
               const isGp2 = storType === 'gp2';
@@ -5534,6 +5682,8 @@ export default function DbInstanceDetailDrawer({
             cloudwatchQueries={instanceSlowQueries}
             agentQueries={instanceAgentStats}
             isPostgres={agentMetrics?.dbEngine === 'postgres'}
+            cloudProvider={cloudProvider}
+            unavailableReason={slowQueriesMessage}
           />
         )}
 
@@ -5578,6 +5728,7 @@ export default function DbInstanceDetailDrawer({
             agentMetrics={agentMetrics}
             instanceSource={instance.source}
             cloudProvider={cloudProvider}
+            currency={currency}
           />
         )}
 
@@ -5597,6 +5748,7 @@ export default function DbInstanceDetailDrawer({
             rd={rd}
             instanceId={instance.instanceId}
             cloudProvider={cloudProvider}
+            currency={currency}
           />
         )}
 

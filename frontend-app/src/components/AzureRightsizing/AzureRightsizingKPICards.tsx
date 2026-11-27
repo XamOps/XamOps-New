@@ -1,10 +1,13 @@
 import React, { useMemo } from 'react';
 import { Icon } from '@iconify/react';
-import type { AzureRightsizingRecommendation } from '../../types/azureRightsizing';
+import type { AzureRightsizingRecommendation, RightsizingStatus } from '../../types/azureRightsizing';
+import { currencyMeta } from '../../utils/currency';
 
 interface AzureRightsizingKPICardsProps {
   recommendations: AzureRightsizingRecommendation[];
   isLoading?: boolean;
+  /** When Advisor could not be read, the cards say so instead of showing measured zeros. */
+  status?: RightsizingStatus | null;
 }
 
 const NUM_STYLE: React.CSSProperties = {
@@ -40,7 +43,10 @@ const splitValue = (str: string) => {
   return dot === -1 ? { main: str, cents: '' } : { main: str.slice(0, dot), cents: str.slice(dot) };
 };
 
-const AzureRightsizingKPICards: React.FC<AzureRightsizingKPICardsProps> = ({ recommendations, isLoading }) => {
+const AzureRightsizingKPICards: React.FC<AzureRightsizingKPICardsProps> = ({ recommendations, isLoading, status }) => {
+  // A permission or API error came through as "₹0.00 per month if applied" and "0", which reads as
+  // a checked subscription with nothing to save.
+  const unavailable = status === 'PERMISSION_ERROR' || status === 'API_ERROR';
   const totalRecs = recommendations.length;
   const potentialSavings = recommendations.reduce((sum, r) => sum + (r.monthlySavings ?? 0), 0);
   const highImpact = recommendations.filter(r => r.impact === 'High').length;
@@ -69,7 +75,9 @@ const AzureRightsizingKPICards: React.FC<AzureRightsizingKPICardsProps> = ({ rec
     );
   }
 
-  const savingsStr = `₹${potentialSavings.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  // The server converts savings into the subscription's billing currency and names it on each row.
+  const { symbol, locale } = currencyMeta('Azure', recommendations.find(r => r.currency)?.currency);
+  const savingsStr = `${symbol}${potentialSavings.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const savingsSplit = splitValue(savingsStr);
 
   return (
@@ -80,10 +88,14 @@ const AzureRightsizingKPICards: React.FC<AzureRightsizingKPICardsProps> = ({ rec
         <div className="relative z-10">
           <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">Potential Savings</p>
           <div className="flex items-end justify-between mb-3">
-            <p className="leading-8 flex items-baseline gap-0.5">
-              <span style={NUM_STYLE}>{savingsSplit.main}</span>
-              {savingsSplit.cents && <span style={CENTS_STYLE}>{savingsSplit.cents}</span>}
-            </p>
+            {unavailable ? (
+              <p className="leading-8 text-[15px] font-medium text-[rgba(0,0,0,0.45)]">Unavailable</p>
+            ) : (
+              <p className="leading-8 flex items-baseline gap-0.5">
+                <span style={NUM_STYLE}>{savingsSplit.main}</span>
+                {savingsSplit.cents && <span style={CENTS_STYLE}>{savingsSplit.cents}</span>}
+              </p>
+            )}
             <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mb-0.5" style={{ backgroundColor: '#16A34A14' }}>
               <Icon icon="mdi:piggy-bank" width={18} color="#16A34A" />
             </div>
@@ -99,7 +111,9 @@ const AzureRightsizingKPICards: React.FC<AzureRightsizingKPICardsProps> = ({ rec
           <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">Recommendations</p>
           <div className="flex items-end justify-between mb-3">
             <p className="leading-8">
-              <span style={NUM_STYLE}>{totalRecs}</span>
+              {unavailable
+                ? <span className="text-[15px] font-medium text-[rgba(0,0,0,0.45)]">Unavailable</span>
+                : <span style={NUM_STYLE}>{totalRecs}</span>}
             </p>
             <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mb-0.5" style={{ backgroundColor: '#3B82F614' }}>
               <Icon icon="mdi:lightbulb-on-outline" width={18} color="#3B82F6" />

@@ -10,11 +10,27 @@ import {
 import DbInstanceDetailPage, { DrawerInstance } from '../components/DbOps/DbInstanceDetailDrawer';
 import { DBOPS_IDLE_UI_ENABLED, DBOPS_RIGHTSIZING_UI_ENABLED } from '../constants/dbOpsFeatureFlags';
 import { isAzureHa } from '../components/DbOps/multiAz';
+import { currencyMeta } from '../utils/currency';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const fmt$ = (n: number) =>
-  `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+type Money = (n: number) => string;
+
+// Figures arrive in the subscription's billing currency, named by summary.currency. They were all
+// shown with "$" while being INR-billed, and before the backend converted them, in USD.
+const moneyFormatter = (code?: string | null): Money => {
+  const { symbol, locale } = currencyMeta('Azure', code);
+  return (n: number) =>
+    `${symbol}${(Number.isFinite(n) ? n : 0).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+// Azure reports Ready (servers), Online (SQL databases) and Succeeded; 'runnable' is Cloud SQL's.
+const HEALTHY_STATES = new Set(['ready', 'online', 'succeeded', 'available', 'runnable']);
+const isHealthyStatus = (status?: string | null) => HEALTHY_STATES.has((status ?? '').toLowerCase());
+
+// The source badge said "Azure SQL" for PostgreSQL and MySQL servers too.
+const engineBadge = (engine?: string | null) =>
+  engine === 'postgres' ? 'PostgreSQL' : engine === 'mysql' ? 'MySQL' : 'Azure SQL';
 
 function EncBadge({ val }: { val: boolean }) {
   return val
@@ -24,7 +40,7 @@ function EncBadge({ val }: { val: boolean }) {
 
 // ── Summary Cards ─────────────────────────────────────────────────────────────
 
-function SummaryCards({ s }: { s: DbSavingsSummary }) {
+function SummaryCards({ s, fmt$ }: { s: DbSavingsSummary; fmt$: Money }) {
   const cards = [
     { label: 'Monthly DB Spend',       value: fmt$(s.totalDbMonthlyCost) },
     { label: 'Savings Potential',      value: fmt$(s.totalPotentialSavings) },
@@ -49,12 +65,13 @@ function SummaryCards({ s }: { s: DbSavingsSummary }) {
 // ── Inventory Tab ─────────────────────────────────────────────────────────────
 
 function InventoryTab({
-  inventory, agentStats, agentInstanceMetrics, onSelect,
+  inventory, agentStats, agentInstanceMetrics, onSelect, fmt$,
 }: {
   inventory: DbInstance[];
   agentStats: AgentQueryStat[];
   agentInstanceMetrics: AgentInstanceMetrics[];
   onSelect: (inst: DrawerInstance) => void;
+  fmt$: Money;
 }) {
   const [search, setSearch] = useState('');
 
@@ -157,7 +174,7 @@ function InventoryTab({
                     </td>
                     <td className="px-4 py-3">
                       {row.source === 'rds'
-                        ? <span className="px-2 py-0.5 text-xs rounded-full bg-[#efe9de] text-[#3d3d3a] font-semibold">Azure SQL</span>
+                        ? <span className="px-2 py-0.5 text-xs rounded-full bg-[#efe9de] text-[#3d3d3a] font-semibold">{engineBadge(row.engine)}</span>
                         : <span className="px-2 py-0.5 text-xs rounded-full bg-violet-100 text-violet-700 font-semibold">Agent</span>}
                     </td>
                     <td className="px-4 py-3 text-gray-700 font-medium">{row.engine}</td>
@@ -173,8 +190,8 @@ function InventoryTab({
                     </td>
                     <td className="px-4 py-3">
                       {i ? (
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${i.status === 'runnable' ? 'bg-emerald-100 text-emerald-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                          {i.status === 'runnable' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block mr-1 align-middle" />}{i.status}
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${isHealthyStatus(i.status) ? 'bg-emerald-100 text-emerald-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                          {isHealthyStatus(i.status) && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block mr-1 align-middle" />}{i.status}
                         </span>
                       ) : <span className="px-2 py-0.5 rounded-full text-xs bg-violet-100 text-violet-700 font-semibold">live</span>}
                     </td>
@@ -263,6 +280,8 @@ const AzureDataOpsPage: React.FC = () => {
     loading, error, refresh, fetchInstanceTimeseries, fetchAgentTimeseries, fetchAgentTableSizes,
     fetchAgentVacuumStats, fetchAgentUserActivity, fetchAgentIndexUsage, fetchAgentTableActivity,
   } = useAzureDbOpsData(subscriptionId);
+  const currencyCode = summary?.currency ?? null;
+  const fmt$ = React.useMemo(() => moneyFormatter(currencyCode), [currencyCode]);
 
   React.useEffect(() => {
     setTitle(selectedInstance ? (selectedInstance.instanceId || 'Connect Database') : 'Azure Database Ops');
@@ -316,7 +335,7 @@ const AzureDataOpsPage: React.FC = () => {
             <span className="text-[10px] text-[#6c6a64] font-medium">{engine}</span>
 
             {selectedInstance.source === 'rds'
-              ? <span className="px-1.5 py-px text-[9px] rounded font-bold bg-[#efe9de] text-[#3d3d3a] tracking-wide">Azure SQL</span>
+              ? <span className="px-1.5 py-px text-[9px] rounded font-bold bg-[#efe9de] text-[#3d3d3a] tracking-wide">{engineBadge(engine)}</span>
               : <span className="px-1.5 py-px text-[9px] rounded font-bold bg-purple-100 text-purple-700 tracking-wide">Agent</span>}
 
             {rd?.status && (
@@ -489,7 +508,7 @@ const AzureDataOpsPage: React.FC = () => {
       );
     }
     return () => clearActions();
-  }, [setActions, clearActions, selectedInstance, subscriptionId, summary, loading, refresh, idle, instanceHealth, copiedEndpoint, lastRefreshed]);
+  }, [setActions, clearActions, selectedInstance, subscriptionId, summary, loading, refresh, idle, instanceHealth, copiedEndpoint, lastRefreshed, fmt$]);
 
   return (
     <main className={`flex-1 flex flex-col min-h-screen ${selectedInstance ? 'bg-white' : 'bg-gray-50'}`}>
@@ -534,6 +553,8 @@ const AzureDataOpsPage: React.FC = () => {
                 agentStats={agentQueryStats}
                 agentInstanceMetrics={agentInstanceMetrics}
                 slowQueries={slowQueries?.queries ?? []}
+                slowQueriesMessage={slowQueries && !slowQueries.logsEnabled ? (slowQueries.message ?? undefined) : undefined}
+                currency={currencyCode ?? undefined}
                 idle={idle}
                 rightsizing={rightsizing}
                 security={security}
@@ -571,9 +592,9 @@ const AzureDataOpsPage: React.FC = () => {
                   : agentOnlyHosts.size > 0
                     ? { totalDbMonthlyCost: agentOnlyCost, totalPotentialSavings: 0, totalInstances: agentOnlyHosts.size, idleInstances: 0, idleSavingsPotential: 0, rightsizingCandidates: 0, rightsizingSavingsPotential: 0, snapshotWasteCost: 0, savingsPercentage: 0 }
                     : null;
-                return combinedSummary && <SummaryCards s={combinedSummary} />;
+                return combinedSummary && <SummaryCards s={combinedSummary} fmt$={fmt$} />;
               })()}
-              <InventoryTab inventory={inventory} agentStats={agentQueryStats} agentInstanceMetrics={agentInstanceMetrics} onSelect={setSelectedInstance} />
+              <InventoryTab inventory={inventory} agentStats={agentQueryStats} agentInstanceMetrics={agentInstanceMetrics} onSelect={setSelectedInstance} fmt$={fmt$} />
             </motion.div>
           )}
         </AnimatePresence>

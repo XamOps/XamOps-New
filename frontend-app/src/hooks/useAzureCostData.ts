@@ -13,6 +13,7 @@ import {
   fetchAzureBreakdown,
   fetchAzureCurrency,
   fetchAzureTagKeys,
+  markAzureInsightsForRefresh,
   type AzureBreakdownDimension,
   type AzureCostAmount,
 } from '../api/azureCostInsightsApi';
@@ -120,6 +121,13 @@ export const useAzureCostData = (
   const [isForecastLoading, setIsForecastLoading] = useState(false);
   const [forecastAccuracy, setForecastAccuracy] = useState<ForecastAccuracyMetrics | null>(null);
   const [forecastService, setForecastService] = useState('ALL');
+  // Read by loadData so a Refresh re-fetches the forecast for the service the chart is showing.
+  // It re-fetched 'ALL', so the chart kept the selected service's label over the whole
+  // subscription's forecast.
+  const forecastServiceRef = useRef('ALL');
+  useEffect(() => { forecastServiceRef.current = forecastService; }, [forecastService]);
+  // Bumped by refresh() so the breakdown effect re-requests (with forceRefresh) after a Refresh.
+  const [refreshTick, setRefreshTick] = useState(0);
   const [forecastableServices, setForecastableServices] = useState<string[]>([]);
   const [serviceTrend, setServiceTrend] = useState<AzureServiceTrend>({
     dimension: null,
@@ -261,7 +269,7 @@ export const useAzureCostData = (
       });
 
       // Fetch forecast after main data is loaded
-      fetchForecast(selectedAccountId);
+      fetchForecast(selectedAccountId, forecastServiceRef.current);
     } catch (err) {
       console.error('[Azure Cost] Failed to load data:', err);
     } finally {
@@ -273,6 +281,9 @@ export const useAzureCostData = (
 
   const refresh = useCallback(async () => {
     await loadData(true);
+    // Insight requests for the next minute skip the server cache, and the breakdown re-runs.
+    markAzureInsightsForRefresh();
+    setRefreshTick(t => t + 1);
   }, [loadData]);
 
   const loadServiceTrend = useCallback(async (serviceName: string) => {
@@ -433,7 +444,9 @@ export const useAzureCostData = (
     return () => {
       cancelled = true;
     };
-  }, [selectedAccountId, startDate, endDate, groupBy, tagKey]);
+  // refreshTick re-runs this after Refresh; the breakdown was not re-requested before, so it kept
+  // the pre-refresh figures. The request carries forceRefresh (see markAzureInsightsForRefresh).
+  }, [selectedAccountId, startDate, endDate, groupBy, tagKey, refreshTick]);
 
   return {
     billingSummary,

@@ -52,6 +52,10 @@ public class GcpCloudsitterService {
     @Lazy
     private GcpCloudsitterService self;
 
+    /** DB lease so only one instance runs each enforcement cycle. */
+    @Autowired(required = false)
+    private com.xammer.cloud.service.upwind.UpwindSyncLease schedulerLease;
+
     public GcpCloudsitterService(GcpCloudsitterAssignmentRepository assignmentRepo,
                                   CloudsitterPolicyRepository policyRepo,
                                   CloudAccountRepository accountRepo,
@@ -220,11 +224,35 @@ public class GcpCloudsitterService {
 
     @Scheduled(cron = "0 0/10 * * * *")
     public void enforcePolicies() {
+        // One cycle per deployment, not per instance (see CloudsitterService#enforcePolicies).
+        if (schedulerLease == null) {
+            runEnforcementCycle();
+            return;
+        }
+        schedulerLease.runIfLeader("CLOUDSITTER_GCP", java.time.Duration.ofMinutes(9), this::runEnforcementCycle);
+    }
+
+    private void runEnforcementCycle() {
         long start = System.currentTimeMillis();
         logger.info("GCP CloudSitter: Starting policy enforcement cycle at {}", ZonedDateTime.now());
         try {
             List<TenantDto> tenants = tenantService.getAllActiveTenants();
             int totalAssignments = 0, totalActions = 0;
+            if (tenants.isEmpty()) {
+                // Single-tenant mode: getAllActiveTenants() always returns an empty list, so the
+                // tenant loop below never ran and no GCE schedule was ever enforced. Run once
+                // against the "system" tenant, the one TenantFilter assigns to every request.
+                TenantContext.setCurrentTenant("system");
+                try {
+                    int[] results = self.enforcePoliciesForCurrentTenant();
+                    totalAssignments += results[0];
+                    totalActions += results[1];
+                } catch (Exception e) {
+                    logger.error("GCP CloudSitter: Enforcement failed", e);
+                } finally {
+                    TenantContext.clear();
+                }
+            }
             for (TenantDto tenant : tenants) {
                 TenantContext.setCurrentTenant(tenant.getTenantId());
                 try {

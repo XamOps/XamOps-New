@@ -23,6 +23,9 @@ public class AzureWasteController {
 
     private static final Logger log = LoggerFactory.getLogger(AzureWasteController.class);
 
+    /** Response header listing the waste checks that failed in the scan being served. */
+    static final String PARTIAL_HEADER = "X-Waste-Partial";
+
     private final AzureWasteService azureWasteService;
     private final AzureBillingCurrencyService billingCurrencyService;
 
@@ -56,8 +59,14 @@ public class AzureWasteController {
             List<AzureWasteItem> items = azureWasteService.getWasteItems(subscriptionId, forceRefresh);
             // Savings are priced in USD; the Waste page and the dashboard card print them in the
             // subscription's billing currency (₹), so convert them before they leave the server.
-            return ResponseEntity.ok(billingCurrencyService.toBillingCurrency(
-                    items, billingCurrencyService.forSubscription(subscriptionId)));
+            List<AzureWasteItem> body = billingCurrencyService.toBillingCurrency(
+                    items, billingCurrencyService.forSubscription(subscriptionId));
+            // Names the checks that could not run, so a partial list is not read as complete.
+            List<String> failedChecks = azureWasteService.partialScanFailures(subscriptionId);
+            if (failedChecks != null && !failedChecks.isEmpty()) {
+                return ResponseEntity.ok().header(PARTIAL_HEADER, String.join(", ", failedChecks)).body(body);
+            }
+            return ResponseEntity.ok(body);
         } catch (Exception e) {
             // Returning 200 with an empty list made an expired service-principal secret or a
             // missing role look identical to a subscription with nothing to optimize.

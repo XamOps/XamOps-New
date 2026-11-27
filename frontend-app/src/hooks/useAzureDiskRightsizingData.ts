@@ -27,12 +27,20 @@ export interface AzureDisk {
   recommendationReason?: string;
   recommendedSizeGb: number;
   estimatedSavings: number;
+  /** ISO code of monthlyCost and estimatedSavings: the subscription's billing currency (e.g. "INR"). */
+  currency?: string;
 }
 
 /** Body returned by POST /api/azure/disks/action/{accountId}. Failures arrive as HTTP 200 with success=false. */
 export interface AzureDiskActionResult {
   success: boolean;
   error?: string;
+  /** e.g. "Disk x expanded to 64 GB". */
+  message?: string;
+  /** True after an EXPAND: the guest filesystem still has to be grown. */
+  followUpRequired?: boolean;
+  /** What to do next, shown to the user (the in-guest grow commands). */
+  followUpAction?: string;
 }
 
 export interface AzureDiskAction {
@@ -56,6 +64,8 @@ interface UseAzureDiskRightsizingDataReturn {
   isLoading: boolean;
   isRefreshing: boolean;
   error: string | null;
+  /** Set when the action history could not be loaded, so the tab does not claim there is none. */
+  historyError: string | null;
   fetchDisks: (forceRefresh?: boolean) => Promise<void>;
   applyAction: (diskName: string, resourceGroup: string, actionType: string, targetSizeGb?: number) => Promise<AzureDiskActionResult | undefined>;
   refreshAll: () => Promise<void>;
@@ -84,9 +94,13 @@ export function useAzureDiskRightsizingData(selectedAccountId: string | null): U
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   const fetchDisks = useCallback(async (forceRefresh = false) => {
     if (!selectedAccountId) return;
+    // Cleared on every load. It was cleared only when the account changed, so after one failure a
+    // successful Refresh still left the error panel in place of the table.
+    setError(null);
     const cacheKey = getDiskCacheKey(selectedAccountId);
     if (!forceRefresh) {
       const cached = sessionStorage.getItem(cacheKey);
@@ -117,8 +131,10 @@ export function useAzureDiskRightsizingData(selectedAccountId: string | null): U
     try {
       const data = await apiClient.get(`/api/azure/disks/history/${selectedAccountId}`);
       setActionHistory(Array.isArray(data) ? data : []);
-    } catch {
-      // non-fatal
+      setHistoryError(null);
+    } catch (err: any) {
+      // Non-fatal for the page, but the History tab says so instead of "No Actions Yet".
+      setHistoryError(err?.message ?? 'Action history could not be loaded');
     }
   }, [selectedAccountId]);
 
@@ -158,5 +174,5 @@ export function useAzureDiskRightsizingData(selectedAccountId: string | null): U
     Promise.all([fetchDisks(), fetchHistory()]).finally(() => setIsLoading(false));
   }, [selectedAccountId]);
 
-  return { disks, recommendations, actionHistory, isLoading, isRefreshing, error, fetchDisks, applyAction, refreshAll };
+  return { disks, recommendations, actionHistory, isLoading, isRefreshing, error, historyError, fetchDisks, applyAction, refreshAll };
 }

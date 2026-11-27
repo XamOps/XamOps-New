@@ -74,9 +74,8 @@ const PROVIDER_OVERRIDES: Record<string, Record<string, Partial<KPICardDef>>> = 
     flexComputeSavings:    { title: 'Spot VM Savings',                description: 'Monthly savings achieved through Azure Spot VM usage.'            },
     diskRightsizing:       { title: 'Managed Disk Rightsizing',       description: 'Azure managed disk rightsizing opportunities to reduce costs.',    unit: 'disks'     },
     diskRightsizingSavings:{ title: 'Disk Rightsizing Savings',       description: 'Potential savings from managed disk rightsizing on Azure.'        },
-    cicdPipelines:         { title: 'Azure DevOps Pipelines',         description: 'Active Azure DevOps pipelines monitored in this subscription.',   unit: 'pipelines' },
-    cicdFailures:          { title: 'Pipeline Failures',              description: 'Failed Azure DevOps pipeline runs requiring attention.',            unit: 'failures'  },
-    cicdDeployFrequency:   { title: 'Deploy Frequency',               description: 'Number of successful Azure DevOps deployments this period.',       unit: 'deploys'   },
+    // No CI/CD overrides: the cards count GitHub Actions and Jenkins runs (/api/cicd/github|jenkins),
+    // which the Azure labels called "Azure DevOps" pipelines. The neutral defaults apply.
   },
 };
 

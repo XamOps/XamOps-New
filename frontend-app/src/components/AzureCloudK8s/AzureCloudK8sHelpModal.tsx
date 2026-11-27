@@ -458,11 +458,15 @@ const QuickInstallTab: React.FC<{ config: AgentInstallConfig; vars: GuideVars }>
 
   const cluster = vars.clusterName.trim() || PLACEHOLDERS.clusterName;
   const rg = vars.resourceGroup.trim() || PLACEHOLDERS.resourceGroup;
+  // Without --subscription the installer uses Cloud Shell's current az subscription, which is not
+  // necessarily the one this page is for: the cluster is then not found, or the wrong one is used.
+  const sub = vars.subscriptionId.trim() || PLACEHOLDERS.subscriptionId;
 
   const oneLiner = [
     `curl -sSL ${scriptUrl} | bash -s -- \\`,
     `  --cluster ${cluster} \\`,
     `  --resource-group ${rg} \\`,
+    `  --subscription ${sub} \\`,
     `  --server-url ${config.serverUrl} \\`,
     `  --api-key ${config.apiKey}`,
   ].join('\n');
@@ -470,6 +474,7 @@ const QuickInstallTab: React.FC<{ config: AgentInstallConfig; vars: GuideVars }>
   const allClusters = [
     `curl -sSL ${scriptUrl} | bash -s -- \\`,
     `  --all \\`,
+    `  --subscription ${sub} \\`,
     `  --server-url ${config.serverUrl} \\`,
     `  --api-key ${config.apiKey}`,
   ].join('\n');
@@ -479,7 +484,7 @@ const QuickInstallTab: React.FC<{ config: AgentInstallConfig; vars: GuideVars }>
     `curl -sSL -o xamops-install-aks.sh ${scriptUrl}`,
     `less xamops-install-aks.sh          # review it`,
     `chmod +x xamops-install-aks.sh`,
-    `./xamops-install-aks.sh --cluster ${cluster} --resource-group ${rg} \\`,
+    `./xamops-install-aks.sh --cluster ${cluster} --resource-group ${rg} --subscription ${sub} \\`,
     `  --server-url ${config.serverUrl} --api-key ${config.apiKey}`,
   ].join('\n');
 
@@ -510,7 +515,7 @@ const QuickInstallTab: React.FC<{ config: AgentInstallConfig; vars: GuideVars }>
       </div>
 
       <CollapsibleSection title="Run for one cluster" icon="mdi:cube-outline" iconColor="#4F46E5" defaultOpen>
-        <VarNote vars={[PLACEHOLDERS.clusterName, PLACEHOLDERS.resourceGroup]} />
+        <VarNote vars={[PLACEHOLDERS.clusterName, PLACEHOLDERS.resourceGroup, PLACEHOLDERS.subscriptionId]} />
         <CodeBlock code={oneLiner} />
         <p className="text-[11px] text-[rgba(0,0,0,0.5)] mt-1">
           Paste into Azure Cloud Shell. Takes roughly 5&ndash;10 minutes; most of it is waiting for
@@ -519,11 +524,12 @@ const QuickInstallTab: React.FC<{ config: AgentInstallConfig; vars: GuideVars }>
       </CollapsibleSection>
 
       <CollapsibleSection title="Run for every cluster in the subscription" icon="mdi:apps" iconColor="#0891B2">
+        <VarNote vars={[PLACEHOLDERS.subscriptionId]} />
         <CodeBlock code={allClusters} />
         <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl text-[12px] text-blue-800 flex items-start gap-2">
           <Icon icon="mdi:information-outline" width={14} className="mt-0.5 flex-shrink-0" />
           <div>
-            Discovers the clusters itself, so there is nothing to fill in above. Clusters whose
+            Discovers the clusters in the subscription itself, so only the subscription ID is needed above. Clusters whose
             provisioning state is not <code className="bg-blue-100 px-1 rounded">Succeeded</code> are skipped
             with a reason, and a failure on one cluster does not stop the others — the summary at the
             end reports per cluster.
@@ -680,10 +686,11 @@ const Part1Tab: React.FC = () => (
     </div>
 
     <CollapsibleSection title="Step 1.1: Get AKS Credentials" icon="mdi:key-outline" iconColor="#0891B2">
-      <VarNote vars={['<RESOURCE_GROUP>', '<CLUSTER_NAME>']} />
+      <VarNote vars={['<RESOURCE_GROUP>', '<CLUSTER_NAME>', '<AZURE_SUBSCRIPTION_ID>']} />
       <CodeBlock code={`az aks get-credentials \\
   --resource-group <RESOURCE_GROUP> \\
-  --name <CLUSTER_NAME>
+  --name <CLUSTER_NAME> \\
+  --subscription <AZURE_SUBSCRIPTION_ID>
 
 kubectl get nodes`} />
     </CollapsibleSection>
@@ -1083,7 +1090,7 @@ kubectl get pods -n xamops-system`} />
           'Nodes tab — Per-node utilization, agent pool info',
           'Pods tab — Pod list with status, restarts, resource usage',
           'Security tab — Trivy CVEs + Kubescape compliance + Falco events',
-          'Cost tab — Azure VM node cost, namespace cost allocation (OpenCost)'].map(item => (
+          'Cost tab — namespace and workload cost allocation (OpenCost)'].map(item => (
           <li key={item} className="flex items-start gap-2">
             <Icon icon="mdi:check-circle-outline" width={13} color="#4F46E5" className="mt-0.5 flex-shrink-0" />
             {item}

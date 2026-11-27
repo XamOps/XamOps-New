@@ -9,7 +9,7 @@ const AzureWastePage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
-  const { wasteGroups, allItems, isLoading, isRefreshing, error, loadWasteData } = useAzureWasteData({ selectedAccountId });
+  const { wasteGroups, allItems, isLoading, isRefreshing, error, partialChecks, loadWasteData } = useAzureWasteData({ selectedAccountId });
 
   return (
     <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
@@ -32,13 +32,35 @@ const AzureWastePage: React.FC = () => {
 
       {selectedAccountId && (
         <>
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
-          >
-            <AzureWasteKPICards allItems={allItems} isLoading={isLoading} />
-          </motion.div>
+          {/* A failed re-scan with results already on screen used to be invisible: the old list
+              simply stayed, looking freshly scanned. */}
+          {error && allItems.length > 0 && (
+            <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+              <Icon icon="mdi:alert-circle-outline" width={16} color="#DC2626" className="mt-0.5 flex-shrink-0" />
+              <p className="text-[12px] text-red-700">The latest scan failed ({error}). Showing the previous results.</p>
+            </div>
+          )}
+          {/* Some checks could not run (often a missing role on one resource type), so the list
+              below may be missing findings. */}
+          {partialChecks.length > 0 && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+              <Icon icon="mdi:information-outline" width={16} color="#B45309" className="mt-0.5 flex-shrink-0" />
+              <p className="text-[12px] text-amber-800">
+                Some checks could not run, so this list may be incomplete: {partialChecks.join(', ')}.
+              </p>
+            </div>
+          )}
+
+          {/* Hidden behind the error state below, as on the AWS page, rather than showing zeros. */}
+          {!(error && allItems.length === 0) && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+            >
+              <AzureWasteKPICards allItems={allItems} isLoading={isLoading} />
+            </motion.div>
+          )}
 
           <AnimatePresence mode="wait">
             {isLoading && (

@@ -47,6 +47,19 @@ public class FinOpsReportTextBuilder {
                                              String accountName,
                                              String frequency,
                                              String dateRange) {
+        return buildReportVariables(reportData, accountName, frequency, dateRange, null);
+    }
+
+    /**
+     * @param cloudProvider {@code AWS} | {@code GCP} | {@code Azure}; picks the currency symbol the
+     *                      same way {@link FinOpsReportEmailBuilder} does, so the text and the email
+     *                      for one report agree
+     */
+    public List<String> buildReportVariables(List<DetailedCostDto> reportData,
+                                             String accountName,
+                                             String frequency,
+                                             String dateRange,
+                                             String cloudProvider) {
         double total = reportData == null ? 0.0 : reportData.stream()
                 .filter(java.util.Objects::nonNull)
                 .mapToDouble(DetailedCostDto::getCost)
@@ -58,7 +71,7 @@ public class FinOpsReportTextBuilder {
                 frequency == null ? "Scheduled" : frequency,
                 safeAccountName(accountName),
                 dateRange == null ? "" : dateRange,
-                formatSpend(total));
+                formatSpend(total, cloudProvider));
     }
 
     /** Report deep link, for callers that need it outside a template. */
@@ -70,8 +83,12 @@ public class FinOpsReportTextBuilder {
      * Whole dollars. Cents in a cost summary add characters to a length-capped message without
      * changing any decision the reader might make.
      */
-    private String formatSpend(double total) {
-        return String.format("$%,.0f", total);
+    private String formatSpend(double total, String cloudProvider) {
+        // Azure and GCP totals are INR, as the emailed report for the same schedule says. This
+        // printed "$" on every one of them.
+        boolean isInr = cloudProvider != null
+                && (cloudProvider.equalsIgnoreCase("GCP") || cloudProvider.equalsIgnoreCase("Azure"));
+        return String.format(java.util.Locale.ROOT, isInr ? "₹%,.0f" : "$%,.0f", total);
     }
 
     private String safeAccountName(String accountName) {

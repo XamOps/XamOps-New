@@ -15,7 +15,7 @@ interface AksTabsProps {
 
 const TABS: TabItem[] = [
   { id: 'overview',    label: 'Overview',     icon: 'fas fa-tachometer-alt' },
-  { id: 'cost',        label: 'Cost',         icon: 'fas fa-dollar-sign' },
+  { id: 'cost',        label: 'Cost',         icon: 'fas fa-coins' },
   { id: 'performance', label: 'Performance',  icon: 'fas fa-chart-line' },
   { id: 'security',    label: 'Security',     icon: 'fas fa-shield-alt' },
   { id: 'workloads',   label: 'Workloads',    icon: 'fas fa-cubes' },

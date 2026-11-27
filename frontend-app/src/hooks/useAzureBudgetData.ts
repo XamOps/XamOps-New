@@ -111,6 +111,9 @@ export const useAzureBudgetData = ({
           budgetName: budget.budgetName,
           budgetLimit: budget.budgetLimit,
           budgetUnit: budget.budgetUnit || 'USD',
+          // The modal's service picker. Dropped here before, so a service budget was stored as an
+          // account budget and compared with the whole subscription's spend.
+          serviceName: budget.serviceName || null,
         }),
       });
       if (!response.ok) {

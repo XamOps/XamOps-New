@@ -13,6 +13,7 @@ export const useAzureCloudSitter = (subscriptionId: string | null) => {
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [resources, setResources] = useState<EC2Resource[]>([]);
   const [policies, setPolicies] = useState<CloudSitterPolicy[]>([]);
@@ -107,12 +108,18 @@ export const useAzureCloudSitter = (subscriptionId: string | null) => {
 
       if (azureVms.length === 0 || forceRefresh) {
         fetchPromises.push(
-          fetch(`/api/azure/cloudsitter/vms?subscriptionId=${encodeURIComponent(subscriptionId)}`, { signal })
+          // refresh=true skips the server's 60-minute VM list cache, which holds power state too.
+          fetch(`/api/azure/cloudsitter/vms?subscriptionId=${encodeURIComponent(subscriptionId)}&refresh=${forceRefresh}`, { signal })
             .then(async (r) => {
               if (r.ok) {
                 azureVms = await r.json();
                 sessionStorage.setItem(cacheKey, JSON.stringify(azureVms));
                 sessionStorage.setItem(cacheTimestampKey, Date.now().toString());
+                setLoadError(null);
+              } else {
+                // Shown on the page; an empty table read as "no VMs match your search".
+                const body = await r.json().catch(() => null);
+                setLoadError(body?.error || `Could not list virtual machines (HTTP ${r.status}).`);
               }
             })
             .catch((err) => {
@@ -144,6 +151,9 @@ export const useAzureCloudSitter = (subscriptionId: string | null) => {
           state: vm.state || 'Unknown',
           policyName: assignment ? assignment.policy.name : null,
           savings: assignment ? (assignment.monthlySavings || 0) : 0,
+          // Azure list price for the size, from the server, in the billing currency.
+          monthlyCost: vm.monthlyCost != null && vm.monthlyCost !== '' ? Number(vm.monthlyCost) : null,
+          currency: vm.currency || undefined,
         };
       });
 
@@ -260,7 +270,9 @@ export const useAzureCloudSitter = (subscriptionId: string | null) => {
           setIsCreatingFromAssign(false);
         }
       } else {
-        alert('Failed to save policy.');
+        // A 409 explains itself (e.g. the policy also schedules AWS or GCP instances).
+        const body = await res.json().catch(() => null);
+        alert(body?.error || 'Failed to save policy.');
       }
     } catch (e) {
       console.error('Save failed', e);
@@ -283,7 +295,10 @@ export const useAzureCloudSitter = (subscriptionId: string | null) => {
     try {
       const res = await fetch(`/api/azure/cloudsitter/policies/${id}`, { method: 'DELETE' });
       if (res.ok) { setPolicies(prev => prev.filter(p => p.id !== id)); loadData(); }
-      else alert('Failed to delete policy');
+      else {
+        const body = await res.json().catch(() => null);
+        alert(body?.error || 'Failed to delete policy');
+      }
     } catch { alert('Error deleting policy'); }
   }, [loadData]);
 
@@ -323,7 +338,7 @@ export const useAzureCloudSitter = (subscriptionId: string | null) => {
   }, [searchQuery]);
 
   return {
-    currentView, isLoading, isSaving, searchQuery,
+    currentView, isLoading, isSaving, searchQuery, loadError,
     resources: paginatedResources, allResources: resources, policies, policyForm, policyGrid,
     editMode, isDragging, showAssignModal, showManagePoliciesModal,
     assignTarget, selectedPolicyId, formInstanceTarget,

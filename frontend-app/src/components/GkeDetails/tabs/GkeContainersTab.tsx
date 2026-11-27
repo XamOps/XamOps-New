@@ -33,10 +33,8 @@ const GkeContainersTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
   const [namespaceFilter, setNamespaceFilter] = useState('all');
   const [stateFilter, setStateFilter] = useState('all');
 
-  if (!dashboard?.connected || !dashboard?.containerMetrics) {
-    return <DisconnectedPlaceholder />;
-  }
-
+  // The memos run before the early return below: a hook after a conditional return throws when
+  // the dashboard goes from loading to connected.
   const namespaces: string[] = useMemo(() => {
     const ns = new Set<string>(allContainersWithMetrics.map((c: any) => c.namespace));
     return ['all', ...Array.from(ns).sort()];
@@ -53,6 +51,10 @@ const GkeContainersTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
       return matchesSearch && matchesNs && matchesState;
     });
   }, [allContainersWithMetrics, searchTerm, namespaceFilter, stateFilter]);
+
+  if (!dashboard?.connected || !dashboard?.containerMetrics) {
+    return <DisconnectedPlaceholder />;
+  }
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paginated = filtered.slice(currentPage * ITEMS_PER_PAGE, (currentPage + 1) * ITEMS_PER_PAGE);

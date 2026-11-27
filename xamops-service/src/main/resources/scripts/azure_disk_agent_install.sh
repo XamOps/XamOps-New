@@ -15,7 +15,8 @@
 #   sudo bash azure_agent_install.sh -a <xamops-account-id>
 #
 # Options:
-#   -a ACCOUNT_ID  Your XamOps account ID (required, numeric)
+#   -a ACCOUNT_ID  The Azure subscription ID as XamOps shows it (required). An
+#                  account-scoped key only accepts the subscription ID.
 #   -k API_KEY     Account-scoped agent key from XamOps (recommended).
 #                  Without it the agent falls back to the shared legacy key, which
 #                  cannot prove which account it belongs to and is being retired.
@@ -51,7 +52,7 @@ while getopts "a:k:b:v:" opt; do
   esac
 done
 
-[[ -z "$XAMOPS_ACCOUNT_ID" ]] && error "-a <xamops-account-id> is required — your XamOps account ID (numeric)"
+[[ -z "$XAMOPS_ACCOUNT_ID" ]] && error "-a <subscription-id> is required — the Azure subscription ID shown in XamOps"
 
 if [[ -z "$XAMOPS_API_KEY" ]]; then
   error "No agent key. Paste the account-scoped key from XamOps and re-run with -k <api-key>, or export XAMOPS_API_KEY. The shared legacy key has been removed."
@@ -152,6 +153,29 @@ set -euo pipefail
 
 source /etc/xamops/azure-disk-agent.env
 
+# ── Map block devices to their Azure disk ─────────────────────────────────────
+# XamOps attributes each filesystem to a managed disk by its position on the VM: "os" for the
+# OS disk, "lun<N>" for a data disk. Azure's udev rules publish both under /dev/disk/azure
+# (SCSI: root, scsi1/lunN; NVMe images: os, data/by-lun/N). The df device name alone ("sda1")
+# never matches an Azure disk name, so without this no attached disk got a utilisation figure.
+parent_disk() {
+  local real pk
+  real=$(readlink -f "$1" 2>/dev/null || echo "$1")
+  pk=$(lsblk -no PKNAME "$real" 2>/dev/null | head -n1 || true)
+  if [[ -n "$pk" ]]; then echo "/dev/${pk}"; else echo "$real"; fi
+}
+OS_DISK=""
+for link in /dev/disk/azure/root /dev/disk/azure/os; do
+  [[ -e "$link" ]] && OS_DISK=$(readlink -f "$link") && break
+done
+declare -A LUN_OF=()
+for link in /dev/disk/azure/scsi1/lun* /dev/disk/azure/data/by-lun/*; do
+  [[ -e "$link" ]] || continue
+  name=$(basename "$link")
+  [[ "$name" == *part* ]] && continue
+  LUN_OF["$(readlink -f "$link")"]="lun${name#lun}"
+done
+
 # ── Collect disk usage ────────────────────────────────────────────────────────
 # Build JSON array of mount point stats from df output
 DISK_ARRAY="["
@@ -174,10 +198,20 @@ while IFS= read -r line; do
   USED_GB=$(awk "BEGIN {printf \"%.2f\", $USED_KB/1048576}")
   FREE_GB=$(awk "BEGIN {printf \"%.2f\", $AVAIL_KB/1048576}")
 
+  AZURE_DISK=""
+  if [[ "$DEVICE" == /dev/* ]]; then
+    PARENT=$(parent_disk "$DEVICE")
+    if [[ -n "$OS_DISK" && "$PARENT" == "$OS_DISK" ]]; then
+      AZURE_DISK="os"
+    elif [[ -n "${LUN_OF[$PARENT]:-}" ]]; then
+      AZURE_DISK="${LUN_OF[$PARENT]}"
+    fi
+  fi
+
   # instanceId must carry the VM name: AzureDiskRightsizingService looks mounts up by
   # azure-disk-agent:{cloudAccountId}:{vmName}.
   [[ $FIRST -eq 0 ]] && DISK_ARRAY+=","
-  DISK_ARRAY+="{\"instanceId\":\"${VM_NAME}\",\"device\":\"${DEVICE}\",\"mountPoint\":\"${MOUNT}\",\"sizeGb\":${SIZE_GB},\"usedGb\":${USED_GB},\"freeGb\":${FREE_GB},\"usedPercent\":${USED_PCT}}"
+  DISK_ARRAY+="{\"instanceId\":\"${VM_NAME}\",\"device\":\"${DEVICE}\",\"mountPoint\":\"${MOUNT}\",\"azureDisk\":\"${AZURE_DISK}\",\"sizeGb\":${SIZE_GB},\"usedGb\":${USED_GB},\"freeGb\":${FREE_GB},\"usedPercent\":${USED_PCT}}"
   FIRST=0
 done < <(df -Pk 2>/dev/null | tail -n +2)
 
@@ -188,7 +222,11 @@ DISK_ARRAY+="]"
 # provider=AZURE. This previously posted a bespoke payload to
 # /api/azure/disks/agent-push/{id} — an endpoint that does not exist — so no Azure
 # disk utilization ever reached the server and the whole SHRINK/EXPAND feature was inert.
-PAYLOAD="{\"cloudAccountId\":\"${XAMOPS_ACCOUNT_ID}\",\"provider\":\"AZURE\",\"batches\":[{\"collector\":\"disk-usage\",\"items\":${DISK_ARRAY}}]}"
+#
+# clusterName is required by the ingest endpoint, which answers 400 without it before the disk
+# handler runs, so every report was rejected. An account-scoped key accepts any name within its
+# account; this is the per-VM name written to the env file at install time.
+PAYLOAD="{\"cloudAccountId\":\"${XAMOPS_ACCOUNT_ID}\",\"clusterName\":\"${CLUSTER_NAME}\",\"provider\":\"AZURE\",\"batches\":[{\"collector\":\"disk-usage\",\"items\":${DISK_ARRAY}}]}"
 
 # ── POST to XamOps ────────────────────────────────────────────────────────────
 HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" \

@@ -96,8 +96,8 @@ const AzureReservationInventory: React.FC<AzureReservationInventoryProps> = ({
               </div>
               <h3 className="text-lg font-bold text-gray-700 mb-1">No Reserved Instances found</h3>
               <p className="text-sm text-gray-500 max-w-sm">
-                No Azure Reserved VM Instances were found. This could mean none have been
-                purchased, or the service principal lacks "Reservation Reader" role.
+                No Azure reservations apply to this subscription. Reservations are read at tenant
+                level, so the service principal needs "Reservations Reader" to see them.
               </p>
             </div>
           ) : (
@@ -148,8 +148,8 @@ const AzureReservationInventory: React.FC<AzureReservationInventoryProps> = ({
               </div>
               <h3 className="text-lg font-bold text-gray-700 mb-1">No Savings Plans found</h3>
               <p className="text-sm text-gray-500 max-w-sm">
-                No Azure Savings Plans were found. This could mean none have been purchased,
-                or the service principal lacks "Reservation Reader" role.
+                No Azure savings plans apply to this subscription. Savings plans are read at tenant
+                level, so the service principal needs "Savings plan Reader" to see them.
               </p>
             </div>
           ) : (

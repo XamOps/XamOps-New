@@ -1,6 +1,8 @@
 package com.xammer.cloud.service.azure;
 
+import com.azure.core.exception.HttpResponseException;
 import com.azure.resourcemanager.AzureResourceManager;
+import com.azure.resourcemanager.containerservice.models.PowerState;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.KubernetesCluster;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
@@ -17,6 +19,7 @@ import com.xammer.cloud.service.AgentK8sDashboardMapper;
 import com.xammer.cloud.service.PrometheusService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -35,6 +38,34 @@ public class AksDashboardService {
     private final KubernetesClusterConfigRepository kubernetesClusterConfigRepository;
     private final AgentDataTransformerService agentDataTransformerService;
     private final AgentK8sDashboardMapper agentK8sDashboardMapper;
+
+    /** Optional so a context without Azure billing still builds dashboards, in USD. */
+    @Autowired(required = false)
+    private AzureBillingCurrencyService billingCurrencyService;
+
+    /** ARM answered 404 for the cluster or its resource group: the cluster is gone. */
+    public static class ClusterNotFoundException extends RuntimeException {
+        public ClusterNotFoundException(String clusterName, String resourceGroup) {
+            super("AKS cluster " + clusterName + " no longer exists in resource group " + resourceGroup);
+        }
+    }
+
+    /** Azure's power state code ("Running" or "Stopped"), or null when ARM did not report one. */
+    static String powerStateCode(PowerState powerState) {
+        return powerState != null && powerState.code() != null ? powerState.code().toString() : null;
+    }
+
+    /**
+     * The status to display. A stopped cluster or agent pool keeps provisioningState "Succeeded",
+     * which read as healthy; the power state is what says it is stopped.
+     */
+    static String displayStatus(String provisioningState, String powerState) {
+        if ("Stopped".equalsIgnoreCase(powerState)
+                && (provisioningState == null || "Succeeded".equalsIgnoreCase(provisioningState))) {
+            return "Stopped";
+        }
+        return provisioningState != null ? provisioningState : "Unknown";
+    }
 
     /**
      * Whether the AKS cluster still exists in Azure.
@@ -72,6 +103,9 @@ public class AksDashboardService {
             AzureResourceManager azure = azureClientProvider.getAzureClient(subscriptionId);
             com.azure.resourcemanager.containerservice.models.KubernetesCluster aks =
                     azure.kubernetesClusters().getByResourceGroup(resourceGroup, clusterName);
+            if (aks == null) {
+                throw new ClusterNotFoundException(clusterName, resourceGroup);
+            }
 
             dto.setLocation(aks.regionName());
             dto.setVersion(aks.version());
@@ -81,7 +115,18 @@ public class AksDashboardService {
                     provState = aks.innerModel().provisioningState().toString();
                 }
             } catch (Exception ignored) {}
-            dto.setStatus(provState);
+            String power = null;
+            try {
+                power = powerStateCode(aks.powerState());
+            } catch (Exception ignored) {}
+            dto.setStatus(displayStatus(provState, power));
+            try {
+                String fqdn = aks.fqdn();
+                if (fqdn == null || fqdn.isBlank()) {
+                    fqdn = aks.innerModel().privateFqdn();
+                }
+                dto.setEndpoint(fqdn);
+            } catch (Exception ignored) {}
 
             // Map agent pools → GkeNodePoolDto (reuse same DTO for JSON shape compatibility)
             List<GkeDashboardDto.GkeNodePoolDto> pools = aks.agentPools().values().stream()
@@ -94,16 +139,38 @@ public class AksDashboardService {
                         p.setAutoscalingEnabled(Boolean.TRUE.equals(pool.innerModel().enableAutoScaling()));
                         p.setMinNodes(pool.innerModel().minCount() != null ? pool.innerModel().minCount() : 0);
                         p.setMaxNodes(pool.innerModel().maxCount() != null ? pool.innerModel().maxCount() : 0);
-                        String poolState = pool.provisioningState() != null ? pool.provisioningState() : "Unknown";
-                        p.setStatus(poolState);
+                        String poolPower = null;
+                        try {
+                            poolPower = powerStateCode(pool.powerState());
+                        } catch (Exception ignored) {}
+                        p.setStatus(displayStatus(pool.provisioningState(), poolPower));
+                        try {
+                            int diskGb = pool.osDiskSizeInGB();
+                            if (diskGb > 0) {
+                                p.setDiskSizeGb(String.valueOf(diskGb));
+                            }
+                        } catch (Exception ignored) {}
                         return p;
                     })
                     .collect(Collectors.toList());
             dto.setNodePools(pools);
 
+        } catch (ClusterNotFoundException e) {
+            throw e;
+        } catch (HttpResponseException e) {
+            int status = e.getResponse() != null ? e.getResponse().getStatusCode() : 0;
+            if (status == 404) {
+                throw new ClusterNotFoundException(clusterName, resourceGroup);
+            }
+            // A throttle, a permission error or an outage. Flag the build as partial so the sync
+            // keeps the previous cached copy instead of overwriting it with an empty one.
+            log.error("Error fetching AKS cluster details for {}/{}: {}", subscriptionId, clusterName, e.getMessage());
+            dto.setNodePools(Collections.emptyList());
+            dto.setPartialReason("Azure did not return the cluster details (HTTP " + status + ")");
         } catch (Exception e) {
             log.error("Error fetching AKS cluster details for {}/{}: {}", subscriptionId, clusterName, e.getMessage());
             dto.setNodePools(Collections.emptyList());
+            dto.setPartialReason("Azure did not return the cluster details: " + e.getMessage());
         }
 
         // ── Data source 1: XamOps agent (the only path AKS onboarding actually creates)
@@ -111,7 +178,9 @@ public class AksDashboardService {
         // data lives in agent_data_cache. Nothing sets kubernetes_cluster.prometheus_url
         // for them, which is why this used to report "not connected" while the agent was
         // pushing valid data every interval.
-        boolean populatedFromAgent = populateFromAgentData(dto, account.getId(), clusterName);
+        Optional<KubernetesClusterConfig> config =
+                kubernetesClusterConfigRepository.findByCloudAccountIdAndClusterName(account.getId(), clusterName);
+        boolean populatedFromAgent = populateFromAgentData(dto, config, clusterName);
 
         // ── Data source 2: direct Prometheus (kubeconfig-style onboarding)
         // Requires prometheus_url to be set AND the XamOps server to reach the cluster's
@@ -132,7 +201,82 @@ public class AksDashboardService {
         }
 
         dto.setConnected(hasPrometheus || populatedFromAgent);
+        applyAgentLiveness(dto, config, hasPrometheus);
+        convertCostsToBillingCurrency(dto, subscriptionId);
         return dto;
+    }
+
+    /**
+     * Re-reads the agent's liveness onto a dashboard, so a copy cached hours ago still says whether
+     * the agent is reporting now. Never throws: a failed lookup leaves the cached values.
+     */
+    public void refreshAgentLiveness(AksDashboardDto dto, String subscriptionId) {
+        if (dto == null) {
+            return;
+        }
+        try {
+            Optional<CloudAccount> account = cloudAccountRepository.findByAzureSubscriptionId(subscriptionId);
+            if (account.isEmpty()) {
+                return;
+            }
+            Optional<KubernetesClusterConfig> config = kubernetesClusterConfigRepository
+                    .findByCloudAccountIdAndClusterName(account.get().getId(), dto.getClusterName());
+            boolean hasPrometheus = kubernetesClusterRepository
+                    .findByCloudAccount_IdAndClusterName(account.get().getId(), dto.getClusterName())
+                    .map(KubernetesCluster::getPrometheusUrl)
+                    .filter(url -> !url.isBlank())
+                    .isPresent();
+            applyAgentLiveness(dto, config, hasPrometheus);
+        } catch (Exception e) {
+            log.debug("Could not refresh agent liveness for AKS cluster {}: {}", dto.getClusterName(), e.getMessage());
+        }
+    }
+
+    /**
+     * Agent rows are kept for 14 days, so "has agent data" stayed true for two weeks after an agent
+     * stopped. Stale means the figures come from the agent but it has not checked in within the
+     * last 15 minutes ({@link KubernetesClusterConfig#isAgentActive()}, the rule EKS uses too).
+     */
+    private void applyAgentLiveness(AksDashboardDto dto, Optional<KubernetesClusterConfig> config,
+                                    boolean hasPrometheus) {
+        dto.setAgentLastSeenAt(config.map(KubernetesClusterConfig::getLastAgentCheckin).orElse(null));
+        dto.setAgentStale(dto.isConnected() && !hasPrometheus
+                && config.isPresent() && !config.get().isAgentActive());
+    }
+
+    /**
+     * OpenCost runs with its default (USD) pricing and the Prometheus fallback estimates in USD, so
+     * the cost section is restated in the subscription's billing currency, the one every other
+     * Azure page shows. The code travels with the figures so the page labels them correctly.
+     */
+    private void convertCostsToBillingCurrency(AksDashboardDto dto, String subscriptionId) {
+        AzureBillingCurrencyService.BillingCurrency billing = AzureBillingCurrencyService.BillingCurrency.USD;
+        if (billingCurrencyService != null) {
+            try {
+                billing = billingCurrencyService.forSubscription(subscriptionId);
+            } catch (Exception e) {
+                log.warn("Could not resolve the billing currency for subscription {}: {}", subscriptionId, e.getMessage());
+            }
+        }
+        dto.setCurrency(billing.code());
+
+        GkeDashboardDto.GkeCostMetricsDto cost = dto.getCostMetrics();
+        if (cost == null) {
+            return;
+        }
+        cost.setDailyCost(billing.fromUsd(cost.getDailyCost()));
+        if (cost.getNamespaceCosts() != null) {
+            for (GkeDashboardDto.GkeNamespaceCostDto ns : cost.getNamespaceCosts()) {
+                ns.setDailyCost(billing.fromUsd(ns.getDailyCost()));
+                ns.setMonthlyCost(billing.fromUsd(ns.getMonthlyCost()));
+            }
+        }
+        if (cost.getWorkloadCosts() != null) {
+            for (GkeDashboardDto.GkeWorkloadCostDto wl : cost.getWorkloadCosts()) {
+                wl.setDailyCost(billing.fromUsd(wl.getDailyCost()));
+                wl.setMonthlyCost(billing.fromUsd(wl.getMonthlyCost()));
+            }
+        }
     }
 
     /**
@@ -145,25 +289,28 @@ public class AksDashboardService {
      * @return true if at least one section was populated, meaning the cluster genuinely
      *         has monitoring data and should not be shown as disconnected
      */
-    private boolean populateFromAgentData(AksDashboardDto dto, Long cloudAccountId, String clusterName) {
-        Optional<KubernetesClusterConfig> configOpt =
-                kubernetesClusterConfigRepository.findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
+    private boolean populateFromAgentData(AksDashboardDto dto, Optional<KubernetesClusterConfig> configOpt,
+                                          String clusterName) {
         if (configOpt.isEmpty()) {
             log.debug("No cluster config for AKS cluster {} — skipping agent data", clusterName);
             return false;
         }
 
         Long configId = configOpt.get().getId();
-        if (!agentDataTransformerService.hasAgentData(configId)) {
-            log.debug("No agent data cached for AKS cluster {} (configId={})", clusterName, configId);
-            return false;
-        }
-
         AgentDataTransformerService.K8sResourcesResult k8s;
         try {
+            if (!agentDataTransformerService.hasAgentData(configId)) {
+                log.debug("No agent data cached for AKS cluster {} (configId={})", clusterName, configId);
+                return false;
+            }
             k8s = agentDataTransformerService.transformK8sResources(configId);
         } catch (Exception e) {
+            // A read failure is not "no agent": flag the build as partial so the sync keeps the
+            // previous cached copy rather than saving this one as disconnected.
             log.warn("Failed to read agent k8s-resources for AKS cluster {}: {}", clusterName, e.getMessage());
+            if (dto.getPartialReason() == null) {
+                dto.setPartialReason("The agent's data could not be read: " + e.getMessage());
+            }
             return false;
         }
 
@@ -204,8 +351,14 @@ public class AksDashboardService {
             log.debug("No agent Kubescape data for AKS cluster {}: {}", clusterName, e.getMessage());
         }
         try {
-            dto.setSecurityMetrics(
-                    agentK8sDashboardMapper.buildSecurityMetrics(trivy, kubescape, promMetrics));
+            GkeDashboardDto.GkeSecurityMetricsDto security =
+                    agentK8sDashboardMapper.buildSecurityMetrics(trivy, kubescape, promMetrics);
+            // The mapper can only infer Falco from its events, so an hour without a rule match read
+            // as "Falco Not Installed". The pod list says whether it is actually running.
+            if (security != null && !security.isFalcoRunning() && falcoPodsRunning(k8s)) {
+                security.setFalcoRunning(true);
+            }
+            dto.setSecurityMetrics(security);
         } catch (Exception ignored) {}
 
         // Cost: OpenCost's per-namespace allocation, already windowed to 1 day by the agent.
@@ -625,6 +778,26 @@ public class AksDashboardService {
         } catch (Exception ignored) {}
 
         return sec;
+    }
+
+    /** True when a Falco pod is Running in the falco namespace, where the installer puts it. */
+    private static boolean falcoPodsRunning(AgentDataTransformerService.K8sResourcesResult k8s) {
+        if (k8s == null || k8s.getPods() == null) {
+            return false;
+        }
+        for (Map<String, Object> pod : k8s.getPods()) {
+            if (pod == null) {
+                continue;
+            }
+            Object namespace = pod.get("namespace");
+            Object name = pod.get("name");
+            Object phase = pod.get("phase");
+            if ("falco".equals(namespace) && name != null && name.toString().startsWith("falco")
+                    && "Running".equalsIgnoreCase(String.valueOf(phase))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private double estimateDailyCost(double cpuMillicores, double memoryMb) {

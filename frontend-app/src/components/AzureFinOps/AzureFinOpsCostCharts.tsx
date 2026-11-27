@@ -66,7 +66,8 @@ const DIMENSIONS = [
 ];
 
 type ChartType   = 'bar' | 'line' | 'pie';
-type TimePreset  = '7d' | '30d' | '3m' | '6m' | '12m' | 'custom';
+// 'mtd' is the report's own month-to-date data; the others query that window.
+type TimePreset  = 'mtd' | '7d' | '30d' | '3m' | '6m' | '12m' | 'custom';
 type QueryTab    = 'query' | 'compare';
 type Breakdown   = 'service' | 'region';
 type MergedItem  = { name: string; current: number; previous?: number };
@@ -130,7 +131,11 @@ const AzureFinOpsCostCharts: React.FC<Props> = ({ reportData, isLoading, selecte
   );
   const [chartType, setChartType]         = useState<ChartType>('bar');
   const [breakdown, setBreakdown]         = useState<Breakdown>('service');
-  const [timePreset, setTimePreset]       = useState<TimePreset>('30d');
+  // Starts on MTD, which is what the report holds. This started on "30D" over month-to-date data,
+  // and every preset only moved the highlight.
+  const [timePreset, setTimePreset]       = useState<TimePreset>('mtd');
+  const [presetData, setPresetData]       = useState<{ name: string; amount: number }[] | null>(null);
+  const [presetLoading, setPresetLoading] = useState(false);
   const [showPanel, setShowPanel]         = useState(true);
   const [queryTab, setQueryTab]           = useState<QueryTab>('query');
   const [compareOption, setCompareOption] = useState<string | null>(null);
@@ -196,8 +201,33 @@ const AzureFinOpsCostCharts: React.FC<Props> = ({ reportData, isLoading, selecte
     return () => ctrl.abort();
   }, [compareOption, selectedAccountId, breakdown]);
 
+  // A preset other than MTD reads that window from the same endpoints the Compare view uses.
+  useEffect(() => {
+    if (timePreset === 'mtd' || timePreset === 'custom' || compareOption || !selectedAccountId) {
+      setPresetData(null);
+      return;
+    }
+    const { start, end } = getPresetDates(timePreset);
+    const endpoint = breakdown === 'region' ? 'cost-by-region' : 'billing-summary';
+    const ctrl = new AbortController();
+    setPresetLoading(true);
+    fetch(`/api/azure/finops/${endpoint}?subscriptionId=${selectedAccountId}&startDate=${start}&endDate=${end}`,
+      { credentials: 'include', signal: ctrl.signal })
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((raw: any[]) => {
+        const rows = (Array.isArray(raw) ? raw : []).map(x => breakdown === 'region'
+          ? { name: x.region || '', amount: x.cost }
+          : { name: x.serviceName, amount: x.monthToDateCost });
+        setPresetData(rows.filter(x => x.name && x.amount > 0).sort((a, b) => b.amount - a.amount).slice(0, 15));
+      })
+      .catch(err => { if (err?.name !== 'AbortError') setPresetData([]); })
+      .finally(() => setPresetLoading(false));
+    return () => ctrl.abort();
+  }, [timePreset, breakdown, compareOption, selectedAccountId]);
+
   const chartData = useMemo(() => {
     if (compareOption && compareCurrent.length) return compareCurrent;
+    if (presetData) return presetData;
     if (breakdown === 'service') {
       return (reportData?.costBreakdown ?? [])
         .map(d => ({ name: d.service, amount: d.cost }))
@@ -206,7 +236,7 @@ const AzureFinOpsCostCharts: React.FC<Props> = ({ reportData, isLoading, selecte
     return (reportData?.costByRegion ?? [])
       .map(d => ({ name: d.region, amount: d.cost }))
       .filter(d => d.amount > 0 && d.name).sort((a, b) => b.amount - a.amount).slice(0, 15);
-  }, [reportData, breakdown, compareOption, compareCurrent]);
+  }, [reportData, breakdown, compareOption, compareCurrent, presetData]);
 
   const mergedData = useMemo<MergedItem[]>(() => {
     if (!compareData.length) return chartData.map(d => ({ name: d.name, current: d.amount }));
@@ -346,7 +376,7 @@ const AzureFinOpsCostCharts: React.FC<Props> = ({ reportData, isLoading, selecte
 
             {/* Time presets */}
             <div className="flex items-center bg-[rgba(0,0,0,0.04)] rounded-lg p-0.5 gap-0.5">
-              {(['7d','30d','3m','6m','12m'] as TimePreset[]).map(p => (
+              {(['mtd','7d','30d','3m','6m','12m'] as TimePreset[]).map(p => (
                 <button key={p} onClick={() => handlePreset(p)}
                   className={`px-2.5 py-1 rounded-md text-[12px] font-medium transition-all ${
                     timePreset === p
@@ -355,6 +385,7 @@ const AzureFinOpsCostCharts: React.FC<Props> = ({ reportData, isLoading, selecte
                   }`}>{p.toUpperCase()}
                 </button>
               ))}
+              {presetLoading && <Icon icon="mdi:loading" width={13} className="animate-spin ml-1 text-[rgba(0,0,0,0.35)]" />}
             </div>
 
             {/* Compare */}

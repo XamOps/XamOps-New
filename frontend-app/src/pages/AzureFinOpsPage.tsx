@@ -120,6 +120,14 @@ const AzureFinOpsPage: React.FC = () => {
         onRefresh={handleRefresh}
       />
 
+      {/* A failed reload used to keep the old report on screen with no sign anything went wrong. */}
+      {error && reportData && (
+        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+          <Icon icon="mdi:alert-circle-outline" width={16} color="#DC2626" className="mt-0.5 flex-shrink-0" />
+          <p className="text-[12px] text-red-700">Refresh failed ({error}). Showing the previous report.</p>
+        </div>
+      )}
+
       {/* No account selected */}
       {!subscriptionId && !isLoading && (
         <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-12 text-center">

@@ -2,6 +2,7 @@ import React from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import type { EC2Resource } from '../../types/cloudsitter';
+import { currencyMeta } from '../../utils/currency';
 
 const NUM_STYLE: React.CSSProperties = {
   fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif",
@@ -36,7 +37,11 @@ function getHourlyPrice(instanceType: string): number {
   return HOURLY_PRICES[instanceType.toLowerCase()] ?? 0.05;
 }
 
-function getMonthlyRunCost(resource: EC2Resource): number {
+function getMonthlyRunCost(resource: EC2Resource, provider: string): number {
+  // Azure VMs arrive priced by the server (Azure list price, billing currency). The EC2 table
+  // below has no Azure sizes, so it priced every Azure VM at the same invented $0.05/hour.
+  if (typeof resource.monthlyCost === 'number') return resource.monthlyCost;
+  if (provider === 'AZURE') return 0;
   return Math.round(getHourlyPrice(resource.type) * 730 * 100) / 100;
 }
 
@@ -45,6 +50,8 @@ interface KpiData {
   managedCount: number;
   totalMonthlyCost: number;
   potentialSavings: number;
+  /** Running Azure VMs whose size Azure returned no list price for; left out of the total. */
+  unpricedCount: number;
 }
 
 /**
@@ -58,15 +65,18 @@ function isActive(resource: EC2Resource): boolean {
   return !state.includes('terminated') && !state.includes('stopped') && !state.includes('deallocated');
 }
 
-function computeKpis(allResources: EC2Resource[]): KpiData {
+function computeKpis(allResources: EC2Resource[], provider: string): KpiData {
   const activeResources = allResources.filter(isActive);
   const managedCount = activeResources.filter((r) => r.policyName).length;
-  const totalMonthlyCost = activeResources.reduce((sum, r) => sum + getMonthlyRunCost(r), 0);
+  const totalMonthlyCost = activeResources.reduce((sum, r) => sum + getMonthlyRunCost(r, provider), 0);
   return {
     totalInstances: allResources.length,
     managedCount,
     totalMonthlyCost: Math.round(totalMonthlyCost * 100) / 100,
     potentialSavings: 0, // Not used anymore but kept for compatibility
+    unpricedCount: provider === 'AZURE'
+      ? activeResources.filter((r) => typeof r.monthlyCost !== 'number').length
+      : 0,
   };
 }
 
@@ -115,7 +125,11 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
   onPageChange,
   onPageSizeChange,
 }) => {
-  const kpi = computeKpis(allResources);
+  const kpi = computeKpis(allResources, provider);
+  // Azure prices come in the subscription's billing currency (₹ for INR); AWS and GCP keep $.
+  const costMeta = provider === 'AZURE'
+    ? currencyMeta('Azure', allResources.find((r) => r.currency)?.currency)
+    : { symbol: '$', locale: 'en-US' };
   const coveragePct = kpi.totalInstances > 0
     ? Math.round((kpi.managedCount / kpi.totalInstances) * 100)
     : 0;
@@ -172,8 +186,10 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
               </div>
               {isLoading
                 ? <div className="h-8 w-24 bg-[rgba(0,0,0,0.06)] rounded animate-pulse" />
-                : <p style={NUM_STYLE}>${kpi.totalMonthlyCost.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>}
-              <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">24/7 run cost est.</p>
+                : <p style={NUM_STYLE}>{costMeta.symbol}{kpi.totalMonthlyCost.toLocaleString(costMeta.locale, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>}
+              <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">
+                24/7 run cost est.{kpi.unpricedCount > 0 ? ` · ${kpi.unpricedCount} unpriced` : ''}
+              </p>
             </div>
           </div>
         </div>

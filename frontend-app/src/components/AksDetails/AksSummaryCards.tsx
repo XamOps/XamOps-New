@@ -15,13 +15,31 @@ const AksSummaryCards: React.FC<{ aksData: any }> = ({ aksData }) => {
   const getCpuBorder = () => cpuPct >= 80 ? 'border-red-200' : cpuPct >= 60 ? 'border-amber-200' : 'border-gray-200';
   const getMemBorder = () => memPct >= 80 ? 'border-red-200' : memPct >= 60 ? 'border-amber-200' : 'border-gray-200';
 
+  // Without the agent there is no live node count, but Azure reports each pool's count.
+  // A stopped pool has no running nodes, so it does not add to the total.
+  const pools: any[] = dashboard?.nodePools ?? [];
+  const poolNodeCount = pools.length > 0
+    ? pools.reduce((sum, p) => sum + (p.status === 'Stopped' ? 0 : (p.nodeCount || 0)), 0)
+    : null;
+  const nodeCount = overview?.totalNodes ?? poolNodeCount;
+
+  // A stopped or failed cluster showed the same green check as a running one.
+  const status = dashboard?.status?.toLowerCase();
+  const statusIcon = status === 'succeeded' || status === 'running'
+    ? { bg: 'bg-green-50', icon: 'fa-circle-check text-green-600' }
+    : status === 'failed'
+      ? { bg: 'bg-red-50', icon: 'fa-circle-xmark text-red-600' }
+      : status === 'stopped'
+        ? { bg: 'bg-gray-100', icon: 'fa-circle-stop text-gray-500' }
+        : { bg: 'bg-amber-50', icon: 'fa-circle-exclamation text-amber-600' };
+
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-2">
       {/* Cluster Status */}
       <div className="bg-white rounded-xl p-5 border border-gray-200 hover:shadow-md transition-all">
         <div className="flex items-center gap-2 mb-3">
-          <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center">
-            <i className="fas fa-circle-check text-green-600 text-sm"></i>
+          <div className={`w-8 h-8 rounded-lg ${statusIcon.bg} flex items-center justify-center`}>
+            <i className={`fas ${statusIcon.icon} text-sm`}></i>
           </div>
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</p>
         </div>
@@ -41,7 +59,7 @@ const AksSummaryCards: React.FC<{ aksData: any }> = ({ aksData }) => {
           </div>
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Nodes</p>
         </div>
-        <p className="text-2xl font-bold text-gray-900 mb-2">{overview?.totalNodes ?? '—'}</p>
+        <p className="text-2xl font-bold text-gray-900 mb-2">{nodeCount ?? '—'}</p>
         <div className="pt-2 border-t border-gray-100">
           <p className="text-xs text-gray-500">{dashboard?.nodePools?.length ?? 0} agent pool(s)</p>
         </div>
